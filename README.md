@@ -48,6 +48,42 @@ health-analyzer/
 
 详见 [docs/README.md](docs/README.md)
 
+## 部署到 GitHub Pages（推荐）
+
+本项目已内置 GitHub Actions 工作流，推送到 `main` 分支即可自动部署。
+
+### 一次性配置
+
+1. 在 GitHub 上新建一个空仓库（建议命名为 `health-analyzer`），**不要**勾选 "Add a README"
+2. 在本地执行（将 `<USER>` 替换为你的 GitHub 用户名）：
+
+   ```bash
+   cd health-analyzer
+   git remote add origin git@github.com:<USER>/health-analyzer.git
+   git push -u origin main
+   ```
+
+3. 进入 GitHub 仓库 → **Settings** → **Pages** → **Source** 选择 **GitHub Actions**
+4. 等待 Actions 跑完（约 1–2 分钟），访问：
+
+   ```
+   https://<USER>.github.io/health-analyzer/
+   ```
+
+> 部署时仅上传 `web-ui/public/` 目录；PWA 的资源全部使用相对路径，可直接在子路径下工作。
+
+### 更新内容
+
+以后改完代码只需：
+
+```bash
+git add -A
+git commit -m "update: ..."
+git push
+```
+
+Actions 会自动重新部署。
+
 ## 文档
 
 - [docs/README.md](docs/README.md) — 项目说明、功能、限制、未来扩展
