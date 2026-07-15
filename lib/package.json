@@ -1,0 +1,17 @@
+{
+  "name": "@health-analyzer/lib",
+  "version": "1.0.0",
+  "description": "本地优先的 Apple Health 数据解析与统计核心库",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "rm -rf .test-dist && tsc --module commonjs --outDir .test-dist && node test/core.test.js && rm -rf .test-dist"
+  },
+  "keywords": ["apple-health", "cgm", "health", "parser", "typescript"],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

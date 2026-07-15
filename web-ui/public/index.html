@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#2980b9">
+  <title>苹果健康数据分析</title>
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/svg+xml" href="./icons/icon-192.svg">
+  <link rel="apple-touch-icon" href="./icons/icon-192.svg">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <!-- 顶部 -->
+  <header class="app-header">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 192 192" aria-hidden="true">
+        <rect width="192" height="192" rx="42" fill="#2980b9"/>
+        <path d="M30 100 L55 100 L65 70 L80 130 L95 80 L110 100 L162 100"
+              fill="none" stroke="#fff" stroke-width="10"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div>
+        <h1>苹果健康数据分析</h1>
+        <p class="subtitle">本地隐私优先 · 全部计算在您的设备完成</p>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- 步骤 1：选择数据源 -->
+    <section id="step-source" class="card">
+      <h2><span class="step-num">1</span> 选择数据源</h2>
+
+      <div class="source-grid">
+        <label class="source-option">
+          <input type="radio" name="source" value="apple_health_export" checked>
+          <div class="source-content">
+            <div class="source-title">📦 苹果健康导出 ZIP</div>
+            <div class="source-desc">iPhone "健康" App → 导出 → 共享 zip 包，解压后是 <code>apple_health_export</code> 目录</div>
+          </div>
+        </label>
+
+        <label class="source-option">
+          <input type="radio" name="source" value="xml_only">
+          <div class="source-content">
+            <div class="source-title">📄 单独的 XML 文件</div>
+            <div class="source-desc">如果已经解压，只上传 <code>apple_health_export/export.xml</code> 或 <code>导出.xml</code></div>
+          </div>
+        </label>
+
+        <label class="source-option">
+          <input type="radio" name="source" value="folder">
+          <div class="source-content">
+            <div class="source-title">📁 已解压的文件夹</div>
+            <div class="source-desc">包含 <code>export.xml</code> 和 <code>electrocardiograms/</code> 子目录</div>
+          </div>
+        </label>
+      </div>
+
+      <div class="upload-zone" id="drop-zone">
+        <input type="file" id="file-input" accept=".zip,.xml" hidden>
+        <input type="file" id="folder-input" webkitdirectory directory multiple hidden>
+        <div class="upload-content">
+          <div class="upload-icon">⬆️</div>
+          <p class="upload-text">点击或拖拽到此处上传</p>
+          <p class="upload-hint" id="upload-hint">支持 .zip / .xml / 文件夹</p>
+        </div>
+      </div>
+
+      <div class="privacy-notice" role="note">
+        <div class="privacy-notice-title">🔒 隐私提示：健康数据只在本设备临时处理</div>
+        <ul>
+          <li>ZIP/XML 不会上传到本网站，也不会保存到服务器。</li>
+          <li>网页只在当前页面内存中保留本次分析；重新上传会替换上一次结果。</li>
+          <li>刷新或关闭页面后，网页中的分析结果会消失；原始 ZIP 仍由手机“文件”App 管理。</li>
+        </ul>
+      </div>
+
+      <details class="help-box">
+        <summary>📘 如何从 iPhone 导出苹果健康数据？</summary>
+        <ol>
+          <li>打开 iPhone 上的 <strong>健康</strong> App</li>
+          <li>点击右上角头像 → <strong>导出健康数据</strong> → <strong>导出</strong></li>
+          <li>选择"存储到文件"或"邮件"，得到一个 <code>apple_health_export.zip</code></li>
+          <li>在本应用中上传即可（也可不上传 zip，提前手动解压缩后选择文件夹）</li>
+        </ol>
+      </details>
+    </section>
+
+    <!-- 进度 -->
+    <section id="step-progress" class="card hidden">
+      <h2><span class="step-num">2</span> 解析中</h2>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <p id="progress-text" class="progress-text">准备中...</p>
+    </section>
+
+    <!-- 数据可用性概览 -->
+    <section id="step-overview" class="card hidden">
+      <h2><span class="step-num">3</span> 数据可用性</h2>
+      <p class="privacy-inline">🔒 当前分析仅保留在本页内存中，不会上传或永久保存。</p>
+      <div id="availability-grid" class="availability-grid"></div>
+      <div class="meta-info">
+        <span id="date-range-info"></span>
+        <button id="btn-reset" class="btn-secondary">重新上传</button>
+      </div>
+    </section>
+
+    <!-- 统计摘要 -->
+    <section id="step-summary" class="card hidden">
+      <h2><span class="step-num">4</span> 关键统计摘要</h2>
+      <div id="summary-content"></div>
+    </section>
+
+    <!-- 大模型提示词 -->
+    <section id="step-prompt" class="card hidden">
+      <h2><span class="step-num">5</span> 大模型提示词</h2>
+      <p class="hint">
+        下方文本可直接复制粘贴到 <strong>豆包 / ChatGPT / Claude / Gemini</strong> 等平台的对话框。
+        LLM 会按您指定的 11 章节格式输出深度分析报告。
+      </p>
+
+      <div class="prompt-tabs">
+        <button class="tab-btn active" data-tab="full">完整提示词</button>
+        <button class="tab-btn" data-tab="data">仅数据摘要</button>
+        <button class="tab-btn" data-tab="system">简短系统提示</button>
+      </div>
+
+      <div class="prompt-container">
+        <textarea id="prompt-output" readonly></textarea>
+        <div class="prompt-actions">
+          <button id="btn-copy" class="btn-primary">📋 复制到剪贴板</button>
+          <button id="btn-download" class="btn-secondary">⬇️ 下载 .md 文件</button>
+          <span id="copy-status" class="copy-status"></span>
+        </div>
+      </div>
+
+      <details class="help-box">
+        <summary>💡 使用建议</summary>
+        <ul>
+          <li>豆包 / Kimi / Qwen 等国产平台对中文医学语境理解好</li>
+          <li>Claude / GPT-4 擅长长文结构化输出</li>
+          <li>粘贴后可补充"请额外关注 XX 指标"</li>
+          <li>报告生成后请与原始数据交叉核对，特别是边界值</li>
+        </ul>
+      </details>
+    </section>
+
+    <!-- 隐私声明 -->
+    <section class="card privacy">
+      <h2>🔒 隐私声明</h2>
+      <ul>
+        <li>所有解析与统计在<strong>您的浏览器</strong>内完成，不上传任何数据</li>
+        <li>本应用<strong>无后端</strong>，无服务器，无第三方追踪</li>
+        <li>网页只保留当前页面内存中的分析结果；重新上传会替换上一次结果</li>
+        <li>刷新或关闭页面后，网页中的分析结果会消失；PWA 缓存只保存网页程序，不保存健康数据</li>
+        <li>复制或下载提示词后，数据是否进入第三方大模型平台由您自行决定</li>
+        <li>原始 ZIP 文件仍可能留在手机“文件”App 或下载目录中，需要手动删除</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    <p>开源 · 本地优先 · v1.0</p>
+  </footer>
+
+  <script src="./fflate.min.js"></script>
+  <script src="./lib.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
