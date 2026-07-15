@@ -104,6 +104,45 @@ body {
 
 .hidden { display: none !important; }
 
+.install-guide {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  position: relative;
+  background: #eef6ff;
+  border: 1px solid #b9d8f5;
+  border-radius: var(--radius);
+  padding: 14px 42px 14px 16px;
+  margin-bottom: 16px;
+  color: var(--primary-dark);
+}
+
+.install-guide-icon { font-size: 28px; line-height: 1.2; }
+
+.install-guide-body { flex: 1; }
+
+.install-guide-body strong { display: block; margin-bottom: 2px; }
+
+.install-guide-body p {
+  font-size: 13px;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.install-action { font-size: 13px; padding: 7px 12px; }
+
+.install-dismiss {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-light);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 /* 数据源选项 */
 .source-grid {
   display: grid;

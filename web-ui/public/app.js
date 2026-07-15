@@ -11,6 +11,61 @@
 
   let currentAnalysis = null;
   let currentPromptTab = 'full';
+  let deferredInstallPrompt = null;
+
+  // ============================================================
+  // 添加到主屏幕引导
+  // ============================================================
+
+  const installGuide = $('install-guide');
+  const installGuideText = $('install-guide-text');
+  const installAction = $('install-action');
+  const installDismiss = $('install-dismiss');
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+  const installDismissed = (() => {
+    try { return window.localStorage.getItem('health-analyzer-install-dismissed') === '1'; } catch { return false; }
+  })();
+
+  function showInstallGuide() {
+    if (!installGuide || isStandalone || installDismissed) return;
+    installGuide.classList.remove('hidden');
+    if (isIos) {
+      installGuideText.textContent = 'Safari：点击底部分享按钮 → 添加到主屏幕。';
+      installAction.textContent = '查看 iPhone 方法';
+    } else {
+      installGuideText.textContent = '浏览器菜单中选择“添加到主屏幕”或“安装应用”。';
+      installAction.textContent = '查看添加方法';
+    }
+  }
+
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    showInstallGuide();
+    if (installAction) installAction.textContent = '安装应用';
+  });
+
+  installAction?.addEventListener('click', async () => {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      await deferredInstallPrompt.userChoice;
+      deferredInstallPrompt = null;
+      installGuide?.classList.add('hidden');
+      return;
+    }
+    const message = isIos
+      ? '请点击 Safari 底部的分享按钮，然后选择“添加到主屏幕”。'
+      : '请打开浏览器菜单，选择“添加到主屏幕”或“安装应用”。';
+    alert(message);
+  });
+
+  installDismiss?.addEventListener('click', () => {
+    installGuide?.classList.add('hidden');
+    try { window.localStorage.setItem('health-analyzer-install-dismissed', '1'); } catch { /* ignore */ }
+  });
+
+  showInstallGuide();
 
   // ============================================================
   // 上传处理
