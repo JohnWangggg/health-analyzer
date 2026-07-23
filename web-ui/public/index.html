@@ -69,7 +69,7 @@
         </label>
       </div>
 
-      <div class="upload-zone" id="drop-zone">
+      <div class="upload-zone" id="drop-zone" role="button" tabindex="0" aria-label="点击或拖拽上传健康数据文件">
         <input type="file" id="file-input" accept=".zip,.xml" hidden>
         <input type="file" id="folder-input" webkitdirectory directory multiple hidden>
         <div class="upload-content">
@@ -78,6 +78,21 @@
           <p class="upload-hint" id="upload-hint">支持 .zip / .xml / 文件夹</p>
         </div>
       </div>
+
+      <details class="date-filter-box" id="date-filter-box">
+        <summary>📅 可选：限制分析日期范围</summary>
+        <p class="date-filter-hint">不填则分析导出中的全部记录。格式 YYYY-MM-DD。</p>
+        <div class="date-filter-fields">
+          <label class="date-field">
+            <span>开始日期</span>
+            <input type="date" id="filter-start-date" name="filter-start-date" aria-label="分析开始日期">
+          </label>
+          <label class="date-field">
+            <span>结束日期</span>
+            <input type="date" id="filter-end-date" name="filter-end-date" aria-label="分析结束日期">
+          </label>
+        </div>
+      </details>
 
       <div class="privacy-notice" role="note">
         <div class="privacy-notice-title">🔒 隐私提示：健康数据只在本设备临时处理</div>
@@ -130,7 +145,8 @@
       <h2><span class="step-num">5</span> 大模型提示词</h2>
       <p class="hint">
         下方文本可直接复制粘贴到 <strong>豆包 / ChatGPT / Claude / Gemini</strong> 等平台的对话框。
-        LLM 会按您指定的 11 章节格式输出深度分析报告。
+        提示词使用<strong>固定标题结构</strong>（总结判断、各数据维度、监测仪表盘、复查信号、工作假设、参考依据）；
+        <strong>无数据的维度会跳过</strong>，由大模型按实际数据输出报告。
       </p>
 
       <div class="prompt-tabs">
@@ -175,7 +191,7 @@
   </main>
 
   <footer class="app-footer">
-    <p>开源 · 本地优先 · v1.0</p>
+    <p>开源 · 本地优先 · v1.1</p>
   </footer>
 
   <script src="./fflate.min.js"></script>

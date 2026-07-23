@@ -17,14 +17,20 @@
 ### 开发者端
 
 ```bash
-# 1. 启动本地预览
-cd health-analyzer/web-ui/public
+# 1. 构建核心库（修改 lib/src 后必须执行）
+cd health-analyzer/lib
+npm install
+npm test
+npm run build   # 生成 web-ui/public/lib.js
+
+# 2. 启动本地预览
+cd ../web-ui/public
 python3 -m http.server 8000
 
-# 2. 浏览器打开 http://localhost:8000
+# 3. 浏览器打开 http://localhost:8000
 
-# 3. 部署（详见 docs/DEPLOY.md）
-# 静态文件直接拷贝到任意 Web 服务器即可
+# 4. 部署（详见 docs/DEPLOY.md）
+# 推送 main 后 GitHub Actions 会先跑测试再部署 Pages
 ```
 
 ## 核心特性

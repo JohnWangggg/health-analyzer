@@ -270,7 +270,17 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
  */
 export function generateLLMPrompt(analysis: FullAnalysis): string {
   const dataSection = formatAnalysisForLLM(analysis);
-  return MAIN_PROMPT_TEMPLATE.replace('{ANALYSIS_JSON}', dataSection);
+  return MAIN_PROMPT_TEMPLATE
+    .replace('{ANALYSIS_JSON}', dataSection)
+    .replace('{ANALYSIS_DATA}', dataSection);
+}
+
+/**
+ * 仅输出格式化后的数据块（不含主提示词模板）
+ * 与 formatAnalysisForLLM 等价，供浏览器 UI 使用
+ */
+export function generateDataOnly(analysis: FullAnalysis): string {
+  return formatAnalysisForLLM(analysis);
 }
 
 /** 简化的 system prompt（用于不支持长 system prompt 的平台） */

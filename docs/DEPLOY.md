@@ -111,13 +111,17 @@ HealthAnalyzer.parseHealthXml
 
 ### 修改提示词风格
 
-编辑 `web-ui/public/lib.js` 中的 `MAIN_PROMPT_TEMPLATE` 字符串。
+编辑 `lib/src/prompts/llm-prompt.ts` 中的 `MAIN_PROMPT_TEMPLATE`，然后：
+
+```bash
+cd lib && npm run build
+```
 
 ### 添加新数据维度
 
 1. 在 `lib/src/types.ts` 添加字段
 2. 在 `lib/src/parser.ts` 添加解析逻辑
 3. 在 `lib/src/stats.ts` 添加统计函数
-4. 在 `lib.js` 中同步修改
-5. 在 `app.js` 的 `renderSummary()` 添加渲染
-6. 在 `formatAnalysisForLLM()` 添加对应章节
+4. 在 `lib/src/prompts/llm-prompt.ts` 的 `formatAnalysisForLLM()` 添加对应章节
+5. 运行 `cd lib && npm run build` 更新 `web-ui/public/lib.js`
+6. 在 `app.js` 的 `renderSummary()` 添加渲染

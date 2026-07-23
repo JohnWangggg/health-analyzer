@@ -32,7 +32,7 @@ health-analyzer/
 │   └── public/
 │       ├── index.html            # 主页面
 │       ├── styles.css            # 样式
-│       ├── lib.js                # 浏览器版核心库（= lib/src 的 JS 实现）
+│       ├── lib.js                # 浏览器版核心库（由 lib/src 构建，勿手改）
 │       ├── app.js                # 应用逻辑
 │       ├── sw.js                 # Service Worker（离线缓存）
 │       ├── manifest.json         # PWA 配置
@@ -66,7 +66,7 @@ health-analyzer/
    - 关键统计摘要（最近 N 天的均值、范围等）
 
 5. **生成提示词**
-   - "完整提示词" 标签：含角色定义 + 11 章节结构引导 + 您的原始数据
+   - "完整提示词" 标签：含角色定义 + 固定标题结构引导 + 您的原始数据
    - "仅数据摘要" 标签：纯数据，适合自定义提示词
    - "简短系统提示词" 标签：粘贴到 system 字段
 
@@ -148,25 +148,42 @@ Service Worker 缓存所有静态资源，断网也能用。安装后像原生 A
 
 ## 技术栈
 
-- **核心解析**：纯 TypeScript / JavaScript，无第三方运行时依赖
-- **ZIP 解压**：fflate（按需从 CDN 加载，仅在用户上传 ZIP 时引入）
-- **PWA**：Service Worker + manifest.json + SVG 图标
+- **核心解析**：TypeScript 唯一源码（`lib/src`），esbuild 打包为浏览器 IIFE
+- **ZIP 解压**：本地 `fflate.min.js`（无 CDN）
+- **PWA**：Service Worker（network-first + 离线回退）+ manifest + SVG 图标
 - **UI**：原生 CSS（响应式，适配手机/桌面）
 - **存储**：仅在内存中处理，无持久化
+
+## 开发构建
+
+```bash
+cd lib
+npm install
+npm test          # 单元测试
+npm run build     # tsc + 生成 web-ui/public/lib.js
+```
+
+修改解析/统计/提示词请只改 `lib/src/**`，再执行 `npm run build`。不要手改 `web-ui/public/lib.js`。
 
 ## 局限与边界
 
 1. **CGM 数据解读需要医生参与**：本应用只做统计和提示词生成，不替代医生判断
 2. **血压数据可能来自欧姆龙/鱼跃等外部设备**：不同设备的算法差异未做特殊处理
-3. **数据量过大时建议分批**：单次分析超过 10 万条记录时，建议增加时间范围过滤
+3. **数据量过大时建议分批**：单次分析超过 10 万条记录时，可用页面「限制分析日期范围」过滤
 4. **大模型输出仍需复核**：生成的报告是基于提示词的 LLM 输出，需要您对原始数据交叉核对
 5. **iOS Safari 限制**：部分 File API 在 iOS Safari 上有版本要求，建议 iOS 16+
 
 ## 未来扩展
 
+- [x] 统一 TS 源码构建浏览器 bundle
+- [x] 摘要补齐心率 / 步数 / 睡眠 / ECG
+- [x] 可选日期范围过滤
+- [x] SW 网络优先，降低缓存陈旧
+- [x] CI 测试门禁
 - [ ] 历史数据本地缓存（IndexedDB），对比多次导出的变化趋势
 - [ ] 图表可视化（血糖曲线、HRV 热力图等）
-- [ ] 自定义提示词模板
+- [ ] Web Worker 解析超大 XML，进一步降低主线程卡顿
+- [ ] 自定义提示词模板 / 个人上下文（用药、关注点）
 - [ ] 多用户/家庭成员数据支持
 - [ ] 导出 JSON / CSV 原始统计
 - [ ] 与豆包 / ChatGPT API 直接对接（需用户自备 API key）

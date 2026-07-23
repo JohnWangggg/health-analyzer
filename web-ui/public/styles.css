@@ -230,6 +230,65 @@ body {
   margin-top: 4px;
 }
 
+.upload-zone:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-color: var(--primary);
+}
+
+/* 可选日期范围过滤 */
+.date-filter-box {
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin: 12px 0 4px;
+  font-size: 14px;
+}
+
+.date-filter-box summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--primary-dark);
+}
+
+.date-filter-hint {
+  font-size: 12px;
+  color: var(--text-light);
+  margin: 8px 0 10px;
+}
+
+.date-filter-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+
+.date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text);
+  min-width: 160px;
+}
+
+.date-field input[type="date"] {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  font-family: inherit;
+}
+
+.date-field input[type="date"]:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+
 .privacy-notice {
   background: #f0f9f4;
   border: 1px solid #b7dfc5;
@@ -307,6 +366,15 @@ body {
   font-size: 13px;
   color: var(--text-light);
   text-align: center;
+}
+
+.error-box {
+  background: #fdf2f0;
+  border: 1px solid #e6b0aa;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px 0;
+  color: #922b21;
 }
 
 /* 数据可用性 */
@@ -463,6 +531,15 @@ body {
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
+}
+
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.tab-btn:focus-visible,
+.install-action:focus-visible,
+.install-dismiss:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .btn-primary {

@@ -98,12 +98,20 @@
     });
   });
 
-  dropZone.addEventListener('click', () => {
+  function openFilePicker() {
     const folderRadio = document.querySelector('input[name="source"][value="folder"]');
-    if (folderRadio.checked) {
+    if (folderRadio && folderRadio.checked) {
       folderInput.click();
     } else {
       fileInput.click();
+    }
+  }
+
+  dropZone.addEventListener('click', openFilePicker);
+  dropZone.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openFilePicker();
     }
   });
 
@@ -173,25 +181,24 @@
         const xmlFile = files.find(f => /export|导出/i.test(f.name) && f.name.endsWith('.xml'));
         if (!xmlFile) throw new Error('文件夹中未找到 export.xml 或 导出.xml');
         xmlText = await readFileAsText(xmlFile);
-        // 收集 ECG 文件
-        const ecgDir = files.filter(f => f.webkitRelativePath && f.webkitRelativePath.includes('electrocardiograms'));
+        // 收集 ECG 文件（electrocardiograms 目录或文件名含 ecg）
         ecgFiles = files.filter(f => f.name.endsWith('.csv') && (f.name.includes('ecg') || (f.webkitRelativePath || '').includes('electrocardiograms')));
       }
 
       setProgress(0.05, '解析 XML 中...');
 
+      // 可选日期范围（YYYY-MM-DD）；留空则不过滤
+      const parseOptions = getDateFilterOptions();
+      parseOptions.onProgress = (p) => setProgress(0.05 + p * 0.7, `解析中... ${Math.round(p * 100)}%`);
+
       // 根据数据源选择解析方式
       let data;
       if (xmlBytes) {
         // 流式解析大文件（ZIP 内）
-        data = await window.HealthAnalyzer.parseHealthXmlAsync(xmlBytes, {
-          onProgress: (p) => setProgress(0.05 + p * 0.7, `解析中... ${Math.round(p * 100)}%`),
-        });
+        data = await window.HealthAnalyzer.parseHealthXmlAsync(xmlBytes, parseOptions);
       } else {
         // 字符串解析（小文件）
-        data = window.HealthAnalyzer.parseHealthXml(xmlText, {
-          onProgress: (p) => setProgress(0.05 + p * 0.7, `解析中... ${Math.round(p * 100)}%`),
-        });
+        data = window.HealthAnalyzer.parseHealthXml(xmlText, parseOptions);
       }
 
       // 解析 ECG
@@ -201,6 +208,7 @@
             // 如果是从 ZIP 解出来的，已经有 _text
             const text = f._text || await readFileAsText(f);
             const summary = window.HealthAnalyzer.parseEcgCsv(text);
+            if (!ecgWithinDateFilter(summary, parseOptions)) continue;
             data.ecg.push(summary);
             data.dataAvailability.hasEcg = true;
           } catch (e) { /* ignore */ }
@@ -213,6 +221,7 @@
             const text = await readFileAsText(f);
             if (text.includes('分类') && text.includes('记录日期')) {
               const summary = window.HealthAnalyzer.parseEcgCsv(text);
+              if (!ecgWithinDateFilter(summary, parseOptions)) continue;
               data.ecg.push(summary);
               data.dataAvailability.hasEcg = true;
             }
@@ -237,16 +246,35 @@
     }
   }
 
+  const PROGRESS_CARD_HTML = `
+      <h2><span class="step-num">2</span> 解析中</h2>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <p id="progress-text" class="progress-text">准备中...</p>
+  `;
+
+  function ensureProgressCard() {
+    const card = $('step-progress');
+    if (!card) return;
+    if (!$('progress-fill') || !$('progress-text')) {
+      card.innerHTML = PROGRESS_CARD_HTML;
+    }
+  }
+
   function setProgress(ratio, text) {
-    $('progress-fill').style.width = (ratio * 100) + '%';
-    $('progress-text').textContent = text;
+    ensureProgressCard();
+    const fill = $('progress-fill');
+    const label = $('progress-text');
+    if (fill) fill.style.width = (ratio * 100) + '%';
+    if (label) label.textContent = text;
   }
 
   function showError(msg) {
     const card = $('step-progress');
     card.innerHTML = `
       <h2><span class="step-num">✗</span> 解析失败</h2>
-      <div style="background:#fdf2f0;border:1px solid #e6b0aa;border-radius:8px;padding:16px;margin:12px 0;color:#922b21;">
+      <div class="error-box" role="alert">
         <strong>错误信息：</strong> ${escapeHtml(msg)}
       </div>
       <details style="margin-top:12px;">
@@ -257,12 +285,16 @@
           <li>如 ZIP 解压有问题，可手动解压后选择"📁 已解压的文件夹"或"📄 单独的 XML 文件"</li>
           <li>大型文件（500MB+）解析可能需要 30-60 秒，请耐心等待</li>
           <li>如浏览器内存不足，请关闭其他标签页后重试</li>
+          <li>若设置了日期范围，请确认开始日期不晚于结束日期</li>
         </ul>
       </details>
-      <button id="btn-retry" class="btn-primary" style="margin-top:16px;">↺ 重新选择文件</button>
+      <button id="btn-retry" class="btn-primary" style="margin-top:16px;" type="button">↺ 重新选择文件</button>
     `;
     show('step-progress');
-    $('btn-retry').addEventListener('click', () => {
+    const retryBtn = $('btn-retry');
+    retryBtn?.focus();
+    retryBtn?.addEventListener('click', () => {
+      card.innerHTML = PROGRESS_CARD_HTML;
       hide('step-progress');
       fileInput.value = '';
       folderInput.value = '';
@@ -377,9 +409,47 @@
       `📅 数据时间范围: ${analysis.dateRange.start} 至 ${analysis.dateRange.end}`;
   }
 
+  /** 对数值数组求简单均值；不足 1 条返回 null */
+  function meanOf(values) {
+    if (!values || values.length === 0) return null;
+    const sum = values.reduce((a, b) => a + b, 0);
+    return sum / values.length;
+  }
+
+  function formatMean(v, digits) {
+    if (v == null || !Number.isFinite(v)) return '—';
+    return v.toFixed(digits);
+  }
+
+  function getDateFilterOptions() {
+    const startEl = $('filter-start-date');
+    const endEl = $('filter-end-date');
+    const startDate = (startEl && startEl.value) ? startEl.value.trim() : '';
+    const endDate = (endEl && endEl.value) ? endEl.value.trim() : '';
+    if (startDate && endDate && startDate > endDate) {
+      throw new Error('开始日期不能晚于结束日期');
+    }
+    const opts = {};
+    if (startDate) opts.startDate = startDate;
+    if (endDate) opts.endDate = endDate;
+    return opts;
+  }
+
+  /** ECG 记录日期是否在可选过滤范围内（无日期字段则保留） */
+  function ecgWithinDateFilter(summary, opts) {
+    if (!opts || (!opts.startDate && !opts.endDate)) return true;
+    const raw = (summary && summary.datetime) ? String(summary.datetime) : '';
+    const date = raw.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return true;
+    if (opts.startDate && date < opts.startDate) return false;
+    if (opts.endDate && date > opts.endDate) return false;
+    return true;
+  }
+
   function renderSummary(analysis) {
     const container = $('summary-content');
     const blocks = [];
+    const data = analysis.data;
 
     if (analysis.cgmStats) {
       const o = analysis.cgmStats.overall;
@@ -426,8 +496,8 @@
       `);
     }
 
-    if (analysis.data.weight.length > 0) {
-      const w = analysis.data.weight;
+    if (data.weight.length > 0) {
+      const w = data.weight;
       const latest = w[w.length - 1];
       const earliest = w[0];
       blocks.push(`
@@ -447,6 +517,8 @@
     if (Object.keys(analysis.hrvByDate).length > 0) {
       const dates = Object.keys(analysis.hrvByDate).sort();
       const recent = dates.slice(-7);
+      const recentMeans = recent.map(d => analysis.hrvByDate[d].allMean);
+      const avg7 = meanOf(recentMeans);
       const rows = recent.map(d => {
         const h = analysis.hrvByDate[d];
         return `<tr><td>${d}</td><td class="num">${h.allMean.toFixed(1)} ms</td></tr>`;
@@ -455,9 +527,145 @@
         <div class="section-block">
           <h3>📊 HRV 心率变异性（最近 7 天）</h3>
           <table class="summary-table">
+            <tr><th>指标</th><th>值</th></tr>
+            <tr><td>最近 ${recent.length} 天均值</td><td class="num">${formatMean(avg7, 1)} ms</td></tr>
+            <tr><td>有数据天数</td><td class="num">${dates.length}</td></tr>
+          </table>
+          <table class="summary-table">
             <tr><th>日期</th><th>全天均值</th></tr>
             ${rows}
           </table>
+        </div>
+      `);
+    }
+
+    // 静息 / 步行心率
+    const restingMap = analysis.restingHrByDate || data.restingHr || {};
+    const walkingMap = analysis.walkingHrByDate || data.walkingHr || {};
+    const hrDates = new Set([...Object.keys(restingMap), ...Object.keys(walkingMap)]);
+    if (hrDates.size > 0) {
+      const sorted = Array.from(hrDates).sort();
+      const recent = sorted.slice(-7);
+      const restVals = recent.map(d => restingMap[d]).filter(v => v != null && Number.isFinite(v));
+      const walkVals = recent.map(d => walkingMap[d]).filter(v => v != null && Number.isFinite(v));
+      const rows = recent.map(d => {
+        const r = restingMap[d] != null ? restingMap[d] : '—';
+        const w = walkingMap[d] != null ? walkingMap[d] : '—';
+        return `<tr><td>${d}</td><td class="num">${r}</td><td class="num">${w}</td></tr>`;
+      }).join('');
+      blocks.push(`
+        <div class="section-block">
+          <h3>💗 静息 / 步行心率（最近 ${recent.length} 天）</h3>
+          <table class="summary-table">
+            <tr><th>指标</th><th>值</th></tr>
+            <tr><td>最近静息均值 (${restVals.length} 天)</td><td class="num">${formatMean(meanOf(restVals), 1)} bpm</td></tr>
+            <tr><td>最近步行均值 (${walkVals.length} 天)</td><td class="num">${formatMean(meanOf(walkVals), 1)} bpm</td></tr>
+            <tr><td>有数据天数</td><td class="num">${sorted.length}</td></tr>
+          </table>
+          <table class="summary-table">
+            <tr><th>日期</th><th>静息</th><th>步行</th></tr>
+            ${rows}
+          </table>
+        </div>
+      `);
+    }
+
+    // 步数
+    const stepsMap = analysis.stepsByDate || {};
+    const stepsKeys = Object.keys(stepsMap).length
+      ? Object.keys(stepsMap)
+      : Object.keys(data.steps || {});
+    if (stepsKeys.length > 0) {
+      const getSteps = (d) => {
+        if (stepsMap[d] != null) return stepsMap[d];
+        return data.steps[d] && data.steps[d].max != null ? data.steps[d].max : null;
+      };
+      const sorted = stepsKeys.sort();
+      const recent = sorted.slice(-7);
+      const vals = recent.map(getSteps).filter(v => v != null && Number.isFinite(v));
+      const rows = recent.map(d => {
+        const v = getSteps(d);
+        return `<tr><td>${d}</td><td class="num">${v != null ? Math.round(v) : '—'}</td></tr>`;
+      }).join('');
+      blocks.push(`
+        <div class="section-block">
+          <h3>👟 步数（最近 ${recent.length} 天）</h3>
+          <table class="summary-table">
+            <tr><th>指标</th><th>值</th></tr>
+            <tr><td>最近日均 (${vals.length} 天)</td><td class="num">${vals.length ? Math.round(meanOf(vals)) : '—'} 步</td></tr>
+            <tr><td>有数据天数</td><td class="num">${sorted.length}</td></tr>
+          </table>
+          <table class="summary-table">
+            <tr><th>日期</th><th>步数</th></tr>
+            ${rows}
+          </table>
+        </div>
+      `);
+    }
+
+    // 睡眠
+    const sleepMap = analysis.sleepByDate || data.sleep || {};
+    if (Object.keys(sleepMap).length > 0) {
+      const sorted = Object.keys(sleepMap).sort();
+      const recent = sorted.slice(-7);
+      const totals = recent.map(d => sleepMap[d] && sleepMap[d].total).filter(v => v != null && Number.isFinite(v));
+      const deeps = recent.map(d => sleepMap[d] && sleepMap[d].deep).filter(v => v != null && Number.isFinite(v));
+      const rems = recent.map(d => sleepMap[d] && sleepMap[d].rem).filter(v => v != null && Number.isFinite(v));
+      const rows = recent.map(d => {
+        const s = sleepMap[d] || {};
+        return `<tr><td>${d}</td><td class="num">${s.total != null ? s.total.toFixed(2) : '—'}</td><td class="num">${s.deep != null ? s.deep.toFixed(2) : '—'}</td><td class="num">${s.rem != null ? s.rem.toFixed(2) : '—'}</td></tr>`;
+      }).join('');
+      blocks.push(`
+        <div class="section-block">
+          <h3>😴 睡眠（最近 ${recent.length} 天）</h3>
+          <table class="summary-table">
+            <tr><th>指标</th><th>值</th></tr>
+            <tr><td>最近日均总睡眠</td><td class="num">${formatMean(meanOf(totals), 2)} h</td></tr>
+            <tr><td>最近日均深睡</td><td class="num">${formatMean(meanOf(deeps), 2)} h</td></tr>
+            <tr><td>最近日均 REM</td><td class="num">${formatMean(meanOf(rems), 2)} h</td></tr>
+            <tr><td>有数据天数</td><td class="num">${sorted.length}</td></tr>
+          </table>
+          <table class="summary-table">
+            <tr><th>日期</th><th>总睡眠(h)</th><th>深睡(h)</th><th>REM(h)</th></tr>
+            ${rows}
+          </table>
+        </div>
+      `);
+    }
+
+    // ECG 分类汇总
+    if (data.ecg && data.ecg.length > 0) {
+      const counts = {};
+      for (const e of data.ecg) {
+        const k = e.classification || 'unknown';
+        counts[k] = (counts[k] || 0) + 1;
+      }
+      const classRows = Object.keys(counts).sort().map(k =>
+        `<tr><td>${escapeHtml(k)}</td><td class="num">${counts[k]}</td></tr>`
+      ).join('');
+      const recentList = data.ecg.slice(-5).reverse().map(e => {
+        const dt = e.datetime ? escapeHtml(String(e.datetime).slice(0, 16)) : '—';
+        const cls = escapeHtml(e.classification || 'unknown');
+        return `<tr><td>${dt}</td><td>${cls}</td></tr>`;
+      }).join('');
+      blocks.push(`
+        <div class="section-block">
+          <h3>📈 ECG 心电图</h3>
+          <table class="summary-table">
+            <tr><th>指标</th><th>值</th></tr>
+            <tr><td>总份数</td><td class="num">${data.ecg.length}</td></tr>
+          </table>
+          <table class="summary-table">
+            <tr><th>分类</th><th>份数</th></tr>
+            ${classRows}
+          </table>
+          <details style="margin-top:8px;">
+            <summary style="cursor:pointer;color:var(--primary);font-size:13px;">最近 5 份记录</summary>
+            <table class="summary-table" style="margin-top:8px;">
+              <tr><th>时间</th><th>分类</th></tr>
+              ${recentList}
+            </table>
+          </details>
         </div>
       `);
     }

@@ -5,13 +5,15 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run build:browser",
+    "build:browser": "node scripts/build-browser.mjs",
     "dev": "tsc --watch",
     "test": "rm -rf .test-dist && tsc --module commonjs --outDir .test-dist && node test/core.test.js && rm -rf .test-dist"
   },
   "keywords": ["apple-health", "cgm", "health", "parser", "typescript"],
   "license": "MIT",
   "devDependencies": {
+    "esbuild": "^0.25.0",
     "typescript": "^5.4.0"
   }
 }
