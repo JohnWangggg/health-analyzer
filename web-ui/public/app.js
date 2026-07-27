@@ -568,15 +568,222 @@
   function renderResults(analysis) {
     show('step-overview');
     show('step-summary');
+    show('step-signals');
     show('step-charts');
+    show('step-export');
     show('step-prompt');
 
     renderAvailability(analysis);
     renderSummary(analysis);
+    renderSignals(analysis);
     renderCharts(analysis);
     renderPrompt();
+    refreshHistorySelect().catch(() => { /* ignore */ });
 
     $('step-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function severityLabel(sev) {
+    if (sev === 'alert') return '需关注';
+    if (sev === 'watch') return '观察';
+    return '提示';
+  }
+
+  function renderSignals(analysis) {
+    const container = $('signals-content');
+    if (!container) return;
+    if (!window.HealthAnalyzer || typeof window.HealthAnalyzer.detectCrossSignals !== 'function') {
+      container.innerHTML = '<p class="hint">信号模块未加载。</p>';
+      return;
+    }
+    const signals = window.HealthAnalyzer.detectCrossSignals(analysis);
+    if (!signals.length) {
+      container.innerHTML = '<p class="hint">当前规则未触发明显组合信号。数据仍建议人工复核关键边界值。</p>';
+      return;
+    }
+    container.innerHTML = `<div class="signals-list">${signals.map((s) => `
+      <article class="signal-card severity-${escapeHtml(s.severity)}">
+        <div class="signal-meta">
+          <span class="signal-badge">${severityLabel(s.severity)}</span>
+          ${s.date ? `<span>${escapeHtml(s.date)}</span>` : ''}
+          <span>${escapeHtml((s.dimensions || []).join(' · '))}</span>
+        </div>
+        <h3 class="signal-title">${escapeHtml(s.title)}</h3>
+        <p class="signal-detail">${escapeHtml(s.detail)}</p>
+      </article>
+    `).join('')}</div>`;
+  }
+
+  function downloadBlob(filename, blob) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadText(filename, text, mime) {
+    downloadBlob(filename, new Blob([text], { type: (mime || 'text/plain') + ';charset=utf-8' }));
+  }
+
+  function showExportStatus(msg) {
+    const el = $('export-status');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 2500);
+  }
+
+  function getExportBundle() {
+    if (!currentAnalysis) throw new Error('请先完成分析');
+    return window.HealthAnalyzer.buildExportBundle(currentAnalysis);
+  }
+
+  function exportJson() {
+    try {
+      const bundle = getExportBundle();
+      const day = new Date().toISOString().slice(0, 10);
+      downloadText(`health-analysis-${day}.json`, bundle.analysisJson, 'application/json');
+      showExportStatus('✓ JSON 已下载');
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  }
+
+  function exportCsvBundle() {
+    try {
+      const bundle = getExportBundle();
+      const day = new Date().toISOString().slice(0, 10);
+      if (window.fflate && typeof window.fflate.zipSync === 'function') {
+        const files = {};
+        for (const f of bundle.csvFiles) {
+          files[f.filename] = window.fflate.strToU8(f.content);
+        }
+        const zipped = window.fflate.zipSync(files);
+        downloadBlob(`health-analysis-csv-${day}.zip`, new Blob([zipped], { type: 'application/zip' }));
+        showExportStatus('✓ CSV ZIP 已下载');
+      } else {
+        const joined = window.HealthAnalyzer.joinCsvBundle(bundle.csvFiles);
+        downloadText(`health-analysis-csv-${day}.txt`, joined, 'text/plain');
+        showExportStatus('✓ CSV 文本已下载');
+      }
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  }
+
+  function exportSnapshot() {
+    try {
+      const bundle = getExportBundle();
+      const day = new Date().toISOString().slice(0, 10);
+      downloadText(`health-snapshot-${day}.json`, bundle.snapshotJson, 'application/json');
+      showExportStatus('✓ 摘要快照已下载');
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  }
+
+  async function refreshHistorySelect() {
+    const select = $('history-select');
+    if (!select || !window.HealthHistory) return;
+    let rows = [];
+    try {
+      rows = await window.HealthHistory.listSnapshots();
+    } catch (e) {
+      select.innerHTML = '<option value="">（IndexedDB 不可用）</option>';
+      return;
+    }
+    if (!rows.length) {
+      select.innerHTML = '<option value="">（暂无历史）</option>';
+      $('history-compare').innerHTML = '';
+      return;
+    }
+    select.innerHTML = rows.map((s) => {
+      const when = (s.savedAt || '').slice(0, 16).replace('T', ' ');
+      const range = s.dateRange ? `${s.dateRange.start}~${s.dateRange.end}` : '';
+      const label = s.label ? ` · ${s.label}` : '';
+      const w = s.metrics && s.metrics.weightLatest != null ? ` · ${Number(s.metrics.weightLatest).toFixed(1)}kg` : '';
+      return `<option value="${escapeHtml(s.id)}">${escapeHtml(when)} · ${escapeHtml(range)}${escapeHtml(label)}${escapeHtml(w)}</option>`;
+    }).join('');
+    // 默认与最近一条对比
+    await renderHistoryCompare(select.value);
+  }
+
+  async function saveCurrentToHistory() {
+    if (!currentAnalysis) {
+      alert('请先完成分析');
+      return;
+    }
+    if (!window.HealthHistory || !window.HealthAnalyzer.buildAnalysisSnapshot) {
+      alert('历史模块不可用');
+      return;
+    }
+    try {
+      const label = window.prompt('可选：为本次摘要命名（如 07-14 导出）', '') || undefined;
+      const snap = window.HealthAnalyzer.buildAnalysisSnapshot(currentAnalysis, {
+        label: label && label.trim() ? label.trim() : undefined,
+      });
+      await window.HealthHistory.saveSnapshot(snap);
+      showExportStatus('✓ 已保存到本机历史');
+      await refreshHistorySelect();
+    } catch (e) {
+      alert('保存失败: ' + (e.message || e));
+    }
+  }
+
+  async function renderHistoryCompare(historyId) {
+    const box = $('history-compare');
+    if (!box) return;
+    if (!historyId || !currentAnalysis) {
+      box.innerHTML = '<p class="hint">选择一条历史快照后，将与<strong>当前分析</strong>环比关键指标。</p>';
+      return;
+    }
+    try {
+      const prev = await window.HealthHistory.getSnapshot(historyId);
+      if (!prev) {
+        box.innerHTML = '<p class="hint">未找到该快照。</p>';
+        return;
+      }
+      const curr = window.HealthAnalyzer.buildAnalysisSnapshot(currentAnalysis);
+      const diffs = window.HealthAnalyzer.compareSnapshots(prev, curr);
+      if (!diffs.length) {
+        box.innerHTML = '<p class="hint">无重叠指标可对比。</p>';
+        return;
+      }
+      const fmt = (v, unit) => {
+        if (v == null || !Number.isFinite(v)) return '—';
+        const d = unit === '步' ? 0 : unit === '%' || unit === 'ms' || unit === 'bpm' || unit === 'mmHg' ? 1 : 2;
+        return v.toFixed(d);
+      };
+      const deltaClass = (d) => {
+        if (d == null || !Number.isFinite(d)) return 'delta-zero';
+        if (Math.abs(d) < 1e-9) return 'delta-zero';
+        return d > 0 ? 'delta-up' : 'delta-down';
+      };
+      box.innerHTML = `
+        <p class="hint">历史：${escapeHtml((prev.savedAt || '').slice(0, 16).replace('T', ' '))}
+          （数据 ${escapeHtml(prev.dateRange?.start || '')} ~ ${escapeHtml(prev.dateRange?.end || '')}）
+          → 当前分析</p>
+        <table>
+          <thead><tr><th>指标</th><th class="num">历史</th><th class="num">当前</th><th class="num">变化</th></tr></thead>
+          <tbody>
+            ${diffs.map((r) => `
+              <tr>
+                <td>${escapeHtml(r.label)}</td>
+                <td class="num">${fmt(r.previous, r.unit)} ${escapeHtml(r.unit)}</td>
+                <td class="num">${fmt(r.current, r.unit)} ${escapeHtml(r.unit)}</td>
+                <td class="num ${deltaClass(r.delta)}">${r.delta == null ? '—' : ((r.delta > 0 ? '+' : '') + fmt(r.delta, r.unit))}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    } catch (e) {
+      box.innerHTML = `<p class="hint">对比失败：${escapeHtml(e.message || String(e))}</p>`;
+    }
   }
 
   function renderCharts(analysis) {
@@ -940,14 +1147,40 @@
     URL.revokeObjectURL(url);
   });
 
+  $('btn-export-json')?.addEventListener('click', exportJson);
+  $('btn-export-csv')?.addEventListener('click', exportCsvBundle);
+  $('btn-export-snapshot')?.addEventListener('click', exportSnapshot);
+  $('btn-history-save')?.addEventListener('click', () => { saveCurrentToHistory(); });
+  $('btn-history-refresh')?.addEventListener('click', () => { refreshHistorySelect(); });
+  $('btn-history-clear')?.addEventListener('click', async () => {
+    if (!window.HealthHistory) return;
+    if (!window.confirm('确定清空本机全部历史摘要快照？此操作不可恢复。')) return;
+    try {
+      await window.HealthHistory.clearAll();
+      await refreshHistorySelect();
+      showExportStatus('✓ 历史已清空');
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  });
+  $('history-select')?.addEventListener('change', (e) => {
+    renderHistoryCompare(e.target.value);
+  });
+
   $('btn-reset').addEventListener('click', () => {
     currentAnalysis = null;
     hide('step-overview');
     hide('step-summary');
+    hide('step-signals');
     hide('step-charts');
+    hide('step-export');
     hide('step-prompt');
     const charts = $('charts-content');
     if (charts) charts.innerHTML = '';
+    const signals = $('signals-content');
+    if (signals) signals.innerHTML = '';
+    const hist = $('history-compare');
+    if (hist) hist.innerHTML = '';
     show('step-source');
     fileInput.value = '';
     folderInput.value = '';

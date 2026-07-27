@@ -1,0 +1,196 @@
+/**
+ * 跨维度规则提示（启发式，非诊断）
+ */
+
+import { FullAnalysis } from './types';
+
+export type SignalSeverity = 'info' | 'watch' | 'alert';
+
+export interface CrossSignal {
+  severity: SignalSeverity;
+  date?: string;
+  title: string;
+  detail: string;
+  dimensions: string[];
+}
+
+function mean(values: number[]): number | null {
+  const v = values.filter(Number.isFinite);
+  if (!v.length) return null;
+  return v.reduce((a, b) => a + b, 0) / v.length;
+}
+
+function recentDates(keys: string[], n: number): string[] {
+  return [...keys].sort().slice(-n);
+}
+
+/**
+ * 基于多日/同日指标组合生成可复核的提示
+ */
+export function detectCrossSignals(analysis: FullAnalysis): CrossSignal[] {
+  const signals: CrossSignal[] = [];
+  const data = analysis.data;
+  const hrvByDate = analysis.hrvByDate || {};
+  const restMap = analysis.restingHrByDate || data.restingHr || {};
+  const walkMap = analysis.walkingHrByDate || data.walkingHr || {};
+  const stepsMap = analysis.stepsByDate || {};
+  const sleepMap = analysis.sleepByDate || data.sleep || {};
+
+  const hrvDates = Object.keys(hrvByDate).sort();
+  const hrv7 = recentDates(hrvDates, 7);
+  const hrvBase = mean(hrv7.map((d) => hrvByDate[d].allMean));
+  const rest7 = recentDates(Object.keys(restMap), 7);
+  const restBase = mean(rest7.map((d) => restMap[d]));
+
+  // 同日：HRV 明显偏低 + 静息心率偏高
+  const commonDays = hrvDates.filter((d) => restMap[d] != null);
+  for (const d of commonDays.slice(-14)) {
+    const h = hrvByDate[d].allMean;
+    const r = restMap[d];
+    if (
+      hrvBase != null &&
+      restBase != null &&
+      h < hrvBase * 0.75 &&
+      r > restBase + 8
+    ) {
+      signals.push({
+        severity: 'watch',
+        date: d,
+        title: '恢复压力日（HRV↓ + 静息心率↑）',
+        detail: `${d}：HRV 全天均值 ${h.toFixed(1)} ms（近 7 日均 ${hrvBase.toFixed(1)}），静息心率 ${r} bpm（近 7 日均 ${restBase.toFixed(1)}）。可能与疲劳、睡眠不足、疾病或训练负荷有关，建议结合症状观察 1-2 天。`,
+        dimensions: ['HRV', '静息心率'],
+      });
+    }
+  }
+
+  // 低睡眠 + 低步数（活动与恢复双低）
+  const sleepDays = Object.keys(sleepMap).sort();
+  for (const d of sleepDays.slice(-10)) {
+    const sleepH = sleepMap[d]?.total;
+    const steps = stepsMap[d];
+    if (sleepH != null && sleepH < 6 && steps != null && steps < 3000) {
+      signals.push({
+        severity: 'info',
+        date: d,
+        title: '低睡眠且活动量偏低',
+        detail: `${d}：总睡眠 ${sleepH.toFixed(2)} h，步数 ${Math.round(steps)}。若持续多日，可优先保证睡眠与基础活动，避免过度解读单日指标。`,
+        dimensions: ['睡眠', '步数'],
+      });
+    }
+  }
+
+  // 血压低压次数
+  if (analysis.bpStats?.mean7d && analysis.bpStats.mean7d.lowCount > 0) {
+    const m = analysis.bpStats.mean7d;
+    signals.push({
+      severity: m.lowCount >= 3 ? 'watch' : 'info',
+      title: '近 7 天出现偏低血压读数',
+      detail: `近 7 天均值 ${m.systolic.toFixed(1)}/${m.diastolic.toFixed(1)} mmHg，其中 ${m.lowCount} 条 <90/60。结合头晕、乏力等症状判断；用药调整请遵医嘱。`,
+      dimensions: ['血压'],
+    });
+  }
+
+  // CGM 低值占比
+  if (analysis.cgmStats) {
+    const o = analysis.cgmStats.overall;
+    if (o.pctBelow30 > 0) {
+      signals.push({
+        severity: 'alert',
+        title: 'CGM 出现 <3.0 mmol/L 读数',
+        detail: `整体 <3.0 占比 ${o.pctBelow30.toFixed(1)}%，最低 ${o.min.toFixed(1)} mmol/L。须指尖血复核；不能仅凭 CGM 判定低血糖。`,
+        dimensions: ['CGM'],
+      });
+    } else if (o.pctBelow39 >= 5) {
+      signals.push({
+        severity: 'watch',
+        title: 'CGM <3.9 mmol/L 占比较高',
+        detail: `整体 <3.9 占比 ${o.pctBelow39.toFixed(1)}%。注意区分传感器伪影与真实低值，异常时指尖血复核。`,
+        dimensions: ['CGM'],
+      });
+    }
+
+    // 分日：单日大量低值
+    for (const [date, day] of Object.entries(analysis.cgmStats.daily)) {
+      if (day.pctBelow39 >= 20 && day.count >= 12) {
+        signals.push({
+          severity: 'watch',
+          date,
+          title: `CGM 单日低值偏多（${date}）`,
+          detail: `${date}：<3.9 占比 ${day.pctBelow39.toFixed(1)}%（${day.count} 条），最低 ${day.min.toFixed(1)}。优先排查压迫低值/传感器首日偏差，并指尖血复核可疑时段。`,
+          dimensions: ['CGM'],
+        });
+      }
+    }
+  }
+
+  // 体重快速下降（最近 7 条 vs 更早）
+  const weights = [...(data.weight || [])].sort((a, b) =>
+    a.datetime.localeCompare(b.datetime)
+  );
+  if (weights.length >= 4) {
+    const last = weights[weights.length - 1].value;
+    const weekAgoIdx = Math.max(0, weights.length - 8);
+    const ref = weights[weekAgoIdx].value;
+    const drop = ref - last;
+    if (drop >= 1.5) {
+      signals.push({
+        severity: drop >= 2.5 ? 'watch' : 'info',
+        date: weights[weights.length - 1].date || weights[weights.length - 1].datetime.slice(0, 10),
+        title: '体重短期下降偏快',
+        detail: `相对约一周前参考值 ${ref.toFixed(1)} kg，最新 ${last.toFixed(1)} kg，约下降 ${drop.toFixed(1)} kg。若伴随乏力、HRV 下降或血压偏低，建议综合关注能量摄入与恢复。`,
+        dimensions: ['体重'],
+      });
+    }
+  }
+
+  // 步行心率偏高 + HRV 偏低（近 7 日）
+  if (hrvBase != null && restBase != null) {
+    const walk7 = recentDates(Object.keys(walkMap), 7);
+    const walkBase = mean(walk7.map((d) => walkMap[d]));
+    if (walkBase != null && walkBase >= 120 && hrvBase < 25) {
+      signals.push({
+        severity: 'info',
+        title: '近 7 日步行心率偏高且 HRV 偏低',
+        detail: `步行心率近 7 日均约 ${walkBase.toFixed(0)} bpm，HRV 近 7 日均约 ${hrvBase.toFixed(1)} ms。可能反映有氧能力/恢复状态偏紧，建议结合睡眠与主观疲劳判断。`,
+        dimensions: ['步行心率', 'HRV'],
+      });
+    }
+  }
+
+  // 去重：同 title+date
+  const seen = new Set<string>();
+  const unique: CrossSignal[] = [];
+  for (const s of signals) {
+    const k = `${s.title}|${s.date || ''}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    unique.push(s);
+  }
+
+  // 严重度排序
+  const rank: Record<SignalSeverity, number> = { alert: 0, watch: 1, info: 2 };
+  unique.sort((a, b) => rank[a.severity] - rank[b.severity] || String(b.date || '').localeCompare(String(a.date || '')));
+  return unique.slice(0, 20);
+}
+
+/** 格式化为 Markdown，便于注入提示词或展示 */
+export function formatCrossSignalsForLLM(signals: CrossSignal[]): string {
+  if (!signals.length) {
+    return '## 跨维度提示\n\n（当前规则未触发明显组合信号）\n';
+  }
+  const lines = [
+    '## 跨维度提示（启发式，非诊断）',
+    '',
+    '| 级别 | 日期 | 标题 | 说明 |',
+    '|---|---|---|---|',
+  ];
+  for (const s of signals) {
+    const level = s.severity === 'alert' ? '需关注' : s.severity === 'watch' ? '观察' : '提示';
+    const detail = s.detail.replace(/\|/g, '/').replace(/\n/g, ' ');
+    lines.push(`| ${level} | ${s.date || '—'} | ${s.title} | ${detail} |`);
+  }
+  lines.push('');
+  lines.push('> 以上为程序规则生成的线索，须与原始数据交叉核对，不能替代医疗判断。');
+  lines.push('');
+  return lines.join('\n');
+}

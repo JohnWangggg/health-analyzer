@@ -4,6 +4,7 @@
  */
 
 import { FullAnalysis, UserContext } from '../types';
+import { detectCrossSignals, formatCrossSignalsForLLM } from '../signals';
 
 /** 主提示词：引导 LLM 按指定格式输出深度分析报告 */
 export const MAIN_PROMPT_TEMPLATE = `# 角色与任务
@@ -329,7 +330,9 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
 function combineContextAndData(analysis: FullAnalysis, userContext?: UserContext | null): string {
   const dataSection = formatAnalysisForLLM(analysis);
   const ctxSection = formatUserContext(userContext);
-  return ctxSection ? `${ctxSection}\n${dataSection}` : dataSection;
+  const signalsSection = formatCrossSignalsForLLM(detectCrossSignals(analysis));
+  const parts = [ctxSection, dataSection, signalsSection].filter((s) => s && s.trim());
+  return parts.join('\n');
 }
 
 /**

@@ -184,16 +184,49 @@
       <div id="summary-content"></div>
     </section>
 
+    <!-- 跨维度提示 -->
+    <section id="step-signals" class="card hidden">
+      <h2><span class="step-num">5</span> 跨维度提示</h2>
+      <p class="hint">基于规则的启发式线索（如 HRV↓+静息心率↑），<strong>非诊断</strong>；已同步写入完整提示词。</p>
+      <div id="signals-content"></div>
+    </section>
+
     <!-- 趋势图 -->
     <section id="step-charts" class="card hidden">
-      <h2><span class="step-num">5</span> 趋势图</h2>
+      <h2><span class="step-num">6</span> 趋势图</h2>
       <p class="hint">本地 Canvas 绘制；有数据的维度才显示。CGM 默认展示最近约 7 天（已降采样）。</p>
       <div id="charts-content" class="charts-content"></div>
     </section>
 
+    <!-- 导出与历史 -->
+    <section id="step-export" class="card hidden">
+      <h2><span class="step-num">7</span> 导出与历史环比</h2>
+      <p class="hint">导出与历史快照均在本机完成。历史只保存<strong>摘要指标</strong>（非完整 CGM 明细），最多 30 条。</p>
+
+      <div class="export-actions">
+        <button type="button" id="btn-export-json" class="btn-primary">⬇️ 导出 JSON</button>
+        <button type="button" id="btn-export-csv" class="btn-secondary">⬇️ 导出 CSV 包</button>
+        <button type="button" id="btn-export-snapshot" class="btn-secondary">⬇️ 导出摘要快照</button>
+        <span id="export-status" class="copy-status" aria-live="polite"></span>
+      </div>
+
+      <div class="history-panel">
+        <div class="history-toolbar">
+          <button type="button" id="btn-history-save" class="btn-primary">💾 保存本次摘要到本机</button>
+          <button type="button" id="btn-history-refresh" class="btn-secondary">刷新列表</button>
+          <button type="button" id="btn-history-clear" class="btn-secondary">清空历史</button>
+        </div>
+        <label class="history-label" for="history-select">与历史快照对比</label>
+        <select id="history-select" aria-label="选择历史快照">
+          <option value="">（暂无历史）</option>
+        </select>
+        <div id="history-compare" class="history-compare"></div>
+      </div>
+    </section>
+
     <!-- 大模型提示词 -->
     <section id="step-prompt" class="card hidden">
-      <h2><span class="step-num">6</span> 大模型提示词</h2>
+      <h2><span class="step-num">8</span> 大模型提示词</h2>
       <p class="hint">
         下方文本可直接复制粘贴到 <strong>豆包 / ChatGPT / Claude / Gemini</strong> 等平台的对话框。
         提示词使用<strong>固定标题结构</strong>（总结判断、各数据维度、监测仪表盘、复查信号、工作假设、参考依据）；
@@ -232,8 +265,8 @@
       <ul>
         <li>所有解析与统计在<strong>您的浏览器</strong>内完成，不上传任何数据</li>
         <li>本应用<strong>无后端</strong>，无服务器，无第三方追踪</li>
-        <li>网页只保留当前页面内存中的分析结果；重新上传会替换上一次结果</li>
-        <li>刷新或关闭页面后，网页中的分析结果会消失；PWA 缓存只保存网页程序，不保存健康数据</li>
+        <li>网页分析结果默认只在当前页内存；可选将<strong>摘要快照</strong>写入本机 IndexedDB 供环比</li>
+        <li>个人背景写入 localStorage；PWA 缓存只保存网页程序，完整健康明细默认不持久化</li>
         <li>复制或下载提示词后，数据是否进入第三方大模型平台由您自行决定</li>
         <li>原始 ZIP 文件仍可能留在手机“文件”App 或下载目录中，需要手动删除</li>
       </ul>
@@ -242,12 +275,13 @@
   </main>
 
   <footer class="app-footer">
-    <p>开源 · 本地优先 · v1.2</p>
+    <p>开源 · 本地优先 · v1.3</p>
   </footer>
 
   <script src="./fflate.min.js"></script>
   <script src="./lib.js"></script>
   <script src="./charts.js"></script>
+  <script src="./history-db.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

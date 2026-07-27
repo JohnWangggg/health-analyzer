@@ -36,5 +36,20 @@ export {
   MAIN_PROMPT_TEMPLATE,
 } from './prompts/llm-prompt';
 
+export {
+  buildAnalysisSnapshot,
+  compareSnapshots,
+} from './snapshot';
+
+export {
+  detectCrossSignals,
+  formatCrossSignalsForLLM,
+} from './signals';
+
+export {
+  buildExportBundle,
+  joinCsvBundle,
+} from './export';
+
 // 兼容历史 lib.js：calcBpStats 别名
 export { calcBloodPressureStats as calcBpStats } from './stats';

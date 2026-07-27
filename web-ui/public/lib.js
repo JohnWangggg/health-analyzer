@@ -29,18 +29,24 @@ var HealthAnalyzer = (() => {
     MAIN_PROMPT_TEMPLATE: () => MAIN_PROMPT_TEMPLATE,
     SHORT_SYSTEM_PROMPT: () => SHORT_SYSTEM_PROMPT,
     analyzeAll: () => analyzeAll,
+    buildAnalysisSnapshot: () => buildAnalysisSnapshot,
+    buildExportBundle: () => buildExportBundle,
     calcBloodPressureStats: () => calcBloodPressureStats,
     calcBpStats: () => calcBloodPressureStats,
     calcCgmStats: () => calcCgmStats,
+    compareSnapshots: () => compareSnapshots,
     createEmptyData: () => createEmptyData,
+    detectCrossSignals: () => detectCrossSignals,
     extractXmlFromZip: () => extractXmlFromZip,
     finalizeData: () => finalizeData,
     formatAnalysisForLLM: () => formatAnalysisForLLM,
+    formatCrossSignalsForLLM: () => formatCrossSignalsForLLM,
     formatUserContext: () => formatUserContext,
     generateDataOnly: () => generateDataOnly,
     generateLLMPrompt: () => generateLLMPrompt,
     getDate: () => getDate,
     getHour: () => getHour,
+    joinCsvBundle: () => joinCsvBundle,
     parseAppleDate: () => parseAppleDate,
     parseBytesStream: () => parseBytesStream,
     parseEcgCsv: () => parseEcgCsv,
@@ -392,12 +398,12 @@ var HealthAnalyzer = (() => {
       return { mean: 0, std: 0, cv: 0, min: 0, max: 0, count: 0 };
     }
     const n = values.length;
-    const mean = values.reduce((a, b) => a + b, 0) / n;
-    const variance = values.reduce((acc, v) => acc + (v - mean) ** 2, 0) / n;
+    const mean2 = values.reduce((a, b) => a + b, 0) / n;
+    const variance = values.reduce((acc, v) => acc + (v - mean2) ** 2, 0) / n;
     const std = Math.sqrt(variance);
-    const cv = mean > 0 ? std / mean * 100 : 0;
+    const cv = mean2 > 0 ? std / mean2 * 100 : 0;
     return {
-      mean,
+      mean: mean2,
       std,
       cv,
       min: Math.min(...values),
@@ -545,6 +551,157 @@ var HealthAnalyzer = (() => {
       dateRange: { start, end },
       generatedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
+  }
+
+  // src/signals.ts
+  function mean(values) {
+    const v = values.filter(Number.isFinite);
+    if (!v.length) return null;
+    return v.reduce((a, b) => a + b, 0) / v.length;
+  }
+  function recentDates(keys, n) {
+    return [...keys].sort().slice(-n);
+  }
+  function detectCrossSignals(analysis) {
+    const signals = [];
+    const data = analysis.data;
+    const hrvByDate = analysis.hrvByDate || {};
+    const restMap = analysis.restingHrByDate || data.restingHr || {};
+    const walkMap = analysis.walkingHrByDate || data.walkingHr || {};
+    const stepsMap = analysis.stepsByDate || {};
+    const sleepMap = analysis.sleepByDate || data.sleep || {};
+    const hrvDates = Object.keys(hrvByDate).sort();
+    const hrv7 = recentDates(hrvDates, 7);
+    const hrvBase = mean(hrv7.map((d) => hrvByDate[d].allMean));
+    const rest7 = recentDates(Object.keys(restMap), 7);
+    const restBase = mean(rest7.map((d) => restMap[d]));
+    const commonDays = hrvDates.filter((d) => restMap[d] != null);
+    for (const d of commonDays.slice(-14)) {
+      const h = hrvByDate[d].allMean;
+      const r = restMap[d];
+      if (hrvBase != null && restBase != null && h < hrvBase * 0.75 && r > restBase + 8) {
+        signals.push({
+          severity: "watch",
+          date: d,
+          title: "\u6062\u590D\u538B\u529B\u65E5\uFF08HRV\u2193 + \u9759\u606F\u5FC3\u7387\u2191\uFF09",
+          detail: `${d}\uFF1AHRV \u5168\u5929\u5747\u503C ${h.toFixed(1)} ms\uFF08\u8FD1 7 \u65E5\u5747 ${hrvBase.toFixed(1)}\uFF09\uFF0C\u9759\u606F\u5FC3\u7387 ${r} bpm\uFF08\u8FD1 7 \u65E5\u5747 ${restBase.toFixed(1)}\uFF09\u3002\u53EF\u80FD\u4E0E\u75B2\u52B3\u3001\u7761\u7720\u4E0D\u8DB3\u3001\u75BE\u75C5\u6216\u8BAD\u7EC3\u8D1F\u8377\u6709\u5173\uFF0C\u5EFA\u8BAE\u7ED3\u5408\u75C7\u72B6\u89C2\u5BDF 1-2 \u5929\u3002`,
+          dimensions: ["HRV", "\u9759\u606F\u5FC3\u7387"]
+        });
+      }
+    }
+    const sleepDays = Object.keys(sleepMap).sort();
+    for (const d of sleepDays.slice(-10)) {
+      const sleepH = sleepMap[d]?.total;
+      const steps = stepsMap[d];
+      if (sleepH != null && sleepH < 6 && steps != null && steps < 3e3) {
+        signals.push({
+          severity: "info",
+          date: d,
+          title: "\u4F4E\u7761\u7720\u4E14\u6D3B\u52A8\u91CF\u504F\u4F4E",
+          detail: `${d}\uFF1A\u603B\u7761\u7720 ${sleepH.toFixed(2)} h\uFF0C\u6B65\u6570 ${Math.round(steps)}\u3002\u82E5\u6301\u7EED\u591A\u65E5\uFF0C\u53EF\u4F18\u5148\u4FDD\u8BC1\u7761\u7720\u4E0E\u57FA\u7840\u6D3B\u52A8\uFF0C\u907F\u514D\u8FC7\u5EA6\u89E3\u8BFB\u5355\u65E5\u6307\u6807\u3002`,
+          dimensions: ["\u7761\u7720", "\u6B65\u6570"]
+        });
+      }
+    }
+    if (analysis.bpStats?.mean7d && analysis.bpStats.mean7d.lowCount > 0) {
+      const m = analysis.bpStats.mean7d;
+      signals.push({
+        severity: m.lowCount >= 3 ? "watch" : "info",
+        title: "\u8FD1 7 \u5929\u51FA\u73B0\u504F\u4F4E\u8840\u538B\u8BFB\u6570",
+        detail: `\u8FD1 7 \u5929\u5747\u503C ${m.systolic.toFixed(1)}/${m.diastolic.toFixed(1)} mmHg\uFF0C\u5176\u4E2D ${m.lowCount} \u6761 <90/60\u3002\u7ED3\u5408\u5934\u6655\u3001\u4E4F\u529B\u7B49\u75C7\u72B6\u5224\u65AD\uFF1B\u7528\u836F\u8C03\u6574\u8BF7\u9075\u533B\u5631\u3002`,
+        dimensions: ["\u8840\u538B"]
+      });
+    }
+    if (analysis.cgmStats) {
+      const o = analysis.cgmStats.overall;
+      if (o.pctBelow30 > 0) {
+        signals.push({
+          severity: "alert",
+          title: "CGM \u51FA\u73B0 <3.0 mmol/L \u8BFB\u6570",
+          detail: `\u6574\u4F53 <3.0 \u5360\u6BD4 ${o.pctBelow30.toFixed(1)}%\uFF0C\u6700\u4F4E ${o.min.toFixed(1)} mmol/L\u3002\u987B\u6307\u5C16\u8840\u590D\u6838\uFF1B\u4E0D\u80FD\u4EC5\u51ED CGM \u5224\u5B9A\u4F4E\u8840\u7CD6\u3002`,
+          dimensions: ["CGM"]
+        });
+      } else if (o.pctBelow39 >= 5) {
+        signals.push({
+          severity: "watch",
+          title: "CGM <3.9 mmol/L \u5360\u6BD4\u8F83\u9AD8",
+          detail: `\u6574\u4F53 <3.9 \u5360\u6BD4 ${o.pctBelow39.toFixed(1)}%\u3002\u6CE8\u610F\u533A\u5206\u4F20\u611F\u5668\u4F2A\u5F71\u4E0E\u771F\u5B9E\u4F4E\u503C\uFF0C\u5F02\u5E38\u65F6\u6307\u5C16\u8840\u590D\u6838\u3002`,
+          dimensions: ["CGM"]
+        });
+      }
+      for (const [date, day] of Object.entries(analysis.cgmStats.daily)) {
+        if (day.pctBelow39 >= 20 && day.count >= 12) {
+          signals.push({
+            severity: "watch",
+            date,
+            title: `CGM \u5355\u65E5\u4F4E\u503C\u504F\u591A\uFF08${date}\uFF09`,
+            detail: `${date}\uFF1A<3.9 \u5360\u6BD4 ${day.pctBelow39.toFixed(1)}%\uFF08${day.count} \u6761\uFF09\uFF0C\u6700\u4F4E ${day.min.toFixed(1)}\u3002\u4F18\u5148\u6392\u67E5\u538B\u8FEB\u4F4E\u503C/\u4F20\u611F\u5668\u9996\u65E5\u504F\u5DEE\uFF0C\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`,
+            dimensions: ["CGM"]
+          });
+        }
+      }
+    }
+    const weights = [...data.weight || []].sort(
+      (a, b) => a.datetime.localeCompare(b.datetime)
+    );
+    if (weights.length >= 4) {
+      const last = weights[weights.length - 1].value;
+      const weekAgoIdx = Math.max(0, weights.length - 8);
+      const ref = weights[weekAgoIdx].value;
+      const drop = ref - last;
+      if (drop >= 1.5) {
+        signals.push({
+          severity: drop >= 2.5 ? "watch" : "info",
+          date: weights[weights.length - 1].date || weights[weights.length - 1].datetime.slice(0, 10),
+          title: "\u4F53\u91CD\u77ED\u671F\u4E0B\u964D\u504F\u5FEB",
+          detail: `\u76F8\u5BF9\u7EA6\u4E00\u5468\u524D\u53C2\u8003\u503C ${ref.toFixed(1)} kg\uFF0C\u6700\u65B0 ${last.toFixed(1)} kg\uFF0C\u7EA6\u4E0B\u964D ${drop.toFixed(1)} kg\u3002\u82E5\u4F34\u968F\u4E4F\u529B\u3001HRV \u4E0B\u964D\u6216\u8840\u538B\u504F\u4F4E\uFF0C\u5EFA\u8BAE\u7EFC\u5408\u5173\u6CE8\u80FD\u91CF\u6444\u5165\u4E0E\u6062\u590D\u3002`,
+          dimensions: ["\u4F53\u91CD"]
+        });
+      }
+    }
+    if (hrvBase != null && restBase != null) {
+      const walk7 = recentDates(Object.keys(walkMap), 7);
+      const walkBase = mean(walk7.map((d) => walkMap[d]));
+      if (walkBase != null && walkBase >= 120 && hrvBase < 25) {
+        signals.push({
+          severity: "info",
+          title: "\u8FD1 7 \u65E5\u6B65\u884C\u5FC3\u7387\u504F\u9AD8\u4E14 HRV \u504F\u4F4E",
+          detail: `\u6B65\u884C\u5FC3\u7387\u8FD1 7 \u65E5\u5747\u7EA6 ${walkBase.toFixed(0)} bpm\uFF0CHRV \u8FD1 7 \u65E5\u5747\u7EA6 ${hrvBase.toFixed(1)} ms\u3002\u53EF\u80FD\u53CD\u6620\u6709\u6C27\u80FD\u529B/\u6062\u590D\u72B6\u6001\u504F\u7D27\uFF0C\u5EFA\u8BAE\u7ED3\u5408\u7761\u7720\u4E0E\u4E3B\u89C2\u75B2\u52B3\u5224\u65AD\u3002`,
+          dimensions: ["\u6B65\u884C\u5FC3\u7387", "HRV"]
+        });
+      }
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const unique = [];
+    for (const s of signals) {
+      const k = `${s.title}|${s.date || ""}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      unique.push(s);
+    }
+    const rank = { alert: 0, watch: 1, info: 2 };
+    unique.sort((a, b) => rank[a.severity] - rank[b.severity] || String(b.date || "").localeCompare(String(a.date || "")));
+    return unique.slice(0, 20);
+  }
+  function formatCrossSignalsForLLM(signals) {
+    if (!signals.length) {
+      return "## \u8DE8\u7EF4\u5EA6\u63D0\u793A\n\n\uFF08\u5F53\u524D\u89C4\u5219\u672A\u89E6\u53D1\u660E\u663E\u7EC4\u5408\u4FE1\u53F7\uFF09\n";
+    }
+    const lines = [
+      "## \u8DE8\u7EF4\u5EA6\u63D0\u793A\uFF08\u542F\u53D1\u5F0F\uFF0C\u975E\u8BCA\u65AD\uFF09",
+      "",
+      "| \u7EA7\u522B | \u65E5\u671F | \u6807\u9898 | \u8BF4\u660E |",
+      "|---|---|---|---|"
+    ];
+    for (const s of signals) {
+      const level = s.severity === "alert" ? "\u9700\u5173\u6CE8" : s.severity === "watch" ? "\u89C2\u5BDF" : "\u63D0\u793A";
+      const detail = s.detail.replace(/\|/g, "/").replace(/\n/g, " ");
+      lines.push(`| ${level} | ${s.date || "\u2014"} | ${s.title} | ${detail} |`);
+    }
+    lines.push("");
+    lines.push("> \u4EE5\u4E0A\u4E3A\u7A0B\u5E8F\u89C4\u5219\u751F\u6210\u7684\u7EBF\u7D22\uFF0C\u987B\u4E0E\u539F\u59CB\u6570\u636E\u4EA4\u53C9\u6838\u5BF9\uFF0C\u4E0D\u80FD\u66FF\u4EE3\u533B\u7597\u5224\u65AD\u3002");
+    lines.push("");
+    return lines.join("\n");
   }
 
   // src/prompts/llm-prompt.ts
@@ -711,8 +868,8 @@ var HealthAnalyzer = (() => {
       sections.push(``);
       sections.push(`| \u65E5\u671F | \u6761\u6570 | \u5747\u503C | \u6700\u4F4E | \u6700\u9AD8 | CV% | <3.9% | >7.8% |`);
       sections.push(`|---|---:|---:|---:|---:|---:|---:|---:|`);
-      const recentDates = recentDateSet(Object.keys(cgmStats.daily));
-      for (const date of Object.keys(cgmStats.daily).filter((date2) => recentDates.has(date2)).sort()) {
+      const recentDates2 = recentDateSet(Object.keys(cgmStats.daily));
+      for (const date of Object.keys(cgmStats.daily).filter((date2) => recentDates2.has(date2)).sort()) {
         const d = cgmStats.daily[date];
         sections.push(
           `| ${date} | ${d.count} | ${d.mean.toFixed(2)} | ${d.min.toFixed(1)} | ${d.max.toFixed(1)} | ${d.cv.toFixed(1)} | ${d.pctBelow39.toFixed(1)} | ${d.pctAbove78.toFixed(1)} |`
@@ -729,8 +886,8 @@ var HealthAnalyzer = (() => {
       sections.push(``);
       sections.push(`| \u65F6\u95F4 | \u6536\u7F29\u538B | \u8212\u5F20\u538B | \u5907\u6CE8 |`);
       sections.push(`|---|---:|---:|---|`);
-      const recentDates = recentDateSet(bpStats.records.map((r) => r.date));
-      for (const r of bpStats.records.filter((r2) => recentDates.has(r2.date))) {
+      const recentDates2 = recentDateSet(bpStats.records.map((r) => r.date));
+      for (const r of bpStats.records.filter((r2) => recentDates2.has(r2.date))) {
         const low = r.systolic < 90 || r.diastolic < 60 ? " \u26A0\uFE0F" : "";
         sections.push(`| ${r.datetime} | ${r.systolic} | ${r.diastolic} |${low} |`);
       }
@@ -758,8 +915,8 @@ var HealthAnalyzer = (() => {
       sections.push(``);
       sections.push(`| \u65F6\u95F4 | \u4F53\u91CD (kg) |`);
       sections.push(`|---|---:|`);
-      const recentDates = recentDateSet(data.weight.map((w) => w.date));
-      for (const w of data.weight.filter((w2) => recentDates.has(w2.date))) {
+      const recentDates2 = recentDateSet(data.weight.map((w) => w.date));
+      for (const w of data.weight.filter((w2) => recentDates2.has(w2.date))) {
         sections.push(`| ${w.datetime} | ${w.value.toFixed(1)} |`);
       }
       sections.push(``);
@@ -769,8 +926,8 @@ var HealthAnalyzer = (() => {
       sections.push(``);
       sections.push(`| \u65E5\u671F | \u5168\u5929\u5747\u503C | \u591C\u95F4\u5747\u503C | \u6700\u4F4E | \u6700\u9AD8 | \u6837\u672C\u6570 |`);
       sections.push(`|---|---:|---:|---:|---:|---:|`);
-      const recentDates = recentDateSet(Object.keys(hrvByDate));
-      for (const date of Object.keys(hrvByDate).filter((date2) => recentDates.has(date2)).sort()) {
+      const recentDates2 = recentDateSet(Object.keys(hrvByDate));
+      for (const date of Object.keys(hrvByDate).filter((date2) => recentDates2.has(date2)).sort()) {
         const h = hrvByDate[date];
         sections.push(
           `| ${date} | ${h.allMean.toFixed(1)} | ${h.overnightMean.toFixed(1)} | ${h.min.toFixed(1)} | ${h.max.toFixed(1)} | ${h.count} |`
@@ -785,8 +942,8 @@ var HealthAnalyzer = (() => {
         ...Object.keys(data.restingHr),
         ...Object.keys(data.walkingHr)
       ]);
-      const recentDates = recentDateSet(Array.from(allDates));
-      const visibleDates = Array.from(allDates).filter((date) => recentDates.has(date));
+      const recentDates2 = recentDateSet(Array.from(allDates));
+      const visibleDates = Array.from(allDates).filter((date) => recentDates2.has(date));
       sections.push(`| \u65E5\u671F | \u9759\u606F\u5FC3\u7387 | \u6B65\u884C\u5FC3\u7387 |`);
       sections.push(`|---|---:|---:|`);
       for (const date of visibleDates.sort()) {
@@ -803,10 +960,10 @@ var HealthAnalyzer = (() => {
         ...Object.keys(data.steps),
         ...Object.keys(data.sleep)
       ]);
-      const recentDates = recentDateSet(Array.from(allDates));
+      const recentDates2 = recentDateSet(Array.from(allDates));
       sections.push(`| \u65E5\u671F | \u6B65\u6570 | \u7761\u7720(h) | \u6DF1\u7761(h) | REM(h) |`);
       sections.push(`|---|---:|---:|---:|---:|`);
-      for (const date of Array.from(allDates).filter((date2) => recentDates.has(date2)).sort()) {
+      for (const date of Array.from(allDates).filter((date2) => recentDates2.has(date2)).sort()) {
         const steps = data.steps[date]?.max ?? "\u2014";
         const sleep = data.sleep[date];
         const sleepStr = sleep ? sleep.total.toFixed(2) : "\u2014";
@@ -836,8 +993,9 @@ var HealthAnalyzer = (() => {
   function combineContextAndData(analysis, userContext) {
     const dataSection = formatAnalysisForLLM(analysis);
     const ctxSection = formatUserContext(userContext);
-    return ctxSection ? `${ctxSection}
-${dataSection}` : dataSection;
+    const signalsSection = formatCrossSignalsForLLM(detectCrossSignals(analysis));
+    const parts = [ctxSection, dataSection, signalsSection].filter((s) => s && s.trim());
+    return parts.join("\n");
   }
   function generateLLMPrompt(analysis, userContext) {
     const dataSection = combineContextAndData(analysis, userContext);
@@ -847,5 +1005,262 @@ ${dataSection}` : dataSection;
     return combineContextAndData(analysis, userContext);
   }
   var SHORT_SYSTEM_PROMPT = `\u4F60\u662F\u4E00\u4F4D\u4E25\u8C28\u7684\u5065\u5EB7\u6570\u636E\u5206\u6790\u5E08\u3002\u57FA\u4E8E\u7528\u6237\u63D0\u4F9B\u7684 Apple Health \u7EDF\u8BA1\u751F\u6210\u4E2D\u6587 Markdown \u62A5\u544A\uFF1B\u53EA\u5206\u6790\u5B9E\u9645\u5B58\u5728\u7684\u6570\u636E\uFF0C\u6309\u201C\u603B\u7ED3\u5224\u65AD\u3001\u6570\u636E\u7EF4\u5EA6\u3001\u76D1\u6D4B\u4EEA\u8868\u76D8\u3001\u9700\u8981\u590D\u67E5\u6216\u5347\u7EA7\u5904\u7406\u7684\u4FE1\u53F7\u3001\u5F53\u524D\u5DE5\u4F5C\u5047\u8BBE\u3001\u53C2\u8003\u4F9D\u636E\u201D\u987A\u5E8F\u7EC4\u7EC7\u3002\u4E0D\u4E0B\u8BCA\u65AD\u7ED3\u8BBA\uFF1BCGM <3.9 \u5FC5\u987B\u5EFA\u8BAE\u6307\u5C16\u8840\u590D\u6838\uFF0CCGM \u4E0D\u80FD\u5355\u72EC\u7528\u4E8E\u8BCA\u65AD\uFF1B\u5355\u6B21\u5F02\u5E38\u5148\u590D\u6D4B\u5E76\u7ED3\u5408\u75C7\u72B6\u5224\u65AD\uFF1B\u6240\u6709\u7528\u836F\u8C03\u6574\u8BF7\u9075\u533B\u5631\u3002`;
+
+  // src/snapshot.ts
+  function meanOf(values) {
+    const vals = values.filter(Number.isFinite);
+    if (vals.length === 0) return null;
+    return vals.reduce((a, b) => a + b, 0) / vals.length;
+  }
+  function lastNMeans(map, n) {
+    const dates = Object.keys(map).sort();
+    if (dates.length === 0) return null;
+    const recent = dates.slice(-n).map((d) => map[d]).filter(Number.isFinite);
+    return meanOf(recent);
+  }
+  function makeId() {
+    return `snap_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+  function buildAnalysisSnapshot(analysis, options = {}) {
+    const data = analysis.data;
+    const weight = data.weight || [];
+    const latestW = weight.length ? weight[weight.length - 1].value : null;
+    const earliestW = weight.length ? weight[0].value : null;
+    const hrvMeans = {};
+    for (const [d, h] of Object.entries(analysis.hrvByDate || {})) {
+      hrvMeans[d] = h.allMean;
+    }
+    const sleepTotals = {};
+    for (const [d, s] of Object.entries(analysis.sleepByDate || data.sleep || {})) {
+      sleepTotals[d] = s.total;
+    }
+    const cgm = analysis.cgmStats?.overall;
+    return {
+      id: options.id || makeId(),
+      savedAt: options.savedAt || (/* @__PURE__ */ new Date()).toISOString(),
+      generatedAt: analysis.generatedAt,
+      dateRange: { ...analysis.dateRange },
+      label: options.label,
+      metrics: {
+        cgmMean: cgm ? cgm.mean : null,
+        cgmTir: cgm ? cgm.pctInRange : null,
+        cgmMin: cgm ? cgm.min : null,
+        cgmMax: cgm ? cgm.max : null,
+        cgmCount: cgm ? cgm.count : data.cgm.length,
+        cgmPctBelow39: cgm ? cgm.pctBelow39 : null,
+        weightLatest: latestW,
+        weightEarliest: earliestW,
+        weightDelta: latestW != null && earliestW != null ? latestW - earliestW : null,
+        weightCount: weight.length,
+        bpMean7dSys: analysis.bpStats?.mean7d?.systolic ?? null,
+        bpMean7dDia: analysis.bpStats?.mean7d?.diastolic ?? null,
+        bpCount: analysis.bpStats?.records?.length ?? data.bloodPressure.length,
+        bpLowCount7d: analysis.bpStats?.mean7d?.lowCount ?? null,
+        hrvMean7d: lastNMeans(hrvMeans, 7),
+        hrvDays: Object.keys(analysis.hrvByDate || {}).length,
+        restingHrMean7d: lastNMeans(analysis.restingHrByDate || data.restingHr || {}, 7),
+        walkingHrMean7d: lastNMeans(analysis.walkingHrByDate || data.walkingHr || {}, 7),
+        stepsMean7d: lastNMeans(analysis.stepsByDate || {}, 7),
+        stepsDays: Object.keys(analysis.stepsByDate || data.steps || {}).length,
+        sleepMean7d: lastNMeans(sleepTotals, 7),
+        sleepDays: Object.keys(sleepTotals).length,
+        ecgCount: data.ecg?.length || 0
+      }
+    };
+  }
+  var DIFF_FIELDS = [
+    { key: "cgmMean", label: "CGM \u5747\u503C", unit: "mmol/L" },
+    { key: "cgmTir", label: "CGM TIR", unit: "%" },
+    { key: "cgmPctBelow39", label: "CGM <3.9 \u5360\u6BD4", unit: "%" },
+    { key: "weightLatest", label: "\u6700\u65B0\u4F53\u91CD", unit: "kg" },
+    { key: "bpMean7dSys", label: "\u8840\u538B 7 \u5929\u6536\u7F29\u538B", unit: "mmHg" },
+    { key: "bpMean7dDia", label: "\u8840\u538B 7 \u5929\u8212\u5F20\u538B", unit: "mmHg" },
+    { key: "hrvMean7d", label: "HRV \u8FD1 7 \u5929\u5747\u503C", unit: "ms" },
+    { key: "restingHrMean7d", label: "\u9759\u606F\u5FC3\u7387\u8FD1 7 \u5929\u5747\u503C", unit: "bpm" },
+    { key: "walkingHrMean7d", label: "\u6B65\u884C\u5FC3\u7387\u8FD1 7 \u5929\u5747\u503C", unit: "bpm" },
+    { key: "stepsMean7d", label: "\u6B65\u6570\u8FD1 7 \u5929\u65E5\u5747", unit: "\u6B65" },
+    { key: "sleepMean7d", label: "\u7761\u7720\u8FD1 7 \u5929\u65E5\u5747", unit: "h" }
+  ];
+  function compareSnapshots(previous, current) {
+    const rows = [];
+    for (const f of DIFF_FIELDS) {
+      const prev = previous.metrics[f.key];
+      const curr = current.metrics[f.key];
+      const p = prev == null || !Number.isFinite(Number(prev)) ? null : Number(prev);
+      const c = curr == null || !Number.isFinite(Number(curr)) ? null : Number(curr);
+      if (p == null && c == null) continue;
+      rows.push({
+        key: f.key,
+        label: f.label,
+        previous: p,
+        current: c,
+        delta: p != null && c != null ? c - p : null,
+        unit: f.unit
+      });
+    }
+    return rows;
+  }
+
+  // src/export.ts
+  function csvEscape(value) {
+    if (value == null) return "";
+    const s = String(value);
+    if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  }
+  function toCsv(headers, rows) {
+    const lines = [headers.map(csvEscape).join(",")];
+    for (const row of rows) {
+      lines.push(row.map(csvEscape).join(","));
+    }
+    return lines.join("\n") + "\n";
+  }
+  function buildExportBundle(analysis) {
+    const snapshot = buildAnalysisSnapshot(analysis);
+    const signals = detectCrossSignals(analysis);
+    const data = analysis.data;
+    const csvFiles = [];
+    csvFiles.push({
+      filename: "summary_metrics.csv",
+      content: toCsv(
+        ["metric", "value"],
+        [
+          ["generatedAt", analysis.generatedAt],
+          ["dateStart", analysis.dateRange.start],
+          ["dateEnd", analysis.dateRange.end],
+          ...Object.entries(snapshot.metrics).map(([k, v]) => [k, v == null ? "" : v])
+        ]
+      )
+    });
+    if (analysis.cgmStats) {
+      const daily = analysis.cgmStats.daily;
+      csvFiles.push({
+        filename: "cgm_daily.csv",
+        content: toCsv(
+          ["date", "count", "mean", "min", "max", "cv", "pctBelow39", "pctAbove78", "pctAbove100"],
+          Object.keys(daily).sort().map((d) => {
+            const x = daily[d];
+            return [d, x.count, x.mean, x.min, x.max, x.cv, x.pctBelow39, x.pctAbove78, x.pctAbove100];
+          })
+        )
+      });
+    }
+    if (data.bloodPressure.length) {
+      csvFiles.push({
+        filename: "blood_pressure.csv",
+        content: toCsv(
+          ["datetime", "date", "systolic", "diastolic"],
+          data.bloodPressure.map((r) => [r.datetime, r.date, r.systolic, r.diastolic])
+        )
+      });
+    }
+    if (data.weight.length) {
+      csvFiles.push({
+        filename: "weight.csv",
+        content: toCsv(
+          ["datetime", "date", "value_kg"],
+          data.weight.map((w) => [w.datetime, w.date, w.value])
+        )
+      });
+    }
+    const hrvDates = Object.keys(analysis.hrvByDate || {}).sort();
+    if (hrvDates.length) {
+      csvFiles.push({
+        filename: "hrv_daily.csv",
+        content: toCsv(
+          ["date", "allMean", "overnightMean", "min", "max", "count"],
+          hrvDates.map((d) => {
+            const h = analysis.hrvByDate[d];
+            return [d, h.allMean, h.overnightMean, h.min, h.max, h.count];
+          })
+        )
+      });
+    }
+    const rest = analysis.restingHrByDate || data.restingHr || {};
+    const walk = analysis.walkingHrByDate || data.walkingHr || {};
+    const hrDates = Array.from(/* @__PURE__ */ new Set([...Object.keys(rest), ...Object.keys(walk)])).sort();
+    if (hrDates.length) {
+      csvFiles.push({
+        filename: "heart_rate.csv",
+        content: toCsv(
+          ["date", "resting", "walking"],
+          hrDates.map((d) => [d, rest[d] ?? "", walk[d] ?? ""])
+        )
+      });
+    }
+    const steps = analysis.stepsByDate || {};
+    const stepDates = Object.keys(steps).sort();
+    if (stepDates.length) {
+      csvFiles.push({
+        filename: "steps.csv",
+        content: toCsv(
+          ["date", "steps"],
+          stepDates.map((d) => [d, steps[d]])
+        )
+      });
+    }
+    const sleep = analysis.sleepByDate || data.sleep || {};
+    const sleepDates = Object.keys(sleep).sort();
+    if (sleepDates.length) {
+      csvFiles.push({
+        filename: "sleep.csv",
+        content: toCsv(
+          ["date", "total_h", "deep_h", "rem_h", "core_h", "awake_h"],
+          sleepDates.map((d) => {
+            const s = sleep[d];
+            return [d, s.total, s.deep, s.rem, s.core, s.awake];
+          })
+        )
+      });
+    }
+    if (signals.length) {
+      csvFiles.push({
+        filename: "cross_signals.csv",
+        content: toCsv(
+          ["severity", "date", "title", "detail", "dimensions"],
+          signals.map((s) => [s.severity, s.date || "", s.title, s.detail, s.dimensions.join("|")])
+        )
+      });
+    }
+    const analysisJson = JSON.stringify(
+      {
+        generatedAt: analysis.generatedAt,
+        dateRange: analysis.dateRange,
+        dataAvailability: data.dataAvailability,
+        cgmStats: analysis.cgmStats,
+        bpStats: analysis.bpStats ? {
+          mean7d: analysis.bpStats.mean7d,
+          mean14d: analysis.bpStats.mean14d,
+          mean30d: analysis.bpStats.mean30d,
+          lowest: analysis.bpStats.lowest,
+          highest: analysis.bpStats.highest,
+          records: analysis.bpStats.records
+        } : null,
+        hrvByDate: analysis.hrvByDate,
+        restingHrByDate: analysis.restingHrByDate,
+        walkingHrByDate: analysis.walkingHrByDate,
+        stepsByDate: analysis.stepsByDate,
+        sleepByDate: analysis.sleepByDate,
+        weight: data.weight,
+        cgm: data.cgm,
+        ecg: data.ecg,
+        signals,
+        snapshot
+      },
+      null,
+      2
+    );
+    return {
+      analysisJson,
+      snapshotJson: JSON.stringify(snapshot, null, 2),
+      csvFiles,
+      signals,
+      snapshot
+    };
+  }
+  function joinCsvBundle(csvFiles) {
+    return csvFiles.map((f) => `### ${f.filename}
+${f.content}`).join("\n");
+  }
   return __toCommonJS(browser_exports);
 })();
