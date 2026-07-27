@@ -465,7 +465,7 @@
     const source = document.querySelector('input[name="source"]:checked').value;
 
     show('step-progress');
-    setProgress(0, '准备解析...');
+    setProgress(0.02, '准备中…', { stage: 'read', hint: '正在准备读取文件…' });
 
     try {
       let xmlText = '';
@@ -476,10 +476,17 @@
         const zipFile = files.find(f => f.name.endsWith('.zip'));
         const xmlFile = files.find(f => f.name.endsWith('.xml'));
         if (zipFile) {
+          setProgress(0.04, '解压 ZIP…', {
+            stage: 'read',
+            hint: zipFile.size > 200 * 1024 * 1024
+              ? '文件较大（200MB+），解压与解析可能需要 30–90 秒…'
+              : '正在本机解压，不会上传…',
+          });
           const result = await extractXmlFromZipBrowser(zipFile);
           xmlBytes = result.xmlBytes;  // 直接使用字节流，避免 512MB 字符串限制
           ecgFiles = result.ecgEntries.map(e => ({ name: e.filename, _text: e.text }));
         } else if (xmlFile) {
+          setProgress(0.04, '读取 XML…', { stage: 'read' });
           xmlText = await readFileAsText(xmlFile);
         } else {
           throw new Error('请选择 .zip 包或 .xml 文件');
@@ -487,20 +494,29 @@
       } else if (source === 'xml_only') {
         const xmlFile = files.find(f => f.name.endsWith('.xml'));
         if (!xmlFile) throw new Error('未选择 XML 文件');
+        setProgress(0.04, '读取 XML…', { stage: 'read' });
         xmlText = await readFileAsText(xmlFile);
       } else if (source === 'folder') {
         const xmlFile = files.find(f => /export|导出/i.test(f.name) && f.name.endsWith('.xml'));
         if (!xmlFile) throw new Error('文件夹中未找到 export.xml 或 导出.xml');
+        setProgress(0.04, '读取文件夹…', { stage: 'read' });
         xmlText = await readFileAsText(xmlFile);
         // 收集 ECG 文件（electrocardiograms 目录或文件名含 ecg）
         ecgFiles = files.filter(f => f.name.endsWith('.csv') && (f.name.includes('ecg') || (f.webkitRelativePath || '').includes('electrocardiograms')));
       }
 
-      setProgress(0.05, '解析 XML 中（后台线程）...');
+      setProgress(0.08, '解析健康记录…', {
+        stage: 'parse',
+        hint: '优先在后台线程解析；失败时自动回退主线程…',
+      });
 
       // 可选日期范围（YYYY-MM-DD）；留空则不过滤
       const parseOptions = getDateFilterOptions();
-      parseOptions.onProgress = (p) => setProgress(0.05 + p * 0.7, `解析中... ${Math.round(p * 100)}%`);
+      parseOptions.onProgress = (p) =>
+        setProgress(0.08 + p * 0.72, `解析记录… ${Math.round(p * 100)}%`, {
+          stage: 'parse',
+          hint: p < 0.5 ? '正在扫描 Record…' : '后半段通常包含心率/活动等高频数据…',
+        });
 
       // Worker 优先；失败自动回退主线程
       let data;
@@ -543,14 +559,14 @@
         }
       }
 
-      setProgress(0.85, '生成统计中...');
+      setProgress(0.88, '生成统计与摘要…', { stage: 'stats', hint: '计算 KPI、晨重、CGM 稳定期与提示词…' });
       currentAnalysis = window.HealthAnalyzer.analyzeAll(data);
 
-      setProgress(1, '完成');
+      setProgress(1, '完成', { stage: 'done', hint: '即将展示监测概览…' });
       setTimeout(() => {
         hide('step-progress');
         renderResults(currentAnalysis);
-      }, 200);
+      }, 220);
 
     } catch (err) {
       setProgress(0, '错误: ' + err.message);
@@ -561,11 +577,19 @@
   }
 
   const PROGRESS_CARD_HTML = `
-      <h2><span class="step-num">2</span> 解析中</h2>
-      <div class="progress-bar">
+      <h2><span class="step-num">2</span> 正在分析</h2>
+      <p class="progress-lead">数据只在本机处理，不会上传。大文件可能需要几十秒，请保持页面打开。</p>
+      <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-bar">
         <div class="progress-fill" id="progress-fill"></div>
       </div>
       <p id="progress-text" class="progress-text">准备中...</p>
+      <p id="progress-hint" class="progress-hint">正在读取文件…</p>
+      <ol class="progress-stages" id="progress-stages">
+        <li data-stage="read">读取文件</li>
+        <li data-stage="parse">解析记录</li>
+        <li data-stage="stats">生成统计</li>
+        <li data-stage="done">完成</li>
+      </ol>
   `;
 
   function ensureProgressCard() {
@@ -576,12 +600,43 @@
     }
   }
 
-  function setProgress(ratio, text) {
+  function setProgressStage(stage) {
+    const stages = document.querySelectorAll('#progress-stages [data-stage]');
+    let hit = false;
+    stages.forEach((el) => {
+      const key = el.getAttribute('data-stage');
+      el.classList.remove('is-active', 'is-done');
+      if (key === stage) {
+        el.classList.add('is-active');
+        hit = true;
+      } else if (!hit) {
+        el.classList.add('is-done');
+      }
+    });
+  }
+
+  function setProgress(ratio, text, opts) {
     ensureProgressCard();
     const fill = $('progress-fill');
     const label = $('progress-text');
-    if (fill) fill.style.width = (ratio * 100) + '%';
+    const hint = $('progress-hint');
+    const bar = $('progress-bar');
+    const pct = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+    if (fill) fill.style.width = pct + '%';
+    if (bar) bar.setAttribute('aria-valuenow', String(pct));
     if (label) label.textContent = text;
+    if (hint) {
+      if (opts && opts.hint) hint.textContent = opts.hint;
+      else if (ratio < 0.05) hint.textContent = '正在读取与解压文件（ZIP 越大越慢）…';
+      else if (ratio < 0.75) hint.textContent = '正在扫描健康记录，可后台进行，请勿关闭页面…';
+      else if (ratio < 1) hint.textContent = '正在汇总指标与生成摘要…';
+      else hint.textContent = '即将展示结果…';
+    }
+    if (opts && opts.stage) setProgressStage(opts.stage);
+    else if (ratio < 0.05) setProgressStage('read');
+    else if (ratio < 0.85) setProgressStage('parse');
+    else if (ratio < 1) setProgressStage('stats');
+    else setProgressStage('done');
   }
 
   function showError(msg) {
@@ -718,6 +773,53 @@
     $('step-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  function navigateToInsight(anchor) {
+    const map = {
+      overview: { section: 'step-overview' },
+      summary: { section: 'step-summary' },
+      'summary-weight': { section: 'step-summary', panel: 'weight' },
+      'summary-cgm': { section: 'step-summary', panel: 'cgm' },
+      'summary-bp': { section: 'step-summary', panel: 'bp' },
+      'summary-hrv': { section: 'step-summary', panel: 'hrv' },
+      signals: { section: 'step-signals' },
+      charts: { section: 'step-charts' },
+      'charts-weight': { section: 'step-charts' },
+      'charts-cgm': { section: 'step-charts' },
+      prompt: { section: 'step-prompt' },
+    };
+    const target = map[anchor] || map.summary;
+    const section = $(target.section);
+    if (!section) return;
+    section.classList.remove('hidden');
+    if (target.panel) {
+      const acc = section.querySelector(`.summary-acc[data-panel="${target.panel}"]`);
+      if (acc) {
+        acc.open = true;
+        // 关闭同级其他折叠，减少干扰
+        section.querySelectorAll('.summary-acc').forEach((el) => {
+          if (el !== acc) el.open = false;
+        });
+      }
+    }
+    section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // 短暂高亮
+    section.classList.add('section-flash');
+    setTimeout(() => section.classList.remove('section-flash'), 1200);
+  }
+
+  function panelKeyFromTitle(title) {
+    const t = String(title || '');
+    if (/CGM|血糖/.test(t)) return 'cgm';
+    if (/血压/.test(t)) return 'bp';
+    if (/体重|体脂/.test(t)) return 'weight';
+    if (/HRV|心率变异/.test(t)) return 'hrv';
+    if (/静息|步行心率|心率/.test(t)) return 'hr';
+    if (/步数/.test(t)) return 'steps';
+    if (/睡眠/.test(t)) return 'sleep';
+    if (/ECG|心电/.test(t)) return 'ecg';
+    return 'other';
+  }
+
   function renderInsights(analysis) {
     const list = $('insight-list');
     if (!list) return;
@@ -736,15 +838,27 @@
       if (t === 'positive') return '积极';
       return '提示';
     };
-    list.innerHTML = bullets.map((b) => `
-      <li class="insight-item tone-${escapeHtml(b.tone || 'neutral')}">
+    list.innerHTML = bullets.map((b, idx) => `
+      <li class="insight-item tone-${escapeHtml(b.tone || 'neutral')} is-clickable" data-anchor="${escapeHtml(b.anchor || 'summary')}" data-idx="${idx}" role="button" tabindex="0">
         <div class="insight-meta">
           <span class="insight-badge">${toneLabel(b.tone)}</span>
+          <span class="insight-goto">查看详情 →</span>
         </div>
         <div class="insight-title">${escapeHtml(b.title)}</div>
         <p class="insight-detail">${escapeHtml(b.detail)}</p>
       </li>
     `).join('');
+
+    list.querySelectorAll('.insight-item[data-anchor]').forEach((el) => {
+      const go = () => navigateToInsight(el.getAttribute('data-anchor'));
+      el.addEventListener('click', go);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          go();
+        }
+      });
+    });
   }
 
   function renderKpis(analysis) {
@@ -1492,14 +1606,34 @@
       // 从块内 h3 抽标题
       const m = html.match(/<h3[^>]*>([\s\S]*?)<\/h3>/);
       const title = m ? m[1].replace(/<[^>]+>/g, '').trim() : `维度 ${idx + 1}`;
+      const panel = panelKeyFromTitle(title);
       const body = html.replace(/<h3[^>]*>[\s\S]*?<\/h3>/, '');
-      return `<details class="summary-acc"${open}><summary>${title}</summary><div class="summary-acc-body">${body}</div></details>`;
+      return `<details class="summary-acc" data-panel="${panel}"${open}><summary>${title}</summary><div class="summary-acc-body">${body}</div></details>`;
     }).join('')}</div>`;
   }
 
   // ============================================================
   // 提示词渲染
   // ============================================================
+
+  function updatePromptTrust(text) {
+    const badge = $('prompt-trust-badge');
+    const meta = $('prompt-trust-meta');
+    const tip = document.querySelector('#prompt-trust .trust-tip');
+    const len = (text || '').length;
+    const approx = len < 1000 ? `${len} 字` : `约 ${(len / 1000).toFixed(1)} 千字`;
+    if (meta) meta.textContent = approx;
+    if (currentPromptTab === 'full') {
+      if (badge) badge.textContent = '已含自动摘要';
+      if (tip) tip.textContent = '含：监测摘要 · 稳定期 CGM · 晨重 · 晨晚血压 · 跨维度提示';
+    } else if (currentPromptTab === 'data') {
+      if (badge) badge.textContent = '数据 + 摘要';
+      if (tip) tip.textContent = '无角色指令；适合自定义 system prompt';
+    } else {
+      if (badge) badge.textContent = '短系统提示';
+      if (tip) tip.textContent = '粘贴到 system 字段，再附数据摘要';
+    }
+  }
 
   function renderPrompt() {
     if (!currentAnalysis) return;
@@ -1512,7 +1646,9 @@
     } else {
       text = window.HealthAnalyzer.SHORT_SYSTEM_PROMPT;
     }
-    $('prompt-output').value = text;
+    const ta = $('prompt-output');
+    if (ta) ta.value = text;
+    updatePromptTrust(text);
   }
 
   document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1522,6 +1658,16 @@
       currentPromptTab = btn.dataset.tab;
       renderPrompt();
     });
+  });
+
+  $('btn-prompt-expand')?.addEventListener('click', () => {
+    const ta = $('prompt-output');
+    const btn = $('btn-prompt-expand');
+    if (!ta || !btn) return;
+    const willExpand = ta.classList.contains('is-collapsed');
+    ta.classList.toggle('is-collapsed', !willExpand);
+    btn.textContent = willExpand ? '收起预览' : '展开全部预览';
+    btn.setAttribute('aria-expanded', willExpand ? 'true' : 'false');
   });
 
   // 提示词区：复制当前标签内容

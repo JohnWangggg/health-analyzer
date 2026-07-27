@@ -171,12 +171,20 @@
     </section>
 
     <!-- 进度 -->
-    <section id="step-progress" class="card hidden" aria-live="polite">
-      <h2><span class="step-num">2</span> 解析中</h2>
-      <div class="progress-bar">
+    <section id="step-progress" class="card hidden progress-card" aria-live="polite">
+      <h2><span class="step-num">2</span> 正在分析</h2>
+      <p class="progress-lead">数据只在本机处理，不会上传。大文件可能需要几十秒，请保持页面打开。</p>
+      <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-bar">
         <div class="progress-fill" id="progress-fill"></div>
       </div>
       <p id="progress-text" class="progress-text">准备中...</p>
+      <p id="progress-hint" class="progress-hint">正在读取文件…</p>
+      <ol class="progress-stages" id="progress-stages" aria-hidden="true">
+        <li data-stage="read">读取文件</li>
+        <li data-stage="parse">解析记录</li>
+        <li data-stage="stats">生成统计</li>
+        <li data-stage="done">完成</li>
+      </ol>
     </section>
 
     <!-- 结果区顶栏导航（有结果时显示） -->
@@ -204,7 +212,7 @@
 
       <div class="insight-panel">
         <h3 class="subhead">先看这些</h3>
-        <p class="insight-lead">根据你的数据自动整理的监测要点（非诊断，需与原始数字核对）。</p>
+        <p class="insight-lead">点击任一条可跳到对应明细或提示，核对原始数字（非诊断）。</p>
         <ol id="insight-list" class="insight-list" aria-label="自动监测摘要"></ol>
       </div>
 
@@ -273,8 +281,14 @@
     <section id="step-prompt" class="card hidden result-section">
       <h2>大模型提示词</h2>
       <p class="hint compact-hint">
-        一键复制到豆包 / ChatGPT / Claude / Gemini。含自动摘要、稳定期 CGM、晨重与晨晚血压；无数据维度会跳过。
+        一键复制到豆包 / ChatGPT / Claude / Gemini。无数据维度会跳过。
       </p>
+
+      <div class="prompt-trust" id="prompt-trust" aria-live="polite">
+        <span class="trust-badge" id="prompt-trust-badge">已含自动摘要</span>
+        <span class="trust-meta" id="prompt-trust-meta">约 — 字</span>
+        <span class="trust-tip">含：监测摘要 · 稳定期 CGM · 晨重 · 晨晚血压 · 跨维度提示</span>
+      </div>
 
       <div class="prompt-tabs" role="tablist">
         <button type="button" class="tab-btn active" data-tab="full" role="tab" aria-selected="true">完整提示词</button>
@@ -283,7 +297,8 @@
       </div>
 
       <div class="prompt-container">
-        <textarea id="prompt-output" readonly aria-label="提示词内容"></textarea>
+        <textarea id="prompt-output" class="prompt-output is-collapsed" readonly aria-label="提示词内容"></textarea>
+        <button type="button" id="btn-prompt-expand" class="btn-ghost btn-prompt-expand">展开全部预览</button>
         <div class="prompt-actions">
           <button type="button" id="btn-copy" class="btn-primary">复制到剪贴板</button>
           <button type="button" id="btn-download" class="btn-secondary">下载 .md</button>
@@ -315,7 +330,7 @@
   </main>
 
   <footer class="app-footer">
-    <p>开源 · 本地优先 · v1.7</p>
+    <p>开源 · 本地优先 · v1.8</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" aria-label="快捷操作">

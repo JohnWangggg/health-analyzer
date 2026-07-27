@@ -912,7 +912,8 @@ var HealthAnalyzer = (() => {
       bullets.push({
         tone: "neutral",
         title: "\u6570\u636E\u8986\u76D6",
-        detail: `\u672C\u6B21\u53EF\u7528\u8BB0\u5F55\u7EA6 ${range.start} \u81F3 ${range.end}\u3002\u5B8C\u6574\u660E\u7EC6\u9ED8\u8BA4\u53EA\u5728\u672C\u9875\u5185\u5B58\uFF0C\u5237\u65B0\u9700\u91CD\u65B0\u4E0A\u4F20\u3002`
+        detail: `\u672C\u6B21\u53EF\u7528\u8BB0\u5F55\u7EA6 ${range.start} \u81F3 ${range.end}\u3002\u5B8C\u6574\u660E\u7EC6\u9ED8\u8BA4\u53EA\u5728\u672C\u9875\u5185\u5B58\uFF0C\u5237\u65B0\u9700\u91CD\u65B0\u4E0A\u4F20\u3002`,
+        anchor: "overview"
       });
     }
     const ws = analysis.weightStats;
@@ -923,7 +924,8 @@ var HealthAnalyzer = (() => {
       bullets.push({
         tone,
         title: "\u4F53\u91CD\u8D8B\u52BF\uFF08\u6668\u8D77\uFF09",
-        detail: `\u6700\u65B0\u8D8B\u52BF ${ws.latestTrend.weight.toFixed(1)} kg\uFF08${ws.latestTrend.date}\uFF09\uFF0C\u76F8\u5BF9\u6700\u65E9 ${ws.earliestTrend.weight.toFixed(1)} kg \u53D8\u5316 ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} kg${fat}\u3002\u8D8B\u52BF\u6309\u6BCF\u65E5\u6668\u8D77\u91CD\uFF0C\u907F\u514D\u665A\u95F4\u6CE2\u52A8\u5E72\u6270\u3002`
+        detail: `\u6700\u65B0\u8D8B\u52BF ${ws.latestTrend.weight.toFixed(1)} kg\uFF08${ws.latestTrend.date}\uFF09\uFF0C\u76F8\u5BF9\u6700\u65E9 ${ws.earliestTrend.weight.toFixed(1)} kg \u53D8\u5316 ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} kg${fat}\u3002\u8D8B\u52BF\u6309\u6BCF\u65E5\u6668\u8D77\u91CD\uFF0C\u907F\u514D\u665A\u95F4\u6CE2\u52A8\u5E72\u6270\u3002`,
+        anchor: "summary-weight"
       });
     }
     if (analysis.cgmStats) {
@@ -939,7 +941,7 @@ var HealthAnalyzer = (() => {
         detail += ` \u9996\u65E5 ${analysis.cgmStats.firstDayDate} \u4F4E\u503C\u504F\u591A\uFF08<3.9 ${fd.pctBelow39.toFixed(1)}%\uFF09\uFF0C\u89E3\u8BFB\u8BF7\u4EE5\u7A33\u5B9A\u671F\u4E3A\u51C6\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`;
         if (tone === "positive") tone = "neutral";
       }
-      bullets.push({ tone, title: "\u8840\u7CD6\uFF08CGM\uFF09", detail });
+      bullets.push({ tone, title: "\u8840\u7CD6\uFF08CGM\uFF09", detail, anchor: "summary-cgm" });
     }
     if (analysis.bpStats?.mean7d) {
       const m = analysis.bpStats.mean7d;
@@ -955,7 +957,7 @@ var HealthAnalyzer = (() => {
       if (morn && eve) {
         detail += ` \u6668\u95F4\u7EA6 ${morn.systolic.toFixed(0)}/${morn.diastolic.toFixed(0)}\uFF0C\u665A\u95F4\u7EA6 ${eve.systolic.toFixed(0)}/${eve.diastolic.toFixed(0)}\u3002`;
       }
-      bullets.push({ tone, title: "\u8840\u538B", detail });
+      bullets.push({ tone, title: "\u8840\u538B", detail, anchor: "summary-bp" });
     }
     const hrvDates = Object.keys(analysis.hrvByDate || {}).sort();
     if (hrvDates.length) {
@@ -972,7 +974,8 @@ var HealthAnalyzer = (() => {
         bullets.push({
           tone,
           title: "\u6062\u590D\uFF08HRV / \u9759\u606F\u5FC3\u7387\uFF09",
-          detail: `\u8FD1 7 \u65E5 HRV \u5168\u5929\u5747\u503C\u7EA6 ${hrvAvg.toFixed(1)} ms` + (rhrAvg != null ? `\uFF0C\u9759\u606F\u5FC3\u7387\u7EA6 ${rhrAvg.toFixed(0)} bpm` : "") + "\u3002\u6570\u503C\u53D7\u7761\u7720\u3001\u8BAD\u7EC3\u4E0E\u75BE\u75C5\u5F71\u54CD\uFF0C\u5355\u65E5\u6CE2\u52A8\u4E0D\u5FC5\u8FC7\u5EA6\u89E3\u8BFB\u3002"
+          detail: `\u8FD1 7 \u65E5 HRV \u5168\u5929\u5747\u503C\u7EA6 ${hrvAvg.toFixed(1)} ms` + (rhrAvg != null ? `\uFF0C\u9759\u606F\u5FC3\u7387\u7EA6 ${rhrAvg.toFixed(0)} bpm` : "") + "\u3002\u6570\u503C\u53D7\u7761\u7720\u3001\u8BAD\u7EC3\u4E0E\u75BE\u75C5\u5F71\u54CD\uFF0C\u5355\u65E5\u6CE2\u52A8\u4E0D\u5FC5\u8FC7\u5EA6\u89E3\u8BFB\u3002",
+          anchor: "summary-hrv"
         });
       }
     }
@@ -982,7 +985,8 @@ var HealthAnalyzer = (() => {
       bullets.push({
         tone: toneFromSeverity(s.severity),
         title: s.title,
-        detail: s.detail
+        detail: s.detail,
+        anchor: "signals"
       });
     }
     const seen = /* @__PURE__ */ new Set();

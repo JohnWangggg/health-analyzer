@@ -7,10 +7,26 @@ import { detectCrossSignals } from './signals';
 
 export type InsightTone = 'positive' | 'neutral' | 'watch' | 'alert';
 
+/** 前端跳转目标：section 或 section+panel */
+export type InsightAnchor =
+  | 'overview'
+  | 'summary'
+  | 'summary-weight'
+  | 'summary-cgm'
+  | 'summary-bp'
+  | 'summary-hrv'
+  | 'signals'
+  | 'charts'
+  | 'charts-weight'
+  | 'charts-cgm'
+  | 'prompt';
+
 export interface InsightBullet {
   tone: InsightTone;
   title: string;
   detail: string;
+  /** 点击摘要时滚动/展开的目标 */
+  anchor?: InsightAnchor;
 }
 
 function toneFromSeverity(sev: string): InsightTone {
@@ -32,6 +48,7 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
       tone: 'neutral',
       title: '数据覆盖',
       detail: `本次可用记录约 ${range.start} 至 ${range.end}。完整明细默认只在本页内存，刷新需重新上传。`,
+      anchor: 'overview',
     });
   }
 
@@ -49,6 +66,7 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
       tone,
       title: '体重趋势（晨起）',
       detail: `最新趋势 ${ws.latestTrend.weight.toFixed(1)} kg（${ws.latestTrend.date}），相对最早 ${ws.earliestTrend.weight.toFixed(1)} kg 变化 ${delta >= 0 ? '+' : ''}${delta.toFixed(1)} kg${fat}。趋势按每日晨起重，避免晚间波动干扰。`,
+      anchor: 'summary-weight',
     });
   }
 
@@ -67,7 +85,7 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
       detail += ` 首日 ${analysis.cgmStats.firstDayDate} 低值偏多（<3.9 ${fd.pctBelow39.toFixed(1)}%），解读请以稳定期为准并指尖血复核可疑时段。`;
       if (tone === 'positive') tone = 'neutral';
     }
-    bullets.push({ tone, title: '血糖（CGM）', detail });
+    bullets.push({ tone, title: '血糖（CGM）', detail, anchor: 'summary-cgm' });
   }
 
   // 血压晨晚
@@ -86,7 +104,7 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
     if (morn && eve) {
       detail += ` 晨间约 ${morn.systolic.toFixed(0)}/${morn.diastolic.toFixed(0)}，晚间约 ${eve.systolic.toFixed(0)}/${eve.diastolic.toFixed(0)}。`;
     }
-    bullets.push({ tone, title: '血压', detail });
+    bullets.push({ tone, title: '血压', detail, anchor: 'summary-bp' });
   }
 
   // 恢复：HRV + RHR 近 7 日
@@ -117,6 +135,7 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
           `近 7 日 HRV 全天均值约 ${hrvAvg.toFixed(1)} ms` +
           (rhrAvg != null ? `，静息心率约 ${rhrAvg.toFixed(0)} bpm` : '') +
           '。数值受睡眠、训练与疾病影响，单日波动不必过度解读。',
+        anchor: 'summary-hrv',
       });
     }
   }
@@ -129,6 +148,7 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
       tone: toneFromSeverity(s.severity),
       title: s.title,
       detail: s.detail,
+      anchor: 'signals',
     });
   }
 
