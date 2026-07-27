@@ -165,6 +165,26 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
   sections.push(`| ECG | ${av.hasEcg ? '✅' : '❌'} | ${data.ecg.length} 份 |`);
   sections.push(``);
   sections.push(`数据时间范围：${dateRange.start} 至 ${dateRange.end}`);
+  const dq = data.dataQuality;
+  if (dq && dq.skippedFutureCount > 0) {
+    sections.push(``);
+    sections.push(`### 数据质量提示（未来日期已排除）`);
+    sections.push(``);
+    sections.push(
+      `- 参考日（本地「今天」）：\`${dq.referenceDate}\``
+    );
+    sections.push(
+      `- 已跳过 **${dq.skippedFutureCount}** 条起始日期晚于参考日的记录（常见于误录的未来体重等）`
+    );
+    if (dq.futureSampleDates && dq.futureSampleDates.length) {
+      sections.push(
+        `- 见到的未来日期样本：${dq.futureSampleDates.map((d) => `\`${d}\``).join('、')}`
+      );
+    }
+    sections.push(
+      `- 请在 iPhone「健康」App 中核对并删除错误未来条目；本报告统计**不包含**这些未来记录`
+    );
+  }
   sections.push(``);
 
   // CGM

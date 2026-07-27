@@ -40,6 +40,16 @@ export interface WeightRecord {
   bmi?: number;
 }
 
+/** 解析期数据质量提示（如误录的未来日期） */
+export interface DataQualityInfo {
+  /** 用于判定「未来」的参考日 YYYY-MM-DD（通常为本地今天） */
+  referenceDate: string;
+  /** 因日期晚于 referenceDate 而跳过的 Record 条数 */
+  skippedFutureCount: number;
+  /** 见到的未来日期样本（去重，最多若干条，便于提示） */
+  futureSampleDates: string[];
+}
+
 export interface HealthData {
   cgm: CgmPoint[];
   bloodPressure: BloodPressureRecord[];
@@ -58,6 +68,7 @@ export interface HealthData {
   }>;
   ecg: ERecordSummary[];
   dataAvailability: DataAvailability;
+  dataQuality: DataQualityInfo;
 }
 
 export interface ERecordSummary {

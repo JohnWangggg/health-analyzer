@@ -913,6 +913,25 @@ body.has-results {
   margin: 0 0 14px;
 }
 
+.quality-banner {
+  background: var(--signal-watch-bg);
+  border: 1px solid var(--signal-watch-border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.quality-banner strong {
+  color: var(--primary-dark);
+}
+
+.quality-banner p {
+  margin: 6px 0 0;
+}
+
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));

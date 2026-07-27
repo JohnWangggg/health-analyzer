@@ -26,6 +26,30 @@ export function parseAppleDate(dt: string): number {
   return Date.parse(normalized);
 }
 
+/** 本地日历「今天」YYYY-MM-DD（用于排除误录的未来日期） */
+export function getLocalToday(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+const MAX_FUTURE_SAMPLES = 8;
+
+function noteSkippedFuture(data: HealthData, date: string): void {
+  data.dataQuality.skippedFutureCount += 1;
+  const samples = data.dataQuality.futureSampleDates;
+  if (!samples.includes(date) && samples.length < MAX_FUTURE_SAMPLES) {
+    samples.push(date);
+    samples.sort();
+  }
+}
+
+/** 日期是否晚于参考日（均 YYYY-MM-DD 字符串比较） */
+export function isFutureDate(date: string, referenceDate: string): boolean {
+  return Boolean(date && referenceDate && date > referenceDate);
+}
+
 /**
  * 解析单个 Record 行的属性
  */
@@ -60,7 +84,8 @@ function getBpMap(data: HealthData): Map<string, BloodPressureRecord> {
 }
 
 /** 创建空的 HealthData 容器 */
-export function createEmptyData(): HealthData {
+export function createEmptyData(referenceDate?: string): HealthData {
+  const ref = referenceDate || getLocalToday();
   const data: HealthData = {
     cgm: [],
     bloodPressure: [],
@@ -82,9 +107,26 @@ export function createEmptyData(): HealthData {
       hasSleep: false,
       hasEcg: false,
     },
+    dataQuality: {
+      referenceDate: ref,
+      skippedFutureCount: 0,
+      futureSampleDates: [],
+    },
   };
   bpMaps.set(data, new Map());
   return data;
+}
+
+export interface ProcessRecordOptions {
+  startDate?: string;
+  endDate?: string;
+  /**
+   * 是否保留未来日期记录。默认 false：跳过 startDate 的日历日晚于 referenceDate 的记录。
+   * 用于过滤健康 App 中误录的未来体重等。
+   */
+  allowFuture?: boolean;
+  /** 判定「今天」的参考日 YYYY-MM-DD；默认本地今天 */
+  referenceDate?: string;
 }
 
 /**
@@ -93,14 +135,47 @@ export function createEmptyData(): HealthData {
 export function processRecord(
   rec: RawRecord,
   data: HealthData,
-  startDate?: string,
-  endDate?: string
+  startDateOrOptions?: string | ProcessRecordOptions,
+  endDateMaybe?: string
 ): void {
+  // 兼容旧签名 processRecord(rec, data, startDate?, endDate?)
+  let startDate: string | undefined;
+  let endDate: string | undefined;
+  let allowFuture = false;
+  let referenceDate = data.dataQuality?.referenceDate || getLocalToday();
+
+  if (startDateOrOptions && typeof startDateOrOptions === 'object') {
+    startDate = startDateOrOptions.startDate;
+    endDate = startDateOrOptions.endDate;
+    allowFuture = Boolean(startDateOrOptions.allowFuture);
+    if (startDateOrOptions.referenceDate) {
+      referenceDate = startDateOrOptions.referenceDate;
+    }
+  } else {
+    startDate = startDateOrOptions;
+    endDate = endDateMaybe;
+  }
+
+  // 确保 dataQuality 存在（旧数据/测试桩）
+  if (!data.dataQuality) {
+    data.dataQuality = {
+      referenceDate,
+      skippedFutureCount: 0,
+      futureSampleDates: [],
+    };
+  }
+
   const rdate = rec.startDate;
   const date = getDate(rdate);
 
   if (startDate && date < startDate) return;
   if (endDate && date > endDate) return;
+
+  // 默认丢弃未来日期（误操作录入的远期体重等）
+  if (!allowFuture && isFutureDate(date, referenceDate)) {
+    noteSkippedFuture(data, date);
+    return;
+  }
 
   const numericValue = Number.parseFloat(rec.value);
   if (!Number.isFinite(numericValue) && rec.type !== 'HKCategoryTypeIdentifierSleepAnalysis') {
@@ -216,6 +291,10 @@ export interface ParseHealthXmlOptions {
   startDate?: string; // YYYY-MM-DD
   endDate?: string;
   onProgress?: (progress: number) => void;
+  /** 默认 false：排除日历日晚于 referenceDate 的记录 */
+  allowFuture?: boolean;
+  /** 判定「今天」YYYY-MM-DD；默认本地今天；单测可注入 */
+  referenceDate?: string;
 }
 
 /**
@@ -225,8 +304,14 @@ export function parseHealthXml(
   xmlText: string,
   options: ParseHealthXmlOptions = {}
 ): HealthData {
-  const { startDate, endDate, onProgress } = options;
-  const data = createEmptyData();
+  const { startDate, endDate, onProgress, allowFuture, referenceDate } = options;
+  const data = createEmptyData(referenceDate);
+  const recOpts: ProcessRecordOptions = {
+    startDate,
+    endDate,
+    allowFuture,
+    referenceDate: data.dataQuality.referenceDate,
+  };
   const lines = xmlText.split('\n');
   const total = lines.length;
   const reportEvery = Math.max(1, Math.floor(total / 100));
@@ -238,7 +323,7 @@ export function parseHealthXml(
     const rec = parseRecordLine(line);
     if (!rec || rec.value === '') continue;
 
-    processRecord(rec, data, startDate, endDate);
+    processRecord(rec, data, recOpts);
 
     if (onProgress && i % reportEvery === 0) {
       onProgress(i / total);
@@ -373,13 +458,19 @@ export async function parseHealthXmlAsync(
   source: string | Uint8Array | ArrayBuffer,
   options: ParseHealthXmlOptions = {}
 ): Promise<HealthData> {
-  const { startDate, endDate, onProgress } = options;
-  const data = createEmptyData();
+  const { startDate, endDate, onProgress, allowFuture, referenceDate } = options;
+  const data = createEmptyData(referenceDate);
+  const recOpts: ProcessRecordOptions = {
+    startDate,
+    endDate,
+    allowFuture,
+    referenceDate: data.dataQuality.referenceDate,
+  };
 
   await parseXmlStream(
     source,
     (rec) => {
-      processRecord(rec, data, startDate, endDate);
+      processRecord(rec, data, recOpts);
     },
     onProgress
   );

@@ -18,6 +18,8 @@ export {
   getHour,
   parseRecordLine,
   parseAppleDate,
+  getLocalToday,
+  isFutureDate,
 } from './parser';
 
 export {

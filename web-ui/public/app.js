@@ -510,29 +510,34 @@
         data = await parseHealthData(xmlText, parseOptions);
       }
 
-      // 解析 ECG
+      // 解析 ECG（同样排除未来日期）
+      const ingestEcg = (summary) => {
+        if (!ecgWithinDateFilter(summary, parseOptions)) {
+          const raw = summary && summary.datetime ? String(summary.datetime).slice(0, 10) : '';
+          const ref =
+            parseOptions.referenceDate ||
+            (window.HealthAnalyzer.getLocalToday && window.HealthAnalyzer.getLocalToday());
+          if (ref && raw > ref) noteEcgSkippedFuture(data, summary);
+          return;
+        }
+        data.ecg.push(summary);
+        data.dataAvailability.hasEcg = true;
+      };
+
       if (ecgFiles.length > 0) {
         for (const f of ecgFiles) {
           try {
-            // 如果是从 ZIP 解出来的，已经有 _text
             const text = f._text || await readFileAsText(f);
-            const summary = window.HealthAnalyzer.parseEcgCsv(text);
-            if (!ecgWithinDateFilter(summary, parseOptions)) continue;
-            data.ecg.push(summary);
-            data.dataAvailability.hasEcg = true;
+            ingestEcg(window.HealthAnalyzer.parseEcgCsv(text));
           } catch (e) { /* ignore */ }
         }
       } else {
-        // 即使没有 ECG CSV，也检查文件夹中所有 .csv
         const allCsv = files.filter(f => f.name.endsWith('.csv'));
         for (const f of allCsv) {
           try {
             const text = await readFileAsText(f);
             if (text.includes('分类') && text.includes('记录日期')) {
-              const summary = window.HealthAnalyzer.parseEcgCsv(text);
-              if (!ecgWithinDateFilter(summary, parseOptions)) continue;
-              data.ecg.push(summary);
-              data.dataAvailability.hasEcg = true;
+              ingestEcg(window.HealthAnalyzer.parseEcgCsv(text));
             }
           } catch (e) { /* ignore */ }
         }
@@ -1036,7 +1041,33 @@
     }
   }
 
+  function renderDataQualityBanner(analysis) {
+    const host = $('data-quality-banner');
+    if (!host) return;
+    const dq = analysis && analysis.data && analysis.data.dataQuality;
+    if (!dq || !dq.skippedFutureCount) {
+      host.innerHTML = '';
+      host.classList.add('hidden');
+      return;
+    }
+    const samples = (dq.futureSampleDates || []).slice(0, 5).join('、') || '（未列出）';
+    host.classList.remove('hidden');
+    host.innerHTML = `
+      <div class="quality-banner" role="status">
+        <strong>已排除未来日期数据</strong>
+        <p>
+          参考日 <code>${escapeHtml(dq.referenceDate)}</code> 之后共跳过
+          <strong>${dq.skippedFutureCount}</strong> 条记录
+          （日期样本：${escapeHtml(samples)}）。
+          常见原因是健康 App 中误录了未来体重等；请到手机「健康」中删除错误条目。
+          统计、图表与提示词均<strong>不含</strong>这些未来记录。
+        </p>
+      </div>
+    `;
+  }
+
   function renderAvailability(analysis) {
+    renderDataQualityBanner(analysis);
     const av = analysis.data.dataAvailability;
     const grid = $('availability-grid');
     const items = [
@@ -1092,13 +1123,44 @@
 
   /** ECG 记录日期是否在可选过滤范围内（无日期字段则保留） */
   function ecgWithinDateFilter(summary, opts) {
-    if (!opts || (!opts.startDate && !opts.endDate)) return true;
     const raw = (summary && summary.datetime) ? String(summary.datetime) : '';
     const date = raw.slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return true;
-    if (opts.startDate && date < opts.startDate) return false;
-    if (opts.endDate && date > opts.endDate) return false;
+    if (opts) {
+      if (opts.startDate && date < opts.startDate) return false;
+      if (opts.endDate && date > opts.endDate) return false;
+    }
+    // 与解析器一致：默认排除未来日期 ECG
+    const ref =
+      (opts && opts.referenceDate) ||
+      (window.HealthAnalyzer && typeof window.HealthAnalyzer.getLocalToday === 'function'
+        ? window.HealthAnalyzer.getLocalToday()
+        : null);
+    if (ref && date > ref) return false;
     return true;
+  }
+
+  function noteEcgSkippedFuture(data, summary) {
+    if (!data) return;
+    if (!data.dataQuality) {
+      data.dataQuality = {
+        referenceDate:
+          (window.HealthAnalyzer && window.HealthAnalyzer.getLocalToday
+            ? window.HealthAnalyzer.getLocalToday()
+            : '') || '',
+        skippedFutureCount: 0,
+        futureSampleDates: [],
+      };
+    }
+    const raw = summary && summary.datetime ? String(summary.datetime) : '';
+    const date = raw.slice(0, 10);
+    data.dataQuality.skippedFutureCount += 1;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && !data.dataQuality.futureSampleDates.includes(date)) {
+      if (data.dataQuality.futureSampleDates.length < 8) {
+        data.dataQuality.futureSampleDates.push(date);
+        data.dataQuality.futureSampleDates.sort();
+      }
+    }
   }
 
   function renderSummary(analysis) {

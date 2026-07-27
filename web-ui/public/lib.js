@@ -46,6 +46,8 @@ var HealthAnalyzer = (() => {
     generateLLMPrompt: () => generateLLMPrompt,
     getDate: () => getDate,
     getHour: () => getHour,
+    getLocalToday: () => getLocalToday,
+    isFutureDate: () => isFutureDate,
     joinCsvBundle: () => joinCsvBundle,
     parseAppleDate: () => parseAppleDate,
     parseBytesStream: () => parseBytesStream,
@@ -68,6 +70,24 @@ var HealthAnalyzer = (() => {
   function parseAppleDate(dt) {
     const normalized = dt.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
     return Date.parse(normalized);
+  }
+  function getLocalToday(now = /* @__PURE__ */ new Date()) {
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  var MAX_FUTURE_SAMPLES = 8;
+  function noteSkippedFuture(data, date) {
+    data.dataQuality.skippedFutureCount += 1;
+    const samples = data.dataQuality.futureSampleDates;
+    if (!samples.includes(date) && samples.length < MAX_FUTURE_SAMPLES) {
+      samples.push(date);
+      samples.sort();
+    }
+  }
+  function isFutureDate(date, referenceDate) {
+    return Boolean(date && referenceDate && date > referenceDate);
   }
   function parseRecordLine(line) {
     const attr = (name) => {
@@ -94,7 +114,8 @@ var HealthAnalyzer = (() => {
     }
     return map;
   }
-  function createEmptyData() {
+  function createEmptyData(referenceDate) {
+    const ref = referenceDate || getLocalToday();
     const data = {
       cgm: [],
       bloodPressure: [],
@@ -115,16 +136,47 @@ var HealthAnalyzer = (() => {
         hasSteps: false,
         hasSleep: false,
         hasEcg: false
+      },
+      dataQuality: {
+        referenceDate: ref,
+        skippedFutureCount: 0,
+        futureSampleDates: []
       }
     };
     bpMaps.set(data, /* @__PURE__ */ new Map());
     return data;
   }
-  function processRecord(rec, data, startDate, endDate) {
+  function processRecord(rec, data, startDateOrOptions, endDateMaybe) {
+    let startDate;
+    let endDate;
+    let allowFuture = false;
+    let referenceDate = data.dataQuality?.referenceDate || getLocalToday();
+    if (startDateOrOptions && typeof startDateOrOptions === "object") {
+      startDate = startDateOrOptions.startDate;
+      endDate = startDateOrOptions.endDate;
+      allowFuture = Boolean(startDateOrOptions.allowFuture);
+      if (startDateOrOptions.referenceDate) {
+        referenceDate = startDateOrOptions.referenceDate;
+      }
+    } else {
+      startDate = startDateOrOptions;
+      endDate = endDateMaybe;
+    }
+    if (!data.dataQuality) {
+      data.dataQuality = {
+        referenceDate,
+        skippedFutureCount: 0,
+        futureSampleDates: []
+      };
+    }
     const rdate = rec.startDate;
     const date = getDate(rdate);
     if (startDate && date < startDate) return;
     if (endDate && date > endDate) return;
+    if (!allowFuture && isFutureDate(date, referenceDate)) {
+      noteSkippedFuture(data, date);
+      return;
+    }
     const numericValue = Number.parseFloat(rec.value);
     if (!Number.isFinite(numericValue) && rec.type !== "HKCategoryTypeIdentifierSleepAnalysis") {
       return;
@@ -223,8 +275,14 @@ var HealthAnalyzer = (() => {
     data.weight.sort((a, b) => a.datetime.localeCompare(b.datetime));
   }
   function parseHealthXml(xmlText, options = {}) {
-    const { startDate, endDate, onProgress } = options;
-    const data = createEmptyData();
+    const { startDate, endDate, onProgress, allowFuture, referenceDate } = options;
+    const data = createEmptyData(referenceDate);
+    const recOpts = {
+      startDate,
+      endDate,
+      allowFuture,
+      referenceDate: data.dataQuality.referenceDate
+    };
     const lines = xmlText.split("\n");
     const total = lines.length;
     const reportEvery = Math.max(1, Math.floor(total / 100));
@@ -233,7 +291,7 @@ var HealthAnalyzer = (() => {
       if (line.indexOf("<Record ") === -1 && line.indexOf("<Record	") === -1) continue;
       const rec = parseRecordLine(line);
       if (!rec || rec.value === "") continue;
-      processRecord(rec, data, startDate, endDate);
+      processRecord(rec, data, recOpts);
       if (onProgress && i % reportEvery === 0) {
         onProgress(i / total);
       }
@@ -316,12 +374,18 @@ var HealthAnalyzer = (() => {
     return parseBytesStream(source, onRecord, onProgress);
   }
   async function parseHealthXmlAsync(source, options = {}) {
-    const { startDate, endDate, onProgress } = options;
-    const data = createEmptyData();
+    const { startDate, endDate, onProgress, allowFuture, referenceDate } = options;
+    const data = createEmptyData(referenceDate);
+    const recOpts = {
+      startDate,
+      endDate,
+      allowFuture,
+      referenceDate: data.dataQuality.referenceDate
+    };
     await parseXmlStream(
       source,
       (rec) => {
-        processRecord(rec, data, startDate, endDate);
+        processRecord(rec, data, recOpts);
       },
       onProgress
     );
@@ -844,6 +908,26 @@ var HealthAnalyzer = (() => {
     sections.push(`| ECG | ${av.hasEcg ? "\u2705" : "\u274C"} | ${data.ecg.length} \u4EFD |`);
     sections.push(``);
     sections.push(`\u6570\u636E\u65F6\u95F4\u8303\u56F4\uFF1A${dateRange.start} \u81F3 ${dateRange.end}`);
+    const dq = data.dataQuality;
+    if (dq && dq.skippedFutureCount > 0) {
+      sections.push(``);
+      sections.push(`### \u6570\u636E\u8D28\u91CF\u63D0\u793A\uFF08\u672A\u6765\u65E5\u671F\u5DF2\u6392\u9664\uFF09`);
+      sections.push(``);
+      sections.push(
+        `- \u53C2\u8003\u65E5\uFF08\u672C\u5730\u300C\u4ECA\u5929\u300D\uFF09\uFF1A\`${dq.referenceDate}\``
+      );
+      sections.push(
+        `- \u5DF2\u8DF3\u8FC7 **${dq.skippedFutureCount}** \u6761\u8D77\u59CB\u65E5\u671F\u665A\u4E8E\u53C2\u8003\u65E5\u7684\u8BB0\u5F55\uFF08\u5E38\u89C1\u4E8E\u8BEF\u5F55\u7684\u672A\u6765\u4F53\u91CD\u7B49\uFF09`
+      );
+      if (dq.futureSampleDates && dq.futureSampleDates.length) {
+        sections.push(
+          `- \u89C1\u5230\u7684\u672A\u6765\u65E5\u671F\u6837\u672C\uFF1A${dq.futureSampleDates.map((d) => `\`${d}\``).join("\u3001")}`
+        );
+      }
+      sections.push(
+        `- \u8BF7\u5728 iPhone\u300C\u5065\u5EB7\u300DApp \u4E2D\u6838\u5BF9\u5E76\u5220\u9664\u9519\u8BEF\u672A\u6765\u6761\u76EE\uFF1B\u672C\u62A5\u544A\u7EDF\u8BA1**\u4E0D\u5305\u542B**\u8FD9\u4E9B\u672A\u6765\u8BB0\u5F55`
+      );
+    }
     sections.push(``);
     if (cgmStats) {
       sections.push(`## CGM \u52A8\u6001\u8840\u7CD6`);
