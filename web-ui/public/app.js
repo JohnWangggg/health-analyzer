@@ -12,6 +12,7 @@
   let currentAnalysis = null;
   let currentPromptTab = 'full';
   let deferredInstallPrompt = null;
+  const CTX_STORAGE_KEY = 'health-analyzer-user-context-v1';
 
   // ============================================================
   // 添加到主屏幕引导
@@ -66,6 +67,203 @@
   });
 
   showInstallGuide();
+
+  // ============================================================
+  // 个人背景（localStorage，仅本机）
+  // ============================================================
+
+  function getUserContextFromForm() {
+    const num = (id) => {
+      const el = $(id);
+      if (!el || el.value === '' || el.value == null) return null;
+      const n = Number(el.value);
+      return Number.isFinite(n) ? n : null;
+    };
+    const text = (id) => {
+      const el = $(id);
+      if (!el) return '';
+      return String(el.value || '').trim();
+    };
+    return {
+      age: num('ctx-age'),
+      sex: text('ctx-sex') || null,
+      heightCm: num('ctx-height'),
+      targetWeightKg: num('ctx-target-weight'),
+      medications: text('ctx-medications') || null,
+      conditions: text('ctx-conditions') || null,
+      focus: text('ctx-focus') || null,
+      notes: text('ctx-notes') || null,
+    };
+  }
+
+  function applyUserContextToForm(ctx) {
+    if (!ctx) return;
+    const set = (id, v) => {
+      const el = $(id);
+      if (!el) return;
+      el.value = v == null || v === '' ? '' : String(v);
+    };
+    set('ctx-age', ctx.age);
+    set('ctx-sex', ctx.sex);
+    set('ctx-height', ctx.heightCm);
+    set('ctx-target-weight', ctx.targetWeightKg);
+    set('ctx-medications', ctx.medications);
+    set('ctx-conditions', ctx.conditions);
+    set('ctx-focus', ctx.focus);
+    set('ctx-notes', ctx.notes);
+  }
+
+  function loadUserContext() {
+    try {
+      const raw = window.localStorage.getItem(CTX_STORAGE_KEY);
+      if (!raw) return;
+      applyUserContextToForm(JSON.parse(raw));
+    } catch (e) { /* ignore */ }
+  }
+
+  function saveUserContext() {
+    const ctx = getUserContextFromForm();
+    try {
+      window.localStorage.setItem(CTX_STORAGE_KEY, JSON.stringify(ctx));
+      const status = $('ctx-status');
+      if (status) {
+        status.textContent = '✓ 已保存到本机';
+        status.classList.add('show');
+        setTimeout(() => status.classList.remove('show'), 2000);
+      }
+    } catch (e) {
+      alert('无法写入 localStorage：' + (e && e.message ? e.message : e));
+    }
+    if (currentAnalysis) renderPrompt();
+  }
+
+  function clearUserContext() {
+    applyUserContextToForm({
+      age: null, sex: '', heightCm: null, targetWeightKg: null,
+      medications: '', conditions: '', focus: '', notes: '',
+    });
+    try { window.localStorage.removeItem(CTX_STORAGE_KEY); } catch (e) { /* ignore */ }
+    const status = $('ctx-status');
+    if (status) {
+      status.textContent = '已清空';
+      status.classList.add('show');
+      setTimeout(() => status.classList.remove('show'), 2000);
+    }
+    if (currentAnalysis) renderPrompt();
+  }
+
+  loadUserContext();
+  $('btn-ctx-save')?.addEventListener('click', saveUserContext);
+  $('btn-ctx-clear')?.addEventListener('click', clearUserContext);
+  // 编辑后即时刷新提示词（若已有分析结果）
+  ['ctx-age', 'ctx-sex', 'ctx-height', 'ctx-target-weight', 'ctx-medications', 'ctx-conditions', 'ctx-focus', 'ctx-notes']
+    .forEach((id) => {
+      $(id)?.addEventListener('change', () => { if (currentAnalysis) renderPrompt(); });
+      $(id)?.addEventListener('input', () => { if (currentAnalysis) renderPrompt(); });
+    });
+
+  // ============================================================
+  // Web Worker 解析（失败则回退主线程）
+  // ============================================================
+
+  function parseWithWorker(source, options) {
+    return new Promise((resolve, reject) => {
+      if (typeof Worker === 'undefined') {
+        reject(new Error('Worker 不可用'));
+        return;
+      }
+      let worker;
+      try {
+        worker = new Worker('./parse-worker.js');
+      } catch (e) {
+        reject(e);
+        return;
+      }
+
+      const id = 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const cleanup = () => {
+        try { worker.terminate(); } catch (e) { /* ignore */ }
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error('Worker 解析超时'));
+      }, 10 * 60 * 1000);
+
+      worker.onmessage = (ev) => {
+        const msg = ev.data || {};
+        if (msg.type === 'worker-error') {
+          clearTimeout(timer);
+          cleanup();
+          reject(new Error(msg.error || 'Worker 初始化失败'));
+          return;
+        }
+        if (msg.id !== id) return;
+        if (msg.type === 'progress') {
+          if (options && typeof options.onProgress === 'function') {
+            options.onProgress(msg.progress);
+          }
+          return;
+        }
+        if (msg.type === 'result') {
+          clearTimeout(timer);
+          cleanup();
+          resolve(msg.data);
+          return;
+        }
+        if (msg.type === 'error') {
+          clearTimeout(timer);
+          cleanup();
+          reject(new Error(msg.error || 'Worker 解析失败'));
+        }
+      };
+      worker.onerror = (err) => {
+        clearTimeout(timer);
+        cleanup();
+        reject(err.error || new Error(err.message || 'Worker 错误'));
+      };
+
+      const payload = {
+        startDate: options && options.startDate,
+        endDate: options && options.endDate,
+      };
+
+      try {
+        if (source instanceof Uint8Array) {
+          // 复制一份再 transfer，避免调用方 buffer 被 detach 带来意外
+          const copy = source.slice();
+          payload.buffer = copy.buffer;
+          worker.postMessage({ id, type: 'parse', payload }, [copy.buffer]);
+        } else if (source && source.buffer && source.byteLength != null) {
+          const copy = new Uint8Array(source).slice();
+          payload.buffer = copy.buffer;
+          worker.postMessage({ id, type: 'parse', payload }, [copy.buffer]);
+        } else {
+          payload.source = source;
+          worker.postMessage({ id, type: 'parse', payload });
+        }
+      } catch (e) {
+        clearTimeout(timer);
+        cleanup();
+        reject(e);
+      }
+    });
+  }
+
+  async function parseHealthData(source, parseOptions) {
+    const opts = {
+      startDate: parseOptions.startDate,
+      endDate: parseOptions.endDate,
+      onProgress: parseOptions.onProgress,
+    };
+    // 优先 Worker；失败回退主线程 async 解析
+    try {
+      return await parseWithWorker(source, opts);
+    } catch (err) {
+      console.warn('Worker 解析失败，回退主线程:', err);
+      return window.HealthAnalyzer.parseHealthXmlAsync(source, opts);
+    }
+  }
 
   // ============================================================
   // 上传处理
@@ -185,20 +383,18 @@
         ecgFiles = files.filter(f => f.name.endsWith('.csv') && (f.name.includes('ecg') || (f.webkitRelativePath || '').includes('electrocardiograms')));
       }
 
-      setProgress(0.05, '解析 XML 中...');
+      setProgress(0.05, '解析 XML 中（后台线程）...');
 
       // 可选日期范围（YYYY-MM-DD）；留空则不过滤
       const parseOptions = getDateFilterOptions();
       parseOptions.onProgress = (p) => setProgress(0.05 + p * 0.7, `解析中... ${Math.round(p * 100)}%`);
 
-      // 根据数据源选择解析方式
+      // Worker 优先；失败自动回退主线程
       let data;
       if (xmlBytes) {
-        // 流式解析大文件（ZIP 内）
-        data = await window.HealthAnalyzer.parseHealthXmlAsync(xmlBytes, parseOptions);
+        data = await parseHealthData(xmlBytes, parseOptions);
       } else {
-        // 字符串解析（小文件）
-        data = window.HealthAnalyzer.parseHealthXml(xmlText, parseOptions);
+        data = await parseHealthData(xmlText, parseOptions);
       }
 
       // 解析 ECG
@@ -372,13 +568,25 @@
   function renderResults(analysis) {
     show('step-overview');
     show('step-summary');
+    show('step-charts');
     show('step-prompt');
 
     renderAvailability(analysis);
     renderSummary(analysis);
+    renderCharts(analysis);
     renderPrompt();
 
     $('step-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function renderCharts(analysis) {
+    const container = $('charts-content');
+    if (!container) return;
+    if (window.HealthCharts && typeof window.HealthCharts.renderAnalysisCharts === 'function') {
+      window.HealthCharts.renderAnalysisCharts(container, analysis);
+    } else {
+      container.innerHTML = '<p class="hint">图表模块未加载。</p>';
+    }
   }
 
   function renderAvailability(analysis) {
@@ -681,11 +889,12 @@
 
   function renderPrompt() {
     if (!currentAnalysis) return;
+    const ctx = getUserContextFromForm();
     let text = '';
     if (currentPromptTab === 'full') {
-      text = window.HealthAnalyzer.generateLLMPrompt(currentAnalysis);
+      text = window.HealthAnalyzer.generateLLMPrompt(currentAnalysis, ctx);
     } else if (currentPromptTab === 'data') {
-      text = window.HealthAnalyzer.generateDataOnly(currentAnalysis);
+      text = window.HealthAnalyzer.generateDataOnly(currentAnalysis, ctx);
     } else {
       text = window.HealthAnalyzer.SHORT_SYSTEM_PROMPT;
     }
@@ -735,11 +944,22 @@
     currentAnalysis = null;
     hide('step-overview');
     hide('step-summary');
+    hide('step-charts');
     hide('step-prompt');
+    const charts = $('charts-content');
+    if (charts) charts.innerHTML = '';
     show('step-source');
     fileInput.value = '';
     folderInput.value = '';
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  // 窗口尺寸变化时重绘图表
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    if (!currentAnalysis) return;
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => renderCharts(currentAnalysis), 150);
   });
 
   // ============================================================

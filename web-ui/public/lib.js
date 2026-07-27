@@ -36,6 +36,7 @@ var HealthAnalyzer = (() => {
     extractXmlFromZip: () => extractXmlFromZip,
     finalizeData: () => finalizeData,
     formatAnalysisForLLM: () => formatAnalysisForLLM,
+    formatUserContext: () => formatUserContext,
     generateDataOnly: () => generateDataOnly,
     generateLLMPrompt: () => generateLLMPrompt,
     getDate: () => getDate,
@@ -548,8 +549,9 @@ var HealthAnalyzer = (() => {
 
   // src/prompts/llm-prompt.ts
   var MAIN_PROMPT_TEMPLATE = `# \u89D2\u8272\u4E0E\u4EFB\u52A1
-\u4F60\u662F\u4E00\u4F4D\u4E25\u8C28\u7684\u4E34\u5E8A\u6570\u636E\u5206\u6790\u5E08\u3002\u8BF7\u57FA\u4E8E\u4E0B\u65B9"\u539F\u59CB\u6570\u636E\u4E0E\u7EDF\u8BA1"\u751F\u6210\u4E00\u4EFD\u300A\u4E2A\u4EBA\u5065\u5EB7\u81EA\u6211\u76D1\u6D4B\u6DF1\u5EA6\u5206\u6790\u62A5\u544A\u300B\uFF0C\u4E25\u683C\u6309\u7167\u4EE5\u4E0B\u7ED3\u6784\u4E0E\u98CE\u683C\uFF1A
+\u4F60\u662F\u4E00\u4F4D\u4E25\u8C28\u7684\u4E34\u5E8A\u6570\u636E\u5206\u6790\u5E08\u3002\u8BF7\u57FA\u4E8E\u4E0B\u65B9\u300C\u4E2A\u4EBA\u80CC\u666F\uFF08\u5982\u6709\uFF09\u300D\u4E0E\u300C\u539F\u59CB\u6570\u636E\u4E0E\u7EDF\u8BA1\u300D\u751F\u6210\u4E00\u4EFD\u300A\u4E2A\u4EBA\u5065\u5EB7\u81EA\u6211\u76D1\u6D4B\u6DF1\u5EA6\u5206\u6790\u62A5\u544A\u300B\uFF0C\u4E25\u683C\u6309\u7167\u4EE5\u4E0B\u7ED3\u6784\u4E0E\u98CE\u683C\uFF1A
 - \u4E0D\u4E0B\u8BCA\u65AD\u7ED3\u8BBA\u3001\u4E0D\u5F00\u836F\u3001\u4E0D\u66FF\u4EE3\u95E8\u8BCA
+- \u82E5\u63D0\u4F9B\u4E86\u7528\u836F/\u76EE\u6807\u4F53\u91CD/\u5173\u6CE8\u70B9\uFF0C\u8BF7\u5728\u89E3\u8BFB\u4E2D\u5BF9\u7167\u4F7F\u7528\uFF0C\u4F46\u4ECD\u4E0D\u5F97\u6539\u836F\u6216\u4E0B\u8BCA\u65AD
 - \u5173\u6CE8\u8D8B\u52BF\u3001\u76F8\u5173\u6027\u4E0E\u53EF\u64CD\u4F5C\u5EFA\u8BAE
 - \u6570\u5B57\u4F18\u5148\u3001\u8F85\u4EE5\u89E3\u91CA\uFF0C\u907F\u514D\u7A7A\u8BDD
 - \u4EFB\u4F55\u53EF\u7591\u5F02\u5E38\u5FC5\u987B\u7ED9"\u590D\u6838\u5EFA\u8BAE"
@@ -604,10 +606,57 @@ var HealthAnalyzer = (() => {
 ---
 
 # \u539F\u59CB\u6570\u636E\u4E0E\u7EDF\u8BA1
-\uFF08\u8BF7\u57FA\u4E8E\u4E0B\u65B9\u6570\u636E\u751F\u6210\u62A5\u544A\uFF09
+\uFF08\u8BF7\u57FA\u4E8E\u4E0B\u65B9\u4E2A\u4EBA\u80CC\u666F\u4E0E\u6570\u636E\u751F\u6210\u62A5\u544A\uFF09
 
 {ANALYSIS_JSON}
 `;
+  function trimText(value) {
+    if (value == null) return "";
+    return String(value).trim();
+  }
+  function hasAnyUserContext(ctx) {
+    if (!ctx) return false;
+    return Boolean(
+      ctx.age != null && Number.isFinite(Number(ctx.age)) || trimText(ctx.sex) || ctx.heightCm != null && Number.isFinite(Number(ctx.heightCm)) || trimText(ctx.medications) || trimText(ctx.conditions) || ctx.targetWeightKg != null && Number.isFinite(Number(ctx.targetWeightKg)) || trimText(ctx.focus) || trimText(ctx.notes)
+    );
+  }
+  function formatUserContext(ctx) {
+    if (!hasAnyUserContext(ctx) || !ctx) return "";
+    const lines = [
+      "## \u4E2A\u4EBA\u80CC\u666F\uFF08\u7528\u6237\u81EA\u8FF0\uFF0C\u4EC5\u4F9B\u5BF9\u7167\uFF0C\u975E\u533B\u7597\u6863\u6848\uFF09",
+      "",
+      "| \u9879\u76EE | \u5185\u5BB9 |",
+      "|---|---|"
+    ];
+    if (ctx.age != null && Number.isFinite(Number(ctx.age))) {
+      lines.push(`| \u5E74\u9F84 | ${Number(ctx.age)} \u5C81 |`);
+    }
+    if (trimText(ctx.sex)) {
+      lines.push(`| \u6027\u522B | ${trimText(ctx.sex)} |`);
+    }
+    if (ctx.heightCm != null && Number.isFinite(Number(ctx.heightCm))) {
+      lines.push(`| \u8EAB\u9AD8 | ${Number(ctx.heightCm)} cm |`);
+    }
+    if (ctx.targetWeightKg != null && Number.isFinite(Number(ctx.targetWeightKg))) {
+      lines.push(`| \u76EE\u6807\u4F53\u91CD | ${Number(ctx.targetWeightKg)} kg |`);
+    }
+    if (trimText(ctx.medications)) {
+      lines.push(`| \u5F53\u524D\u7528\u836F | ${trimText(ctx.medications)} |`);
+    }
+    if (trimText(ctx.conditions)) {
+      lines.push(`| \u5DF2\u77E5\u60C5\u51B5 | ${trimText(ctx.conditions)} |`);
+    }
+    if (trimText(ctx.focus)) {
+      lines.push(`| \u672C\u6B21\u5173\u6CE8\u70B9 | ${trimText(ctx.focus)} |`);
+    }
+    if (trimText(ctx.notes)) {
+      lines.push(`| \u8865\u5145\u8BF4\u660E | ${trimText(ctx.notes)} |`);
+    }
+    lines.push("");
+    lines.push("> \u4EE5\u4E0A\u4E3A\u7528\u6237\u672C\u5730\u586B\u5199\u7684\u81EA\u8FF0\u4FE1\u606F\uFF0C\u53EF\u80FD\u4E0D\u5B8C\u6574\uFF1B\u89E3\u8BFB\u65F6\u4F5C\u80CC\u666F\u53C2\u8003\uFF0C\u4E0D\u5F97\u636E\u6B64\u5F00\u836F\u6216\u4E0B\u8BCA\u65AD\u3002");
+    lines.push("");
+    return lines.join("\n");
+  }
   function formatAnalysisForLLM(analysis) {
     const sections = [];
     const { data, cgmStats, bpStats, hrvByDate, dateRange } = analysis;
@@ -784,12 +833,18 @@ var HealthAnalyzer = (() => {
     }
     return sections.join("\n");
   }
-  function generateLLMPrompt(analysis) {
+  function combineContextAndData(analysis, userContext) {
     const dataSection = formatAnalysisForLLM(analysis);
+    const ctxSection = formatUserContext(userContext);
+    return ctxSection ? `${ctxSection}
+${dataSection}` : dataSection;
+  }
+  function generateLLMPrompt(analysis, userContext) {
+    const dataSection = combineContextAndData(analysis, userContext);
     return MAIN_PROMPT_TEMPLATE.replace("{ANALYSIS_JSON}", dataSection).replace("{ANALYSIS_DATA}", dataSection);
   }
-  function generateDataOnly(analysis) {
-    return formatAnalysisForLLM(analysis);
+  function generateDataOnly(analysis, userContext) {
+    return combineContextAndData(analysis, userContext);
   }
   var SHORT_SYSTEM_PROMPT = `\u4F60\u662F\u4E00\u4F4D\u4E25\u8C28\u7684\u5065\u5EB7\u6570\u636E\u5206\u6790\u5E08\u3002\u57FA\u4E8E\u7528\u6237\u63D0\u4F9B\u7684 Apple Health \u7EDF\u8BA1\u751F\u6210\u4E2D\u6587 Markdown \u62A5\u544A\uFF1B\u53EA\u5206\u6790\u5B9E\u9645\u5B58\u5728\u7684\u6570\u636E\uFF0C\u6309\u201C\u603B\u7ED3\u5224\u65AD\u3001\u6570\u636E\u7EF4\u5EA6\u3001\u76D1\u6D4B\u4EEA\u8868\u76D8\u3001\u9700\u8981\u590D\u67E5\u6216\u5347\u7EA7\u5904\u7406\u7684\u4FE1\u53F7\u3001\u5F53\u524D\u5DE5\u4F5C\u5047\u8BBE\u3001\u53C2\u8003\u4F9D\u636E\u201D\u987A\u5E8F\u7EC4\u7EC7\u3002\u4E0D\u4E0B\u8BCA\u65AD\u7ED3\u8BBA\uFF1BCGM <3.9 \u5FC5\u987B\u5EFA\u8BAE\u6307\u5C16\u8840\u590D\u6838\uFF0CCGM \u4E0D\u80FD\u5355\u72EC\u7528\u4E8E\u8BCA\u65AD\uFF1B\u5355\u6B21\u5F02\u5E38\u5148\u590D\u6D4B\u5E76\u7ED3\u5408\u75C7\u72B6\u5224\u65AD\uFF1B\u6240\u6709\u7528\u836F\u8C03\u6574\u8BF7\u9075\u533B\u5631\u3002`;
   return __toCommonJS(browser_exports);

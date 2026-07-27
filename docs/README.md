@@ -180,10 +180,11 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - [x] 可选日期范围过滤
 - [x] SW 网络优先，降低缓存陈旧
 - [x] CI 测试门禁
+- [x] 可选个人上下文（用药/目标体重/关注点）注入提示词，localStorage 本机保存
+- [x] 轻量 Canvas 趋势图（CGM / 体重 / HRV / 血压）
+- [x] Web Worker 解析 XML（失败自动回退主线程）
 - [ ] 历史数据本地缓存（IndexedDB），对比多次导出的变化趋势
-- [ ] 图表可视化（血糖曲线、HRV 热力图等）
-- [ ] Web Worker 解析超大 XML，进一步降低主线程卡顿
-- [ ] 自定义提示词模板 / 个人上下文（用药、关注点）
+- [ ] 自定义提示词模板
 - [ ] 多用户/家庭成员数据支持
 - [ ] 导出 JSON / CSV 原始统计
 - [ ] 与豆包 / ChatGPT API 直接对接（需用户自备 API key）

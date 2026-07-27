@@ -148,3 +148,26 @@ export interface FullAnalysis {
   dateRange: { start: string; end: string };
   generatedAt: string;
 }
+
+// ============================================================
+// 可选个人上下文（仅本地填写，注入提示词，不上传）
+// ============================================================
+
+export interface UserContext {
+  /** 年龄（岁） */
+  age?: number | null;
+  /** 性别自述，如 男 / 女 */
+  sex?: string | null;
+  /** 身高 cm */
+  heightCm?: number | null;
+  /** 当前用药（自由文本） */
+  medications?: string | null;
+  /** 已知情况 / 诊断史（自述，非医疗结论） */
+  conditions?: string | null;
+  /** 目标体重 kg */
+  targetWeightKg?: number | null;
+  /** 本次最想关注的点 */
+  focus?: string | null;
+  /** 其他补充说明 */
+  notes?: string | null;
+}

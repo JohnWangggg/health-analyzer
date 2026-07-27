@@ -31,6 +31,7 @@ export {
   generateLLMPrompt,
   generateDataOnly,
   formatAnalysisForLLM,
+  formatUserContext,
   SHORT_SYSTEM_PROMPT,
   MAIN_PROMPT_TEMPLATE,
 } from './prompts/llm-prompt';

@@ -94,6 +94,50 @@
         </div>
       </details>
 
+      <details class="context-box" id="user-context-box">
+        <summary>👤 可选：个人背景（写入提示词，仅本机保存）</summary>
+        <p class="date-filter-hint">用药、目标体重与关注点会注入完整提示词，帮助大模型对照解读；不上传服务器。可随时清空。</p>
+        <div class="context-grid">
+          <label class="date-field">
+            <span>年龄</span>
+            <input type="number" id="ctx-age" min="1" max="120" step="1" inputmode="numeric" placeholder="例如 40">
+          </label>
+          <label class="date-field">
+            <span>性别</span>
+            <input type="text" id="ctx-sex" maxlength="20" placeholder="男 / 女 / 其他">
+          </label>
+          <label class="date-field">
+            <span>身高 (cm)</span>
+            <input type="number" id="ctx-height" min="50" max="250" step="0.1" inputmode="decimal" placeholder="例如 175">
+          </label>
+          <label class="date-field">
+            <span>目标体重 (kg)</span>
+            <input type="number" id="ctx-target-weight" min="20" max="300" step="0.1" inputmode="decimal" placeholder="例如 70">
+          </label>
+          <label class="date-field context-field-wide">
+            <span>当前用药</span>
+            <input type="text" id="ctx-medications" maxlength="200" placeholder="例如 氯沙坦钾 50mg 每日">
+          </label>
+          <label class="date-field context-field-wide">
+            <span>已知情况</span>
+            <input type="text" id="ctx-conditions" maxlength="200" placeholder="自述病史或监测背景，非诊断">
+          </label>
+          <label class="date-field context-field-wide">
+            <span>本次关注点</span>
+            <input type="text" id="ctx-focus" maxlength="200" placeholder="例如 夜间血压、恢复与体重">
+          </label>
+          <label class="date-field context-field-wide">
+            <span>补充说明</span>
+            <textarea id="ctx-notes" rows="2" maxlength="500" placeholder="可选"></textarea>
+          </label>
+        </div>
+        <div class="context-actions">
+          <button type="button" id="btn-ctx-save" class="btn-secondary">💾 保存到本机</button>
+          <button type="button" id="btn-ctx-clear" class="btn-secondary">清空</button>
+          <span id="ctx-status" class="copy-status" aria-live="polite"></span>
+        </div>
+      </details>
+
       <div class="privacy-notice" role="note">
         <div class="privacy-notice-title">🔒 隐私提示：健康数据只在本设备临时处理</div>
         <ul>
@@ -140,13 +184,20 @@
       <div id="summary-content"></div>
     </section>
 
+    <!-- 趋势图 -->
+    <section id="step-charts" class="card hidden">
+      <h2><span class="step-num">5</span> 趋势图</h2>
+      <p class="hint">本地 Canvas 绘制；有数据的维度才显示。CGM 默认展示最近约 7 天（已降采样）。</p>
+      <div id="charts-content" class="charts-content"></div>
+    </section>
+
     <!-- 大模型提示词 -->
     <section id="step-prompt" class="card hidden">
-      <h2><span class="step-num">5</span> 大模型提示词</h2>
+      <h2><span class="step-num">6</span> 大模型提示词</h2>
       <p class="hint">
         下方文本可直接复制粘贴到 <strong>豆包 / ChatGPT / Claude / Gemini</strong> 等平台的对话框。
         提示词使用<strong>固定标题结构</strong>（总结判断、各数据维度、监测仪表盘、复查信号、工作假设、参考依据）；
-        <strong>无数据的维度会跳过</strong>，由大模型按实际数据输出报告。
+        <strong>无数据的维度会跳过</strong>。若填写了个人背景，会一并注入完整提示词。
       </p>
 
       <div class="prompt-tabs">
@@ -191,11 +242,12 @@
   </main>
 
   <footer class="app-footer">
-    <p>开源 · 本地优先 · v1.1</p>
+    <p>开源 · 本地优先 · v1.2</p>
   </footer>
 
   <script src="./fflate.min.js"></script>
   <script src="./lib.js"></script>
+  <script src="./charts.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

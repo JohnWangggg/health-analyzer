@@ -3,12 +3,13 @@
  * 用于生成可直接粘贴到豆包/ChatGPT/Claude 等平台的提示词
  */
 
-import { FullAnalysis } from '../types';
+import { FullAnalysis, UserContext } from '../types';
 
 /** 主提示词：引导 LLM 按指定格式输出深度分析报告 */
 export const MAIN_PROMPT_TEMPLATE = `# 角色与任务
-你是一位严谨的临床数据分析师。请基于下方"原始数据与统计"生成一份《个人健康自我监测深度分析报告》，严格按照以下结构与风格：
+你是一位严谨的临床数据分析师。请基于下方「个人背景（如有）」与「原始数据与统计」生成一份《个人健康自我监测深度分析报告》，严格按照以下结构与风格：
 - 不下诊断结论、不开药、不替代门诊
+- 若提供了用药/目标体重/关注点，请在解读中对照使用，但仍不得改药或下诊断
 - 关注趋势、相关性与可操作建议
 - 数字优先、辅以解释，避免空话
 - 任何可疑异常必须给"复核建议"
@@ -63,10 +64,70 @@ export const MAIN_PROMPT_TEMPLATE = `# 角色与任务
 ---
 
 # 原始数据与统计
-（请基于下方数据生成报告）
+（请基于下方个人背景与数据生成报告）
 
 {ANALYSIS_JSON}
 `;
+
+function trimText(value: unknown): string {
+  if (value == null) return '';
+  return String(value).trim();
+}
+
+function hasAnyUserContext(ctx?: UserContext | null): boolean {
+  if (!ctx) return false;
+  return Boolean(
+    (ctx.age != null && Number.isFinite(Number(ctx.age))) ||
+    trimText(ctx.sex) ||
+    (ctx.heightCm != null && Number.isFinite(Number(ctx.heightCm))) ||
+    trimText(ctx.medications) ||
+    trimText(ctx.conditions) ||
+    (ctx.targetWeightKg != null && Number.isFinite(Number(ctx.targetWeightKg))) ||
+    trimText(ctx.focus) ||
+    trimText(ctx.notes)
+  );
+}
+
+/**
+ * 将可选个人上下文格式化为 Markdown（空则返回空串）
+ */
+export function formatUserContext(ctx?: UserContext | null): string {
+  if (!hasAnyUserContext(ctx) || !ctx) return '';
+  const lines: string[] = [
+    '## 个人背景（用户自述，仅供对照，非医疗档案）',
+    '',
+    '| 项目 | 内容 |',
+    '|---|---|',
+  ];
+  if (ctx.age != null && Number.isFinite(Number(ctx.age))) {
+    lines.push(`| 年龄 | ${Number(ctx.age)} 岁 |`);
+  }
+  if (trimText(ctx.sex)) {
+    lines.push(`| 性别 | ${trimText(ctx.sex)} |`);
+  }
+  if (ctx.heightCm != null && Number.isFinite(Number(ctx.heightCm))) {
+    lines.push(`| 身高 | ${Number(ctx.heightCm)} cm |`);
+  }
+  if (ctx.targetWeightKg != null && Number.isFinite(Number(ctx.targetWeightKg))) {
+    lines.push(`| 目标体重 | ${Number(ctx.targetWeightKg)} kg |`);
+  }
+  if (trimText(ctx.medications)) {
+    lines.push(`| 当前用药 | ${trimText(ctx.medications)} |`);
+  }
+  if (trimText(ctx.conditions)) {
+    lines.push(`| 已知情况 | ${trimText(ctx.conditions)} |`);
+  }
+  if (trimText(ctx.focus)) {
+    lines.push(`| 本次关注点 | ${trimText(ctx.focus)} |`);
+  }
+  if (trimText(ctx.notes)) {
+    lines.push(`| 补充说明 | ${trimText(ctx.notes)} |`);
+  }
+  lines.push('');
+  lines.push('> 以上为用户本地填写的自述信息，可能不完整；解读时作背景参考，不得据此开药或下诊断。');
+  lines.push('');
+  return lines.join('\n');
+}
 
 /**
  * 将分析结果格式化为 LLM 友好的 Markdown 文本块
@@ -265,22 +326,27 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
   return sections.join('\n');
 }
 
-/**
- * 生成完整的大模型提示词（主提示词 + 格式化数据）
- */
-export function generateLLMPrompt(analysis: FullAnalysis): string {
+function combineContextAndData(analysis: FullAnalysis, userContext?: UserContext | null): string {
   const dataSection = formatAnalysisForLLM(analysis);
+  const ctxSection = formatUserContext(userContext);
+  return ctxSection ? `${ctxSection}\n${dataSection}` : dataSection;
+}
+
+/**
+ * 生成完整的大模型提示词（主提示词 + 可选个人背景 + 格式化数据）
+ */
+export function generateLLMPrompt(analysis: FullAnalysis, userContext?: UserContext | null): string {
+  const dataSection = combineContextAndData(analysis, userContext);
   return MAIN_PROMPT_TEMPLATE
     .replace('{ANALYSIS_JSON}', dataSection)
     .replace('{ANALYSIS_DATA}', dataSection);
 }
 
 /**
- * 仅输出格式化后的数据块（不含主提示词模板）
- * 与 formatAnalysisForLLM 等价，供浏览器 UI 使用
+ * 仅输出格式化后的数据块（可选附带个人背景，不含主提示词模板）
  */
-export function generateDataOnly(analysis: FullAnalysis): string {
-  return formatAnalysisForLLM(analysis);
+export function generateDataOnly(analysis: FullAnalysis, userContext?: UserContext | null): string {
+  return combineContextAndData(analysis, userContext);
 }
 
 /** 简化的 system prompt（用于不支持长 system prompt 的平台） */
