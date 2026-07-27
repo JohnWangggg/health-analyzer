@@ -31,6 +31,7 @@ var HealthAnalyzer = (() => {
     analyzeAll: () => analyzeAll,
     buildAnalysisSnapshot: () => buildAnalysisSnapshot,
     buildExportBundle: () => buildExportBundle,
+    buildInsightBullets: () => buildInsightBullets,
     calcBloodPressureStats: () => calcBloodPressureStats,
     calcBpStats: () => calcBloodPressureStats,
     calcCgmStats: () => calcCgmStats,
@@ -42,6 +43,7 @@ var HealthAnalyzer = (() => {
     finalizeData: () => finalizeData,
     formatAnalysisForLLM: () => formatAnalysisForLLM,
     formatCrossSignalsForLLM: () => formatCrossSignalsForLLM,
+    formatInsightsForLLM: () => formatInsightsForLLM,
     formatUserContext: () => formatUserContext,
     generateDataOnly: () => generateDataOnly,
     generateLLMPrompt: () => generateLLMPrompt,
@@ -896,12 +898,133 @@ var HealthAnalyzer = (() => {
     return lines.join("\n");
   }
 
+  // src/insights.ts
+  function toneFromSeverity(sev) {
+    if (sev === "alert") return "alert";
+    if (sev === "watch") return "watch";
+    return "neutral";
+  }
+  function buildInsightBullets(analysis) {
+    const bullets = [];
+    const data = analysis.data;
+    const range = analysis.dateRange;
+    if (range?.start && range?.end) {
+      bullets.push({
+        tone: "neutral",
+        title: "\u6570\u636E\u8986\u76D6",
+        detail: `\u672C\u6B21\u53EF\u7528\u8BB0\u5F55\u7EA6 ${range.start} \u81F3 ${range.end}\u3002\u5B8C\u6574\u660E\u7EC6\u9ED8\u8BA4\u53EA\u5728\u672C\u9875\u5185\u5B58\uFF0C\u5237\u65B0\u9700\u91CD\u65B0\u4E0A\u4F20\u3002`
+      });
+    }
+    const ws = analysis.weightStats;
+    if (ws?.latestTrend && ws.earliestTrend) {
+      const delta = ws.latestTrend.weight - ws.earliestTrend.weight;
+      const fat = ws.bodyFatLatest != null ? `\uFF1B\u4F53\u8102\u7EA6 ${ws.bodyFatLatest.toFixed(1)}%` : "";
+      const tone = delta <= -8 ? "watch" : delta <= -2 ? "neutral" : delta >= 2 ? "watch" : "positive";
+      bullets.push({
+        tone,
+        title: "\u4F53\u91CD\u8D8B\u52BF\uFF08\u6668\u8D77\uFF09",
+        detail: `\u6700\u65B0\u8D8B\u52BF ${ws.latestTrend.weight.toFixed(1)} kg\uFF08${ws.latestTrend.date}\uFF09\uFF0C\u76F8\u5BF9\u6700\u65E9 ${ws.earliestTrend.weight.toFixed(1)} kg \u53D8\u5316 ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} kg${fat}\u3002\u8D8B\u52BF\u6309\u6BCF\u65E5\u6668\u8D77\u91CD\uFF0C\u907F\u514D\u665A\u95F4\u6CE2\u52A8\u5E72\u6270\u3002`
+      });
+    }
+    if (analysis.cgmStats) {
+      const st = analysis.cgmStats.stable || analysis.cgmStats.overall;
+      const fd = analysis.cgmStats.firstDay;
+      let tone = "positive";
+      if (st.pctBelow30 > 0) tone = "alert";
+      else if (st.pctBelow39 >= 5) tone = "watch";
+      else if (st.pctInRange >= 90 && st.pctAbove78 < 5) tone = "positive";
+      else tone = "neutral";
+      let detail = `\u7A33\u5B9A\u671F/\u53EF\u7528\u6BB5\u5747\u503C ${st.mean.toFixed(2)} mmol/L\uFF0CTIR ${st.pctInRange.toFixed(1)}%\uFF0C<3.9 \u5360 ${st.pctBelow39.toFixed(1)}%\uFF08n=${st.count}\uFF09\u3002`;
+      if (fd && analysis.cgmStats.firstDayDate && fd.pctBelow39 >= 10) {
+        detail += ` \u9996\u65E5 ${analysis.cgmStats.firstDayDate} \u4F4E\u503C\u504F\u591A\uFF08<3.9 ${fd.pctBelow39.toFixed(1)}%\uFF09\uFF0C\u89E3\u8BFB\u8BF7\u4EE5\u7A33\u5B9A\u671F\u4E3A\u51C6\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`;
+        if (tone === "positive") tone = "neutral";
+      }
+      bullets.push({ tone, title: "\u8840\u7CD6\uFF08CGM\uFF09", detail });
+    }
+    if (analysis.bpStats?.mean7d) {
+      const m = analysis.bpStats.mean7d;
+      const morn = analysis.bpStats.morning7d;
+      const eve = analysis.bpStats.evening7d;
+      let tone = "neutral";
+      if (m.lowCount >= 3 || m.systolic < 95) tone = "watch";
+      else if (m.systolic >= 130 || m.diastolic >= 85) tone = "watch";
+      else if (m.systolic >= 100 && m.systolic < 120 && m.lowCount === 0) tone = "positive";
+      let detail = `\u8FD1 7 \u65E5\u5168\u5929\u5747\u503C\u7EA6 ${m.systolic.toFixed(0)}/${m.diastolic.toFixed(0)} mmHg\uFF08${m.count} \u6761`;
+      if (m.lowCount) detail += `\uFF0C\u5176\u4E2D ${m.lowCount} \u6761 <90/60`;
+      detail += "\uFF09\u3002";
+      if (morn && eve) {
+        detail += ` \u6668\u95F4\u7EA6 ${morn.systolic.toFixed(0)}/${morn.diastolic.toFixed(0)}\uFF0C\u665A\u95F4\u7EA6 ${eve.systolic.toFixed(0)}/${eve.diastolic.toFixed(0)}\u3002`;
+      }
+      bullets.push({ tone, title: "\u8840\u538B", detail });
+    }
+    const hrvDates = Object.keys(analysis.hrvByDate || {}).sort();
+    if (hrvDates.length) {
+      const recent = hrvDates.slice(-7);
+      const hrvVals = recent.map((d) => analysis.hrvByDate[d].allMean).filter(Number.isFinite);
+      const rhrMap = analysis.restingHrByDate || data.restingHr || {};
+      const rhrRecent = Object.keys(rhrMap).sort().slice(-7).map((d) => rhrMap[d]).filter(Number.isFinite);
+      if (hrvVals.length) {
+        const hrvAvg = hrvVals.reduce((a, b) => a + b, 0) / hrvVals.length;
+        const rhrAvg = rhrRecent.length ? rhrRecent.reduce((a, b) => a + b, 0) / rhrRecent.length : null;
+        let tone = "neutral";
+        if (hrvAvg < 25 && rhrAvg != null && rhrAvg >= 85) tone = "watch";
+        else if (hrvAvg >= 35 && (rhrAvg == null || rhrAvg < 75)) tone = "positive";
+        bullets.push({
+          tone,
+          title: "\u6062\u590D\uFF08HRV / \u9759\u606F\u5FC3\u7387\uFF09",
+          detail: `\u8FD1 7 \u65E5 HRV \u5168\u5929\u5747\u503C\u7EA6 ${hrvAvg.toFixed(1)} ms` + (rhrAvg != null ? `\uFF0C\u9759\u606F\u5FC3\u7387\u7EA6 ${rhrAvg.toFixed(0)} bpm` : "") + "\u3002\u6570\u503C\u53D7\u7761\u7720\u3001\u8BAD\u7EC3\u4E0E\u75BE\u75C5\u5F71\u54CD\uFF0C\u5355\u65E5\u6CE2\u52A8\u4E0D\u5FC5\u8FC7\u5EA6\u89E3\u8BFB\u3002"
+        });
+      }
+    }
+    const signals = detectCrossSignals(analysis);
+    for (const s of signals.slice(0, 4)) {
+      if (s.severity === "info" && bullets.length >= 6) continue;
+      bullets.push({
+        tone: toneFromSeverity(s.severity),
+        title: s.title,
+        detail: s.detail
+      });
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const unique = [];
+    for (const b of bullets) {
+      if (seen.has(b.title)) continue;
+      seen.add(b.title);
+      unique.push(b);
+    }
+    const rank = {
+      alert: 0,
+      watch: 1,
+      positive: 3,
+      neutral: 2
+    };
+    const head = unique.filter((b) => b.title === "\u6570\u636E\u8986\u76D6");
+    const rest = unique.filter((b) => b.title !== "\u6570\u636E\u8986\u76D6").sort((a, b) => rank[a.tone] - rank[b.tone]);
+    return [...head, ...rest].slice(0, 7);
+  }
+  function formatInsightsForLLM(bullets) {
+    if (!bullets.length) return "";
+    const lines = [
+      "## \u81EA\u52A8\u76D1\u6D4B\u6458\u8981\uFF08\u7A0B\u5E8F\u751F\u6210\uFF0C\u975E\u8BCA\u65AD\uFF09",
+      ""
+    ];
+    bullets.forEach((b, i) => {
+      const tag = b.tone === "alert" ? "\u9700\u5173\u6CE8" : b.tone === "watch" ? "\u89C2\u5BDF" : b.tone === "positive" ? "\u79EF\u6781" : "\u63D0\u793A";
+      lines.push(`${i + 1}. **[${tag}] ${b.title}**\uFF1A${b.detail}`);
+    });
+    lines.push("");
+    lines.push("> \u4EE5\u4E0B\u4E3A\u5206\u7EF4\u5EA6\u539F\u59CB\u7EDF\u8BA1\u4E0E\u660E\u7EC6\uFF0C\u8BF7\u4E0E\u6458\u8981\u4EA4\u53C9\u6838\u5BF9\u3002");
+    lines.push("");
+    return lines.join("\n");
+  }
+
   // src/prompts/llm-prompt.ts
   var MAIN_PROMPT_TEMPLATE = `# \u89D2\u8272\u4E0E\u4EFB\u52A1
-\u4F60\u662F\u4E00\u4F4D\u4E25\u8C28\u7684\u4E34\u5E8A\u6570\u636E\u5206\u6790\u5E08\u3002\u8BF7\u57FA\u4E8E\u4E0B\u65B9\u300C\u4E2A\u4EBA\u80CC\u666F\uFF08\u5982\u6709\uFF09\u300D\u4E0E\u300C\u539F\u59CB\u6570\u636E\u4E0E\u7EDF\u8BA1\u300D\u751F\u6210\u4E00\u4EFD\u300A\u4E2A\u4EBA\u5065\u5EB7\u81EA\u6211\u76D1\u6D4B\u6DF1\u5EA6\u5206\u6790\u62A5\u544A\u300B\uFF0C\u4E25\u683C\u6309\u7167\u4EE5\u4E0B\u7ED3\u6784\u4E0E\u98CE\u683C\uFF1A
+\u4F60\u662F\u4E00\u4F4D\u4E25\u8C28\u7684\u4E34\u5E8A\u6570\u636E\u5206\u6790\u5E08\u3002\u8BF7\u57FA\u4E8E\u4E0B\u65B9\u300C\u4E2A\u4EBA\u80CC\u666F\uFF08\u5982\u6709\uFF09\u300D\u300C\u81EA\u52A8\u76D1\u6D4B\u6458\u8981\u300D\u4E0E\u300C\u539F\u59CB\u6570\u636E\u4E0E\u7EDF\u8BA1\u300D\u751F\u6210\u4E00\u4EFD\u300A\u4E2A\u4EBA\u5065\u5EB7\u81EA\u6211\u76D1\u6D4B\u6DF1\u5EA6\u5206\u6790\u62A5\u544A\u300B\uFF0C\u4E25\u683C\u6309\u7167\u4EE5\u4E0B\u7ED3\u6784\u4E0E\u98CE\u683C\uFF1A
 - \u4E0D\u4E0B\u8BCA\u65AD\u7ED3\u8BBA\u3001\u4E0D\u5F00\u836F\u3001\u4E0D\u66FF\u4EE3\u95E8\u8BCA
+- \u53EF\u53C2\u8003\u300C\u81EA\u52A8\u76D1\u6D4B\u6458\u8981\u300D\u7EC4\u7EC7\u300C\u603B\u7ED3\u5224\u65AD\u300D\uFF0C\u4F46\u987B\u4E0E\u539F\u59CB\u7EDF\u8BA1\u4EA4\u53C9\u6838\u5BF9\uFF0C\u52FF\u7167\u6284\u53E3\u53F7
 - \u82E5\u63D0\u4F9B\u4E86\u7528\u836F/\u76EE\u6807\u4F53\u91CD/\u5173\u6CE8\u70B9\uFF0C\u8BF7\u5728\u89E3\u8BFB\u4E2D\u5BF9\u7167\u4F7F\u7528\uFF0C\u4F46\u4ECD\u4E0D\u5F97\u6539\u836F\u6216\u4E0B\u8BCA\u65AD
-- \u5173\u6CE8\u8D8B\u52BF\u3001\u76F8\u5173\u6027\u4E0E\u53EF\u64CD\u4F5C\u5EFA\u8BAE
+- \u5173\u6CE8\u8D8B\u52BF\u3001\u76F8\u5173\u6027\u4E0E\u53EF\u64CD\u4F5C\u5EFA\u8BAE\uFF1B\u4F53\u91CD\u7528\u6668\u8D77\u8D8B\u52BF\uFF0CCGM \u4F18\u5148\u7A33\u5B9A\u671F\uFF0C\u8840\u538B\u533A\u5206\u6668\u665A
 - \u6570\u5B57\u4F18\u5148\u3001\u8F85\u4EE5\u89E3\u91CA\uFF0C\u907F\u514D\u7A7A\u8BDD
 - \u4EFB\u4F55\u53EF\u7591\u5F02\u5E38\u5FC5\u987B\u7ED9"\u590D\u6838\u5EFA\u8BAE"
 
@@ -1249,10 +1372,13 @@ var HealthAnalyzer = (() => {
     return sections.join("\n");
   }
   function combineContextAndData(analysis, userContext) {
+    const insightsSection = formatInsightsForLLM(buildInsightBullets(analysis));
     const dataSection = formatAnalysisForLLM(analysis);
     const ctxSection = formatUserContext(userContext);
     const signalsSection = formatCrossSignalsForLLM(detectCrossSignals(analysis));
-    const parts = [ctxSection, dataSection, signalsSection].filter((s) => s && s.trim());
+    const parts = [ctxSection, insightsSection, dataSection, signalsSection].filter(
+      (s) => s && s.trim()
+    );
     return parts.join("\n");
   }
   function generateLLMPrompt(analysis, userContext) {

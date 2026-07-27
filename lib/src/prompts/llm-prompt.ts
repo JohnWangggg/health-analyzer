@@ -5,13 +5,15 @@
 
 import { FullAnalysis, UserContext } from '../types';
 import { detectCrossSignals, formatCrossSignalsForLLM } from '../signals';
+import { buildInsightBullets, formatInsightsForLLM } from '../insights';
 
 /** 主提示词：引导 LLM 按指定格式输出深度分析报告 */
 export const MAIN_PROMPT_TEMPLATE = `# 角色与任务
-你是一位严谨的临床数据分析师。请基于下方「个人背景（如有）」与「原始数据与统计」生成一份《个人健康自我监测深度分析报告》，严格按照以下结构与风格：
+你是一位严谨的临床数据分析师。请基于下方「个人背景（如有）」「自动监测摘要」与「原始数据与统计」生成一份《个人健康自我监测深度分析报告》，严格按照以下结构与风格：
 - 不下诊断结论、不开药、不替代门诊
+- 可参考「自动监测摘要」组织「总结判断」，但须与原始统计交叉核对，勿照抄口号
 - 若提供了用药/目标体重/关注点，请在解读中对照使用，但仍不得改药或下诊断
-- 关注趋势、相关性与可操作建议
+- 关注趋势、相关性与可操作建议；体重用晨起趋势，CGM 优先稳定期，血压区分晨晚
 - 数字优先、辅以解释，避免空话
 - 任何可疑异常必须给"复核建议"
 
@@ -402,10 +404,13 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
 }
 
 function combineContextAndData(analysis: FullAnalysis, userContext?: UserContext | null): string {
+  const insightsSection = formatInsightsForLLM(buildInsightBullets(analysis));
   const dataSection = formatAnalysisForLLM(analysis);
   const ctxSection = formatUserContext(userContext);
   const signalsSection = formatCrossSignalsForLLM(detectCrossSignals(analysis));
-  const parts = [ctxSection, dataSection, signalsSection].filter((s) => s && s.trim());
+  const parts = [ctxSection, insightsSection, dataSection, signalsSection].filter(
+    (s) => s && s.trim()
+  );
   return parts.join('\n');
 }
 

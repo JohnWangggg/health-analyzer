@@ -50,6 +50,11 @@ export {
 } from './signals';
 
 export {
+  buildInsightBullets,
+  formatInsightsForLLM,
+} from './insights';
+
+export {
   buildExportBundle,
   joinCsvBundle,
 } from './export';

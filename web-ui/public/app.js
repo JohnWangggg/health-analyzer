@@ -687,6 +687,14 @@
     document.body.classList.toggle('has-results', !!visible);
     const sticky = $('sticky-cta');
     if (sticky) sticky.classList.toggle('hidden', !visible);
+    const nav = $('result-sticky-nav');
+    if (nav) nav.classList.toggle('hidden', !visible);
+    // 有结果后收起上传区，降低干扰
+    const source = $('step-source');
+    if (source) {
+      if (visible) source.classList.add('source-collapsed');
+      else source.classList.remove('source-collapsed');
+    }
   }
 
   function renderResults(analysis) {
@@ -699,6 +707,7 @@
     setResultsVisible(true);
 
     renderAvailability(analysis);
+    renderInsights(analysis);
     renderKpis(analysis);
     renderSummary(analysis);
     renderSignals(analysis);
@@ -707,6 +716,35 @@
     refreshHistorySelect().catch(() => { /* ignore */ });
 
     $('step-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function renderInsights(analysis) {
+    const list = $('insight-list');
+    if (!list) return;
+    if (!window.HealthAnalyzer || typeof window.HealthAnalyzer.buildInsightBullets !== 'function') {
+      list.innerHTML = '<li class="insight-item tone-neutral"><div class="insight-title">摘要模块未加载</div></li>';
+      return;
+    }
+    const bullets = window.HealthAnalyzer.buildInsightBullets(analysis) || [];
+    if (!bullets.length) {
+      list.innerHTML = '<li class="insight-item tone-neutral"><div class="insight-title">暂无足够数据生成摘要</div><p class="insight-detail">请确认导出包含体重、血压、CGM 或心率等记录。</p></li>';
+      return;
+    }
+    const toneLabel = (t) => {
+      if (t === 'alert') return '需关注';
+      if (t === 'watch') return '观察';
+      if (t === 'positive') return '积极';
+      return '提示';
+    };
+    list.innerHTML = bullets.map((b) => `
+      <li class="insight-item tone-${escapeHtml(b.tone || 'neutral')}">
+        <div class="insight-meta">
+          <span class="insight-badge">${toneLabel(b.tone)}</span>
+        </div>
+        <div class="insight-title">${escapeHtml(b.title)}</div>
+        <p class="insight-detail">${escapeHtml(b.detail)}</p>
+      </li>
+    `).join('');
   }
 
   function renderKpis(analysis) {
@@ -718,12 +756,17 @@
     if (analysis.cgmStats) {
       const o = analysis.cgmStats.stable || analysis.cgmStats.overall;
       const label = analysis.cgmStats.stable ? 'CGM 稳定期' : 'CGM 均值';
+      let tone = 'neutral';
+      if (o.pctBelow30 > 0) tone = 'alert';
+      else if (o.pctBelow39 >= 5) tone = 'watch';
+      else if (o.pctInRange >= 90) tone = 'good';
       items.push({
         label,
         value: o.mean.toFixed(2),
         unit: 'mmol/L',
         sub: `TIR ${o.pctInRange.toFixed(0)}% · n=${o.count}` +
-          (analysis.cgmStats.firstDayDate ? ` · 已排除首日 ${analysis.cgmStats.firstDayDate}` : ''),
+          (analysis.cgmStats.firstDayDate ? ` · 已排除首日` : ''),
+        tone,
       });
     }
     if (analysis.bpStats && analysis.bpStats.mean7d) {
@@ -732,13 +775,17 @@
       const eve = analysis.bpStats.evening7d;
       let sub = `${m.count} 条` + (m.lowCount ? ` · ${m.lowCount} 次偏低` : '');
       if (morn && eve) {
-        sub = `晨 ${morn.systolic.toFixed(0)} / 晚 ${eve.systolic.toFixed(0)} 收缩压`;
+        sub = `晨 ${morn.systolic.toFixed(0)} / 晚 ${eve.systolic.toFixed(0)}`;
       }
+      let tone = 'neutral';
+      if (m.lowCount >= 3 || m.systolic < 95) tone = 'watch';
+      else if (m.systolic >= 100 && m.systolic < 125 && m.lowCount === 0) tone = 'good';
       items.push({
-        label: '血压 7 日均',
+        label: '血压 7 日',
         value: `${m.systolic.toFixed(0)}/${m.diastolic.toFixed(0)}`,
         unit: 'mmHg',
         sub,
+        tone,
       });
     }
     if (analysis.weightStats && analysis.weightStats.latestTrend) {
@@ -747,10 +794,11 @@
       const delta = et ? lt.weight - et.weight : 0;
       const fat = lt.bodyFat != null ? ` · 体脂 ${lt.bodyFat.toFixed(1)}%` : '';
       items.push({
-        label: '趋势体重(晨优)',
+        label: '晨起体重',
         value: lt.weight.toFixed(1),
         unit: 'kg',
-        sub: `${lt.date} · 较最早 ${delta >= 0 ? '+' : ''}${delta.toFixed(1)} kg${fat}`,
+        sub: `${lt.date.slice(5)} · ${delta >= 0 ? '+' : ''}${delta.toFixed(1)} kg${fat}`,
+        tone: delta <= -10 ? 'watch' : 'neutral',
       });
     } else if (data.weight && data.weight.length) {
       const latest = data.weight[data.weight.length - 1];
@@ -759,6 +807,7 @@
         value: latest.value.toFixed(1),
         unit: 'kg',
         sub: latest.date || latest.datetime.slice(0, 10),
+        tone: 'neutral',
       });
     }
     const hrvDates = Object.keys(analysis.hrvByDate || {}).sort();
@@ -771,6 +820,7 @@
         value: avg != null ? avg.toFixed(1) : '—',
         unit: 'ms',
         sub: `${hrvDates.length} 天有数据`,
+        tone: avg != null && avg < 25 ? 'watch' : avg != null && avg >= 40 ? 'good' : 'neutral',
       });
     }
     if (!items.length) {
@@ -780,26 +830,18 @@
           Object.values(data.dataAvailability || {}).filter(Boolean).length
         ),
         unit: '类',
-        sub: '详见下方可用性',
+        sub: '展开下方可用性',
+        tone: 'neutral',
       });
     }
 
-    let signalNote = '';
-    try {
-      const sigs = window.HealthAnalyzer.detectCrossSignals(analysis) || [];
-      const alerts = sigs.filter((s) => s.severity === 'alert' || s.severity === 'watch').length;
-      if (sigs.length) {
-        signalNote = `<p class="kpi-signal-note">${alerts ? `有 ${alerts} 条需观察/关注的跨维度提示` : `有 ${sigs.length} 条提示`}，见下方「跨维度提示」。</p>`;
-      }
-    } catch (e) { /* ignore */ }
-
     grid.innerHTML = items.map((it) => `
-      <div class="kpi-card">
+      <div class="kpi-card tone-${escapeHtml(it.tone || 'neutral')}">
         <div class="kpi-label">${escapeHtml(it.label)}</div>
         <div class="kpi-value"><span class="kpi-num">${escapeHtml(it.value)}</span><span class="kpi-unit">${escapeHtml(it.unit)}</span></div>
         <div class="kpi-sub">${escapeHtml(it.sub || '')}</div>
       </div>
-    `).join('') + signalNote;
+    `).join('');
   }
 
   async function copyFullPrompt(statusEl) {
@@ -1575,6 +1617,13 @@
     if (hist) hist.innerHTML = '';
     const kpis = $('kpi-grid');
     if (kpis) kpis.innerHTML = '';
+    const insights = $('insight-list');
+    if (insights) insights.innerHTML = '';
+    const banner = $('data-quality-banner');
+    if (banner) {
+      banner.innerHTML = '';
+      banner.classList.add('hidden');
+    }
     show('step-source');
     fileInput.value = '';
     folderInput.value = '';

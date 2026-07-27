@@ -10,3 +10,4 @@ export * from './prompts/llm-prompt';
 export * from './snapshot';
 export * from './signals';
 export * from './export';
+export * from './insights';

@@ -179,57 +179,69 @@
       <p id="progress-text" class="progress-text">准备中...</p>
     </section>
 
+    <!-- 结果区顶栏导航（有结果时显示） -->
+    <nav id="result-sticky-nav" class="result-sticky-nav hidden" aria-label="结果分区">
+      <a href="#step-overview" class="result-nav-link">概览</a>
+      <a href="#step-summary" class="result-nav-link">明细</a>
+      <a href="#step-signals" class="result-nav-link">提示</a>
+      <a href="#step-charts" class="result-nav-link">图表</a>
+      <a href="#step-export" class="result-nav-link">导出</a>
+      <a href="#step-prompt" class="result-nav-link">提示词</a>
+    </nav>
+
     <!-- 结果概览（分析后主屏） -->
     <section id="step-overview" class="card hidden result-hero">
       <div class="result-hero-top">
-        <h2><span class="step-num">3</span> 分析概览</h2>
+        <div>
+          <p class="eyebrow">分析完成</p>
+          <h2>监测概览</h2>
+        </div>
         <button type="button" id="btn-reset" class="btn-ghost btn-reset">重新上传</button>
       </div>
-      <p class="privacy-inline">完整明细仅在本页内存；下方可复制提示词，或保存摘要到本机历史。</p>
       <p id="date-range-info" class="date-range-line"></p>
+      <p class="privacy-inline">完整明细仅在本页；可复制提示词给大模型，或保存摘要到本机历史。</p>
       <div id="data-quality-banner" class="hidden" aria-live="polite"></div>
+
+      <div class="insight-panel">
+        <h3 class="subhead">先看这些</h3>
+        <p class="insight-lead">根据你的数据自动整理的监测要点（非诊断，需与原始数字核对）。</p>
+        <ol id="insight-list" class="insight-list" aria-label="自动监测摘要"></ol>
+      </div>
 
       <div id="kpi-grid" class="kpi-grid" aria-label="关键指标"></div>
 
-      <nav class="result-nav" aria-label="结果分区">
-        <a href="#step-summary" class="result-nav-link">明细</a>
-        <a href="#step-signals" class="result-nav-link">提示</a>
-        <a href="#step-charts" class="result-nav-link">图表</a>
-        <a href="#step-export" class="result-nav-link">导出</a>
-        <a href="#step-prompt" class="result-nav-link">提示词</a>
-      </nav>
-
       <div class="hero-actions">
         <button type="button" id="btn-copy-hero" class="btn-primary btn-block">复制完整提示词</button>
-        <button type="button" id="btn-scroll-prompt" class="btn-secondary btn-block">查看 / 编辑提示词区</button>
+        <button type="button" id="btn-scroll-prompt" class="btn-secondary btn-block">打开提示词区</button>
       </div>
 
-      <h3 class="subhead">数据可用性</h3>
-      <div id="availability-grid" class="availability-grid"></div>
+      <details class="availability-fold">
+        <summary>数据可用性</summary>
+        <div id="availability-grid" class="availability-grid"></div>
+      </details>
     </section>
 
-    <!-- 明细（默认折叠细节块由 JS 控制结构） -->
     <section id="step-summary" class="card hidden result-section">
-      <h2><span class="step-num">4</span> 统计明细</h2>
-      <p class="hint compact-hint">各维度详情可展开；概览 KPI 已在上方。</p>
+      <h2>统计明细</h2>
+      <p class="hint compact-hint">各维度可展开。体重为晨起趋势；CGM 优先看稳定期；血压含晨晚分层。</p>
       <div id="summary-content"></div>
     </section>
 
     <section id="step-signals" class="card hidden result-section">
-      <h2><span class="step-num">5</span> 跨维度提示</h2>
-      <p class="hint compact-hint">启发式线索，非诊断；已写入完整提示词。</p>
+      <h2>跨维度提示</h2>
+      <p class="hint compact-hint">规则线索，非诊断；已写入完整提示词。</p>
       <div id="signals-content"></div>
     </section>
 
     <section id="step-charts" class="card hidden result-section">
-      <h2><span class="step-num">6</span> 趋势图</h2>
-      <p class="hint compact-hint">本地绘制；CGM 默认约 7 天并降采样。在图上滑动可查看读数。</p>
+      <h2>趋势图</h2>
+      <p class="hint compact-hint">本地绘制。在图上滑动可读数；体重为晨起趋势，CGM 约近 7 天。</p>
       <div id="charts-content" class="charts-content"></div>
     </section>
 
     <section id="step-export" class="card hidden result-section">
-      <h2><span class="step-num">7</span> 导出与历史</h2>
-      <p class="hint compact-hint">均在本机。历史只存摘要指标（最多 30 条），不含完整 CGM 明细。</p>
+      <h2>导出与历史</h2>
+      <p class="hint compact-hint">均在本机。历史只存摘要指标（最多 30 条）。</p>
 
       <div class="export-actions">
         <button type="button" id="btn-export-json" class="btn-secondary">导出 JSON</button>
@@ -259,9 +271,9 @@
     </section>
 
     <section id="step-prompt" class="card hidden result-section">
-      <h2><span class="step-num">8</span> 大模型提示词</h2>
+      <h2>大模型提示词</h2>
       <p class="hint compact-hint">
-        粘贴到豆包 / ChatGPT / Claude / Gemini。固定标题结构，无数据维度跳过；个人背景与跨维度提示会一并注入。
+        一键复制到豆包 / ChatGPT / Claude / Gemini。含自动摘要、稳定期 CGM、晨重与晨晚血压；无数据维度会跳过。
       </p>
 
       <div class="prompt-tabs" role="tablist">
@@ -289,8 +301,8 @@
       </details>
     </section>
 
-    <section class="card privacy">
-      <h2>隐私声明</h2>
+    <details class="card privacy privacy-fold">
+      <summary><strong>隐私声明</strong>（本地优先，点开查看）</summary>
       <ul>
         <li>解析与统计在<strong>您的浏览器</strong>内完成，无后端上传健康明细</li>
         <li>完整分析默认只在当前页内存；刷新后需重新上传 ZIP/XML</li>
@@ -298,18 +310,20 @@
         <li>PWA 缓存仅保存网页程序，不自动保存完整健康导出</li>
         <li>复制提示词后，是否发给第三方大模型由您决定</li>
       </ul>
-    </section>
+    </details>
 
   </main>
 
   <footer class="app-footer">
-    <p>开源 · 本地优先 · v1.6</p>
+    <p>开源 · 本地优先 · v1.7</p>
   </footer>
 
-  <!-- 分析后吸底主操作 -->
   <div id="sticky-cta" class="sticky-cta hidden" role="region" aria-label="快捷操作">
-    <button type="button" id="btn-copy-sticky" class="btn-primary sticky-cta-btn">复制完整提示词</button>
-    <button type="button" id="btn-sticky-top" class="btn-ghost sticky-cta-side" title="回到概览">↑</button>
+    <div class="sticky-cta-copy">
+      <span class="sticky-cta-label">下一步</span>
+      <button type="button" id="btn-copy-sticky" class="btn-primary sticky-cta-btn">复制完整提示词</button>
+    </div>
+    <button type="button" id="btn-sticky-top" class="btn-ghost sticky-cta-side" title="回到概览" aria-label="回到概览">↑</button>
   </div>
 
   <script src="./fflate.min.js"></script>
