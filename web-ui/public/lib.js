@@ -34,6 +34,7 @@ var HealthAnalyzer = (() => {
     calcBloodPressureStats: () => calcBloodPressureStats,
     calcBpStats: () => calcBloodPressureStats,
     calcCgmStats: () => calcCgmStats,
+    calcWeightStats: () => calcWeightStats,
     compareSnapshots: () => compareSnapshots,
     createEmptyData: () => createEmptyData,
     detectCrossSignals: () => detectCrossSignals,
@@ -120,6 +121,7 @@ var HealthAnalyzer = (() => {
       cgm: [],
       bloodPressure: [],
       weight: [],
+      bodyFat: [],
       hrv: {},
       hrvOvernight: {},
       restingHr: {},
@@ -131,6 +133,7 @@ var HealthAnalyzer = (() => {
         hasCgm: false,
         hasBloodPressure: false,
         hasWeight: false,
+        hasBodyFat: false,
         hasHrv: false,
         hasHeartRate: false,
         hasSteps: false,
@@ -201,6 +204,12 @@ var HealthAnalyzer = (() => {
     } else if (rec.type === "HKQuantityTypeIdentifierBodyMass") {
       data.weight.push({ datetime: rdate, date, value: numericValue });
       data.dataAvailability.hasWeight = true;
+    } else if (rec.type === "HKQuantityTypeIdentifierBodyFatPercentage") {
+      const pct = numericValue <= 1 ? numericValue * 100 : numericValue;
+      if (Number.isFinite(pct) && pct > 0 && pct < 80) {
+        data.bodyFat.push({ datetime: rdate, date, value: pct, source: rec.source });
+        data.dataAvailability.hasBodyFat = true;
+      }
     } else if (rec.type === "HKQuantityTypeIdentifierHeartRateVariabilitySDNN") {
       if (!data.hrv[date]) data.hrv[date] = [];
       data.hrv[date].push(numericValue);
@@ -259,6 +268,31 @@ var HealthAnalyzer = (() => {
       }
     }
   }
+  function mergeBodyFatIntoWeight(data) {
+    if (!data.bodyFat?.length || !data.weight?.length) return;
+    const fatByDate = {};
+    for (const f of data.bodyFat) {
+      if (!fatByDate[f.date]) fatByDate[f.date] = [];
+      fatByDate[f.date].push({ datetime: f.datetime, value: f.value });
+    }
+    for (const w of data.weight) {
+      if (w.bodyFat != null) continue;
+      const list = fatByDate[w.date];
+      if (!list?.length) continue;
+      let best = list[0];
+      let bestDiff = Math.abs(parseAppleDate(w.datetime) - parseAppleDate(best.datetime));
+      for (let i = 1; i < list.length; i++) {
+        const diff = Math.abs(parseAppleDate(w.datetime) - parseAppleDate(list[i].datetime));
+        if (diff < bestDiff) {
+          best = list[i];
+          bestDiff = diff;
+        }
+      }
+      if (bestDiff <= 3 * 3600 * 1e3) {
+        w.bodyFat = best.value;
+      }
+    }
+  }
   function finalizeData(data) {
     for (const date in data.steps) {
       data.steps[date].max = Math.max(data.steps[date].watch, data.steps[date].iphone);
@@ -273,6 +307,11 @@ var HealthAnalyzer = (() => {
     data.bloodPressure.sort((a, b) => a.datetime.localeCompare(b.datetime));
     data.cgm.sort((a, b) => a.datetime.localeCompare(b.datetime));
     data.weight.sort((a, b) => a.datetime.localeCompare(b.datetime));
+    if (data.bodyFat) {
+      data.bodyFat.sort((a, b) => a.datetime.localeCompare(b.datetime));
+    }
+    mergeBodyFatIntoWeight(data);
+    if (data.bodyFat?.length) data.dataAvailability.hasBodyFat = true;
   }
   function parseHealthXml(xmlText, options = {}) {
     const { startDate, endDate, onProgress, allowFuture, referenceDate } = options;
@@ -475,13 +514,13 @@ var HealthAnalyzer = (() => {
       count: n
     };
   }
-  function calcCgmStats(cgm) {
-    if (cgm.length === 0) return null;
-    const sorted = [...cgm].sort((a, b) => a.datetime.localeCompare(b.datetime));
+  function cgmSegment(points) {
+    if (!points.length) return null;
+    const sorted = [...points].sort((a, b) => a.datetime.localeCompare(b.datetime));
     const values = sorted.map((p) => p.value);
     const total = values.length;
     const overall = calcStats(values);
-    const overallObj = {
+    return {
       ...overall,
       timeRange: `${sorted[0].datetime} \u81F3 ${sorted[sorted.length - 1].datetime}`,
       pctBelow39: values.filter((v) => v < 3.9).length / total * 100,
@@ -490,6 +529,16 @@ var HealthAnalyzer = (() => {
       pctAbove78: values.filter((v) => v > 7.8).length / total * 100,
       pctAbove100: values.filter((v) => v > 10).length / total * 100
     };
+  }
+  function calcCgmStats(cgm) {
+    if (cgm.length === 0) return null;
+    const sorted = [...cgm].sort((a, b) => a.datetime.localeCompare(b.datetime));
+    const overall = cgmSegment(sorted);
+    const firstDayDate = getDate(sorted[0].datetime);
+    const firstDayPoints = sorted.filter((p) => getDate(p.datetime) === firstDayDate);
+    const stablePoints = sorted.filter((p) => getDate(p.datetime) !== firstDayDate);
+    const firstDay = cgmSegment(firstDayPoints);
+    const stable = stablePoints.length ? cgmSegment(stablePoints) : null;
     const byDay = {};
     for (const p of sorted) {
       const d = getDate(p.datetime);
@@ -540,36 +589,102 @@ var HealthAnalyzer = (() => {
       }
       maxRises[`${window}min`] = { rise: maxRise, time: maxTime };
     }
-    return { overall: overallObj, daily, maxRises };
+    return {
+      overall,
+      firstDayDate,
+      firstDay,
+      stable,
+      daily,
+      maxRises
+    };
+  }
+  function meanBp(records) {
+    if (!records.length) return null;
+    const meanSys = records.reduce((a, b) => a + b.systolic, 0) / records.length;
+    const meanDia = records.reduce((a, b) => a + b.diastolic, 0) / records.length;
+    const lowCount = records.filter((r) => r.systolic < 90 || r.diastolic < 60).length;
+    return {
+      systolic: meanSys,
+      diastolic: meanDia,
+      count: records.length,
+      lowCount
+    };
   }
   function calcBloodPressureStats(records) {
     if (records.length === 0) return null;
     const sorted = [...records].sort((a, b) => a.datetime.localeCompare(b.datetime));
-    function periodStats(days) {
-      if (records.length === 0) return null;
+    function inLastDays(days) {
       const latest = sorted[sorted.length - 1].date;
       const latestDate = /* @__PURE__ */ new Date(`${latest}T00:00:00Z`);
       latestDate.setUTCDate(latestDate.getUTCDate() - days);
       const startStr = latestDate.toISOString().slice(0, 10);
-      const filtered = sorted.filter((r) => r.date >= startStr && r.date <= latest);
-      if (filtered.length === 0) return null;
-      const meanSys = filtered.reduce((a, b) => a + b.systolic, 0) / filtered.length;
-      const meanDia = filtered.reduce((a, b) => a + b.diastolic, 0) / filtered.length;
-      const lowCount = filtered.filter((r) => r.systolic < 90 || r.diastolic < 60).length;
-      return {
-        systolic: meanSys,
-        diastolic: meanDia,
-        count: filtered.length,
-        lowCount
-      };
+      return sorted.filter((r) => r.date >= startStr && r.date <= latest);
     }
+    function periodStats(days, pred) {
+      let filtered = inLastDays(days);
+      if (pred) filtered = filtered.filter(pred);
+      return meanBp(filtered);
+    }
+    const isMorning = (r) => getHour(r.datetime) < 12;
+    const isEvening = (r) => getHour(r.datetime) >= 18;
     return {
       records: sorted,
       mean7d: periodStats(7),
       mean14d: periodStats(14),
       mean30d: periodStats(30),
+      morning7d: periodStats(7, isMorning),
+      evening7d: periodStats(7, isEvening),
+      morning14d: periodStats(14, isMorning),
+      evening14d: periodStats(14, isEvening),
       lowest: sorted.reduce((min, r) => r.systolic < min.systolic ? r : min, sorted[0]),
       highest: sorted.reduce((max, r) => r.systolic > max.systolic ? r : max, sorted[0])
+    };
+  }
+  function calcWeightStats(weight) {
+    if (!weight.length) return null;
+    const sorted = [...weight].sort((a, b) => a.datetime.localeCompare(b.datetime));
+    const byDate = {};
+    for (const w of sorted) {
+      if (!byDate[w.date]) byDate[w.date] = [];
+      byDate[w.date].push(w);
+    }
+    const daily = [];
+    for (const date of Object.keys(byDate).sort()) {
+      const all = byDate[date].sort((a, b) => a.datetime.localeCompare(b.datetime));
+      const mornings = all.filter((w) => getHour(w.datetime) < 12);
+      const evenings = all.filter((w) => getHour(w.datetime) >= 18);
+      const morning = mornings.length ? mornings[0] : null;
+      const evening = evenings.length ? evenings[evenings.length - 1] : null;
+      const trend = morning || all[0];
+      daily.push({
+        date,
+        trend,
+        morning,
+        evening,
+        allCount: all.length
+      });
+    }
+    const trendSeries = daily.map((d) => ({
+      date: d.date,
+      weight: d.trend.value,
+      bodyFat: d.trend.bodyFat
+    }));
+    const withFat = trendSeries.filter((t) => t.bodyFat != null && Number.isFinite(t.bodyFat));
+    const latestTrend = trendSeries.length ? trendSeries[trendSeries.length - 1] : null;
+    const earliestTrend = trendSeries.length ? trendSeries[0] : null;
+    const morningsOnly = daily.map((d) => d.morning).filter(Boolean);
+    return {
+      daily,
+      trendSeries,
+      rawCount: sorted.length,
+      dayCount: daily.length,
+      latestTrend,
+      earliestTrend,
+      latestMorning: morningsOnly.length ? morningsOnly[morningsOnly.length - 1] : null,
+      bodyFatLatest: withFat.length ? withFat[withFat.length - 1].bodyFat : null,
+      bodyFatEarliest: withFat.length ? withFat[0].bodyFat : null,
+      bodyFatDelta: withFat.length >= 2 ? withFat[withFat.length - 1].bodyFat - withFat[0].bodyFat : null,
+      bodyFatDayCount: withFat.length
     };
   }
   function summarizeHrvByDay(hrv, hrvOvernight) {
@@ -579,7 +694,7 @@ var HealthAnalyzer = (() => {
       const overnight = hrvOvernight[date] || [];
       result[date] = {
         allMean: vals.reduce((a, b) => a + b, 0) / vals.length,
-        overnightMean: overnight.length > 0 ? overnight.reduce((a, b) => a + b, 0) / overnight.length : 0,
+        overnightMean: overnight.length > 0 ? overnight.reduce((a, b) => a + b, 0) / overnight.length : null,
         min: Math.min(...vals),
         max: Math.max(...vals),
         count: vals.length
@@ -592,6 +707,7 @@ var HealthAnalyzer = (() => {
       ...data.cgm.map((x) => getDate(x.datetime)),
       ...data.bloodPressure.map((x) => x.date),
       ...data.weight.map((x) => x.date),
+      ...(data.bodyFat || []).map((x) => x.date),
       ...Object.keys(data.hrv),
       ...Object.keys(data.restingHr),
       ...Object.keys(data.walkingHr),
@@ -605,6 +721,7 @@ var HealthAnalyzer = (() => {
       data,
       cgmStats: calcCgmStats(data.cgm),
       bpStats: calcBloodPressureStats(data.bloodPressure),
+      weightStats: calcWeightStats(data.weight),
       hrvByDate: summarizeHrvByDay(data.hrv, data.hrvOvernight),
       restingHrByDate: data.restingHr,
       walkingHrByDate: data.walkingHr,
@@ -705,21 +822,32 @@ var HealthAnalyzer = (() => {
         }
       }
     }
-    const weights = [...data.weight || []].sort(
-      (a, b) => a.datetime.localeCompare(b.datetime)
-    );
-    if (weights.length >= 4) {
-      const last = weights[weights.length - 1].value;
-      const weekAgoIdx = Math.max(0, weights.length - 8);
-      const ref = weights[weekAgoIdx].value;
-      const drop = ref - last;
+    const trend = analysis.weightStats?.trendSeries || [];
+    if (trend.length >= 4) {
+      const last = trend[trend.length - 1];
+      const refIdx = Math.max(0, trend.length - 8);
+      const ref = trend[refIdx];
+      const drop = ref.weight - last.weight;
       if (drop >= 1.5) {
         signals.push({
           severity: drop >= 2.5 ? "watch" : "info",
-          date: weights[weights.length - 1].date || weights[weights.length - 1].datetime.slice(0, 10),
-          title: "\u4F53\u91CD\u77ED\u671F\u4E0B\u964D\u504F\u5FEB",
-          detail: `\u76F8\u5BF9\u7EA6\u4E00\u5468\u524D\u53C2\u8003\u503C ${ref.toFixed(1)} kg\uFF0C\u6700\u65B0 ${last.toFixed(1)} kg\uFF0C\u7EA6\u4E0B\u964D ${drop.toFixed(1)} kg\u3002\u82E5\u4F34\u968F\u4E4F\u529B\u3001HRV \u4E0B\u964D\u6216\u8840\u538B\u504F\u4F4E\uFF0C\u5EFA\u8BAE\u7EFC\u5408\u5173\u6CE8\u80FD\u91CF\u6444\u5165\u4E0E\u6062\u590D\u3002`,
+          date: last.date,
+          title: "\u4F53\u91CD\u77ED\u671F\u4E0B\u964D\u504F\u5FEB\uFF08\u6668\u8D77\u8D8B\u52BF\uFF09",
+          detail: `\u76F8\u5BF9\u7EA6\u4E00\u5468\u524D\u8D8B\u52BF\u4F53\u91CD ${ref.weight.toFixed(1)} kg\uFF08${ref.date}\uFF09\uFF0C\u6700\u65B0 ${last.weight.toFixed(1)} kg\uFF08${last.date}\uFF09\uFF0C\u7EA6\u4E0B\u964D ${drop.toFixed(1)} kg\u3002\u82E5\u4F34\u968F\u4E4F\u529B\u3001HRV \u4E0B\u964D\u6216\u8840\u538B\u504F\u4F4E\uFF0C\u5EFA\u8BAE\u7EFC\u5408\u5173\u6CE8\u80FD\u91CF\u6444\u5165\u4E0E\u6062\u590D\u3002`,
           dimensions: ["\u4F53\u91CD"]
+        });
+      }
+    }
+    if (analysis.cgmStats?.stable && analysis.cgmStats.firstDay) {
+      const st = analysis.cgmStats.stable;
+      const fd = analysis.cgmStats.firstDay;
+      if (fd.pctBelow39 >= 15 && st.pctBelow39 < 2 && st.pctBelow30 === 0) {
+        signals.push({
+          severity: "info",
+          date: analysis.cgmStats.firstDayDate || void 0,
+          title: "CGM \u4F4E\u503C\u4E3B\u8981\u96C6\u4E2D\u5728\u4F20\u611F\u5668\u9996\u65E5",
+          detail: `\u9996\u65E5 <3.9 \u5360\u6BD4 ${fd.pctBelow39.toFixed(1)}%\uFF0C\u7A33\u5B9A\u671F\u4EC5 ${st.pctBelow39.toFixed(1)}% \u4E14\u65E0 <3.0\u3002\u89E3\u8BFB\u65F6\u8BF7\u4EE5\u7A33\u5B9A\u671F\u4E3A\u51C6\uFF0C\u9996\u65E5\u4F4E\u503C\u4F18\u5148\u8003\u8651\u538B\u8FEB/\u6821\u51C6\u4F2A\u5F71\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`,
+          dimensions: ["CGM"]
         });
       }
     }
@@ -880,7 +1008,7 @@ var HealthAnalyzer = (() => {
   }
   function formatAnalysisForLLM(analysis) {
     const sections = [];
-    const { data, cgmStats, bpStats, hrvByDate, dateRange } = analysis;
+    const { data, cgmStats, bpStats, weightStats, hrvByDate, dateRange } = analysis;
     const detailDays = 90;
     const recentDateSet = (dates) => {
       const sorted = [...dates].sort();
@@ -891,7 +1019,25 @@ var HealthAnalyzer = (() => {
       const cutoffDate = cutoff.toISOString().slice(0, 10);
       return new Set(sorted.filter((date) => date >= cutoffDate));
     };
+    const fmtSeg = (title, o) => {
+      sections.push(`**${title}**\uFF08\u5171 ${o.count} \u6761\uFF0C${o.timeRange}\uFF09`);
+      sections.push(``);
+      sections.push(`| \u6307\u6807 | \u503C |`);
+      sections.push(`|---|---|`);
+      sections.push(`| \u5E73\u5747 | ${o.mean.toFixed(2)} mmol/L |`);
+      sections.push(`| \u6807\u51C6\u5DEE | ${o.std.toFixed(2)} mmol/L |`);
+      sections.push(`| CV \u53D8\u5F02\u7CFB\u6570 | ${o.cv.toFixed(1)}% |`);
+      sections.push(`| \u6700\u4F4E | ${o.min.toFixed(1)} mmol/L |`);
+      sections.push(`| \u6700\u9AD8 | ${o.max.toFixed(1)} mmol/L |`);
+      sections.push(`| TIR (3.9-10.0 mmol/L) | ${o.pctInRange.toFixed(1)}% |`);
+      sections.push(`| <3.9 mmol/L | ${o.pctBelow39.toFixed(1)}% |`);
+      sections.push(`| <3.0 mmol/L | ${o.pctBelow30.toFixed(1)}% |`);
+      sections.push(`| >7.8 mmol/L | ${o.pctAbove78.toFixed(1)}% |`);
+      sections.push(`| >10.0 mmol/L | ${o.pctAbove100.toFixed(1)}% |`);
+      sections.push(``);
+    };
     sections.push(`> \u660E\u7EC6\u8868\u9ED8\u8BA4\u5C55\u793A\u6700\u8FD1 ${detailDays} \u5929\uFF1B\u66F4\u65E9\u6570\u636E\u5DF2\u7EB3\u5165\u603B\u4F53\u7EDF\u8BA1\uFF0C\u4F46\u4E3A\u63A7\u5236\u63D0\u793A\u8BCD\u957F\u5EA6\u672A\u9010\u6761\u5C55\u5F00\u3002`);
+    sections.push(`> \u4F53\u91CD\u8D8B\u52BF\u9ED8\u8BA4\u53D6**\u6BCF\u65E5\u6668\u8D77**\uFF0812:00 \u524D\u6700\u65E9\u4E00\u6761\uFF0C\u82E5\u65E0\u5219\u53D6\u5168\u65E5\u6700\u65E9\uFF09\uFF1BCGM \u8BF7\u4F18\u5148\u770B**\u7A33\u5B9A\u671F**\uFF08\u6392\u9664\u4F20\u611F\u5668\u9996\u4E2A\u65E5\u5386\u65E5\uFF09\u3002`);
     sections.push(``);
     const av = data.dataAvailability;
     sections.push(`## \u6570\u636E\u53EF\u7528\u6027`);
@@ -900,7 +1046,8 @@ var HealthAnalyzer = (() => {
     sections.push(`|---|---|---|`);
     sections.push(`| CGM \u52A8\u6001\u8840\u7CD6 | ${av.hasCgm ? "\u2705" : "\u274C"} | ${data.cgm.length} \u6761 |`);
     sections.push(`| \u8840\u538B | ${av.hasBloodPressure ? "\u2705" : "\u274C"} | ${data.bloodPressure.length} \u6761 |`);
-    sections.push(`| \u4F53\u91CD | ${av.hasWeight ? "\u2705" : "\u274C"} | ${data.weight.length} \u6761 |`);
+    sections.push(`| \u4F53\u91CD | ${av.hasWeight ? "\u2705" : "\u274C"} | ${data.weight.length} \u6761\u539F\u59CB / ${weightStats?.dayCount ?? 0} \u8D8B\u52BF\u65E5 |`);
+    sections.push(`| \u4F53\u8102 | ${av.hasBodyFat ? "\u2705" : "\u274C"} | ${data.bodyFat?.length ?? 0} \u6761 / ${weightStats?.bodyFatDayCount ?? 0} \u8D8B\u52BF\u65E5 |`);
     sections.push(`| HRV | ${av.hasHrv ? "\u2705" : "\u274C"} | ${Object.keys(hrvByDate).length} \u5929 |`);
     sections.push(`| \u9759\u606F/\u6B65\u884C\u5FC3\u7387 | ${av.hasHeartRate ? "\u2705" : "\u274C"} | ${Object.keys(data.restingHr).length} \u5929 |`);
     sections.push(`| \u6B65\u6570 | ${av.hasSteps ? "\u2705" : "\u274C"} | ${Object.keys(data.steps).length} \u5929 |`);
@@ -932,31 +1079,29 @@ var HealthAnalyzer = (() => {
     if (cgmStats) {
       sections.push(`## CGM \u52A8\u6001\u8840\u7CD6`);
       sections.push(``);
-      const o = cgmStats.overall;
-      sections.push(`**\u603B\u4F53\u7EDF\u8BA1**\uFF08\u5171 ${o.count} \u6761\uFF0C\u65F6\u95F4\u8303\u56F4\uFF1A${o.timeRange}\uFF09`);
-      sections.push(``);
-      sections.push(`| \u6307\u6807 | \u503C |`);
-      sections.push(`|---|---|`);
-      sections.push(`| \u5E73\u5747 | ${o.mean.toFixed(2)} mmol/L |`);
-      sections.push(`| \u6807\u51C6\u5DEE | ${o.std.toFixed(2)} mmol/L |`);
-      sections.push(`| CV \u53D8\u5F02\u7CFB\u6570 | ${o.cv.toFixed(1)}% |`);
-      sections.push(`| \u6700\u4F4E | ${o.min.toFixed(1)} mmol/L |`);
-      sections.push(`| \u6700\u9AD8 | ${o.max.toFixed(1)} mmol/L |`);
-      sections.push(`| TIR (3.9-10.0 mmol/L) | ${o.pctInRange.toFixed(1)}% |`);
-      sections.push(`| <3.9 mmol/L | ${o.pctBelow39.toFixed(1)}% |`);
-      sections.push(`| <3.0 mmol/L | ${o.pctBelow30.toFixed(1)}% |`);
-      sections.push(`| >7.8 mmol/L | ${o.pctAbove78.toFixed(1)}% |`);
-      sections.push(`| >10.0 mmol/L | ${o.pctAbove100.toFixed(1)}% |`);
-      sections.push(``);
+      if (cgmStats.firstDayDate) {
+        sections.push(
+          `> \u4F20\u611F\u5668\u9996\u4E2A\u65E5\u5386\u65E5\u4E3A \`${cgmStats.firstDayDate}\`\uFF0C\u8BE5\u65E5\u4F4E\u503C\u6613\u4E3A\u4F69\u6234/\u6821\u51C6\u4F2A\u5F71\uFF1B**\u89E3\u8BFB\u8BF7\u4F18\u5148\u91C7\u7528\u7A33\u5B9A\u671F**\u3002`
+        );
+        sections.push(``);
+      }
+      fmtSeg("\u5168\u7A0B\u7EDF\u8BA1", cgmStats.overall);
+      if (cgmStats.firstDay) {
+        fmtSeg(`\u9996\u65E5\uFF08${cgmStats.firstDayDate}\uFF09`, cgmStats.firstDay);
+      }
+      if (cgmStats.stable) {
+        fmtSeg("\u7A33\u5B9A\u671F\uFF08\u6392\u9664\u9996\u65E5\uFF09", cgmStats.stable);
+      }
       sections.push(`**\u5206\u65E5\u7EDF\u8BA1**\uFF1A`);
       sections.push(``);
-      sections.push(`| \u65E5\u671F | \u6761\u6570 | \u5747\u503C | \u6700\u4F4E | \u6700\u9AD8 | CV% | <3.9% | >7.8% |`);
-      sections.push(`|---|---:|---:|---:|---:|---:|---:|---:|`);
+      sections.push(`| \u65E5\u671F | \u6761\u6570 | \u5747\u503C | \u6700\u4F4E | \u6700\u9AD8 | CV% | <3.9% | >7.8% | \u5907\u6CE8 |`);
+      sections.push(`|---|---:|---:|---:|---:|---:|---:|---:|---|`);
       const recentDates2 = recentDateSet(Object.keys(cgmStats.daily));
       for (const date of Object.keys(cgmStats.daily).filter((date2) => recentDates2.has(date2)).sort()) {
         const d = cgmStats.daily[date];
+        const tag = date === cgmStats.firstDayDate ? "\u9996\u65E5" : "";
         sections.push(
-          `| ${date} | ${d.count} | ${d.mean.toFixed(2)} | ${d.min.toFixed(1)} | ${d.max.toFixed(1)} | ${d.cv.toFixed(1)} | ${d.pctBelow39.toFixed(1)} | ${d.pctAbove78.toFixed(1)} |`
+          `| ${date} | ${d.count} | ${d.mean.toFixed(2)} | ${d.min.toFixed(1)} | ${d.max.toFixed(1)} | ${d.cv.toFixed(1)} | ${d.pctBelow39.toFixed(1)} | ${d.pctAbove78.toFixed(1)} | ${tag} |`
         );
       }
       sections.push(``);
@@ -966,7 +1111,7 @@ var HealthAnalyzer = (() => {
     if (bpStats && bpStats.records.length > 0) {
       sections.push(`## \u8840\u538B`);
       sections.push(``);
-      sections.push(`**\u6240\u6709\u8840\u538B\u8BB0\u5F55**\uFF08\u5171 ${bpStats.records.length} \u6761\uFF09\uFF1A`);
+      sections.push(`**\u8BB0\u5F55\u660E\u7EC6**\uFF08\u5171 ${bpStats.records.length} \u6761\uFF1B\u6668\u95F4=hour&lt;12\uFF0C\u665A\u95F4=hour\u226518\uFF09\uFF1A`);
       sections.push(``);
       sections.push(`| \u65F6\u95F4 | \u6536\u7F29\u538B | \u8212\u5F20\u538B | \u5907\u6CE8 |`);
       sections.push(`|---|---:|---:|---|`);
@@ -980,28 +1125,56 @@ var HealthAnalyzer = (() => {
       sections.push(``);
       sections.push(`| \u65F6\u6BB5 | \u6536\u7F29\u538B | \u8212\u5F20\u538B | \u6761\u6570 | <90/60 |`);
       sections.push(`|---|---:|---:|---:|---:|`);
-      if (bpStats.mean7d) {
-        const m = bpStats.mean7d;
-        sections.push(`| \u6700\u8FD1 7 \u5929 | ${m.systolic.toFixed(1)} | ${m.diastolic.toFixed(1)} | ${m.count} | ${m.lowCount} |`);
-      }
-      if (bpStats.mean14d) {
-        const m = bpStats.mean14d;
-        sections.push(`| \u6700\u8FD1 14 \u5929 | ${m.systolic.toFixed(1)} | ${m.diastolic.toFixed(1)} | ${m.count} | ${m.lowCount} |`);
-      }
-      if (bpStats.mean30d) {
-        const m = bpStats.mean30d;
-        sections.push(`| \u6700\u8FD1 30 \u5929 | ${m.systolic.toFixed(1)} | ${m.diastolic.toFixed(1)} | ${m.count} | ${m.lowCount} |`);
-      }
+      const pushBp = (label, m) => {
+        if (!m) return;
+        sections.push(`| ${label} | ${m.systolic.toFixed(1)} | ${m.diastolic.toFixed(1)} | ${m.count} | ${m.lowCount} |`);
+      };
+      pushBp("\u6700\u8FD1 7 \u5929\uFF08\u5168\u5929\uFF09", bpStats.mean7d);
+      pushBp("\u6700\u8FD1 7 \u5929\u6668\u95F4", bpStats.morning7d);
+      pushBp("\u6700\u8FD1 7 \u5929\u665A\u95F4", bpStats.evening7d);
+      pushBp("\u6700\u8FD1 14 \u5929\uFF08\u5168\u5929\uFF09", bpStats.mean14d);
+      pushBp("\u6700\u8FD1 14 \u5929\u6668\u95F4", bpStats.morning14d);
+      pushBp("\u6700\u8FD1 14 \u5929\u665A\u95F4", bpStats.evening14d);
+      pushBp("\u6700\u8FD1 30 \u5929\uFF08\u5168\u5929\uFF09", bpStats.mean30d);
       sections.push(``);
     }
-    if (data.weight.length > 0) {
+    if (weightStats && weightStats.dayCount > 0) {
+      sections.push(`## \u4F53\u91CD\u4E0E\u4F53\u8102`);
+      sections.push(``);
+      sections.push(
+        `\u539F\u59CB\u79F0\u91CD ${weightStats.rawCount} \u6761 \u2192 \u8D8B\u52BF\u65E5 ${weightStats.dayCount} \u5929\uFF08\u6BCF\u65E5\u4E00\u70B9\uFF1A\u4F18\u5148\u6668\u8D77\uFF09\u3002`
+      );
+      if (weightStats.latestTrend && weightStats.earliestTrend) {
+        sections.push(
+          `\u8D8B\u52BF\u4F53\u91CD\uFF1A\u6700\u65E9 ${weightStats.earliestTrend.weight.toFixed(1)} kg\uFF08${weightStats.earliestTrend.date}\uFF09\u2192 \u6700\u65B0 ${weightStats.latestTrend.weight.toFixed(1)} kg\uFF08${weightStats.latestTrend.date}\uFF09\uFF0C\u53D8\u5316 ${(weightStats.latestTrend.weight - weightStats.earliestTrend.weight).toFixed(1)} kg\u3002`
+        );
+      }
+      if (weightStats.bodyFatDayCount > 0) {
+        sections.push(
+          `\u4F53\u8102\u8D8B\u52BF\u65E5 ${weightStats.bodyFatDayCount}\uFF1A\u6700\u65E9 ${weightStats.bodyFatEarliest?.toFixed(1)}% \u2192 \u6700\u65B0 ${weightStats.bodyFatLatest?.toFixed(1)}%` + (weightStats.bodyFatDelta != null ? `\uFF0C\u53D8\u5316 ${weightStats.bodyFatDelta.toFixed(1)} \u4E2A\u767E\u5206\u70B9\u3002` : "\u3002")
+        );
+      }
+      sections.push(``);
+      sections.push(`| \u65E5\u671F | \u8D8B\u52BF\u4F53\u91CD(kg) | \u6668\u8D77 | \u665A\u95F4 | \u4F53\u8102% | \u5F53\u65E5\u6761\u6570 |`);
+      sections.push(`|---|---:|---:|---:|---:|---:|`);
+      const recentDates2 = recentDateSet(weightStats.daily.map((d) => d.date));
+      for (const d of weightStats.daily.filter((x) => recentDates2.has(x.date))) {
+        const morn = d.morning ? d.morning.value.toFixed(1) : "\u2014";
+        const eve = d.evening ? d.evening.value.toFixed(1) : "\u2014";
+        const fat = d.trend.bodyFat != null ? d.trend.bodyFat.toFixed(1) : "\u2014";
+        sections.push(
+          `| ${d.date} | ${d.trend.value.toFixed(1)} | ${morn} | ${eve} | ${fat} | ${d.allCount} |`
+        );
+      }
+      sections.push(``);
+    } else if (data.weight.length > 0) {
       sections.push(`## \u4F53\u91CD`);
       sections.push(``);
-      sections.push(`| \u65F6\u95F4 | \u4F53\u91CD (kg) |`);
-      sections.push(`|---|---:|`);
+      sections.push(`| \u65F6\u95F4 | \u4F53\u91CD (kg) | \u4F53\u8102% |`);
+      sections.push(`|---|---:|---:|`);
       const recentDates2 = recentDateSet(data.weight.map((w) => w.date));
       for (const w of data.weight.filter((w2) => recentDates2.has(w2.date))) {
-        sections.push(`| ${w.datetime} | ${w.value.toFixed(1)} |`);
+        sections.push(`| ${w.datetime} | ${w.value.toFixed(1)} | ${w.bodyFat != null ? w.bodyFat.toFixed(1) : "\u2014"} |`);
       }
       sections.push(``);
     }
@@ -1013,8 +1186,9 @@ var HealthAnalyzer = (() => {
       const recentDates2 = recentDateSet(Object.keys(hrvByDate));
       for (const date of Object.keys(hrvByDate).filter((date2) => recentDates2.has(date2)).sort()) {
         const h = hrvByDate[date];
+        const night = h.overnightMean == null || !Number.isFinite(h.overnightMean) ? "\u2014" : h.overnightMean.toFixed(1);
         sections.push(
-          `| ${date} | ${h.allMean.toFixed(1)} | ${h.overnightMean.toFixed(1)} | ${h.min.toFixed(1)} | ${h.max.toFixed(1)} | ${h.count} |`
+          `| ${date} | ${h.allMean.toFixed(1)} | ${night} | ${h.min.toFixed(1)} | ${h.max.toFixed(1)} | ${h.count} |`
         );
       }
       sections.push(``);
@@ -1107,9 +1281,9 @@ var HealthAnalyzer = (() => {
   }
   function buildAnalysisSnapshot(analysis, options = {}) {
     const data = analysis.data;
-    const weight = data.weight || [];
-    const latestW = weight.length ? weight[weight.length - 1].value : null;
-    const earliestW = weight.length ? weight[0].value : null;
+    const ws = analysis.weightStats;
+    const latestW = ws?.latestTrend?.weight ?? null;
+    const earliestW = ws?.earliestTrend?.weight ?? null;
     const hrvMeans = {};
     for (const [d, h] of Object.entries(analysis.hrvByDate || {})) {
       hrvMeans[d] = h.allMean;
@@ -1119,6 +1293,7 @@ var HealthAnalyzer = (() => {
       sleepTotals[d] = s.total;
     }
     const cgm = analysis.cgmStats?.overall;
+    const cgmStable = analysis.cgmStats?.stable;
     return {
       id: options.id || makeId(),
       savedAt: options.savedAt || (/* @__PURE__ */ new Date()).toISOString(),
@@ -1128,16 +1303,22 @@ var HealthAnalyzer = (() => {
       metrics: {
         cgmMean: cgm ? cgm.mean : null,
         cgmTir: cgm ? cgm.pctInRange : null,
+        cgmStableMean: cgmStable ? cgmStable.mean : null,
+        cgmStableTir: cgmStable ? cgmStable.pctInRange : null,
         cgmMin: cgm ? cgm.min : null,
         cgmMax: cgm ? cgm.max : null,
         cgmCount: cgm ? cgm.count : data.cgm.length,
-        cgmPctBelow39: cgm ? cgm.pctBelow39 : null,
+        cgmPctBelow39: cgmStable ? cgmStable.pctBelow39 : cgm ? cgm.pctBelow39 : null,
         weightLatest: latestW,
         weightEarliest: earliestW,
         weightDelta: latestW != null && earliestW != null ? latestW - earliestW : null,
-        weightCount: weight.length,
+        weightCount: ws?.dayCount ?? data.weight.length,
+        bodyFatLatest: ws?.bodyFatLatest ?? null,
+        bodyFatDelta: ws?.bodyFatDelta ?? null,
         bpMean7dSys: analysis.bpStats?.mean7d?.systolic ?? null,
         bpMean7dDia: analysis.bpStats?.mean7d?.diastolic ?? null,
+        bpMorning7dSys: analysis.bpStats?.morning7d?.systolic ?? null,
+        bpEvening7dSys: analysis.bpStats?.evening7d?.systolic ?? null,
         bpCount: analysis.bpStats?.records?.length ?? data.bloodPressure.length,
         bpLowCount7d: analysis.bpStats?.mean7d?.lowCount ?? null,
         hrvMean7d: lastNMeans(hrvMeans, 7),
@@ -1153,12 +1334,15 @@ var HealthAnalyzer = (() => {
     };
   }
   var DIFF_FIELDS = [
-    { key: "cgmMean", label: "CGM \u5747\u503C", unit: "mmol/L" },
-    { key: "cgmTir", label: "CGM TIR", unit: "%" },
-    { key: "cgmPctBelow39", label: "CGM <3.9 \u5360\u6BD4", unit: "%" },
-    { key: "weightLatest", label: "\u6700\u65B0\u4F53\u91CD", unit: "kg" },
+    { key: "cgmMean", label: "CGM \u5168\u7A0B\u5747\u503C", unit: "mmol/L" },
+    { key: "cgmStableMean", label: "CGM \u7A33\u5B9A\u671F\u5747\u503C", unit: "mmol/L" },
+    { key: "cgmStableTir", label: "CGM \u7A33\u5B9A\u671F TIR", unit: "%" },
+    { key: "cgmPctBelow39", label: "CGM <3.9 \u5360\u6BD4(\u7A33)", unit: "%" },
+    { key: "weightLatest", label: "\u6700\u65B0\u8D8B\u52BF\u4F53\u91CD(\u6668\u4F18)", unit: "kg" },
+    { key: "bodyFatLatest", label: "\u6700\u65B0\u4F53\u8102", unit: "%" },
     { key: "bpMean7dSys", label: "\u8840\u538B 7 \u5929\u6536\u7F29\u538B", unit: "mmHg" },
-    { key: "bpMean7dDia", label: "\u8840\u538B 7 \u5929\u8212\u5F20\u538B", unit: "mmHg" },
+    { key: "bpMorning7dSys", label: "\u8840\u538B 7 \u5929\u6668\u95F4\u6536\u7F29\u538B", unit: "mmHg" },
+    { key: "bpEvening7dSys", label: "\u8840\u538B 7 \u5929\u665A\u95F4\u6536\u7F29\u538B", unit: "mmHg" },
     { key: "hrvMean7d", label: "HRV \u8FD1 7 \u5929\u5747\u503C", unit: "ms" },
     { key: "restingHrMean7d", label: "\u9759\u606F\u5FC3\u7387\u8FD1 7 \u5929\u5747\u503C", unit: "bpm" },
     { key: "walkingHrMean7d", label: "\u6B65\u884C\u5FC3\u7387\u8FD1 7 \u5929\u5747\u503C", unit: "bpm" },
@@ -1242,8 +1426,33 @@ var HealthAnalyzer = (() => {
       csvFiles.push({
         filename: "weight.csv",
         content: toCsv(
-          ["datetime", "date", "value_kg"],
-          data.weight.map((w) => [w.datetime, w.date, w.value])
+          ["datetime", "date", "value_kg", "body_fat_pct"],
+          data.weight.map((w) => [w.datetime, w.date, w.value, w.bodyFat ?? ""])
+        )
+      });
+    }
+    if (analysis.weightStats?.trendSeries?.length) {
+      csvFiles.push({
+        filename: "weight_trend_daily.csv",
+        content: toCsv(
+          ["date", "trend_kg", "body_fat_pct", "morning_kg", "evening_kg", "raw_count"],
+          analysis.weightStats.daily.map((d) => [
+            d.date,
+            d.trend.value,
+            d.trend.bodyFat ?? "",
+            d.morning?.value ?? "",
+            d.evening?.value ?? "",
+            d.allCount
+          ])
+        )
+      });
+    }
+    if (data.bodyFat?.length) {
+      csvFiles.push({
+        filename: "body_fat.csv",
+        content: toCsv(
+          ["datetime", "date", "body_fat_pct", "source"],
+          data.bodyFat.map((f) => [f.datetime, f.date, f.value, f.source ?? ""])
         )
       });
     }

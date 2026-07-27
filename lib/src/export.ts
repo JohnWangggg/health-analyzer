@@ -84,8 +84,33 @@ export function buildExportBundle(analysis: FullAnalysis): ExportBundle {
     csvFiles.push({
       filename: 'weight.csv',
       content: toCsv(
-        ['datetime', 'date', 'value_kg'],
-        data.weight.map((w) => [w.datetime, w.date, w.value])
+        ['datetime', 'date', 'value_kg', 'body_fat_pct'],
+        data.weight.map((w) => [w.datetime, w.date, w.value, w.bodyFat ?? ''])
+      ),
+    });
+  }
+  if (analysis.weightStats?.trendSeries?.length) {
+    csvFiles.push({
+      filename: 'weight_trend_daily.csv',
+      content: toCsv(
+        ['date', 'trend_kg', 'body_fat_pct', 'morning_kg', 'evening_kg', 'raw_count'],
+        analysis.weightStats.daily.map((d) => [
+          d.date,
+          d.trend.value,
+          d.trend.bodyFat ?? '',
+          d.morning?.value ?? '',
+          d.evening?.value ?? '',
+          d.allCount,
+        ])
+      ),
+    });
+  }
+  if (data.bodyFat?.length) {
+    csvFiles.push({
+      filename: 'body_fat.csv',
+      content: toCsv(
+        ['datetime', 'date', 'body_fat_pct', 'source'],
+        data.bodyFat.map((f) => [f.datetime, f.date, f.value, f.source ?? ''])
       ),
     });
   }

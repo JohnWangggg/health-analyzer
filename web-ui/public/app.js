@@ -715,33 +715,50 @@
     const data = analysis.data || {};
     const items = [];
 
-    if (analysis.cgmStats && analysis.cgmStats.overall) {
-      const o = analysis.cgmStats.overall;
+    if (analysis.cgmStats) {
+      const o = analysis.cgmStats.stable || analysis.cgmStats.overall;
+      const label = analysis.cgmStats.stable ? 'CGM 稳定期' : 'CGM 均值';
       items.push({
-        label: 'CGM 均值',
+        label,
         value: o.mean.toFixed(2),
         unit: 'mmol/L',
-        sub: `TIR ${o.pctInRange.toFixed(0)}% · n=${o.count}`,
+        sub: `TIR ${o.pctInRange.toFixed(0)}% · n=${o.count}` +
+          (analysis.cgmStats.firstDayDate ? ` · 已排除首日 ${analysis.cgmStats.firstDayDate}` : ''),
       });
     }
     if (analysis.bpStats && analysis.bpStats.mean7d) {
       const m = analysis.bpStats.mean7d;
+      const morn = analysis.bpStats.morning7d;
+      const eve = analysis.bpStats.evening7d;
+      let sub = `${m.count} 条` + (m.lowCount ? ` · ${m.lowCount} 次偏低` : '');
+      if (morn && eve) {
+        sub = `晨 ${morn.systolic.toFixed(0)} / 晚 ${eve.systolic.toFixed(0)} 收缩压`;
+      }
       items.push({
         label: '血压 7 日均',
         value: `${m.systolic.toFixed(0)}/${m.diastolic.toFixed(0)}`,
         unit: 'mmHg',
-        sub: `${m.count} 条` + (m.lowCount ? ` · ${m.lowCount} 次偏低` : ''),
+        sub,
       });
     }
-    if (data.weight && data.weight.length) {
+    if (analysis.weightStats && analysis.weightStats.latestTrend) {
+      const lt = analysis.weightStats.latestTrend;
+      const et = analysis.weightStats.earliestTrend;
+      const delta = et ? lt.weight - et.weight : 0;
+      const fat = lt.bodyFat != null ? ` · 体脂 ${lt.bodyFat.toFixed(1)}%` : '';
+      items.push({
+        label: '趋势体重(晨优)',
+        value: lt.weight.toFixed(1),
+        unit: 'kg',
+        sub: `${lt.date} · 较最早 ${delta >= 0 ? '+' : ''}${delta.toFixed(1)} kg${fat}`,
+      });
+    } else if (data.weight && data.weight.length) {
       const latest = data.weight[data.weight.length - 1];
-      const earliest = data.weight[0];
-      const delta = latest.value - earliest.value;
       items.push({
         label: '最新体重',
         value: latest.value.toFixed(1),
         unit: 'kg',
-        sub: `较最早 ${delta >= 0 ? '+' : ''}${delta.toFixed(1)} kg`,
+        sub: latest.date || latest.datetime.slice(0, 10),
       });
     }
     const hrvDates = Object.keys(analysis.hrvByDate || {}).sort();
@@ -1073,7 +1090,8 @@
     const items = [
       { key: 'hasCgm', icon: '🩸', name: 'CGM 动态血糖', count: analysis.data.cgm.length + ' 条' },
       { key: 'hasBloodPressure', icon: '❤️', name: '血压', count: analysis.data.bloodPressure.length + ' 条' },
-      { key: 'hasWeight', icon: '⚖️', name: '体重', count: analysis.data.weight.length + ' 条' },
+      { key: 'hasWeight', icon: '⚖️', name: '体重', count: (analysis.weightStats ? analysis.weightStats.dayCount + ' 趋势日 / ' : '') + analysis.data.weight.length + ' 条' },
+      { key: 'hasBodyFat', icon: '📉', name: '体脂', count: (analysis.weightStats?.bodyFatDayCount || analysis.data.bodyFat?.length || 0) + ' 点' },
       { key: 'hasHrv', icon: '📊', name: 'HRV 心率变异性', count: Object.keys(analysis.hrvByDate).length + ' 天' },
       { key: 'hasHeartRate', icon: '💗', name: '静息/步行心率', count: Object.keys(analysis.data.restingHr).length + ' 天' },
       { key: 'hasSteps', icon: '👟', name: '步数', count: Object.keys(analysis.data.steps).length + ' 天' },
@@ -1170,17 +1188,17 @@
 
     if (analysis.cgmStats) {
       const o = analysis.cgmStats.overall;
+      const st = analysis.cgmStats.stable;
+      const fd = analysis.cgmStats.firstDay;
       blocks.push(`
         <div class="section-block">
           <h3>🩸 CGM 血糖总览</h3>
           <table class="summary-table">
-            <tr><th>指标</th><th>值</th></tr>
-            <tr><td>均值</td><td class="num">${o.mean.toFixed(2)} mmol/L</td></tr>
-            <tr><td>最低 / 最高</td><td class="num">${o.min.toFixed(1)} / ${o.max.toFixed(1)}</td></tr>
-            <tr><td>TIR (3.9-10.0)</td><td class="num">${o.pctInRange.toFixed(1)}%</td></tr>
-            <tr><td>&lt;3.9 mmol/L</td><td class="num">${o.pctBelow39.toFixed(1)}%</td></tr>
-            <tr><td>&lt;3.0 mmol/L</td><td class="num">${o.pctBelow30.toFixed(1)}%</td></tr>
-            <tr><td>&gt;7.8 mmol/L</td><td class="num">${o.pctAbove78.toFixed(1)}%</td></tr>
+            <tr><th>分段</th><th>均值</th><th>TIR</th><th>&lt;3.9%</th><th>条数</th></tr>
+            <tr><td>全程</td><td class="num">${o.mean.toFixed(2)}</td><td class="num">${o.pctInRange.toFixed(1)}%</td><td class="num">${o.pctBelow39.toFixed(1)}%</td><td class="num">${o.count}</td></tr>
+            ${fd ? `<tr><td>首日 ${escapeHtml(analysis.cgmStats.firstDayDate || '')}</td><td class="num">${fd.mean.toFixed(2)}</td><td class="num">${fd.pctInRange.toFixed(1)}%</td><td class="num">${fd.pctBelow39.toFixed(1)}%</td><td class="num">${fd.count}</td></tr>` : ''}
+            ${st ? `<tr><td><strong>稳定期</strong></td><td class="num">${st.mean.toFixed(2)}</td><td class="num">${st.pctInRange.toFixed(1)}%</td><td class="num">${st.pctBelow39.toFixed(1)}%</td><td class="num">${st.count}</td></tr>` : ''}
+            <tr><td colspan="5" class="hint" style="background:transparent;padding:8px 0 0;margin:0;">最低/最高（全程）：${o.min.toFixed(1)} / ${o.max.toFixed(1)} mmol/L</td></tr>
           </table>
         </div>
       `);
@@ -1192,13 +1210,20 @@
         const low = r.systolic < 90 || r.diastolic < 60 ? ' ⚠️' : '';
         return `<tr><td>${r.datetime.slice(5, 16)}</td><td class="num">${r.systolic}/${r.diastolic}${low}</td></tr>`;
       }).join('');
+      const row = (label, m) => m
+        ? `<tr><td>${label} (${m.count}条)</td><td class="num">${m.systolic.toFixed(1)}/${m.diastolic.toFixed(1)}${m.lowCount ? ' · 偏低' + m.lowCount : ''}</td></tr>`
+        : '';
       blocks.push(`
         <div class="section-block">
           <h3>❤️ 血压总览</h3>
           <table class="summary-table">
             <tr><th>时段</th><th>均值</th></tr>
-            ${bp.mean7d ? `<tr><td>最近 7 天 (${bp.mean7d.count}条)</td><td class="num">${bp.mean7d.systolic.toFixed(1)}/${bp.mean7d.diastolic.toFixed(1)}</td></tr>` : ''}
-            ${bp.mean14d ? `<tr><td>最近 14 天 (${bp.mean14d.count}条)</td><td class="num">${bp.mean14d.systolic.toFixed(1)}/${bp.mean14d.diastolic.toFixed(1)}</td></tr>` : ''}
+            ${row('近 7 天全天', bp.mean7d)}
+            ${row('近 7 天晨间', bp.morning7d)}
+            ${row('近 7 天晚间', bp.evening7d)}
+            ${row('近 14 天全天', bp.mean14d)}
+            ${row('近 14 天晨间', bp.morning14d)}
+            ${row('近 14 天晚间', bp.evening14d)}
             ${bp.lowest ? `<tr><td>最低</td><td class="num">${bp.lowest.systolic}/${bp.lowest.diastolic} (${bp.lowest.datetime.slice(5, 16)})</td></tr>` : ''}
             ${bp.highest ? `<tr><td>最高</td><td class="num">${bp.highest.systolic}/${bp.highest.diastolic} (${bp.highest.datetime.slice(5, 16)})</td></tr>` : ''}
           </table>
@@ -1213,7 +1238,35 @@
       `);
     }
 
-    if (data.weight.length > 0) {
+    if (analysis.weightStats && analysis.weightStats.dayCount > 0) {
+      const ws = analysis.weightStats;
+      const lt = ws.latestTrend;
+      const et = ws.earliestTrend;
+      const recent = ws.daily.slice(-7).reverse().map((d) => {
+        const fat = d.trend.bodyFat != null ? d.trend.bodyFat.toFixed(1) + '%' : '—';
+        const morn = d.morning ? d.morning.value.toFixed(1) : '—';
+        const eve = d.evening ? d.evening.value.toFixed(1) : '—';
+        return `<tr><td>${d.date}</td><td class="num">${d.trend.value.toFixed(1)}</td><td class="num">${morn}</td><td class="num">${eve}</td><td class="num">${fat}</td></tr>`;
+      }).join('');
+      blocks.push(`
+        <div class="section-block">
+          <h3>⚖️ 体重与体脂（晨起趋势）</h3>
+          <table class="summary-table">
+            <tr><th>指标</th><th>值</th></tr>
+            <tr><td>最新趋势体重</td><td class="num">${lt ? lt.weight.toFixed(1) + ' kg (' + lt.date + ')' : '—'}</td></tr>
+            <tr><td>最早趋势体重</td><td class="num">${et ? et.weight.toFixed(1) + ' kg (' + et.date + ')' : '—'}</td></tr>
+            <tr><td>趋势变化</td><td class="num">${lt && et ? (lt.weight - et.weight).toFixed(1) + ' kg' : '—'}</td></tr>
+            <tr><td>最新体脂</td><td class="num">${ws.bodyFatLatest != null ? ws.bodyFatLatest.toFixed(1) + '%' : '—'}</td></tr>
+            <tr><td>体脂变化</td><td class="num">${ws.bodyFatDelta != null ? ws.bodyFatDelta.toFixed(1) + ' 百分点' : '—'}</td></tr>
+            <tr><td>原始条数 / 趋势日</td><td class="num">${ws.rawCount} / ${ws.dayCount}</td></tr>
+          </table>
+          <table class="summary-table">
+            <tr><th>日期</th><th>趋势</th><th>晨</th><th>晚</th><th>体脂</th></tr>
+            ${recent}
+          </table>
+        </div>
+      `);
+    } else if (data.weight.length > 0) {
       const w = data.weight;
       const latest = w[w.length - 1];
       const earliest = w[0];

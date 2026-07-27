@@ -324,11 +324,33 @@
       });
     }
 
-    if (data.weight && data.weight.length > 0) {
+    const trend = analysis.weightStats && analysis.weightStats.trendSeries;
+    if (trend && trend.length > 0) {
+      const recent = trend.slice(-90);
+      blocks.push({
+        title: '体重趋势（晨起优先，最多 90 日）',
+        color: '#1abc9c',
+        yLabel: 'kg',
+        unit: 'kg',
+        points: recent.map((w) => ({ x: w.date, y: w.weight })),
+        legend: [{ color: '#1abc9c', label: '趋势体重', dashed: false }],
+      });
+      const fatPts = recent.filter((w) => w.bodyFat != null && Number.isFinite(w.bodyFat));
+      if (fatPts.length >= 2) {
+        blocks.push({
+          title: '体脂趋势（与体重同日合并，最多 90 日）',
+          color: '#9b59b6',
+          yLabel: '%',
+          unit: '%',
+          points: fatPts.map((w) => ({ x: w.date, y: w.bodyFat })),
+          legend: [{ color: '#9b59b6', label: '体脂%', dashed: false }],
+        });
+      }
+    } else if (data.weight && data.weight.length > 0) {
       const sorted = [...data.weight].sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
       const recent = sorted.slice(-90);
       blocks.push({
-        title: '体重（最多 90 条）',
+        title: '体重（最多 90 条原始）',
         color: '#1abc9c',
         yLabel: 'kg',
         unit: 'kg',

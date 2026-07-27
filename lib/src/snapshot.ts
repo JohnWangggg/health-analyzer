@@ -7,6 +7,8 @@ import { FullAnalysis } from './types';
 export interface AnalysisSnapshotMetrics {
   cgmMean: number | null;
   cgmTir: number | null;
+  cgmStableMean: number | null;
+  cgmStableTir: number | null;
   cgmMin: number | null;
   cgmMax: number | null;
   cgmCount: number;
@@ -15,8 +17,12 @@ export interface AnalysisSnapshotMetrics {
   weightEarliest: number | null;
   weightDelta: number | null;
   weightCount: number;
+  bodyFatLatest: number | null;
+  bodyFatDelta: number | null;
   bpMean7dSys: number | null;
   bpMean7dDia: number | null;
+  bpMorning7dSys: number | null;
+  bpEvening7dSys: number | null;
   bpCount: number;
   bpLowCount7d: number | null;
   hrvMean7d: number | null;
@@ -71,9 +77,9 @@ export function buildAnalysisSnapshot(
   options: { id?: string; label?: string; savedAt?: string } = {}
 ): AnalysisSnapshot {
   const data = analysis.data;
-  const weight = data.weight || [];
-  const latestW = weight.length ? weight[weight.length - 1].value : null;
-  const earliestW = weight.length ? weight[0].value : null;
+  const ws = analysis.weightStats;
+  const latestW = ws?.latestTrend?.weight ?? null;
+  const earliestW = ws?.earliestTrend?.weight ?? null;
 
   const hrvMeans: Record<string, number> = {};
   for (const [d, h] of Object.entries(analysis.hrvByDate || {})) {
@@ -86,6 +92,7 @@ export function buildAnalysisSnapshot(
   }
 
   const cgm = analysis.cgmStats?.overall;
+  const cgmStable = analysis.cgmStats?.stable;
 
   return {
     id: options.id || makeId(),
@@ -96,17 +103,23 @@ export function buildAnalysisSnapshot(
     metrics: {
       cgmMean: cgm ? cgm.mean : null,
       cgmTir: cgm ? cgm.pctInRange : null,
+      cgmStableMean: cgmStable ? cgmStable.mean : null,
+      cgmStableTir: cgmStable ? cgmStable.pctInRange : null,
       cgmMin: cgm ? cgm.min : null,
       cgmMax: cgm ? cgm.max : null,
       cgmCount: cgm ? cgm.count : data.cgm.length,
-      cgmPctBelow39: cgm ? cgm.pctBelow39 : null,
+      cgmPctBelow39: cgmStable ? cgmStable.pctBelow39 : cgm ? cgm.pctBelow39 : null,
       weightLatest: latestW,
       weightEarliest: earliestW,
       weightDelta:
         latestW != null && earliestW != null ? latestW - earliestW : null,
-      weightCount: weight.length,
+      weightCount: ws?.dayCount ?? data.weight.length,
+      bodyFatLatest: ws?.bodyFatLatest ?? null,
+      bodyFatDelta: ws?.bodyFatDelta ?? null,
       bpMean7dSys: analysis.bpStats?.mean7d?.systolic ?? null,
       bpMean7dDia: analysis.bpStats?.mean7d?.diastolic ?? null,
+      bpMorning7dSys: analysis.bpStats?.morning7d?.systolic ?? null,
+      bpEvening7dSys: analysis.bpStats?.evening7d?.systolic ?? null,
       bpCount: analysis.bpStats?.records?.length ?? data.bloodPressure.length,
       bpLowCount7d: analysis.bpStats?.mean7d?.lowCount ?? null,
       hrvMean7d: lastNMeans(hrvMeans, 7),
@@ -123,12 +136,15 @@ export function buildAnalysisSnapshot(
 }
 
 const DIFF_FIELDS: { key: keyof AnalysisSnapshotMetrics; label: string; unit: string }[] = [
-  { key: 'cgmMean', label: 'CGM 均值', unit: 'mmol/L' },
-  { key: 'cgmTir', label: 'CGM TIR', unit: '%' },
-  { key: 'cgmPctBelow39', label: 'CGM <3.9 占比', unit: '%' },
-  { key: 'weightLatest', label: '最新体重', unit: 'kg' },
+  { key: 'cgmMean', label: 'CGM 全程均值', unit: 'mmol/L' },
+  { key: 'cgmStableMean', label: 'CGM 稳定期均值', unit: 'mmol/L' },
+  { key: 'cgmStableTir', label: 'CGM 稳定期 TIR', unit: '%' },
+  { key: 'cgmPctBelow39', label: 'CGM <3.9 占比(稳)', unit: '%' },
+  { key: 'weightLatest', label: '最新趋势体重(晨优)', unit: 'kg' },
+  { key: 'bodyFatLatest', label: '最新体脂', unit: '%' },
   { key: 'bpMean7dSys', label: '血压 7 天收缩压', unit: 'mmHg' },
-  { key: 'bpMean7dDia', label: '血压 7 天舒张压', unit: 'mmHg' },
+  { key: 'bpMorning7dSys', label: '血压 7 天晨间收缩压', unit: 'mmHg' },
+  { key: 'bpEvening7dSys', label: '血压 7 天晚间收缩压', unit: 'mmHg' },
   { key: 'hrvMean7d', label: 'HRV 近 7 天均值', unit: 'ms' },
   { key: 'restingHrMean7d', label: '静息心率近 7 天均值', unit: 'bpm' },
   { key: 'walkingHrMean7d', label: '步行心率近 7 天均值', unit: 'bpm' },

@@ -123,22 +123,35 @@ export function detectCrossSignals(analysis: FullAnalysis): CrossSignal[] {
     }
   }
 
-  // 体重快速下降（最近 7 条 vs 更早）
-  const weights = [...(data.weight || [])].sort((a, b) =>
-    a.datetime.localeCompare(b.datetime)
-  );
-  if (weights.length >= 4) {
-    const last = weights[weights.length - 1].value;
-    const weekAgoIdx = Math.max(0, weights.length - 8);
-    const ref = weights[weekAgoIdx].value;
-    const drop = ref - last;
+  // 体重快速下降：用趋势序列（晨起优先）近 7 日 vs 再往前一点
+  const trend = analysis.weightStats?.trendSeries || [];
+  if (trend.length >= 4) {
+    const last = trend[trend.length - 1];
+    const refIdx = Math.max(0, trend.length - 8);
+    const ref = trend[refIdx];
+    const drop = ref.weight - last.weight;
     if (drop >= 1.5) {
       signals.push({
         severity: drop >= 2.5 ? 'watch' : 'info',
-        date: weights[weights.length - 1].date || weights[weights.length - 1].datetime.slice(0, 10),
-        title: '体重短期下降偏快',
-        detail: `相对约一周前参考值 ${ref.toFixed(1)} kg，最新 ${last.toFixed(1)} kg，约下降 ${drop.toFixed(1)} kg。若伴随乏力、HRV 下降或血压偏低，建议综合关注能量摄入与恢复。`,
+        date: last.date,
+        title: '体重短期下降偏快（晨起趋势）',
+        detail: `相对约一周前趋势体重 ${ref.weight.toFixed(1)} kg（${ref.date}），最新 ${last.weight.toFixed(1)} kg（${last.date}），约下降 ${drop.toFixed(1)} kg。若伴随乏力、HRV 下降或血压偏低，建议综合关注能量摄入与恢复。`,
         dimensions: ['体重'],
+      });
+    }
+  }
+
+  // CGM：若稳定期正常而仅首日低值，弱化「全程低血糖」叙事（已有首日信号）
+  if (analysis.cgmStats?.stable && analysis.cgmStats.firstDay) {
+    const st = analysis.cgmStats.stable;
+    const fd = analysis.cgmStats.firstDay;
+    if (fd.pctBelow39 >= 15 && st.pctBelow39 < 2 && st.pctBelow30 === 0) {
+      signals.push({
+        severity: 'info',
+        date: analysis.cgmStats.firstDayDate || undefined,
+        title: 'CGM 低值主要集中在传感器首日',
+        detail: `首日 <3.9 占比 ${fd.pctBelow39.toFixed(1)}%，稳定期仅 ${st.pctBelow39.toFixed(1)}% 且无 <3.0。解读时请以稳定期为准，首日低值优先考虑压迫/校准伪影并指尖血复核可疑时段。`,
+        dimensions: ['CGM'],
       });
     }
   }

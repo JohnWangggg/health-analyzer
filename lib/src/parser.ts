@@ -90,6 +90,7 @@ export function createEmptyData(referenceDate?: string): HealthData {
     cgm: [],
     bloodPressure: [],
     weight: [],
+    bodyFat: [],
     hrv: {},
     hrvOvernight: {},
     restingHr: {},
@@ -101,6 +102,7 @@ export function createEmptyData(referenceDate?: string): HealthData {
       hasCgm: false,
       hasBloodPressure: false,
       hasWeight: false,
+      hasBodyFat: false,
       hasHrv: false,
       hasHeartRate: false,
       hasSteps: false,
@@ -207,6 +209,13 @@ export function processRecord(
   } else if (rec.type === 'HKQuantityTypeIdentifierBodyMass') {
     data.weight.push({ datetime: rdate, date, value: numericValue });
     data.dataAvailability.hasWeight = true;
+  } else if (rec.type === 'HKQuantityTypeIdentifierBodyFatPercentage') {
+    // Apple Health 常以 0–1 小数存储；若 >1 则视为已是百分数
+    const pct = numericValue <= 1 ? numericValue * 100 : numericValue;
+    if (Number.isFinite(pct) && pct > 0 && pct < 80) {
+      data.bodyFat.push({ datetime: rdate, date, value: pct, source: rec.source });
+      data.dataAvailability.hasBodyFat = true;
+    }
   } else if (rec.type === 'HKQuantityTypeIdentifierHeartRateVariabilitySDNN') {
     if (!data.hrv[date]) data.hrv[date] = [];
     data.hrv[date].push(numericValue);
@@ -268,7 +277,37 @@ export function processRecord(
 }
 
 /**
- * 后处理：步数 max、血压配对完成、排序
+ * 将体脂点合并到同日体重记录：优先同一天时间最近的一条
+ */
+function mergeBodyFatIntoWeight(data: HealthData): void {
+  if (!data.bodyFat?.length || !data.weight?.length) return;
+  const fatByDate: Record<string, { datetime: string; value: number }[]> = {};
+  for (const f of data.bodyFat) {
+    if (!fatByDate[f.date]) fatByDate[f.date] = [];
+    fatByDate[f.date].push({ datetime: f.datetime, value: f.value });
+  }
+  for (const w of data.weight) {
+    if (w.bodyFat != null) continue;
+    const list = fatByDate[w.date];
+    if (!list?.length) continue;
+    let best = list[0];
+    let bestDiff = Math.abs(parseAppleDate(w.datetime) - parseAppleDate(best.datetime));
+    for (let i = 1; i < list.length; i++) {
+      const diff = Math.abs(parseAppleDate(w.datetime) - parseAppleDate(list[i].datetime));
+      if (diff < bestDiff) {
+        best = list[i];
+        bestDiff = diff;
+      }
+    }
+    // 仅当 3 小时内认为同次称重
+    if (bestDiff <= 3 * 3600 * 1000) {
+      w.bodyFat = best.value;
+    }
+  }
+}
+
+/**
+ * 后处理：步数 max、血压配对完成、排序、体脂合并
  */
 export function finalizeData(data: HealthData): void {
   for (const date in data.steps) {
@@ -285,6 +324,11 @@ export function finalizeData(data: HealthData): void {
   data.bloodPressure.sort((a, b) => a.datetime.localeCompare(b.datetime));
   data.cgm.sort((a, b) => a.datetime.localeCompare(b.datetime));
   data.weight.sort((a, b) => a.datetime.localeCompare(b.datetime));
+  if (data.bodyFat) {
+    data.bodyFat.sort((a, b) => a.datetime.localeCompare(b.datetime));
+  }
+  mergeBodyFatIntoWeight(data);
+  if (data.bodyFat?.length) data.dataAvailability.hasBodyFat = true;
 }
 
 export interface ParseHealthXmlOptions {

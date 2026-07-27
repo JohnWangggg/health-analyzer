@@ -135,7 +135,7 @@ export function formatUserContext(ctx?: UserContext | null): string {
  */
 export function formatAnalysisForLLM(analysis: FullAnalysis): string {
   const sections: string[] = [];
-  const { data, cgmStats, bpStats, hrvByDate, dateRange } = analysis;
+  const { data, cgmStats, bpStats, weightStats, hrvByDate, dateRange } = analysis;
   const detailDays = 90;
   const recentDateSet = (dates: string[]) => {
     const sorted = [...dates].sort();
@@ -146,7 +146,29 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
     const cutoffDate = cutoff.toISOString().slice(0, 10);
     return new Set(sorted.filter(date => date >= cutoffDate));
   };
+  const fmtSeg = (title: string, o: {
+    count: number; timeRange: string; mean: number; std: number; cv: number;
+    min: number; max: number; pctInRange: number; pctBelow39: number;
+    pctBelow30: number; pctAbove78: number; pctAbove100: number;
+  }) => {
+    sections.push(`**${title}**（共 ${o.count} 条，${o.timeRange}）`);
+    sections.push(``);
+    sections.push(`| 指标 | 值 |`);
+    sections.push(`|---|---|`);
+    sections.push(`| 平均 | ${o.mean.toFixed(2)} mmol/L |`);
+    sections.push(`| 标准差 | ${o.std.toFixed(2)} mmol/L |`);
+    sections.push(`| CV 变异系数 | ${o.cv.toFixed(1)}% |`);
+    sections.push(`| 最低 | ${o.min.toFixed(1)} mmol/L |`);
+    sections.push(`| 最高 | ${o.max.toFixed(1)} mmol/L |`);
+    sections.push(`| TIR (3.9-10.0 mmol/L) | ${o.pctInRange.toFixed(1)}% |`);
+    sections.push(`| <3.9 mmol/L | ${o.pctBelow39.toFixed(1)}% |`);
+    sections.push(`| <3.0 mmol/L | ${o.pctBelow30.toFixed(1)}% |`);
+    sections.push(`| >7.8 mmol/L | ${o.pctAbove78.toFixed(1)}% |`);
+    sections.push(`| >10.0 mmol/L | ${o.pctAbove100.toFixed(1)}% |`);
+    sections.push(``);
+  };
   sections.push(`> 明细表默认展示最近 ${detailDays} 天；更早数据已纳入总体统计，但为控制提示词长度未逐条展开。`);
+  sections.push(`> 体重趋势默认取**每日晨起**（12:00 前最早一条，若无则取全日最早）；CGM 请优先看**稳定期**（排除传感器首个日历日）。`);
   sections.push(``);
 
   // 数据可用性
@@ -157,7 +179,8 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
   sections.push(`|---|---|---|`);
   sections.push(`| CGM 动态血糖 | ${av.hasCgm ? '✅' : '❌'} | ${data.cgm.length} 条 |`);
   sections.push(`| 血压 | ${av.hasBloodPressure ? '✅' : '❌'} | ${data.bloodPressure.length} 条 |`);
-  sections.push(`| 体重 | ${av.hasWeight ? '✅' : '❌'} | ${data.weight.length} 条 |`);
+  sections.push(`| 体重 | ${av.hasWeight ? '✅' : '❌'} | ${data.weight.length} 条原始 / ${weightStats?.dayCount ?? 0} 趋势日 |`);
+  sections.push(`| 体脂 | ${av.hasBodyFat ? '✅' : '❌'} | ${data.bodyFat?.length ?? 0} 条 / ${weightStats?.bodyFatDayCount ?? 0} 趋势日 |`);
   sections.push(`| HRV | ${av.hasHrv ? '✅' : '❌'} | ${Object.keys(hrvByDate).length} 天 |`);
   sections.push(`| 静息/步行心率 | ${av.hasHeartRate ? '✅' : '❌'} | ${Object.keys(data.restingHr).length} 天 |`);
   sections.push(`| 步数 | ${av.hasSteps ? '✅' : '❌'} | ${Object.keys(data.steps).length} 天 |`);
@@ -191,31 +214,29 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
   if (cgmStats) {
     sections.push(`## CGM 动态血糖`);
     sections.push(``);
-    const o = cgmStats.overall;
-    sections.push(`**总体统计**（共 ${o.count} 条，时间范围：${o.timeRange}）`);
-    sections.push(``);
-    sections.push(`| 指标 | 值 |`);
-    sections.push(`|---|---|`);
-    sections.push(`| 平均 | ${o.mean.toFixed(2)} mmol/L |`);
-    sections.push(`| 标准差 | ${o.std.toFixed(2)} mmol/L |`);
-    sections.push(`| CV 变异系数 | ${o.cv.toFixed(1)}% |`);
-    sections.push(`| 最低 | ${o.min.toFixed(1)} mmol/L |`);
-    sections.push(`| 最高 | ${o.max.toFixed(1)} mmol/L |`);
-    sections.push(`| TIR (3.9-10.0 mmol/L) | ${o.pctInRange.toFixed(1)}% |`);
-    sections.push(`| <3.9 mmol/L | ${o.pctBelow39.toFixed(1)}% |`);
-    sections.push(`| <3.0 mmol/L | ${o.pctBelow30.toFixed(1)}% |`);
-    sections.push(`| >7.8 mmol/L | ${o.pctAbove78.toFixed(1)}% |`);
-    sections.push(`| >10.0 mmol/L | ${o.pctAbove100.toFixed(1)}% |`);
-    sections.push(``);
+    if (cgmStats.firstDayDate) {
+      sections.push(
+        `> 传感器首个日历日为 \`${cgmStats.firstDayDate}\`，该日低值易为佩戴/校准伪影；**解读请优先采用稳定期**。`
+      );
+      sections.push(``);
+    }
+    fmtSeg('全程统计', cgmStats.overall);
+    if (cgmStats.firstDay) {
+      fmtSeg(`首日（${cgmStats.firstDayDate}）`, cgmStats.firstDay);
+    }
+    if (cgmStats.stable) {
+      fmtSeg('稳定期（排除首日）', cgmStats.stable);
+    }
     sections.push(`**分日统计**：`);
     sections.push(``);
-    sections.push(`| 日期 | 条数 | 均值 | 最低 | 最高 | CV% | <3.9% | >7.8% |`);
-    sections.push(`|---|---:|---:|---:|---:|---:|---:|---:|`);
+    sections.push(`| 日期 | 条数 | 均值 | 最低 | 最高 | CV% | <3.9% | >7.8% | 备注 |`);
+    sections.push(`|---|---:|---:|---:|---:|---:|---:|---:|---|`);
     const recentDates = recentDateSet(Object.keys(cgmStats.daily));
     for (const date of Object.keys(cgmStats.daily).filter(date => recentDates.has(date)).sort()) {
       const d = cgmStats.daily[date];
+      const tag = date === cgmStats.firstDayDate ? '首日' : '';
       sections.push(
-        `| ${date} | ${d.count} | ${d.mean.toFixed(2)} | ${d.min.toFixed(1)} | ${d.max.toFixed(1)} | ${d.cv.toFixed(1)} | ${d.pctBelow39.toFixed(1)} | ${d.pctAbove78.toFixed(1)} |`
+        `| ${date} | ${d.count} | ${d.mean.toFixed(2)} | ${d.min.toFixed(1)} | ${d.max.toFixed(1)} | ${d.cv.toFixed(1)} | ${d.pctBelow39.toFixed(1)} | ${d.pctAbove78.toFixed(1)} | ${tag} |`
       );
     }
     sections.push(``);
@@ -227,7 +248,7 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
   if (bpStats && bpStats.records.length > 0) {
     sections.push(`## 血压`);
     sections.push(``);
-    sections.push(`**所有血压记录**（共 ${bpStats.records.length} 条）：`);
+    sections.push(`**记录明细**（共 ${bpStats.records.length} 条；晨间=hour&lt;12，晚间=hour≥18）：`);
     sections.push(``);
     sections.push(`| 时间 | 收缩压 | 舒张压 | 备注 |`);
     sections.push(`|---|---:|---:|---|`);
@@ -241,30 +262,59 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
     sections.push(``);
     sections.push(`| 时段 | 收缩压 | 舒张压 | 条数 | <90/60 |`);
     sections.push(`|---|---:|---:|---:|---:|`);
-    if (bpStats.mean7d) {
-      const m = bpStats.mean7d;
-      sections.push(`| 最近 7 天 | ${m.systolic.toFixed(1)} | ${m.diastolic.toFixed(1)} | ${m.count} | ${m.lowCount} |`);
-    }
-    if (bpStats.mean14d) {
-      const m = bpStats.mean14d;
-      sections.push(`| 最近 14 天 | ${m.systolic.toFixed(1)} | ${m.diastolic.toFixed(1)} | ${m.count} | ${m.lowCount} |`);
-    }
-    if (bpStats.mean30d) {
-      const m = bpStats.mean30d;
-      sections.push(`| 最近 30 天 | ${m.systolic.toFixed(1)} | ${m.diastolic.toFixed(1)} | ${m.count} | ${m.lowCount} |`);
-    }
+    const pushBp = (label: string, m: { systolic: number; diastolic: number; count: number; lowCount: number } | null) => {
+      if (!m) return;
+      sections.push(`| ${label} | ${m.systolic.toFixed(1)} | ${m.diastolic.toFixed(1)} | ${m.count} | ${m.lowCount} |`);
+    };
+    pushBp('最近 7 天（全天）', bpStats.mean7d);
+    pushBp('最近 7 天晨间', bpStats.morning7d);
+    pushBp('最近 7 天晚间', bpStats.evening7d);
+    pushBp('最近 14 天（全天）', bpStats.mean14d);
+    pushBp('最近 14 天晨间', bpStats.morning14d);
+    pushBp('最近 14 天晚间', bpStats.evening14d);
+    pushBp('最近 30 天（全天）', bpStats.mean30d);
     sections.push(``);
   }
 
-  // 体重
-  if (data.weight.length > 0) {
+  // 体重 + 体脂
+  if (weightStats && weightStats.dayCount > 0) {
+    sections.push(`## 体重与体脂`);
+    sections.push(``);
+    sections.push(
+      `原始称重 ${weightStats.rawCount} 条 → 趋势日 ${weightStats.dayCount} 天（每日一点：优先晨起）。`
+    );
+    if (weightStats.latestTrend && weightStats.earliestTrend) {
+      sections.push(
+        `趋势体重：最早 ${weightStats.earliestTrend.weight.toFixed(1)} kg（${weightStats.earliestTrend.date}）→ 最新 ${weightStats.latestTrend.weight.toFixed(1)} kg（${weightStats.latestTrend.date}），变化 ${(weightStats.latestTrend.weight - weightStats.earliestTrend.weight).toFixed(1)} kg。`
+      );
+    }
+    if (weightStats.bodyFatDayCount > 0) {
+      sections.push(
+        `体脂趋势日 ${weightStats.bodyFatDayCount}：最早 ${weightStats.bodyFatEarliest?.toFixed(1)}% → 最新 ${weightStats.bodyFatLatest?.toFixed(1)}%` +
+          (weightStats.bodyFatDelta != null ? `，变化 ${weightStats.bodyFatDelta.toFixed(1)} 个百分点。` : '。')
+      );
+    }
+    sections.push(``);
+    sections.push(`| 日期 | 趋势体重(kg) | 晨起 | 晚间 | 体脂% | 当日条数 |`);
+    sections.push(`|---|---:|---:|---:|---:|---:|`);
+    const recentDates = recentDateSet(weightStats.daily.map((d) => d.date));
+    for (const d of weightStats.daily.filter((x) => recentDates.has(x.date))) {
+      const morn = d.morning ? d.morning.value.toFixed(1) : '—';
+      const eve = d.evening ? d.evening.value.toFixed(1) : '—';
+      const fat = d.trend.bodyFat != null ? d.trend.bodyFat.toFixed(1) : '—';
+      sections.push(
+        `| ${d.date} | ${d.trend.value.toFixed(1)} | ${morn} | ${eve} | ${fat} | ${d.allCount} |`
+      );
+    }
+    sections.push(``);
+  } else if (data.weight.length > 0) {
     sections.push(`## 体重`);
     sections.push(``);
-    sections.push(`| 时间 | 体重 (kg) |`);
-    sections.push(`|---|---:|`);
+    sections.push(`| 时间 | 体重 (kg) | 体脂% |`);
+    sections.push(`|---|---:|---:|`);
     const recentDates = recentDateSet(data.weight.map(w => w.date));
     for (const w of data.weight.filter(w => recentDates.has(w.date))) {
-      sections.push(`| ${w.datetime} | ${w.value.toFixed(1)} |`);
+      sections.push(`| ${w.datetime} | ${w.value.toFixed(1)} | ${w.bodyFat != null ? w.bodyFat.toFixed(1) : '—'} |`);
     }
     sections.push(``);
   }
@@ -278,8 +328,12 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
     const recentDates = recentDateSet(Object.keys(hrvByDate));
     for (const date of Object.keys(hrvByDate).filter(date => recentDates.has(date)).sort()) {
       const h = hrvByDate[date];
+      const night =
+        h.overnightMean == null || !Number.isFinite(h.overnightMean)
+          ? '—'
+          : h.overnightMean.toFixed(1);
       sections.push(
-        `| ${date} | ${h.allMean.toFixed(1)} | ${h.overnightMean.toFixed(1)} | ${h.min.toFixed(1)} | ${h.max.toFixed(1)} | ${h.count} |`
+        `| ${date} | ${h.allMean.toFixed(1)} | ${night} | ${h.min.toFixed(1)} | ${h.max.toFixed(1)} | ${h.count} |`
       );
     }
     sections.push(``);

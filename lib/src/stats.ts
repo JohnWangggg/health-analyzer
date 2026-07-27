@@ -6,12 +6,18 @@ import {
   HealthData,
   Stats,
   CgmStats,
+  CgmSegmentStats,
   BloodPressureStats,
+  BpPeriodMean,
   HrvDaySummary,
   SleepDaySummary,
   FullAnalysis,
+  WeightRecord,
+  WeightStats,
+  DailyWeight,
+  BloodPressureRecord,
 } from './types';
-import { getDate, parseAppleDate } from './parser';
+import { getDate, getHour, parseAppleDate } from './parser';
 
 function calcStats(values: number[]): Stats {
   values = values.filter(Number.isFinite);
@@ -34,16 +40,15 @@ function calcStats(values: number[]): Stats {
   };
 }
 
-/** CGM 完整统计 */
-export function calcCgmStats(cgm: { datetime: string; value: number }[]): CgmStats | null {
-  if (cgm.length === 0) return null;
-
-  const sorted = [...cgm].sort((a, b) => a.datetime.localeCompare(b.datetime));
+function cgmSegment(
+  points: { datetime: string; value: number }[]
+): CgmSegmentStats | null {
+  if (!points.length) return null;
+  const sorted = [...points].sort((a, b) => a.datetime.localeCompare(b.datetime));
   const values = sorted.map((p) => p.value);
   const total = values.length;
-
   const overall = calcStats(values);
-  const overallObj = {
+  return {
     ...overall,
     timeRange: `${sorted[0].datetime} 至 ${sorted[sorted.length - 1].datetime}`,
     pctBelow39: (values.filter((v) => v < 3.9).length / total) * 100,
@@ -52,6 +57,19 @@ export function calcCgmStats(cgm: { datetime: string; value: number }[]): CgmSta
     pctAbove78: (values.filter((v) => v > 7.8).length / total) * 100,
     pctAbove100: (values.filter((v) => v > 10.0).length / total) * 100,
   };
+}
+
+/** CGM 完整统计：总体 + 首日 + 稳定期 */
+export function calcCgmStats(cgm: { datetime: string; value: number }[]): CgmStats | null {
+  if (cgm.length === 0) return null;
+
+  const sorted = [...cgm].sort((a, b) => a.datetime.localeCompare(b.datetime));
+  const overall = cgmSegment(sorted)!;
+  const firstDayDate = getDate(sorted[0].datetime);
+  const firstDayPoints = sorted.filter((p) => getDate(p.datetime) === firstDayDate);
+  const stablePoints = sorted.filter((p) => getDate(p.datetime) !== firstDayDate);
+  const firstDay = cgmSegment(firstDayPoints);
+  const stable = stablePoints.length ? cgmSegment(stablePoints) : null;
 
   // 分日统计
   const byDay: Record<string, number[]> = {};
@@ -110,43 +128,124 @@ export function calcCgmStats(cgm: { datetime: string; value: number }[]): CgmSta
     maxRises[`${window}min` as keyof typeof maxRises] = { rise: maxRise, time: maxTime };
   }
 
-  return { overall: overallObj, daily, maxRises };
+  return {
+    overall,
+    firstDayDate,
+    firstDay,
+    stable,
+    daily,
+    maxRises,
+  };
 }
 
-/** 血压统计 */
+function meanBp(records: BloodPressureRecord[]): BpPeriodMean | null {
+  if (!records.length) return null;
+  const meanSys = records.reduce((a, b) => a + b.systolic, 0) / records.length;
+  const meanDia = records.reduce((a, b) => a + b.diastolic, 0) / records.length;
+  const lowCount = records.filter((r) => r.systolic < 90 || r.diastolic < 60).length;
+  return {
+    systolic: meanSys,
+    diastolic: meanDia,
+    count: records.length,
+    lowCount,
+  };
+}
+
+/** 血压：整体时段 + 晨间/晚间分层 */
 export function calcBloodPressureStats(
-  records: { datetime: string; date: string; systolic: number; diastolic: number }[]
+  records: BloodPressureRecord[]
 ): BloodPressureStats | null {
   if (records.length === 0) return null;
   const sorted = [...records].sort((a, b) => a.datetime.localeCompare(b.datetime));
 
-  function periodStats(days: number) {
-    if (records.length === 0) return null;
+  function inLastDays(days: number): BloodPressureRecord[] {
     const latest = sorted[sorted.length - 1].date;
     const latestDate = new Date(`${latest}T00:00:00Z`);
     latestDate.setUTCDate(latestDate.getUTCDate() - days);
     const startStr = latestDate.toISOString().slice(0, 10);
-
-    const filtered = sorted.filter((r) => r.date >= startStr && r.date <= latest);
-    if (filtered.length === 0) return null;
-    const meanSys = filtered.reduce((a, b) => a + b.systolic, 0) / filtered.length;
-    const meanDia = filtered.reduce((a, b) => a + b.diastolic, 0) / filtered.length;
-    const lowCount = filtered.filter((r) => r.systolic < 90 || r.diastolic < 60).length;
-    return {
-      systolic: meanSys,
-      diastolic: meanDia,
-      count: filtered.length,
-      lowCount,
-    };
+    return sorted.filter((r) => r.date >= startStr && r.date <= latest);
   }
+
+  function periodStats(days: number, pred?: (r: BloodPressureRecord) => boolean): BpPeriodMean | null {
+    let filtered = inLastDays(days);
+    if (pred) filtered = filtered.filter(pred);
+    return meanBp(filtered);
+  }
+
+  const isMorning = (r: BloodPressureRecord) => getHour(r.datetime) < 12;
+  const isEvening = (r: BloodPressureRecord) => getHour(r.datetime) >= 18;
 
   return {
     records: sorted,
     mean7d: periodStats(7),
     mean14d: periodStats(14),
     mean30d: periodStats(30),
+    morning7d: periodStats(7, isMorning),
+    evening7d: periodStats(7, isEvening),
+    morning14d: periodStats(14, isMorning),
+    evening14d: periodStats(14, isEvening),
     lowest: sorted.reduce((min, r) => (r.systolic < min.systolic ? r : min), sorted[0]),
     highest: sorted.reduce((max, r) => (r.systolic > max.systolic ? r : max), sorted[0]),
+  };
+}
+
+/**
+ * 体重：同日聚合，趋势用晨起（12:00 前最早），否则全日最早
+ */
+export function calcWeightStats(weight: WeightRecord[]): WeightStats | null {
+  if (!weight.length) return null;
+  const sorted = [...weight].sort((a, b) => a.datetime.localeCompare(b.datetime));
+  const byDate: Record<string, WeightRecord[]> = {};
+  for (const w of sorted) {
+    if (!byDate[w.date]) byDate[w.date] = [];
+    byDate[w.date].push(w);
+  }
+
+  const daily: DailyWeight[] = [];
+  for (const date of Object.keys(byDate).sort()) {
+    const all = byDate[date].sort((a, b) => a.datetime.localeCompare(b.datetime));
+    const mornings = all.filter((w) => getHour(w.datetime) < 12);
+    const evenings = all.filter((w) => getHour(w.datetime) >= 18);
+    const morning = mornings.length ? mornings[0] : null;
+    const evening = evenings.length ? evenings[evenings.length - 1] : null;
+    const trend = morning || all[0];
+    daily.push({
+      date,
+      trend,
+      morning,
+      evening,
+      allCount: all.length,
+    });
+  }
+
+  const trendSeries = daily.map((d) => ({
+    date: d.date,
+    weight: d.trend.value,
+    bodyFat: d.trend.bodyFat,
+  }));
+
+  const withFat = trendSeries.filter((t) => t.bodyFat != null && Number.isFinite(t.bodyFat!));
+  const latestTrend = trendSeries.length
+    ? trendSeries[trendSeries.length - 1]
+    : null;
+  const earliestTrend = trendSeries.length ? trendSeries[0] : null;
+  const morningsOnly = daily.map((d) => d.morning).filter(Boolean) as WeightRecord[];
+
+  return {
+    daily,
+    trendSeries,
+    rawCount: sorted.length,
+    dayCount: daily.length,
+    latestTrend,
+    earliestTrend,
+    latestMorning: morningsOnly.length ? morningsOnly[morningsOnly.length - 1] : null,
+    bodyFatLatest: withFat.length ? withFat[withFat.length - 1].bodyFat! : null,
+    bodyFatEarliest: withFat.length ? withFat[0].bodyFat! : null,
+    bodyFatDelta:
+      withFat.length >= 2
+        ? withFat[withFat.length - 1].bodyFat! - withFat[0].bodyFat!
+        : null,
+    bodyFatDayCount: withFat.length,
   };
 }
 
@@ -164,7 +263,7 @@ export function summarizeHrvByDay(
       overnightMean:
         overnight.length > 0
           ? overnight.reduce((a, b) => a + b, 0) / overnight.length
-          : 0,
+          : null,
       min: Math.min(...vals),
       max: Math.max(...vals),
       count: vals.length,
@@ -176,11 +275,14 @@ export function summarizeHrvByDay(
 /** 完整分析入口 */
 export function analyzeAll(data: HealthData): FullAnalysis {
   const allDates: string[] = [
-    ...data.cgm.map(x => getDate(x.datetime)),
-    ...data.bloodPressure.map(x => x.date),
-    ...data.weight.map(x => x.date),
-    ...Object.keys(data.hrv), ...Object.keys(data.restingHr),
-    ...Object.keys(data.walkingHr), ...Object.keys(data.steps),
+    ...data.cgm.map((x) => getDate(x.datetime)),
+    ...data.bloodPressure.map((x) => x.date),
+    ...data.weight.map((x) => x.date),
+    ...(data.bodyFat || []).map((x) => x.date),
+    ...Object.keys(data.hrv),
+    ...Object.keys(data.restingHr),
+    ...Object.keys(data.walkingHr),
+    ...Object.keys(data.steps),
     ...Object.keys(data.sleep),
   ];
   allDates.sort();
@@ -191,6 +293,7 @@ export function analyzeAll(data: HealthData): FullAnalysis {
     data,
     cgmStats: calcCgmStats(data.cgm),
     bpStats: calcBloodPressureStats(data.bloodPressure),
+    weightStats: calcWeightStats(data.weight),
     hrvByDate: summarizeHrvByDay(data.hrv, data.hrvOvernight),
     restingHrByDate: data.restingHr,
     walkingHrByDate: data.walkingHr,

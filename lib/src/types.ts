@@ -35,9 +35,17 @@ export interface WeightRecord {
   datetime: string;
   date: string;
   value: number;
-  bodyFat?: number;
+  bodyFat?: number; // %
   muscleMass?: number;
   bmi?: number;
+}
+
+/** 体脂独立点（解析后与体重按日合并） */
+export interface BodyFatPoint {
+  datetime: string;
+  date: string;
+  value: number; // %
+  source?: string;
 }
 
 /** 解析期数据质量提示（如误录的未来日期） */
@@ -54,6 +62,8 @@ export interface HealthData {
   cgm: CgmPoint[];
   bloodPressure: BloodPressureRecord[];
   weight: WeightRecord[];
+  /** 体脂原始点（finalize 时会尽量合并进 weight.bodyFat） */
+  bodyFat: BodyFatPoint[];
   hrv: Record<string, number[]>;          // date -> values
   hrvOvernight: Record<string, number[]>; // date -> values [00:00, 09:00)
   restingHr: Record<string, number>;
@@ -81,6 +91,7 @@ export interface DataAvailability {
   hasCgm: boolean;
   hasBloodPressure: boolean;
   hasWeight: boolean;
+  hasBodyFat: boolean;
   hasHrv: boolean;
   hasHeartRate: boolean;
   hasSteps: boolean;
@@ -101,15 +112,23 @@ export interface Stats {
   count: number;
 }
 
+/** CGM 单段汇总（总体 / 首日 / 稳定期） */
+export type CgmSegmentStats = Stats & {
+  timeRange: string;
+  pctBelow39: number;
+  pctBelow30: number;
+  pctInRange: number;
+  pctAbove78: number;
+  pctAbove100: number;
+};
+
 export interface CgmStats {
-  overall: Stats & {
-    timeRange: string;
-    pctBelow39: number;
-    pctBelow30: number;
-    pctInRange: number;
-    pctAbove78: number;
-    pctAbove100: number;
-  };
+  overall: CgmSegmentStats;
+  /** 有数据的第一个日历日（传感器首日，易出现伪影） */
+  firstDayDate: string | null;
+  firstDay: CgmSegmentStats | null;
+  /** 排除首个日历日后的稳定期；若仅一天数据则为 null */
+  stable: CgmSegmentStats | null;
   daily: Record<string, Stats & {
     pctBelow39: number;
     pctAbove78: number;
@@ -122,13 +141,55 @@ export interface CgmStats {
   };
 }
 
+export interface BpPeriodMean {
+  systolic: number;
+  diastolic: number;
+  count: number;
+  lowCount: number;
+}
+
 export interface BloodPressureStats {
   records: BloodPressureRecord[];
-  mean7d: { systolic: number; diastolic: number; count: number; lowCount: number } | null;
-  mean14d: { systolic: number; diastolic: number; count: number; lowCount: number } | null;
-  mean30d: { systolic: number; diastolic: number; count: number; lowCount: number } | null;
+  mean7d: BpPeriodMean | null;
+  mean14d: BpPeriodMean | null;
+  mean30d: BpPeriodMean | null;
+  /** 近 7 日晨间（本地时 hour < 12） */
+  morning7d: BpPeriodMean | null;
+  /** 近 7 日晚间（hour >= 18） */
+  evening7d: BpPeriodMean | null;
+  /** 近 14 日晨间 */
+  morning14d: BpPeriodMean | null;
+  /** 近 14 日晚间 */
+  evening14d: BpPeriodMean | null;
   lowest: BloodPressureRecord | null;
   highest: BloodPressureRecord | null;
+}
+
+/** 单日体重（晨起优先用于趋势） */
+export interface DailyWeight {
+  date: string;
+  /** 用于趋势：优先 12:00 前最早一条，否则全日最早 */
+  trend: WeightRecord;
+  morning: WeightRecord | null;
+  evening: WeightRecord | null;
+  allCount: number;
+}
+
+export interface WeightStats {
+  /** 按日聚合（已按 date 升序） */
+  daily: DailyWeight[];
+  /** 趋势序列（每日一点） */
+  trendSeries: { date: string; weight: number; bodyFat?: number }[];
+  rawCount: number;
+  dayCount: number;
+  latestTrend: { date: string; weight: number; bodyFat?: number } | null;
+  earliestTrend: { date: string; weight: number; bodyFat?: number } | null;
+  /** 最新晨起体重（若存在） */
+  latestMorning: WeightRecord | null;
+  bodyFatLatest: number | null;
+  bodyFatEarliest: number | null;
+  bodyFatDelta: number | null;
+  bodyFatDayCount: number;
 }
 
 export interface SleepDaySummary {
@@ -141,7 +202,8 @@ export interface SleepDaySummary {
 
 export interface HrvDaySummary {
   allMean: number;
-  overnightMean: number;
+  /** 无夜间样本时为 null（勿用 0 表示） */
+  overnightMean: number | null;
   min: number;
   max: number;
   count: number;
@@ -151,6 +213,7 @@ export interface FullAnalysis {
   data: HealthData;
   cgmStats: CgmStats | null;
   bpStats: BloodPressureStats | null;
+  weightStats: WeightStats | null;
   hrvByDate: Record<string, HrvDaySummary>;
   restingHrByDate: Record<string, number>;
   walkingHrByDate: Record<string, number>;
