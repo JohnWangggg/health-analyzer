@@ -2,17 +2,27 @@
 
 本地隐私优先 · 跨平台 · 零服务器
 
-一款把 iPhone 苹果健康 App 导出的数据包（ZIP / XML）解析、统计、并生成可粘贴到豆包 / ChatGPT / Claude 等大模型平台的标准化提示词的纯前端 PWA 应用。
+把 iPhone「健康」App 导出的数据包（ZIP / XML）在浏览器内解析、统计，并生成可粘贴到豆包 / ChatGPT / Claude 等大模型的标准化提示词。纯前端 PWA，无后端。
+
+在线演示（GitHub Pages）：部署成功后见仓库 Actions / Pages 地址，形如  
+`https://<USER>.github.io/health-analyzer/`
 
 ## 5 分钟上手
 
 ### 用户端
 
-1. iPhone "健康" App → 头像 → 导出健康数据 → 得到 `apple_health_export.zip`
-2. 在浏览器打开本应用 → 选择"📦 ZIP" → 拖入文件 → 等待解析
-3. 查看"数据可用性"和"关键统计摘要"
-4. 切换到"完整提示词" → 点击"📋 复制"
-5. 粘贴到豆包 / Kimi / ChatGPT → 得到完整分析报告
+1. iPhone「健康」App → 头像 → **导出健康数据** → 得到 ZIP  
+2. 浏览器打开本应用 → 选择 ZIP 上传（手机点选即可）  
+3. 在 **分析概览** 查看 KPI；可选填写个人背景（用药/关注点，仅本机）  
+4. 点 **复制完整提示词**（概览按钮或底部吸底栏）  
+5. 粘贴到豆包 / Kimi / ChatGPT 等 → 得到结构化分析报告  
+
+可选：
+
+- 限制分析日期范围  
+- 查看跨维度提示、趋势图（可滑动读数）  
+- 导出 JSON / CSV、保存摘要到本机历史做环比  
+- 切换浅色 / 深色 / 跟随系统外观  
 
 ### 开发者端
 
@@ -29,72 +39,69 @@ python3 -m http.server 8000
 
 # 3. 浏览器打开 http://localhost:8000
 
-# 4. 部署（详见 docs/DEPLOY.md）
-# 推送 main 后 GitHub Actions 会先跑测试再部署 Pages
+# 4. 部署：推送 main 后 GitHub Actions 先跑测试再部署 Pages
 ```
 
 ## 核心特性
 
-- ✅ 100% 本地计算，零数据上传
-- ✅ 跨平台（Windows / Mac / Linux / iOS / Android）
-- ✅ PWA 可安装，离线可用
-- ✅ 自动检测用户有哪些数据类型（CGM / 血压 / 体重 / HRV / 心率 / 步数 / 睡眠 / ECG）
-- ✅ 三档提示词：完整 / 仅数据 / 简短系统提示
-- ✅ 一键复制或下载为 .md
-- ✅ 无后端，零服务器成本
+- ✅ **100% 本地计算**，健康明细不上传服务器  
+- ✅ 跨平台：Windows / Mac / Linux / iOS / Android 浏览器  
+- ✅ PWA 可安装、离线可用（SW network-first）  
+- ✅ 自动识别：CGM / 血压 / 体重 / HRV / 心率 / 步数 / 睡眠 / ECG  
+- ✅ 三档提示词：完整 / 仅数据 / 简短系统提示  
+- ✅ 个人背景注入提示词（localStorage）  
+- ✅ 跨维度启发式提示 + Canvas 趋势图  
+- ✅ JSON / CSV（ZIP）导出；IndexedDB 历史摘要环比  
+- ✅ Web Worker 解析大 XML（失败回退主线程）  
+- ✅ 深色模式（跟随系统或手动切换）  
+- ✅ 结果概览 KPI + 吸底「复制完整提示词」  
 
 ## 项目结构
 
 ```
 health-analyzer/
-├── lib/             # TypeScript 核心库（可被其他前端复用）
-├── web-ui/public/   # PWA 静态资源（直接部署即可）
-└── docs/            # 完整文档
+├── lib/                 # TypeScript 唯一源码（解析 / 统计 / 提示词 / 导出）
+│   ├── src/
+│   ├── scripts/build-browser.mjs
+│   └── test/
+├── web-ui/public/       # 可直接部署的 PWA 静态资源
+│   ├── index.html
+│   ├── app.js / styles.css / charts.js / history-db.js
+│   ├── lib.js           # 由 lib 构建生成，勿手改
+│   └── parse-worker.js
+├── docs/                # 说明、部署、提示词设计
+└── .github/workflows/   # CI + GitHub Pages
 ```
 
 详见 [docs/README.md](docs/README.md)
 
-## 部署到 GitHub Pages（推荐）
+## 部署到 GitHub Pages
 
-本项目已内置 GitHub Actions 工作流，推送到 `main` 分支即可自动部署。
-
-### 一次性配置
-
-1. 在 GitHub 上新建一个空仓库（建议命名为 `health-analyzer`），**不要**勾选 "Add a README"
-2. 在本地执行（将 `<USER>` 替换为你的 GitHub 用户名）：
-
-   ```bash
-   cd health-analyzer
-   git remote add origin git@github.com:<USER>/health-analyzer.git
-   git push -u origin main
-   ```
-
-3. 进入 GitHub 仓库 → **Settings** → **Pages** → **Source** 选择 **GitHub Actions**
-4. 等待 Actions 跑完（约 1–2 分钟），访问：
-
-   ```
-   https://<USER>.github.io/health-analyzer/
-   ```
-
-> 部署时仅上传 `web-ui/public/` 目录；PWA 的资源全部使用相对路径，可直接在子路径下工作。
-
-### 更新内容
-
-以后改完代码只需：
+推送到 `main` 即可：CI 会先 `npm test` + `npm run build`，再部署 `web-ui/public/`。
 
 ```bash
-git add -A
-git commit -m "update: ..."
-git push
+cd health-analyzer
+git push origin main
 ```
 
-Actions 会自动重新部署。
+仓库 **Settings → Pages → Source** 选择 **GitHub Actions**。  
+访问：`https://<USER>.github.io/health-analyzer/`
 
 ## 文档
 
-- [docs/README.md](docs/README.md) — 项目说明、功能、限制、未来扩展
-- [docs/DEPLOY.md](docs/DEPLOY.md) — 6 种部署方案 + 自定义指南
-- [docs/PROMPT_DESIGN.md](docs/PROMPT_DESIGN.md) — 提示词工程设计
+- [docs/README.md](docs/README.md) — 功能、局限、扩展路线  
+- [docs/DEPLOY.md](docs/DEPLOY.md) — 部署与自定义  
+- [docs/PROMPT_DESIGN.md](docs/PROMPT_DESIGN.md) — 提示词工程  
+
+## 版本要点（近期）
+
+| 版本 | 内容 |
+|------|------|
+| v1.5 | 深色模式、图表图例/读数、安装步骤引导、文档同步 |
+| v1.4 | 结果概览 KPI、吸底复制、移动端主路径、明细折叠 |
+| v1.3 | 跨维度信号、JSON/CSV 导出、IndexedDB 历史环比 |
+| v1.2 | 个人背景、Canvas 图、Worker 解析 |
+| v1.1 | TS 单源构建、CI 门禁、摘要补齐 |
 
 ## 许可
 

@@ -13,6 +13,71 @@
   let currentPromptTab = 'full';
   let deferredInstallPrompt = null;
   const CTX_STORAGE_KEY = 'health-analyzer-user-context-v1';
+  const THEME_KEY = 'health-analyzer-theme'; // system | light | dark
+
+  // ============================================================
+  // 外观（浅色 / 深色 / 跟随系统）
+  // ============================================================
+
+  function getStoredTheme() {
+    try {
+      return window.localStorage.getItem(THEME_KEY) || 'system';
+    } catch {
+      return 'system';
+    }
+  }
+
+  function resolveTheme(mode) {
+    if (mode === 'light' || mode === 'dark') return mode;
+    try {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } catch {
+      return 'light';
+    }
+  }
+
+  function applyTheme(mode) {
+    const m = mode || getStoredTheme();
+    const root = document.documentElement;
+    if (m === 'system') {
+      root.removeAttribute('data-theme');
+    } else {
+      root.setAttribute('data-theme', m);
+    }
+    const resolved = resolveTheme(m);
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', resolved === 'dark' ? '#1a5276' : '#2980b9');
+    const icon = $('theme-toggle-icon');
+    const label = $('theme-toggle-label');
+    if (icon) icon.textContent = resolved === 'dark' ? '☾' : '☀';
+    if (label) {
+      label.textContent = m === 'system' ? '自动' : (m === 'dark' ? '深色' : '浅色');
+    }
+    const btn = $('theme-toggle');
+    if (btn) {
+      btn.setAttribute('aria-label', '当前外观：' + (m === 'system' ? '跟随系统' : m === 'dark' ? '深色' : '浅色') + '，点击切换');
+      btn.title = '点击切换：浅色 → 深色 → 自动';
+    }
+    // 主题变更后重绘图表
+    if (currentAnalysis) {
+      try { renderCharts(currentAnalysis); } catch (e) { /* ignore early */ }
+    }
+  }
+
+  function cycleTheme() {
+    const cur = getStoredTheme();
+    const next = cur === 'light' ? 'dark' : cur === 'dark' ? 'system' : 'light';
+    try { window.localStorage.setItem(THEME_KEY, next); } catch (e) { /* ignore */ }
+    applyTheme(next);
+  }
+
+  applyTheme(getStoredTheme());
+  $('theme-toggle')?.addEventListener('click', cycleTheme);
+  try {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+      if (getStoredTheme() === 'system') applyTheme('system');
+    });
+  } catch (e) { /* ignore */ }
 
   // ============================================================
   // 添加到主屏幕引导
@@ -22,21 +87,40 @@
   const installGuideText = $('install-guide-text');
   const installAction = $('install-action');
   const installDismiss = $('install-dismiss');
+  const installSteps = $('install-steps');
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
   const isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
   const installDismissed = (() => {
     try { return window.localStorage.getItem('health-analyzer-install-dismissed') === '1'; } catch { return false; }
   })();
 
+  function fillInstallSteps() {
+    if (!installSteps) return;
+    const steps = isIos
+      ? [
+          '用 Safari 打开本页（其他浏览器通常无法添加到主屏幕）',
+          '点底部中间的「分享」按钮',
+          '向下滑动，选择「添加到主屏幕」',
+          '确认名称后点「添加」',
+        ]
+      : [
+          '打开浏览器菜单（⋮ 或 ⋯）',
+          '选择「安装应用」或「添加到主屏幕」',
+          '确认安装后，从桌面图标启动即可离线使用',
+        ];
+    installSteps.innerHTML = steps.map((s) => `<li>${s}</li>`).join('');
+  }
+
   function showInstallGuide() {
     if (!installGuide || isStandalone || installDismissed) return;
     installGuide.classList.remove('hidden');
+    fillInstallSteps();
     if (isIos) {
-      installGuideText.textContent = 'Safari：点击底部分享按钮 → 添加到主屏幕。';
-      installAction.textContent = '查看 iPhone 方法';
+      if (installGuideText) installGuideText.textContent = 'iPhone：用 Safari 分享 → 添加到主屏幕，可像 App 一样打开。';
+      if (installAction) installAction.textContent = '查看 iPhone 步骤';
     } else {
-      installGuideText.textContent = '浏览器菜单中选择“添加到主屏幕”或“安装应用”。';
-      installAction.textContent = '查看添加方法';
+      if (installGuideText) installGuideText.textContent = '可安装到桌面，离线也能打开本工具（健康数据仍只在本机处理）。';
+      if (installAction) installAction.textContent = deferredInstallPrompt ? '安装应用' : '查看安装步骤';
     }
   }
 
@@ -55,10 +139,16 @@
       installGuide?.classList.add('hidden');
       return;
     }
-    const message = isIos
-      ? '请点击 Safari 底部的分享按钮，然后选择“添加到主屏幕”。'
-      : '请打开浏览器菜单，选择“添加到主屏幕”或“安装应用”。';
-    alert(message);
+    if (installSteps) {
+      const showing = !installSteps.classList.contains('hidden');
+      installSteps.classList.toggle('hidden', showing);
+      if (installAction) {
+        installAction.textContent = showing
+          ? (isIos ? '查看 iPhone 步骤' : '查看安装步骤')
+          : '收起步骤';
+      }
+      return;
+    }
   });
 
   installDismiss?.addEventListener('click', () => {

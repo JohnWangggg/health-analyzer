@@ -17,6 +17,120 @@
   --shadow: 0 2px 8px rgba(0,0,0,0.06);
   --shadow-lg: 0 4px 16px rgba(0,0,0,0.1);
   --radius: 12px;
+  --header-from: #2980b9;
+  --header-to: #1a5276;
+  --muted-surface: #f8fafc;
+  --privacy-bg: #f0f9f4;
+  --privacy-border: #b7dfc5;
+  --privacy-text: #245b3a;
+  --privacy-title: #1d6b3a;
+  --install-bg: #eef6ff;
+  --install-border: #b9d8f5;
+  --chart-bg: #fbfcfe;
+  --chart-grid: #e8eef4;
+  --chart-label: #7f8c8d;
+  --code-bg: #f0f3f5;
+  --sticky-bg: rgba(255, 255, 255, 0.92);
+  --kpi-from: #f7fbff;
+  --kpi-to: #ffffff;
+  --signal-info-bg: #f3f9fd;
+  --signal-info-border: #b7d4ea;
+  --signal-watch-bg: #fff9f0;
+  --signal-watch-border: #f0d6a8;
+  --signal-alert-bg: #fdf2f0;
+  --signal-alert-border: #e6b0aa;
+  --has-data-bg: #eafaf1;
+  --no-data-bg: #fdf2f0;
+  --textarea-bg: #fafbfc;
+  color-scheme: light;
+}
+
+/* 系统暗色：未强制 light 时跟随 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --primary: #5dade2;
+    --primary-dark: #85c1e9;
+    --primary-light: #1a2a38;
+    --bg: #0f1419;
+    --surface: #1a222c;
+    --text: #e8eef4;
+    --text-light: #9aabba;
+    --border: #2c3a48;
+    --success: #2ecc71;
+    --warning: #f5b041;
+    --danger: #e74c3c;
+    --shadow: 0 2px 10px rgba(0,0,0,0.35);
+    --shadow-lg: 0 4px 20px rgba(0,0,0,0.45);
+    --header-from: #1a5276;
+    --header-to: #0e2f44;
+    --muted-surface: #141b22;
+    --privacy-bg: #14241c;
+    --privacy-border: #1e4d35;
+    --privacy-text: #a8d5b5;
+    --privacy-title: #7dcea0;
+    --install-bg: #152230;
+    --install-border: #2a4a66;
+    --chart-bg: #141b22;
+    --chart-grid: #2c3a48;
+    --chart-label: #9aabba;
+    --code-bg: #243040;
+    --sticky-bg: rgba(26, 34, 44, 0.94);
+    --kpi-from: #152230;
+    --kpi-to: #1a222c;
+    --signal-info-bg: #152230;
+    --signal-info-border: #2a4a66;
+    --signal-watch-bg: #2a2418;
+    --signal-watch-border: #6b5420;
+    --signal-alert-bg: #2a1818;
+    --signal-alert-border: #6b3030;
+    --has-data-bg: #14241c;
+    --no-data-bg: #2a1818;
+    --textarea-bg: #141b22;
+    color-scheme: dark;
+  }
+}
+
+/* 用户强制暗色 */
+:root[data-theme="dark"] {
+  --primary: #5dade2;
+  --primary-dark: #85c1e9;
+  --primary-light: #1a2a38;
+  --bg: #0f1419;
+  --surface: #1a222c;
+  --text: #e8eef4;
+  --text-light: #9aabba;
+  --border: #2c3a48;
+  --success: #2ecc71;
+  --warning: #f5b041;
+  --danger: #e74c3c;
+  --shadow: 0 2px 10px rgba(0,0,0,0.35);
+  --shadow-lg: 0 4px 20px rgba(0,0,0,0.45);
+  --header-from: #1a5276;
+  --header-to: #0e2f44;
+  --muted-surface: #141b22;
+  --privacy-bg: #14241c;
+  --privacy-border: #1e4d35;
+  --privacy-text: #a8d5b5;
+  --privacy-title: #7dcea0;
+  --install-bg: #152230;
+  --install-border: #2a4a66;
+  --chart-bg: #141b22;
+  --chart-grid: #2c3a48;
+  --chart-label: #9aabba;
+  --code-bg: #243040;
+  --sticky-bg: rgba(26, 34, 44, 0.94);
+  --kpi-from: #152230;
+  --kpi-to: #1a222c;
+  --signal-info-bg: #152230;
+  --signal-info-border: #2a4a66;
+  --signal-watch-bg: #2a2418;
+  --signal-watch-border: #6b5420;
+  --signal-alert-bg: #2a1818;
+  --signal-alert-border: #6b3030;
+  --has-data-bg: #14241c;
+  --no-data-bg: #2a1818;
+  --textarea-bg: #141b22;
+  color-scheme: dark;
 }
 
 html, body {
@@ -47,7 +161,7 @@ body.has-results {
 }
 
 .advanced-box {
-  background: #f8fafc;
+  background: var(--muted-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 10px 14px;
@@ -72,7 +186,7 @@ body.has-results {
 }
 
 .app-header {
-  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+  background: linear-gradient(135deg, var(--header-from), var(--header-to));
   color: #fff;
   padding: 24px 20px 20px;
   padding-top: max(24px, env(safe-area-inset-top));
@@ -85,6 +199,36 @@ body.has-results {
   gap: 14px;
   max-width: 920px;
   margin: 0 auto;
+  width: 100%;
+}
+
+.brand-text { flex: 1; min-width: 0; }
+
+.theme-toggle {
+  flex-shrink: 0;
+  border: 1px solid rgba(255,255,255,0.35);
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+  border-radius: 999px;
+  min-height: 40px;
+  min-width: 40px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-toggle:hover {
+  background: rgba(255,255,255,0.22);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 .brand-icon { width: 44px; height: 44px; flex-shrink: 0; border-radius: 10px; }
@@ -146,13 +290,23 @@ body.has-results {
   align-items: flex-start;
   gap: 12px;
   position: relative;
-  background: #eef6ff;
-  border: 1px solid #b9d8f5;
+  background: var(--install-bg);
+  border: 1px solid var(--install-border);
   border-radius: var(--radius);
   padding: 14px 42px 14px 16px;
   margin-bottom: 16px;
   color: var(--primary-dark);
 }
+
+.install-steps {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.install-steps li { margin: 4px 0; }
 
 .install-guide-icon { font-size: 28px; line-height: 1.2; }
 
@@ -226,7 +380,7 @@ body.has-results {
 }
 
 .source-desc code, code {
-  background: #f0f3f5;
+  background: var(--code-bg);
   padding: 2px 6px;
   border-radius: 4px;
   font-family: "SF Mono", Menlo, monospace;
@@ -275,7 +429,7 @@ body.has-results {
 
 /* 可选日期范围过滤 */
 .date-filter-box {
-  background: #f8fafc;
+  background: var(--muted-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px 16px;
@@ -328,7 +482,7 @@ body.has-results {
 
 /* 个人背景表单 */
 .context-box {
-  background: #f7fbff;
+  background: var(--primary-light);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px 16px;
@@ -395,10 +549,10 @@ body.has-results {
 }
 
 .chart-block {
-  background: #fbfcfe;
+  background: var(--chart-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 12px 12px 8px;
+  padding: 12px 12px 10px;
 }
 
 .chart-block h3 {
@@ -413,6 +567,64 @@ body.has-results {
   width: 100%;
   height: 200px;
   border-radius: 8px;
+  touch-action: none;
+}
+
+.chart-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 6px;
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.chart-legend-swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--primary);
+}
+
+.chart-legend-swatch.dashed {
+  background: repeating-linear-gradient(
+    90deg,
+    currentColor 0 4px,
+    transparent 4px 7px
+  );
+  height: 2px;
+}
+
+.chart-empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--text-light);
+  font-size: 13px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--muted-surface);
+}
+
+.chart-readout {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  font-size: 12px;
+  min-height: 1.4em;
 }
 
 /* 跨维度信号 */
@@ -426,22 +638,22 @@ body.has-results {
   border-radius: var(--radius);
   border: 1px solid var(--border);
   padding: 12px 14px;
-  background: #fbfcfe;
+  background: var(--chart-bg);
 }
 
 .signal-card.severity-alert {
-  border-color: #e6b0aa;
-  background: #fdf2f0;
+  border-color: var(--signal-alert-border);
+  background: var(--signal-alert-bg);
 }
 
 .signal-card.severity-watch {
-  border-color: #f0d6a8;
-  background: #fff9f0;
+  border-color: var(--signal-watch-border);
+  background: var(--signal-watch-bg);
 }
 
 .signal-card.severity-info {
-  border-color: #b7d4ea;
-  background: #f3f9fd;
+  border-color: var(--signal-info-border);
+  background: var(--signal-info-bg);
 }
 
 .signal-meta {
@@ -543,18 +755,18 @@ body.has-results {
 .delta-zero { color: var(--text-light); }
 
 .privacy-notice {
-  background: #f0f9f4;
-  border: 1px solid #b7dfc5;
+  background: var(--privacy-bg);
+  border: 1px solid var(--privacy-border);
   border-radius: var(--radius);
   padding: 14px 16px;
-  color: #245b3a;
+  color: var(--privacy-text);
   font-size: 13px;
   margin-top: 16px;
 }
 
 .privacy-notice-title {
   font-weight: 600;
-  color: #1d6b3a;
+  color: var(--privacy-title);
   margin-bottom: 6px;
 }
 
@@ -566,8 +778,8 @@ body.has-results {
 .privacy-notice li { margin: 3px 0; }
 
 .privacy-inline {
-  color: #287548;
-  background: #f0f9f4;
+  color: var(--privacy-text);
+  background: var(--privacy-bg);
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 13px;
@@ -622,12 +834,12 @@ body.has-results {
 }
 
 .error-box {
-  background: #fdf2f0;
-  border: 1px solid #e6b0aa;
+  background: var(--signal-alert-bg);
+  border: 1px solid var(--signal-alert-border);
   border-radius: 8px;
   padding: 16px;
   margin: 12px 0;
-  color: #922b21;
+  color: var(--danger);
 }
 
 /* 数据可用性 */
@@ -648,14 +860,14 @@ body.has-results {
 }
 
 .availability-item.has-data {
-  background: #eafaf1;
+  background: var(--has-data-bg);
   border-color: var(--success);
 }
 
 .availability-item.no-data {
-  background: #fdf2f0;
+  background: var(--no-data-bg);
   border-color: var(--danger);
-  opacity: 0.7;
+  opacity: 0.85;
 }
 
 .av-icon {
@@ -709,7 +921,7 @@ body.has-results {
 }
 
 .kpi-card {
-  background: linear-gradient(180deg, #f7fbff 0%, #fff 100%);
+  background: linear-gradient(180deg, var(--kpi-from) 0%, var(--kpi-to) 100%);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px 14px;
@@ -751,9 +963,9 @@ body.has-results {
 .kpi-signal-note {
   grid-column: 1 / -1;
   font-size: 13px;
-  color: #8a5a00;
-  background: #fff9f0;
-  border: 1px solid #f0d6a8;
+  color: var(--text);
+  background: var(--signal-watch-bg);
+  border: 1px solid var(--signal-watch-border);
   border-radius: 8px;
   padding: 8px 12px;
   margin: 0;
@@ -820,7 +1032,7 @@ body.has-results .result-section {
 .summary-acc {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: #fbfcfe;
+  background: var(--chart-bg);
   padding: 0 12px;
 }
 
@@ -887,7 +1099,7 @@ body.has-results .result-section {
   align-items: center;
   padding: 10px 16px;
   padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--sticky-bg);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-top: 1px solid var(--border);
@@ -991,7 +1203,8 @@ body.has-results .result-section {
   border-radius: var(--radius);
   resize: vertical;
   line-height: 1.5;
-  background: #fafbfc;
+  background: var(--textarea-bg);
+  color: var(--text);
 }
 
 .prompt-actions {
@@ -1129,6 +1342,7 @@ body.has-results .app-footer {
 .prompt-container textarea {
   min-height: 240px;
   font-size: 13px;
+  color: var(--text);
 }
 
 /* 响应式 */

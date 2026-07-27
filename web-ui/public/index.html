@@ -22,10 +22,14 @@
               fill="none" stroke="#fff" stroke-width="10"
               stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      <div>
+      <div class="brand-text">
         <h1>苹果健康数据分析</h1>
         <p class="subtitle">本地隐私优先 · 计算在您的设备完成</p>
       </div>
+      <button type="button" id="theme-toggle" class="theme-toggle" aria-label="切换浅色或深色外观" title="外观">
+        <span id="theme-toggle-icon" aria-hidden="true">◐</span>
+        <span id="theme-toggle-label">外观</span>
+      </button>
     </div>
   </header>
 
@@ -35,7 +39,8 @@
       <div class="install-guide-icon" aria-hidden="true">📱</div>
       <div class="install-guide-body">
         <strong>建议添加到主屏幕</strong>
-        <p id="install-guide-text">安装后可像普通 App 一样离线使用。</p>
+        <p id="install-guide-text">安装后可像普通 App 一样离线打开（数据仍只在本机处理）。</p>
+        <ol id="install-steps" class="install-steps hidden"></ol>
         <button type="button" id="install-action" class="btn-primary install-action">查看添加方法</button>
       </div>
       <button type="button" id="install-dismiss" class="install-dismiss" aria-label="关闭提示">×</button>
@@ -217,7 +222,7 @@
 
     <section id="step-charts" class="card hidden result-section">
       <h2><span class="step-num">6</span> 趋势图</h2>
-      <p class="hint compact-hint">本地绘制；CGM 默认约 7 天并降采样。</p>
+      <p class="hint compact-hint">本地绘制；CGM 默认约 7 天并降采样。在图上滑动可查看读数。</p>
       <div id="charts-content" class="charts-content"></div>
     </section>
 
@@ -297,7 +302,7 @@
   </main>
 
   <footer class="app-footer">
-    <p>开源 · 本地优先 · v1.4</p>
+    <p>开源 · 本地优先 · v1.5</p>
   </footer>
 
   <!-- 分析后吸底主操作 -->
