@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#2980b9">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="description" content="本地隐私优先的苹果健康数据分析与大模型提示词工具">
   <title>苹果健康数据分析</title>
   <link rel="manifest" href="./manifest.json">
   <link rel="icon" type="image/svg+xml" href="./icons/icon-192.svg">
@@ -11,7 +14,6 @@
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
-  <!-- 顶部 -->
   <header class="app-header">
     <div class="brand">
       <svg class="brand-icon" viewBox="0 0 192 192" aria-hidden="true">
@@ -22,7 +24,7 @@
       </svg>
       <div>
         <h1>苹果健康数据分析</h1>
-        <p class="subtitle">本地隐私优先 · 全部计算在您的设备完成</p>
+        <p class="subtitle">本地隐私优先 · 计算在您的设备完成</p>
       </div>
     </div>
   </header>
@@ -30,58 +32,63 @@
   <main class="container">
 
     <aside id="install-guide" class="install-guide hidden" aria-label="添加到主屏幕提示">
-      <div class="install-guide-icon">📱</div>
+      <div class="install-guide-icon" aria-hidden="true">📱</div>
       <div class="install-guide-body">
-        <strong>建议添加到手机主屏幕</strong>
-        <p id="install-guide-text">以后可以像打开普通 App 一样使用“健康分析”。</p>
-        <button id="install-action" class="btn-primary install-action">查看添加方法</button>
+        <strong>建议添加到主屏幕</strong>
+        <p id="install-guide-text">安装后可像普通 App 一样离线使用。</p>
+        <button type="button" id="install-action" class="btn-primary install-action">查看添加方法</button>
       </div>
-      <button id="install-dismiss" class="install-dismiss" aria-label="关闭提示">×</button>
+      <button type="button" id="install-dismiss" class="install-dismiss" aria-label="关闭提示">×</button>
     </aside>
 
-    <!-- 步骤 1：选择数据源 -->
+    <!-- 步骤 1：上传 -->
     <section id="step-source" class="card">
-      <h2><span class="step-num">1</span> 选择数据源</h2>
+      <h2><span class="step-num">1</span> 上传健康数据</h2>
+      <p class="step-lead">推荐使用 iPhone「健康」App 导出的 <strong>ZIP</strong>。解析与统计均在本机完成。</p>
 
-      <div class="source-grid">
+      <div class="source-grid" id="source-grid-main">
         <label class="source-option">
           <input type="radio" name="source" value="apple_health_export" checked>
           <div class="source-content">
-            <div class="source-title">📦 苹果健康导出 ZIP</div>
-            <div class="source-desc">iPhone "健康" App → 导出 → 共享 zip 包，解压后是 <code>apple_health_export</code> 目录</div>
-          </div>
-        </label>
-
-        <label class="source-option">
-          <input type="radio" name="source" value="xml_only">
-          <div class="source-content">
-            <div class="source-title">📄 单独的 XML 文件</div>
-            <div class="source-desc">如果已经解压，只上传 <code>apple_health_export/export.xml</code> 或 <code>导出.xml</code></div>
-          </div>
-        </label>
-
-        <label class="source-option">
-          <input type="radio" name="source" value="folder">
-          <div class="source-content">
-            <div class="source-title">📁 已解压的文件夹</div>
-            <div class="source-desc">包含 <code>export.xml</code> 和 <code>electrocardiograms/</code> 子目录</div>
+            <div class="source-title">苹果健康导出 ZIP</div>
+            <div class="source-desc">健康 App → 头像 → 导出健康数据</div>
           </div>
         </label>
       </div>
 
-      <div class="upload-zone" id="drop-zone" role="button" tabindex="0" aria-label="点击或拖拽上传健康数据文件">
+      <details class="advanced-box" id="advanced-source">
+        <summary>其他导入方式（XML / 文件夹）</summary>
+        <div class="source-grid source-grid-advanced">
+          <label class="source-option">
+            <input type="radio" name="source" value="xml_only">
+            <div class="source-content">
+              <div class="source-title">单独的 XML 文件</div>
+              <div class="source-desc"><code>export.xml</code> 或 <code>导出.xml</code></div>
+            </div>
+          </label>
+          <label class="source-option" id="folder-source-option">
+            <input type="radio" name="source" value="folder">
+            <div class="source-content">
+              <div class="source-title">已解压的文件夹</div>
+              <div class="source-desc">适合电脑端 Chrome / Edge；手机支持有限</div>
+            </div>
+          </label>
+        </div>
+      </details>
+
+      <div class="upload-zone" id="drop-zone" role="button" tabindex="0" aria-label="选择健康数据文件上传">
         <input type="file" id="file-input" accept=".zip,.xml" hidden>
         <input type="file" id="folder-input" webkitdirectory directory multiple hidden>
         <div class="upload-content">
-          <div class="upload-icon">⬆️</div>
-          <p class="upload-text">点击或拖拽到此处上传</p>
-          <p class="upload-hint" id="upload-hint">支持 .zip / .xml / 文件夹</p>
+          <div class="upload-icon" aria-hidden="true">⬆️</div>
+          <p class="upload-text" id="upload-text">点击选择文件</p>
+          <p class="upload-hint" id="upload-hint">支持 .zip / .xml</p>
         </div>
       </div>
 
       <details class="date-filter-box" id="date-filter-box">
-        <summary>📅 可选：限制分析日期范围</summary>
-        <p class="date-filter-hint">不填则分析导出中的全部记录。格式 YYYY-MM-DD。</p>
+        <summary>可选：限制分析日期范围</summary>
+        <p class="date-filter-hint">不填则使用导出中的全部记录。</p>
         <div class="date-filter-fields">
           <label class="date-field">
             <span>开始日期</span>
@@ -95,36 +102,36 @@
       </details>
 
       <details class="context-box" id="user-context-box">
-        <summary>👤 可选：个人背景（写入提示词，仅本机保存）</summary>
-        <p class="date-filter-hint">用药、目标体重与关注点会注入完整提示词，帮助大模型对照解读；不上传服务器。可随时清空。</p>
+        <summary>可选：个人背景（写入提示词，仅本机保存）</summary>
+        <p class="date-filter-hint">用药、目标体重与关注点会注入提示词；保存在本机 localStorage，不上传。</p>
         <div class="context-grid">
           <label class="date-field">
             <span>年龄</span>
-            <input type="number" id="ctx-age" min="1" max="120" step="1" inputmode="numeric" placeholder="例如 40">
+            <input type="number" id="ctx-age" min="1" max="120" step="1" inputmode="numeric" placeholder="例如 40" autocomplete="off">
           </label>
           <label class="date-field">
             <span>性别</span>
-            <input type="text" id="ctx-sex" maxlength="20" placeholder="男 / 女 / 其他">
+            <input type="text" id="ctx-sex" maxlength="20" placeholder="男 / 女 / 其他" autocomplete="off">
           </label>
           <label class="date-field">
             <span>身高 (cm)</span>
-            <input type="number" id="ctx-height" min="50" max="250" step="0.1" inputmode="decimal" placeholder="例如 175">
+            <input type="number" id="ctx-height" min="50" max="250" step="0.1" inputmode="decimal" placeholder="例如 175" autocomplete="off">
           </label>
           <label class="date-field">
             <span>目标体重 (kg)</span>
-            <input type="number" id="ctx-target-weight" min="20" max="300" step="0.1" inputmode="decimal" placeholder="例如 70">
+            <input type="number" id="ctx-target-weight" min="20" max="300" step="0.1" inputmode="decimal" placeholder="例如 70" autocomplete="off">
           </label>
           <label class="date-field context-field-wide">
             <span>当前用药</span>
-            <input type="text" id="ctx-medications" maxlength="200" placeholder="例如 氯沙坦钾 50mg 每日">
+            <input type="text" id="ctx-medications" maxlength="200" placeholder="例如 氯沙坦钾 50mg 每日" autocomplete="off">
           </label>
           <label class="date-field context-field-wide">
             <span>已知情况</span>
-            <input type="text" id="ctx-conditions" maxlength="200" placeholder="自述病史或监测背景，非诊断">
+            <input type="text" id="ctx-conditions" maxlength="200" placeholder="自述背景，非诊断" autocomplete="off">
           </label>
           <label class="date-field context-field-wide">
             <span>本次关注点</span>
-            <input type="text" id="ctx-focus" maxlength="200" placeholder="例如 夜间血压、恢复与体重">
+            <input type="text" id="ctx-focus" maxlength="200" placeholder="例如 夜间血压、恢复与体重" autocomplete="off">
           </label>
           <label class="date-field context-field-wide">
             <span>补充说明</span>
@@ -132,34 +139,34 @@
           </label>
         </div>
         <div class="context-actions">
-          <button type="button" id="btn-ctx-save" class="btn-secondary">💾 保存到本机</button>
-          <button type="button" id="btn-ctx-clear" class="btn-secondary">清空</button>
+          <button type="button" id="btn-ctx-save" class="btn-secondary">保存到本机</button>
+          <button type="button" id="btn-ctx-clear" class="btn-ghost">清空</button>
           <span id="ctx-status" class="copy-status" aria-live="polite"></span>
         </div>
       </details>
 
       <div class="privacy-notice" role="note">
-        <div class="privacy-notice-title">🔒 隐私提示：健康数据只在本设备临时处理</div>
+        <div class="privacy-notice-title">隐私：健康明细默认不离开本机</div>
         <ul>
-          <li>ZIP/XML 不会上传到本网站，也不会保存到服务器。</li>
-          <li>网页只在当前页面内存中保留本次分析；重新上传会替换上一次结果。</li>
-          <li>刷新或关闭页面后，网页中的分析结果会消失；原始 ZIP 仍由手机“文件”App 管理。</li>
+          <li>ZIP/XML 不会上传到本站服务器；解析在浏览器内完成。</li>
+          <li>完整分析结果默认只在当前页面内存；刷新后需重新上传。</li>
+          <li>可选：个人背景写入 localStorage；摘要快照可写入 IndexedDB 供环比。</li>
         </ul>
       </div>
 
       <details class="help-box">
-        <summary>📘 如何从 iPhone 导出苹果健康数据？</summary>
+        <summary>如何从 iPhone 导出？</summary>
         <ol>
-          <li>打开 iPhone 上的 <strong>健康</strong> App</li>
-          <li>点击右上角头像 → <strong>导出健康数据</strong> → <strong>导出</strong></li>
-          <li>选择"存储到文件"或"邮件"，得到一个 <code>apple_health_export.zip</code></li>
-          <li>在本应用中上传即可（也可不上传 zip，提前手动解压缩后选择文件夹）</li>
+          <li>打开 <strong>健康</strong> App → 右上角头像</li>
+          <li><strong>导出健康数据</strong> → <strong>导出</strong></li>
+          <li>存储到「文件」App，再在本页选择该 ZIP</li>
+          <li>体积很大时（数百 MB），建议在电脑浏览器打开本页再上传</li>
         </ol>
       </details>
     </section>
 
     <!-- 进度 -->
-    <section id="step-progress" class="card hidden">
+    <section id="step-progress" class="card hidden" aria-live="polite">
       <h2><span class="step-num">2</span> 解析中</h2>
       <div class="progress-bar">
         <div class="progress-fill" id="progress-fill"></div>
@@ -167,56 +174,77 @@
       <p id="progress-text" class="progress-text">准备中...</p>
     </section>
 
-    <!-- 数据可用性概览 -->
-    <section id="step-overview" class="card hidden">
-      <h2><span class="step-num">3</span> 数据可用性</h2>
-      <p class="privacy-inline">🔒 当前分析仅保留在本页内存中，不会上传或永久保存。</p>
-      <div id="availability-grid" class="availability-grid"></div>
-      <div class="meta-info">
-        <span id="date-range-info"></span>
-        <button id="btn-reset" class="btn-secondary">重新上传</button>
+    <!-- 结果概览（分析后主屏） -->
+    <section id="step-overview" class="card hidden result-hero">
+      <div class="result-hero-top">
+        <h2><span class="step-num">3</span> 分析概览</h2>
+        <button type="button" id="btn-reset" class="btn-ghost btn-reset">重新上传</button>
       </div>
+      <p class="privacy-inline">完整明细仅在本页内存；下方可复制提示词，或保存摘要到本机历史。</p>
+      <p id="date-range-info" class="date-range-line"></p>
+
+      <div id="kpi-grid" class="kpi-grid" aria-label="关键指标"></div>
+
+      <nav class="result-nav" aria-label="结果分区">
+        <a href="#step-summary" class="result-nav-link">明细</a>
+        <a href="#step-signals" class="result-nav-link">提示</a>
+        <a href="#step-charts" class="result-nav-link">图表</a>
+        <a href="#step-export" class="result-nav-link">导出</a>
+        <a href="#step-prompt" class="result-nav-link">提示词</a>
+      </nav>
+
+      <div class="hero-actions">
+        <button type="button" id="btn-copy-hero" class="btn-primary btn-block">复制完整提示词</button>
+        <button type="button" id="btn-scroll-prompt" class="btn-secondary btn-block">查看 / 编辑提示词区</button>
+      </div>
+
+      <h3 class="subhead">数据可用性</h3>
+      <div id="availability-grid" class="availability-grid"></div>
     </section>
 
-    <!-- 统计摘要 -->
-    <section id="step-summary" class="card hidden">
-      <h2><span class="step-num">4</span> 关键统计摘要</h2>
+    <!-- 明细（默认折叠细节块由 JS 控制结构） -->
+    <section id="step-summary" class="card hidden result-section">
+      <h2><span class="step-num">4</span> 统计明细</h2>
+      <p class="hint compact-hint">各维度详情可展开；概览 KPI 已在上方。</p>
       <div id="summary-content"></div>
     </section>
 
-    <!-- 跨维度提示 -->
-    <section id="step-signals" class="card hidden">
+    <section id="step-signals" class="card hidden result-section">
       <h2><span class="step-num">5</span> 跨维度提示</h2>
-      <p class="hint">基于规则的启发式线索（如 HRV↓+静息心率↑），<strong>非诊断</strong>；已同步写入完整提示词。</p>
+      <p class="hint compact-hint">启发式线索，非诊断；已写入完整提示词。</p>
       <div id="signals-content"></div>
     </section>
 
-    <!-- 趋势图 -->
-    <section id="step-charts" class="card hidden">
+    <section id="step-charts" class="card hidden result-section">
       <h2><span class="step-num">6</span> 趋势图</h2>
-      <p class="hint">本地 Canvas 绘制；有数据的维度才显示。CGM 默认展示最近约 7 天（已降采样）。</p>
+      <p class="hint compact-hint">本地绘制；CGM 默认约 7 天并降采样。</p>
       <div id="charts-content" class="charts-content"></div>
     </section>
 
-    <!-- 导出与历史 -->
-    <section id="step-export" class="card hidden">
-      <h2><span class="step-num">7</span> 导出与历史环比</h2>
-      <p class="hint">导出与历史快照均在本机完成。历史只保存<strong>摘要指标</strong>（非完整 CGM 明细），最多 30 条。</p>
+    <section id="step-export" class="card hidden result-section">
+      <h2><span class="step-num">7</span> 导出与历史</h2>
+      <p class="hint compact-hint">均在本机。历史只存摘要指标（最多 30 条），不含完整 CGM 明细。</p>
 
       <div class="export-actions">
-        <button type="button" id="btn-export-json" class="btn-primary">⬇️ 导出 JSON</button>
-        <button type="button" id="btn-export-csv" class="btn-secondary">⬇️ 导出 CSV 包</button>
-        <button type="button" id="btn-export-snapshot" class="btn-secondary">⬇️ 导出摘要快照</button>
+        <button type="button" id="btn-export-json" class="btn-secondary">导出 JSON</button>
+        <button type="button" id="btn-export-csv" class="btn-secondary">导出 CSV 包</button>
+        <button type="button" id="btn-export-snapshot" class="btn-secondary">导出摘要快照</button>
         <span id="export-status" class="copy-status" aria-live="polite"></span>
       </div>
 
       <div class="history-panel">
-        <div class="history-toolbar">
-          <button type="button" id="btn-history-save" class="btn-primary">💾 保存本次摘要到本机</button>
-          <button type="button" id="btn-history-refresh" class="btn-secondary">刷新列表</button>
-          <button type="button" id="btn-history-clear" class="btn-secondary">清空历史</button>
+        <div class="history-save-row">
+          <label class="date-field history-name-field">
+            <span>摘要名称（可选）</span>
+            <input type="text" id="history-label" maxlength="80" placeholder="例如 07-14 导出" autocomplete="off">
+          </label>
+          <button type="button" id="btn-history-save" class="btn-secondary">保存到本机历史</button>
         </div>
-        <label class="history-label" for="history-select">与历史快照对比</label>
+        <div class="history-toolbar">
+          <button type="button" id="btn-history-refresh" class="btn-ghost">刷新列表</button>
+          <button type="button" id="btn-history-clear" class="btn-danger-text">清空历史</button>
+        </div>
+        <label class="history-label" for="history-select">与历史快照对比（当前分析）</label>
         <select id="history-select" aria-label="选择历史快照">
           <option value="">（暂无历史）</option>
         </select>
@@ -224,59 +252,59 @@
       </div>
     </section>
 
-    <!-- 大模型提示词 -->
-    <section id="step-prompt" class="card hidden">
+    <section id="step-prompt" class="card hidden result-section">
       <h2><span class="step-num">8</span> 大模型提示词</h2>
-      <p class="hint">
-        下方文本可直接复制粘贴到 <strong>豆包 / ChatGPT / Claude / Gemini</strong> 等平台的对话框。
-        提示词使用<strong>固定标题结构</strong>（总结判断、各数据维度、监测仪表盘、复查信号、工作假设、参考依据）；
-        <strong>无数据的维度会跳过</strong>。若填写了个人背景，会一并注入完整提示词。
+      <p class="hint compact-hint">
+        粘贴到豆包 / ChatGPT / Claude / Gemini。固定标题结构，无数据维度跳过；个人背景与跨维度提示会一并注入。
       </p>
 
-      <div class="prompt-tabs">
-        <button class="tab-btn active" data-tab="full">完整提示词</button>
-        <button class="tab-btn" data-tab="data">仅数据摘要</button>
-        <button class="tab-btn" data-tab="system">简短系统提示</button>
+      <div class="prompt-tabs" role="tablist">
+        <button type="button" class="tab-btn active" data-tab="full" role="tab" aria-selected="true">完整提示词</button>
+        <button type="button" class="tab-btn" data-tab="data" role="tab" aria-selected="false">仅数据摘要</button>
+        <button type="button" class="tab-btn" data-tab="system" role="tab" aria-selected="false">简短系统提示</button>
       </div>
 
       <div class="prompt-container">
-        <textarea id="prompt-output" readonly></textarea>
+        <textarea id="prompt-output" readonly aria-label="提示词内容"></textarea>
         <div class="prompt-actions">
-          <button id="btn-copy" class="btn-primary">📋 复制到剪贴板</button>
-          <button id="btn-download" class="btn-secondary">⬇️ 下载 .md 文件</button>
-          <span id="copy-status" class="copy-status"></span>
+          <button type="button" id="btn-copy" class="btn-primary">复制到剪贴板</button>
+          <button type="button" id="btn-download" class="btn-secondary">下载 .md</button>
+          <span id="copy-status" class="copy-status" aria-live="polite"></span>
         </div>
       </div>
 
       <details class="help-box">
-        <summary>💡 使用建议</summary>
+        <summary>使用建议</summary>
         <ul>
-          <li>豆包 / Kimi / Qwen 等国产平台对中文医学语境理解好</li>
-          <li>Claude / GPT-4 擅长长文结构化输出</li>
-          <li>粘贴后可补充"请额外关注 XX 指标"</li>
-          <li>报告生成后请与原始数据交叉核对，特别是边界值</li>
+          <li>国产模型对中文医学语境通常更贴切</li>
+          <li>粘贴后可补充「请额外关注 XX」</li>
+          <li>报告需与原始数据交叉核对，尤其是边界值</li>
         </ul>
       </details>
     </section>
 
-    <!-- 隐私声明 -->
     <section class="card privacy">
-      <h2>🔒 隐私声明</h2>
+      <h2>隐私声明</h2>
       <ul>
-        <li>所有解析与统计在<strong>您的浏览器</strong>内完成，不上传任何数据</li>
-        <li>本应用<strong>无后端</strong>，无服务器，无第三方追踪</li>
-        <li>网页分析结果默认只在当前页内存；可选将<strong>摘要快照</strong>写入本机 IndexedDB 供环比</li>
-        <li>个人背景写入 localStorage；PWA 缓存只保存网页程序，完整健康明细默认不持久化</li>
-        <li>复制或下载提示词后，数据是否进入第三方大模型平台由您自行决定</li>
-        <li>原始 ZIP 文件仍可能留在手机“文件”App 或下载目录中，需要手动删除</li>
+        <li>解析与统计在<strong>您的浏览器</strong>内完成，无后端上传健康明细</li>
+        <li>完整分析默认只在当前页内存；刷新后需重新上传 ZIP/XML</li>
+        <li>可选：个人背景 → localStorage；摘要快照 → IndexedDB（可清空）</li>
+        <li>PWA 缓存仅保存网页程序，不自动保存完整健康导出</li>
+        <li>复制提示词后，是否发给第三方大模型由您决定</li>
       </ul>
     </section>
 
   </main>
 
   <footer class="app-footer">
-    <p>开源 · 本地优先 · v1.3</p>
+    <p>开源 · 本地优先 · v1.4</p>
   </footer>
+
+  <!-- 分析后吸底主操作 -->
+  <div id="sticky-cta" class="sticky-cta hidden" role="region" aria-label="快捷操作">
+    <button type="button" id="btn-copy-sticky" class="btn-primary sticky-cta-btn">复制完整提示词</button>
+    <button type="button" id="btn-sticky-top" class="btn-ghost sticky-cta-side" title="回到概览">↑</button>
+  </div>
 
   <script src="./fflate.min.js"></script>
   <script src="./lib.js"></script>

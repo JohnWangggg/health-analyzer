@@ -273,28 +273,51 @@
   const fileInput = $('file-input');
   const folderInput = $('folder-input');
   const uploadHint = $('upload-hint');
+  const uploadText = $('upload-text');
+  const isTouchDevice = (() => {
+    try {
+      return window.matchMedia('(hover: none) and (pointer: coarse)').matches
+        || ('ontouchstart' in window);
+    } catch {
+      return false;
+    }
+  })();
 
-  // 根据数据源选项切换上传模式
-  document.querySelectorAll('input[name="source"]').forEach(radio => {
-    radio.addEventListener('change', () => {
-      const val = radio.value;
-      if (val === 'folder') {
-        fileInput.hidden = true;
-        folderInput.hidden = false;
-        uploadHint.textContent = '选择文件夹（包含 export.xml 和 electrocardiograms/）';
-      } else if (val === 'xml_only') {
-        fileInput.hidden = false;
-        folderInput.hidden = true;
-        fileInput.accept = '.xml';
-        uploadHint.textContent = '选择 export.xml 或 导出.xml';
-      } else {
-        fileInput.hidden = false;
-        folderInput.hidden = true;
-        fileInput.accept = '.zip,.xml';
-        uploadHint.textContent = '支持 .zip / .xml';
+  function updateUploadLabels() {
+    const checked = document.querySelector('input[name="source"]:checked');
+    const val = checked ? checked.value : 'apple_health_export';
+    if (val === 'folder') {
+      fileInput.hidden = true;
+      folderInput.hidden = false;
+      if (uploadText) uploadText.textContent = '点击选择文件夹';
+      if (uploadHint) uploadHint.textContent = '需包含 export.xml；建议使用电脑 Chrome / Edge';
+    } else if (val === 'xml_only') {
+      fileInput.hidden = false;
+      folderInput.hidden = true;
+      fileInput.accept = '.xml';
+      if (uploadText) uploadText.textContent = isTouchDevice ? '点击选择 XML 文件' : '点击或拖拽 XML 文件';
+      if (uploadHint) uploadHint.textContent = 'export.xml 或 导出.xml';
+    } else {
+      fileInput.hidden = false;
+      folderInput.hidden = true;
+      fileInput.accept = '.zip,.xml';
+      if (uploadText) {
+        uploadText.textContent = isTouchDevice
+          ? '点击选择 ZIP 文件'
+          : '点击或拖拽 ZIP / XML';
       }
-    });
+      if (uploadHint) {
+        uploadHint.textContent = isTouchDevice
+          ? '推荐苹果健康导出的 .zip；大文件建议用电脑浏览器'
+          : '推荐 .zip；也可直接选 export.xml';
+      }
+    }
+  }
+
+  document.querySelectorAll('input[name="source"]').forEach(radio => {
+    radio.addEventListener('change', updateUploadLabels);
   });
+  updateUploadLabels();
 
   function openFilePicker() {
     const folderRadio = document.querySelector('input[name="source"][value="folder"]');
@@ -565,6 +588,12 @@
   // 结果渲染
   // ============================================================
 
+  function setResultsVisible(visible) {
+    document.body.classList.toggle('has-results', !!visible);
+    const sticky = $('sticky-cta');
+    if (sticky) sticky.classList.toggle('hidden', !visible);
+  }
+
   function renderResults(analysis) {
     show('step-overview');
     show('step-summary');
@@ -572,8 +601,10 @@
     show('step-charts');
     show('step-export');
     show('step-prompt');
+    setResultsVisible(true);
 
     renderAvailability(analysis);
+    renderKpis(analysis);
     renderSummary(analysis);
     renderSignals(analysis);
     renderCharts(analysis);
@@ -581,6 +612,126 @@
     refreshHistorySelect().catch(() => { /* ignore */ });
 
     $('step-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function renderKpis(analysis) {
+    const grid = $('kpi-grid');
+    if (!grid) return;
+    const data = analysis.data || {};
+    const items = [];
+
+    if (analysis.cgmStats && analysis.cgmStats.overall) {
+      const o = analysis.cgmStats.overall;
+      items.push({
+        label: 'CGM 均值',
+        value: o.mean.toFixed(2),
+        unit: 'mmol/L',
+        sub: `TIR ${o.pctInRange.toFixed(0)}% · n=${o.count}`,
+      });
+    }
+    if (analysis.bpStats && analysis.bpStats.mean7d) {
+      const m = analysis.bpStats.mean7d;
+      items.push({
+        label: '血压 7 日均',
+        value: `${m.systolic.toFixed(0)}/${m.diastolic.toFixed(0)}`,
+        unit: 'mmHg',
+        sub: `${m.count} 条` + (m.lowCount ? ` · ${m.lowCount} 次偏低` : ''),
+      });
+    }
+    if (data.weight && data.weight.length) {
+      const latest = data.weight[data.weight.length - 1];
+      const earliest = data.weight[0];
+      const delta = latest.value - earliest.value;
+      items.push({
+        label: '最新体重',
+        value: latest.value.toFixed(1),
+        unit: 'kg',
+        sub: `较最早 ${delta >= 0 ? '+' : ''}${delta.toFixed(1)} kg`,
+      });
+    }
+    const hrvDates = Object.keys(analysis.hrvByDate || {}).sort();
+    if (hrvDates.length) {
+      const recent = hrvDates.slice(-7);
+      const vals = recent.map((d) => analysis.hrvByDate[d].allMean).filter(Number.isFinite);
+      const avg = meanOf(vals);
+      items.push({
+        label: 'HRV 近 7 日',
+        value: avg != null ? avg.toFixed(1) : '—',
+        unit: 'ms',
+        sub: `${hrvDates.length} 天有数据`,
+      });
+    }
+    if (!items.length) {
+      items.push({
+        label: '数据维度',
+        value: String(
+          Object.values(data.dataAvailability || {}).filter(Boolean).length
+        ),
+        unit: '类',
+        sub: '详见下方可用性',
+      });
+    }
+
+    let signalNote = '';
+    try {
+      const sigs = window.HealthAnalyzer.detectCrossSignals(analysis) || [];
+      const alerts = sigs.filter((s) => s.severity === 'alert' || s.severity === 'watch').length;
+      if (sigs.length) {
+        signalNote = `<p class="kpi-signal-note">${alerts ? `有 ${alerts} 条需观察/关注的跨维度提示` : `有 ${sigs.length} 条提示`}，见下方「跨维度提示」。</p>`;
+      }
+    } catch (e) { /* ignore */ }
+
+    grid.innerHTML = items.map((it) => `
+      <div class="kpi-card">
+        <div class="kpi-label">${escapeHtml(it.label)}</div>
+        <div class="kpi-value"><span class="kpi-num">${escapeHtml(it.value)}</span><span class="kpi-unit">${escapeHtml(it.unit)}</span></div>
+        <div class="kpi-sub">${escapeHtml(it.sub || '')}</div>
+      </div>
+    `).join('') + signalNote;
+  }
+
+  async function copyFullPrompt(statusEl) {
+    if (!currentAnalysis) {
+      alert('请先完成分析');
+      return;
+    }
+    // 确保为完整提示词
+    currentPromptTab = 'full';
+    document.querySelectorAll('.tab-btn').forEach((b) => {
+      const on = b.dataset.tab === 'full';
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    renderPrompt();
+    const text = $('prompt-output') ? $('prompt-output').value : '';
+    try {
+      await navigator.clipboard.writeText(text);
+      const els = [statusEl, $('copy-status')].filter(Boolean);
+      els.forEach((status) => {
+        status.textContent = '✓ 已复制完整提示词';
+        status.classList.add('show');
+        setTimeout(() => status.classList.remove('show'), 2200);
+      });
+      // 吸底按钮短暂反馈
+      const sticky = $('btn-copy-sticky');
+      if (sticky) {
+        const prev = sticky.textContent;
+        sticky.textContent = '✓ 已复制';
+        setTimeout(() => { sticky.textContent = prev; }, 1600);
+      }
+      const hero = $('btn-copy-hero');
+      if (hero && statusEl !== hero) {
+        const prev = hero.textContent;
+        hero.textContent = '✓ 已复制';
+        setTimeout(() => { hero.textContent = prev; }, 1600);
+      }
+    } catch (e) {
+      if ($('prompt-output')) {
+        $('prompt-output').select();
+        document.execCommand('copy');
+      }
+      alert('已尝试复制到剪贴板');
+    }
   }
 
   function severityLabel(sev) {
@@ -722,10 +873,9 @@
       return;
     }
     try {
-      const label = window.prompt('可选：为本次摘要命名（如 07-14 导出）', '') || undefined;
-      const snap = window.HealthAnalyzer.buildAnalysisSnapshot(currentAnalysis, {
-        label: label && label.trim() ? label.trim() : undefined,
-      });
+      const labelEl = $('history-label');
+      const label = labelEl && labelEl.value.trim() ? labelEl.value.trim() : undefined;
+      const snap = window.HealthAnalyzer.buildAnalysisSnapshot(currentAnalysis, { label });
       await window.HealthHistory.saveSnapshot(snap);
       showExportStatus('✓ 已保存到本机历史');
       await refreshHistorySelect();
@@ -1085,9 +1235,19 @@
       `);
     }
 
-    container.innerHTML = blocks.length > 0
-      ? blocks.join('')
-      : '<p class="hint">未发现可识别的健康数据维度。请确认导出的 ZIP 包来源。</p>';
+    if (blocks.length === 0) {
+      container.innerHTML = '<p class="hint">未发现可识别的健康数据维度。请确认导出的 ZIP 包来源。</p>';
+      return;
+    }
+    // 各维度默认折叠，减轻长页滚动压力
+    container.innerHTML = `<div class="summary-accordions">${blocks.map((html, idx) => {
+      const open = idx === 0 ? ' open' : '';
+      // 从块内 h3 抽标题
+      const m = html.match(/<h3[^>]*>([\s\S]*?)<\/h3>/);
+      const title = m ? m[1].replace(/<[^>]+>/g, '').trim() : `维度 ${idx + 1}`;
+      const body = html.replace(/<h3[^>]*>[\s\S]*?<\/h3>/, '');
+      return `<details class="summary-acc"${open}><summary>${title}</summary><div class="summary-acc-body">${body}</div></details>`;
+    }).join('')}</div>`;
   }
 
   // ============================================================
@@ -1117,23 +1277,37 @@
     });
   });
 
-  $('btn-copy').addEventListener('click', async () => {
+  // 提示词区：复制当前标签内容
+  $('btn-copy')?.addEventListener('click', async () => {
+    if (!currentAnalysis) return;
+    renderPrompt();
     const text = $('prompt-output').value;
     try {
       await navigator.clipboard.writeText(text);
       const status = $('copy-status');
-      status.textContent = '✓ 已复制';
-      status.classList.add('show');
-      setTimeout(() => status.classList.remove('show'), 2000);
-    } catch (e) {
-      // 回退：选中文本
+      if (status) {
+        status.textContent = '✓ 已复制';
+        status.classList.add('show');
+        setTimeout(() => status.classList.remove('show'), 2000);
+      }
+    } catch (err) {
       $('prompt-output').select();
       document.execCommand('copy');
-      alert('已复制到剪贴板');
+      alert('已尝试复制');
     }
   });
 
-  $('btn-download').addEventListener('click', () => {
+  // 主 CTA / 吸底：始终复制完整提示词
+  $('btn-copy-hero')?.addEventListener('click', () => copyFullPrompt($('copy-status')));
+  $('btn-copy-sticky')?.addEventListener('click', () => copyFullPrompt($('copy-status')));
+  $('btn-scroll-prompt')?.addEventListener('click', () => {
+    $('step-prompt')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  $('btn-sticky-top')?.addEventListener('click', () => {
+    $('step-overview')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  $('btn-download')?.addEventListener('click', () => {
     const text = $('prompt-output').value;
     const tab = currentPromptTab === 'system' ? 'system-prompt' : (currentPromptTab === 'data' ? 'data-only' : 'full-prompt');
     const blob = new Blob([text], { type: 'text/markdown;charset=utf-8' });
@@ -1167,8 +1341,21 @@
     renderHistoryCompare(e.target.value);
   });
 
-  $('btn-reset').addEventListener('click', () => {
+  // 结果区内锚点平滑滚动
+  document.querySelectorAll('.result-nav-link').forEach((a) => {
+    a.addEventListener('click', (e) => {
+      const href = a.getAttribute('href');
+      if (!href || href.charAt(0) !== '#') return;
+      const target = document.querySelector(href);
+      if (!target) return;
+      e.preventDefault();
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+
+  $('btn-reset')?.addEventListener('click', () => {
     currentAnalysis = null;
+    setResultsVisible(false);
     hide('step-overview');
     hide('step-summary');
     hide('step-signals');
@@ -1181,6 +1368,8 @@
     if (signals) signals.innerHTML = '';
     const hist = $('history-compare');
     if (hist) hist.innerHTML = '';
+    const kpis = $('kpi-grid');
+    if (kpis) kpis.innerHTML = '';
     show('step-source');
     fileInput.value = '';
     folderInput.value = '';
