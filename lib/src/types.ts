@@ -161,6 +161,17 @@ export interface EcgStats {
   highHrCount: number;
   inconclusiveCount: number;
   otherCount: number;
+  /** 高心率分类按本地小时 0–23 计数 */
+  highHrByHour: number[];
+  /** 高心率 ECG 落在任一 Workout 开始时间 ±2h 内的份数 */
+  highHrNearWorkoutCount: number;
+  /**
+   * 启发式「非运动窗口」高心率份数：
+   * 小时在 22–08，或附近无 Workout（±2h）
+   */
+  highHrRestingWindowCount: number;
+  /** 最近若干次高心率 ECG 的 datetime（时间升序，最多 5 条） */
+  recentHighHr: string[];
 }
 
 export interface DataAvailability {
@@ -178,6 +189,8 @@ export interface DataAvailability {
   hasVo2Max: boolean;
   hasWatchActivity: boolean;
   hasWristTemp: boolean;
+  /** Apple Sleeping Breathing Disturbances */
+  hasBreathingDisturbance: boolean;
   hasWorkouts: boolean;
 }
 
@@ -331,12 +344,18 @@ export interface WatchStats {
   vo2Earliest: number | null;
   vo2Delta: number | null;
   wristTempMean7d: number | null;
+  /** 近 7 个有样本日的睡眠呼吸紊乱日值均值（HealthKit 原始量，越高扰动越多） */
+  breathingDisturbanceMean7d: number | null;
+  /** 最新一日有样本的睡眠呼吸紊乱值 */
+  breathingDisturbanceLatest: number | null;
   daylightMinMean7d: number | null;
   standHoursMean7d: number | null;
   dayCount: number;
   spo2DayCount: number;
   spo2NightDayCount: number;
   vo2DayCount: number;
+  /** 有睡眠呼吸紊乱样本的天数 */
+  breathingDisturbanceDayCount: number;
 }
 
 export interface WorkoutTypeSummary {
@@ -372,6 +391,22 @@ export interface RecoveryWeekStats {
   statusTone: 'positive' | 'neutral' | 'watch' | 'alert';
 }
 
+/**
+ * 多周恢复/负荷序列点（用于趋势图；字段为周粒度 7d 窗口）
+ */
+export interface RecoveryWeekPoint {
+  weekEnd: string;
+  recoveryScore: number | null;
+  loadScore: number | null;
+  hrvMean7d: number | null;
+  nightHrMean7d: number | null;
+  exerciseMinMean7d: number | null;
+  sleepMean7d: number | null;
+  workoutCount7d: number;
+  statusLabel?: string;
+  statusTone?: string;
+}
+
 export interface WorkoutStats {
   sessions: WorkoutSession[];
   count: number;
@@ -400,6 +435,8 @@ export interface FullAnalysis {
   workoutStats: WorkoutStats | null;
   ecgStats: EcgStats | null;
   recoveryWeek: RecoveryWeekStats | null;
+  /** 多周恢复/负荷序列（最旧→最新，默认约 12 周；无数据时 null） */
+  recoveryWeeks: RecoveryWeekPoint[] | null;
   hrvByDate: Record<string, HrvDaySummary>;
   restingHrByDate: Record<string, number>;
   walkingHrByDate: Record<string, number>;

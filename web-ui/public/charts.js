@@ -506,6 +506,21 @@
           ],
         });
       }
+      let bdPts = wdays
+        .filter((d) => d.breathingDisturbance != null && Number.isFinite(d.breathingDisturbance))
+        .map((d) => ({ x: d.date, y: d.breathingDisturbance }));
+      bdPts = sliceByDays(bdPts, watchDays === 0 ? 0 : Math.max(watchDays, 30));
+      if (bdPts.length >= 2) {
+        blocks.push({
+          key: 'breathing',
+          title: `睡眠呼吸紊乱（${rangeLabel(watchDays === 0 ? 0 : Math.max(watchDays, 30))}）`,
+          color: '#16a085',
+          yLabel: 'BD',
+          unit: '',
+          points: bdPts,
+          legend: [{ color: '#16a085', label: '睡眠呼吸紊乱', dashed: false }],
+        });
+      }
     }
 
     const wos = analysis.workoutStats;
@@ -530,6 +545,39 @@
           unit: 'min',
           points: wPts,
           legend: [{ color: '#d35400', label: '训练 min', dashed: false }],
+        });
+      }
+    }
+
+    // 多周恢复 / 负荷（周粒度，不受日 chips 裁剪）
+    const rWeeks = analysis.recoveryWeeks;
+    if (rWeeks && rWeeks.length >= 2) {
+      const recPts = rWeeks
+        .filter((p) => p.recoveryScore != null && Number.isFinite(p.recoveryScore))
+        .map((p) => ({ x: p.weekEnd, y: p.recoveryScore }));
+      if (recPts.length >= 2) {
+        blocks.push({
+          key: 'recovery',
+          title: `周恢复分（近 ${rWeeks.length} 周）`,
+          color: '#16a085',
+          yLabel: '分',
+          unit: '分',
+          points: recPts,
+          legend: [{ color: '#16a085', label: '恢复分', dashed: false }],
+        });
+      }
+      const loadPts = rWeeks
+        .filter((p) => p.loadScore != null && Number.isFinite(p.loadScore))
+        .map((p) => ({ x: p.weekEnd, y: p.loadScore }));
+      if (loadPts.length >= 2) {
+        blocks.push({
+          key: 'load',
+          title: `周负荷分（近 ${rWeeks.length} 周）`,
+          color: '#e67e22',
+          yLabel: '分',
+          unit: '分',
+          points: loadPts,
+          legend: [{ color: '#e67e22', label: '负荷分', dashed: false }],
         });
       }
     }

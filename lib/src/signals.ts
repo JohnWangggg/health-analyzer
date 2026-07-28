@@ -255,6 +255,60 @@ export function detectCrossSignals(analysis: FullAnalysis): CrossSignal[] {
       });
     }
 
+    // 睡眠呼吸紊乱：相对基线抬升或近段持续偏高（启发式，非诊断）
+    {
+      const bdSeries = ws.days
+        .filter((d) => d.breathingDisturbance != null && Number.isFinite(d.breathingDisturbance!))
+        .map((d) => d.breathingDisturbance as number);
+      if (bdSeries.length >= 6) {
+        const recentN = Math.min(7, Math.max(3, Math.floor(bdSeries.length / 2)));
+        const earlierN = Math.min(bdSeries.length - recentN, Math.max(3, recentN));
+        const recentVals = bdSeries.slice(-recentN);
+        const earlierVals = bdSeries.slice(0, earlierN);
+        const recentMean = recentVals.reduce((a, b) => a + b, 0) / recentVals.length;
+        const earlierMean = earlierVals.reduce((a, b) => a + b, 0) / earlierVals.length;
+        const last5 = bdSeries.slice(-Math.min(5, bdSeries.length));
+        const last5Mean = last5.reduce((a, b) => a + b, 0) / last5.length;
+        const allMean = bdSeries.reduce((a, b) => a + b, 0) / bdSeries.length;
+        const trendUp =
+          earlierMean > 0 &&
+          recentMean >= earlierMean * 1.35 &&
+          recentMean - earlierMean >= 0.15;
+        const persistentHigh =
+          last5.length >= 4 &&
+          allMean > 0 &&
+          last5Mean >= allMean * 1.25 &&
+          last5.filter((v) => v >= allMean * 1.15).length >= Math.ceil(last5.length * 0.75);
+        if (trendUp || persistentHigh) {
+          signals.push({
+            severity: 'info',
+            title: trendUp ? '睡眠呼吸紊乱近期相对抬升' : '睡眠呼吸紊乱近段持续偏高',
+            detail:
+              `有样本共 ${bdSeries.length} 天；近 ${recentN} 日均约 ${recentMean.toFixed(2)}` +
+              (earlierMean > 0 ? `，前段约 ${earlierMean.toFixed(2)}` : '') +
+              (ws.breathingDisturbanceMean7d != null
+                ? `，近 7 日有样本均约 ${ws.breathingDisturbanceMean7d.toFixed(2)}`
+                : '') +
+              '。Apple 睡眠呼吸紊乱为腕表估算趋势，受饮酒、体位、感冒等影响；持续偏高或伴随打鼾/白天嗜睡时，可记录后咨询医生，本工具不作睡眠呼吸暂停诊断。',
+            dimensions: ['睡眠呼吸紊乱', '睡眠'],
+          });
+        }
+      } else if (
+        bdSeries.length >= 3 &&
+        ws.breathingDisturbanceMean7d != null &&
+        ws.breathingDisturbanceLatest != null &&
+        ws.breathingDisturbanceLatest >= ws.breathingDisturbanceMean7d * 1.5 &&
+        ws.breathingDisturbanceLatest - ws.breathingDisturbanceMean7d >= 0.2
+      ) {
+        signals.push({
+          severity: 'info',
+          title: '最新睡眠呼吸紊乱高于近段均值',
+          detail: `最新约 ${ws.breathingDisturbanceLatest.toFixed(2)}，近 7 日有样本均约 ${ws.breathingDisturbanceMean7d.toFixed(2)}（${bdSeries.length} 天）。单日波动常见；若连续多日偏高且伴症状，宜结合血氧/睡眠观察并必要时就医评估。非诊断结论。`,
+          dimensions: ['睡眠呼吸紊乱', '睡眠'],
+        });
+      }
+    }
+
     // 活动 × HRV × 夜间心率：恢复压力组合
     if (
       hrvBase != null &&
@@ -311,15 +365,46 @@ export function detectCrossSignals(analysis: FullAnalysis): CrossSignal[] {
     });
   }
 
-  // ECG 高心率分类偏多
+  // ECG 高心率：时段 / 训练关联
   const es = analysis.ecgStats;
   if (es && es.count >= 2 && es.highHrCount >= 2) {
-    signals.push({
-      severity: 'watch',
-      title: 'ECG 多次「高心率」分类',
-      detail: `共 ${es.count} 份 ECG 中 ${es.highHrCount} 份为高心率相关分类。运动后测量常见；若静息下反复出现或伴心悸、胸闷，建议就医评估，勿自行诊断。`,
-      dimensions: ['ECG'],
-    });
+    const near = es.highHrNearWorkoutCount ?? 0;
+    const rest = es.highHrRestingWindowCount ?? 0;
+    const hh = es.highHrCount;
+    const nearRatio = near / hh;
+    const restRatio = rest / hh;
+
+    // 多数高心率落在训练 ±2h → 信息级（运动相关测量常见）
+    if (near >= 2 && nearRatio >= 0.5) {
+      signals.push({
+        severity: 'info',
+        title: '高心率 ECG 多发生在训练时段',
+        detail:
+          `共 ${hh} 份高心率 ECG 中约 ${near} 份落在 Workout 开始前后 ±2h（${Math.round(nearRatio * 100)}%）。` +
+          `训练中/后测量偏高较常见；若仅见于运动相关时段且无不适，通常可结合恢复观察。勿自行诊断。`,
+        dimensions: ['ECG', 'Workout'],
+      });
+    }
+
+    // 夜间/清晨或无附近训练的高心率偏多 → 需关注
+    if (rest >= 2 && restRatio >= 0.5) {
+      signals.push({
+        severity: 'watch',
+        title: '非运动时段高心率 ECG 偏多',
+        detail:
+          `共 ${hh} 份高心率中约 ${rest} 份落在夜间/清晨（22–08）或附近无 Workout（±2h）。` +
+          `若静息下反复出现或伴心悸、胸闷、头晕，建议就医评估，勿自行诊断。`,
+        dimensions: ['ECG'],
+      });
+    } else if (!(near >= 2 && nearRatio >= 0.5)) {
+      // 无清晰训练关联时保留通用提示
+      signals.push({
+        severity: 'watch',
+        title: 'ECG 多次「高心率」分类',
+        detail: `共 ${es.count} 份 ECG 中 ${es.highHrCount} 份为高心率相关分类。运动后测量常见；若静息下反复出现或伴心悸、胸闷，建议就医评估，勿自行诊断。`,
+        dimensions: ['ECG'],
+      });
+    }
   }
 
   // Workout：大负荷次日 HRV 明显偏低

@@ -234,6 +234,24 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
         anchor: 'summary-watch',
       });
     }
+    if (
+      wsWatch.breathingDisturbanceDayCount >= 3 &&
+      wsWatch.breathingDisturbanceMean7d != null
+    ) {
+      const latestBit =
+        wsWatch.breathingDisturbanceLatest != null
+          ? `，最新约 ${wsWatch.breathingDisturbanceLatest.toFixed(2)}`
+          : '';
+      bullets.push({
+        tone: 'neutral',
+        title: '睡眠呼吸紊乱',
+        detail:
+          `近 7 日有样本日均约 ${wsWatch.breathingDisturbanceMean7d.toFixed(2)}` +
+          latestBit +
+          `（共 ${wsWatch.breathingDisturbanceDayCount} 天有数据）。数值来自 Apple Watch 睡眠呼吸扰动估算，越高表示扰动相对越多；仅供自身趋势观察，不能诊断睡眠呼吸暂停。`,
+        anchor: 'summary-watch',
+      });
+    }
   }
 
   // Workout 会话
@@ -292,6 +310,24 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
     if (es.highHrCount > 0) tone = 'watch';
     if (es.otherCount > 0 && es.sinusCount === 0) tone = 'watch';
     const latest = es.latest;
+    let corr = '';
+    if (es.highHrCount >= 2) {
+      const near = es.highHrNearWorkoutCount ?? 0;
+      const rest = es.highHrRestingWindowCount ?? 0;
+      const topHours = (es.highHrByHour || [])
+        .map((c, h) => ({ h, c }))
+        .filter((x) => x.c > 0)
+        .sort((a, b) => b.c - a.c || a.h - b.h)
+        .slice(0, 3)
+        .map((x) => `${String(x.h).padStart(2, '0')}时×${x.c}`)
+        .join('、');
+      corr =
+        `。高心率关联：训练±2h ${near} 份` +
+        `，非运动窗（22–08 或无附近训练）${rest} 份` +
+        (topHours ? `；高发小时 ${topHours}` : '');
+      if (rest >= 2 && rest >= near) tone = 'watch';
+      else if (near >= 2 && near > rest) tone = 'neutral';
+    }
     bullets.push({
       tone,
       title: 'ECG 心电图',
@@ -304,6 +340,7 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
         (latest
           ? `。最近 ${String(latest.datetime).slice(0, 16)}：${latest.classification}`
           : '') +
+        corr +
         '。单次异常需结合症状与复测，不能替代门诊。',
       anchor: 'summary-ecg',
     });

@@ -30,7 +30,9 @@ export {
   calcWatchStats,
   calcWorkoutStats,
   calcEcgStats,
+  enrichEcgWithContext,
   calcRecoveryWeek,
+  calcRecoveryWeeks,
   summarizeHrvByDay,
 } from './stats';
 

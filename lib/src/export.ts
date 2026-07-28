@@ -257,6 +257,38 @@ export function buildExportBundle(analysis: FullAnalysis): ExportBundle {
     });
   }
 
+  if (analysis.recoveryWeeks && analysis.recoveryWeeks.length) {
+    csvFiles.push({
+      filename: 'recovery_weeks.csv',
+      content: toCsv(
+        [
+          'week_end',
+          'recovery_score',
+          'load_score',
+          'hrv_mean_7d',
+          'night_hr_mean_7d',
+          'exercise_min_mean_7d',
+          'sleep_mean_7d',
+          'workout_count_7d',
+          'status_label',
+          'status_tone',
+        ],
+        analysis.recoveryWeeks.map((p) => [
+          p.weekEnd,
+          p.recoveryScore,
+          p.loadScore,
+          p.hrvMean7d,
+          p.nightHrMean7d,
+          p.exerciseMinMean7d,
+          p.sleepMean7d,
+          p.workoutCount7d,
+          p.statusLabel ?? '',
+          p.statusTone ?? '',
+        ])
+      ),
+    });
+  }
+
   if (signals.length) {
     csvFiles.push({
       filename: 'cross_signals.csv',
@@ -290,6 +322,7 @@ export function buildExportBundle(analysis: FullAnalysis): ExportBundle {
             spo2DayCount: analysis.watchStats.spo2DayCount,
             spo2NightDayCount: analysis.watchStats.spo2NightDayCount,
             vo2DayCount: analysis.watchStats.vo2DayCount,
+            breathingDisturbanceDayCount: analysis.watchStats.breathingDisturbanceDayCount,
             activeKcalMean7d: analysis.watchStats.activeKcalMean7d,
             exerciseMinMean7d: analysis.watchStats.exerciseMinMean7d,
             spo2Mean7d: analysis.watchStats.spo2Mean7d,
@@ -304,6 +337,8 @@ export function buildExportBundle(analysis: FullAnalysis): ExportBundle {
             vo2Earliest: analysis.watchStats.vo2Earliest,
             vo2Delta: analysis.watchStats.vo2Delta,
             wristTempMean7d: analysis.watchStats.wristTempMean7d,
+            breathingDisturbanceMean7d: analysis.watchStats.breathingDisturbanceMean7d,
+            breathingDisturbanceLatest: analysis.watchStats.breathingDisturbanceLatest,
             days: analysis.watchStats.days,
           }
         : null,
@@ -322,6 +357,7 @@ export function buildExportBundle(analysis: FullAnalysis): ExportBundle {
           }
         : null,
       recoveryWeek: analysis.recoveryWeek,
+      recoveryWeeks: analysis.recoveryWeeks,
       ecgStats: analysis.ecgStats,
       hrvByDate: analysis.hrvByDate,
       restingHrByDate: analysis.restingHrByDate,

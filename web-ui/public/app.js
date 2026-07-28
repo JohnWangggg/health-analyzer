@@ -843,7 +843,7 @@
       'summary-hrv': { section: 'step-summary', panel: 'hrv', chart: 'hrv' },
       'summary-watch': { section: 'step-summary', panel: 'watch', chart: 'spo2' },
       'summary-workout': { section: 'step-summary', panel: 'workout', chart: 'workout' },
-      'summary-recovery': { section: 'step-summary', panel: 'recovery' },
+      'summary-recovery': { section: 'step-summary', panel: 'recovery', chart: 'recovery' },
       'summary-ecg': { section: 'step-summary', panel: 'ecg' },
       signals: { section: 'step-signals' },
       charts: { section: 'step-charts' },
@@ -945,7 +945,7 @@
     if (/HRV|心率变异/.test(t)) return 'hrv';
     if (/负荷|恢复/.test(t)) return 'recovery';
     if (/Workout|训练会话|训练/.test(t)) return 'workout';
-    if (/Watch|血氧|VO₂|VO2|腕温|锻炼|活动/.test(t)) return 'watch';
+    if (/Watch|血氧|VO₂|VO2|腕温|锻炼|活动|呼吸紊乱|睡眠呼吸/.test(t)) return 'watch';
     if (/静息|步行心率|心率/.test(t)) return 'hr';
     if (/步数/.test(t)) return 'steps';
     if (/睡眠/.test(t)) return 'sleep';
@@ -978,6 +978,7 @@
       if (a.includes('bp') || a.includes('血压')) return 'bp';
       if (a.includes('hrv')) return 'hrv';
       if (a.includes('workout')) return 'workout';
+      if (a.includes('recovery') || a.includes('恢复') || a.includes('负荷')) return 'recovery';
       if (a.includes('watch') || a.includes('spo2') || a.includes('exercise')) return 'spo2';
       return '';
     };
@@ -994,6 +995,7 @@
         chartKey === 'hrv' ? !!(analysis.hrvByDate && Object.keys(analysis.hrvByDate).length) :
         chartKey === 'spo2' || chartKey === 'exercise' ? !!(analysis.watchStats && analysis.watchStats.dayCount) :
         chartKey === 'workout' ? !!(analysis.workoutStats && analysis.workoutStats.count) :
+        chartKey === 'recovery' ? !!(analysis.recoveryWeeks && analysis.recoveryWeeks.length >= 2) :
         false;
       const actions = `
         <span class="insight-actions">
@@ -1619,6 +1621,19 @@
           : '有数据',
       },
       {
+        key: 'hasBreathingDisturbance',
+        icon: '😮‍💨',
+        name: '睡眠呼吸紊乱',
+        count:
+          analysis.watchStats?.breathingDisturbanceDayCount > 0
+            ? (analysis.watchStats.breathingDisturbanceMean7d != null
+                ? '近7日均 ' + analysis.watchStats.breathingDisturbanceMean7d.toFixed(2) + ' · '
+                : '') +
+              analysis.watchStats.breathingDisturbanceDayCount +
+              ' 天'
+            : '有数据',
+      },
+      {
         key: 'hasWorkouts',
         icon: '🏋️',
         name: 'Workout 会话',
@@ -1933,17 +1948,19 @@
       `);
     }
 
-    // Watch 活动 / 血氧 / VO2
+    // Watch 活动 / 血氧 / VO2 / 呼吸紊乱
     if (analysis.watchStats && analysis.watchStats.dayCount > 0) {
       const ws = analysis.watchStats;
       const recent = ws.days.slice(-7).reverse();
+      const showBd = (ws.breathingDisturbanceDayCount || 0) > 0;
       const rows = recent.map((d) => {
         const spo2 = d.spo2Mean != null ? d.spo2Mean.toFixed(1) : '—';
         const spo2Min = d.spo2Min != null ? d.spo2Min.toFixed(1) : '—';
         const rr = d.rrMean != null ? d.rrMean.toFixed(1) : '—';
         const nhr = d.nightHrMean != null ? d.nightHrMean.toFixed(0) : '—';
         const vo2 = d.vo2Max != null ? d.vo2Max.toFixed(1) : '—';
-        return `<tr><td>${d.date}</td><td class="num">${d.exerciseMin ? d.exerciseMin.toFixed(0) : '—'}</td><td class="num">${d.activeKcal ? d.activeKcal.toFixed(0) : '—'}</td><td class="num">${spo2}</td><td class="num">${spo2Min}</td><td class="num">${rr}</td><td class="num">${nhr}</td><td class="num">${vo2}</td></tr>`;
+        const bd = d.breathingDisturbance != null ? d.breathingDisturbance.toFixed(2) : '—';
+        return `<tr><td>${d.date}</td><td class="num">${d.exerciseMin ? d.exerciseMin.toFixed(0) : '—'}</td><td class="num">${d.activeKcal ? d.activeKcal.toFixed(0) : '—'}</td><td class="num">${spo2}</td><td class="num">${spo2Min}</td><td class="num">${rr}</td><td class="num">${nhr}</td><td class="num">${vo2}</td>${showBd ? `<td class="num">${bd}</td>` : ''}</tr>`;
       }).join('');
       const vo2Delta =
         ws.vo2Delta != null
@@ -1963,15 +1980,16 @@
             <tr><td>夜间心率 (0–6h)</td><td class="num">${ws.nightHrMean7d != null ? ws.nightHrMean7d.toFixed(0) + ' bpm' : '—'}</td></tr>
             <tr><td>VO₂ max 最新 / Δ</td><td class="num">${ws.vo2Latest != null ? ws.vo2Latest.toFixed(1) : '—'} / ${vo2Delta}</td></tr>
             <tr><td>睡眠腕温日均</td><td class="num">${ws.wristTempMean7d != null ? ws.wristTempMean7d.toFixed(2) + ' °C' : '—'}</td></tr>
+            <tr><td>睡眠呼吸紊乱日均 / 最新</td><td class="num">${ws.breathingDisturbanceMean7d != null ? ws.breathingDisturbanceMean7d.toFixed(2) : '—'}${ws.breathingDisturbanceLatest != null ? ' / ' + ws.breathingDisturbanceLatest.toFixed(2) : ''}${ws.breathingDisturbanceDayCount ? '（' + ws.breathingDisturbanceDayCount + ' 天）' : ''}</td></tr>
             <tr><td>日照日均</td><td class="num">${ws.daylightMinMean7d != null ? ws.daylightMinMean7d.toFixed(0) + ' min' : '—'}</td></tr>
             <tr><td>站立小时日均</td><td class="num">${ws.standHoursMean7d != null ? ws.standHoursMean7d.toFixed(1) : '—'}</td></tr>
-            <tr><td>有数据天数</td><td class="num">${ws.dayCount}（血氧 ${ws.spo2DayCount} · VO₂ ${ws.vo2DayCount}）</td></tr>
+            <tr><td>有数据天数</td><td class="num">${ws.dayCount}（血氧 ${ws.spo2DayCount} · VO₂ ${ws.vo2DayCount}${ws.breathingDisturbanceDayCount ? ' · 呼吸紊乱 ' + ws.breathingDisturbanceDayCount : ''}）</td></tr>
           </table>
           <table class="summary-table">
-            <tr><th>日期</th><th>锻炼</th><th>kcal</th><th>SpO₂</th><th>最低</th><th>呼吸</th><th>夜HR</th><th>VO₂</th></tr>
+            <tr><th>日期</th><th>锻炼</th><th>kcal</th><th>SpO₂</th><th>最低</th><th>呼吸</th><th>夜HR</th><th>VO₂</th>${showBd ? '<th>呼吸紊乱</th>' : ''}</tr>
             ${rows}
           </table>
-          <p class="hint" style="margin-top:8px;">血氧与 VO₂ 为 Watch 估算；夜/日分段便于区分睡眠相关偏低。低值需结合症状，勿单次定论。</p>
+          <p class="hint" style="margin-top:8px;">血氧与 VO₂ 为 Watch 估算；睡眠呼吸紊乱为 Apple 睡眠扰动估算（越高扰动相对越多），非睡眠呼吸暂停诊断。低值/偏高需结合症状，勿单次定论。</p>
         </div>
       `);
     }
@@ -2015,6 +2033,27 @@
         val == null || val === ''
           ? ''
           : `<tr><td>${label}</td><td class="num">${escapeHtml(String(val))}</td></tr>`;
+      const weeks = analysis.recoveryWeeks || [];
+      const mini = weeks.slice(-6);
+      const miniRows = mini.length
+        ? mini
+            .map((p) => {
+              const rec = p.recoveryScore != null ? String(p.recoveryScore) : '—';
+              const load = p.loadScore != null ? String(p.loadScore) : '—';
+              const hrv = p.hrvMean7d != null ? p.hrvMean7d.toFixed(0) : '—';
+              const sleep = p.sleepMean7d != null ? p.sleepMean7d.toFixed(1) : '—';
+              return `<tr><td>${escapeHtml(p.weekEnd)}</td><td class="num">${rec}</td><td class="num">${load}</td><td class="num">${hrv}</td><td class="num">${sleep}</td></tr>`;
+            })
+            .join('')
+        : '';
+      const miniTable = miniRows
+        ? `
+          <p class="hint" style="margin:12px 0 6px;">近 ${mini.length} 周趋势（最旧→最新）</p>
+          <table class="summary-table">
+            <tr><th>周末</th><th>恢复</th><th>负荷</th><th>HRV</th><th>睡眠h</th></tr>
+            ${miniRows}
+          </table>`
+        : '';
       blocks.push(`
         <div class="section-block">
           <h3>🧭 近 7 日负荷与恢复</h3>
@@ -2034,6 +2073,7 @@
             ${row('日照日均', rw.daylightMinMean7d != null ? rw.daylightMinMean7d.toFixed(0) + ' min' : null)}
             ${row('夜段血氧', rw.spo2NightMean7d != null ? rw.spo2NightMean7d.toFixed(1) + '%' : null)}
           </table>
+          ${miniTable}
         </div>
       `);
     }
@@ -2049,6 +2089,28 @@
         const cls = escapeHtml(e.classification || 'unknown');
         return `<tr><td>${dt}</td><td>${cls}</td></tr>`;
       }).join('');
+      const nearW = es.highHrNearWorkoutCount ?? 0;
+      const restW = es.highHrRestingWindowCount ?? 0;
+      const otherHr = Math.max(0, (es.highHrCount || 0) - nearW);
+      const topHourRows = (es.highHrByHour || [])
+        .map((c, h) => ({ h, c }))
+        .filter((x) => x.c > 0)
+        .sort((a, b) => b.c - a.c || a.h - b.h)
+        .slice(0, 5)
+        .map((x) => `<tr><td>${String(x.h).padStart(2, '0')}:00</td><td class="num">${x.c}</td></tr>`)
+        .join('');
+      const corrRows =
+        es.highHrCount > 0
+          ? `<tr><td>高心率·训练±2h</td><td class="num">${nearW}</td></tr>
+            <tr><td>高心率·非运动窗</td><td class="num">${restW}</td></tr>
+            <tr><td>高心率·其他（非训练邻域粗算）</td><td class="num">${otherHr}</td></tr>`
+          : '';
+      const topHoursBlock = topHourRows
+        ? `<table class="summary-table" style="margin-top:8px;">
+            <tr><th>高心率高发小时</th><th>份数</th></tr>
+            ${topHourRows}
+          </table>`
+        : '';
       blocks.push(`
         <div class="section-block">
           <h3>📈 ECG 心电图</h3>
@@ -2056,8 +2118,10 @@
             <tr><th>指标</th><th>值</th></tr>
             <tr><td>总份数</td><td class="num">${es.count}</td></tr>
             <tr><td>窦性 / 高心率 / 不佳</td><td class="num">${es.sinusCount} / ${es.highHrCount} / ${es.inconclusiveCount}</td></tr>
+            ${corrRows}
             ${es.latest ? `<tr><td>最近</td><td class="num">${escapeHtml(String(es.latest.datetime).slice(0, 16))} · ${escapeHtml(es.latest.classification)}</td></tr>` : ''}
           </table>
+          ${topHoursBlock}
           <table class="summary-table">
             <tr><th>分类</th><th>份数</th></tr>
             ${classRows}
@@ -2069,7 +2133,7 @@
               ${recentList}
             </table>
           </details>
-          <p class="hint" style="margin-top:8px;">请优先上传完整 ZIP 或含 electrocardiograms/ 的文件夹以收录 ECG。</p>
+          <p class="hint" style="margin-top:8px;">高心率「训练±2h」相对 Workout 开始时间；「非运动窗」= 22–08 或附近无训练。请优先上传完整 ZIP 或含 electrocardiograms/ 的文件夹以收录 ECG。</p>
         </div>
       `);
     } else if (data.ecg && data.ecg.length > 0) {

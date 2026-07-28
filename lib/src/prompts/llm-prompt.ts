@@ -144,7 +144,7 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
   const sections: string[] = [];
   const {
     data, cgmStats, bpStats, weightStats, watchStats, workoutStats,
-    ecgStats, recoveryWeek, hrvByDate, dateRange,
+    ecgStats, recoveryWeek, recoveryWeeks, hrvByDate, dateRange,
   } = analysis;
   const detailDays = 90;
   const recentDateSet = (dates: string[]) => {
@@ -200,6 +200,11 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
   sections.push(`| 呼吸频率 | ${av.hasRespiratoryRate ? '✅' : '❌'} | — |`);
   sections.push(`| VO₂ max | ${av.hasVo2Max ? '✅' : '❌'} | ${watchStats?.vo2DayCount ?? 0} 天 |`);
   sections.push(`| 睡眠腕温 | ${av.hasWristTemp ? '✅' : '❌'} | — |`);
+  sections.push(
+    `| 睡眠呼吸紊乱 | ${
+      (watchStats?.breathingDisturbanceDayCount ?? 0) > 0 ? '✅' : '❌'
+    } | ${watchStats?.breathingDisturbanceDayCount ?? 0} 天 |`
+  );
   sections.push(`| Workout 会话 | ${av.hasWorkouts ? '✅' : '❌'} | ${workoutStats?.count ?? data.workouts?.length ?? 0} 场 |`);
   sections.push(`| ECG | ${av.hasEcg ? '✅' : '❌'} | ${data.ecg.length} 份 |`);
   sections.push(``);
@@ -397,12 +402,12 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
     sections.push(``);
   }
 
-  // Apple Watch 日汇总（活动 / 血氧 / 呼吸 / VO2 / 腕温 / 夜间心率）
+  // Apple Watch 日汇总（活动 / 血氧 / 呼吸 / VO2 / 腕温 / 呼吸紊乱 / 夜间心率）
   if (watchStats && watchStats.dayCount > 0) {
-    sections.push(`## Apple Watch（活动 / 血氧 / 呼吸 / VO₂ / 腕温）`);
+    sections.push(`## Apple Watch（活动 / 血氧 / 呼吸 / VO₂ / 腕温 / 呼吸紊乱）`);
     sections.push(``);
     sections.push(
-      `> 日汇总共 ${watchStats.dayCount} 天；血氧/呼吸为日内样本均值，VO₂ 为 Apple 估算，夜间心率为 0–6 点抽样。`
+      `> 日汇总共 ${watchStats.dayCount} 天；血氧/呼吸为日内样本均值，VO₂ 为 Apple 估算，夜间心率为 0–6 点抽样；睡眠呼吸紊乱为 Watch 原始量（越高扰动相对越多，非诊断）。`
     );
     sections.push(``);
     sections.push(`**近 7 日摘要**：`);
@@ -462,6 +467,17 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
     if (watchStats.wristTempMean7d != null) {
       sections.push(`| 睡眠腕温日均 | ${watchStats.wristTempMean7d.toFixed(2)} °C |`);
     }
+    if (watchStats.breathingDisturbanceMean7d != null) {
+      sections.push(
+        `| 睡眠呼吸紊乱日均` +
+          (watchStats.breathingDisturbanceLatest != null ? ' / 最新' : '') +
+          ` | ${watchStats.breathingDisturbanceMean7d.toFixed(2)}` +
+          (watchStats.breathingDisturbanceLatest != null
+            ? ` / ${watchStats.breathingDisturbanceLatest.toFixed(2)}`
+            : '') +
+          `（${watchStats.breathingDisturbanceDayCount} 天） |`
+      );
+    }
     if (watchStats.daylightMinMean7d != null) {
       sections.push(`| 日照日均 | ${watchStats.daylightMinMean7d.toFixed(0)} min |`);
     }
@@ -471,10 +487,17 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
     sections.push(``);
     sections.push(`**分日明细**（最近 ${detailDays} 天）：`);
     sections.push(``);
+    const showBdCol = (watchStats.breathingDisturbanceDayCount ?? 0) > 0;
     sections.push(
-      `| 日期 | 活动kcal | 锻炼min | SpO₂均 | 夜均 | 日均 | 呼吸 | 夜间HR | VO₂ | 腕温 |`
+      `| 日期 | 活动kcal | 锻炼min | SpO₂均 | 夜均 | 日均 | 呼吸 | 夜间HR | VO₂ | 腕温` +
+        (showBdCol ? ' | 呼吸紊乱' : '') +
+        ` |`
     );
-    sections.push(`|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|`);
+    sections.push(
+      `|---|---:|---:|---:|---:|---:|---:|---:|---:|---:` +
+        (showBdCol ? '|---:' : '') +
+        `|`
+    );
     const recentWatch = recentDateSet(watchStats.days.map((d) => d.date));
     for (const d of watchStats.days.filter((x) => recentWatch.has(x.date))) {
       const f = (v: number | null, dig = 1) =>
@@ -484,7 +507,9 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
           d.exerciseMin ? d.exerciseMin.toFixed(0) : '—'
         } | ${f(d.spo2Mean)} | ${f(d.spo2NightMean)} | ${f(d.spo2DayMean)} | ${f(
           d.rrMean
-        )} | ${f(d.nightHrMean, 0)} | ${f(d.vo2Max)} | ${f(d.wristTempMean, 2)} |`
+        )} | ${f(d.nightHrMean, 0)} | ${f(d.vo2Max)} | ${f(d.wristTempMean, 2)}` +
+          (showBdCol ? ` | ${f(d.breathingDisturbance, 2)}` : '') +
+          ` |`
       );
     }
     sections.push(``);
@@ -562,6 +587,29 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
     sections.push(``);
   }
 
+  // 多周恢复趋势（最近 8 周）
+  if (recoveryWeeks && recoveryWeeks.length > 0) {
+    const recent = recoveryWeeks.slice(-8);
+    sections.push(`## 多周恢复/负荷趋势`);
+    sections.push(``);
+    sections.push(`> 启发式评分，非诊断；共 ${recoveryWeeks.length} 周样本，下表最近 ${recent.length} 周（最旧→最新）。`);
+    sections.push(``);
+    sections.push(`| 周末 | 恢复分 | 负荷分 | HRV | 夜心 | 锻炼 | 睡眠 | Workout |`);
+    sections.push(`|---|---:|---:|---:|---:|---:|---:|---:|`);
+    for (const p of recent) {
+      sections.push(
+        `| ${p.weekEnd} | ${p.recoveryScore != null ? p.recoveryScore : '—'} | ${
+          p.loadScore != null ? p.loadScore : '—'
+        } | ${p.hrvMean7d != null ? p.hrvMean7d.toFixed(0) : '—'} | ${
+          p.nightHrMean7d != null ? p.nightHrMean7d.toFixed(0) : '—'
+        } | ${p.exerciseMinMean7d != null ? p.exerciseMinMean7d.toFixed(0) : '—'} | ${
+          p.sleepMean7d != null ? p.sleepMean7d.toFixed(1) : '—'
+        } | ${p.workoutCount7d} |`
+      );
+    }
+    sections.push(``);
+  }
+
   // ECG
   if (ecgStats && ecgStats.count > 0) {
     sections.push(`## ECG 心电图`);
@@ -569,6 +617,25 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
     sections.push(
       `共 ${ecgStats.count} 份（窦性 ${ecgStats.sinusCount} · 高心率 ${ecgStats.highHrCount} · 结果不佳 ${ecgStats.inconclusiveCount} · 其他 ${ecgStats.otherCount}）`
     );
+    if (ecgStats.highHrCount > 0) {
+      const near = ecgStats.highHrNearWorkoutCount ?? 0;
+      const rest = ecgStats.highHrRestingWindowCount ?? 0;
+      const hh = ecgStats.highHrCount;
+      const nearPct = hh > 0 ? Math.round((near / hh) * 100) : 0;
+      const hourBits = (ecgStats.highHrByHour || [])
+        .map((c, h) => (c > 0 ? `${String(h).padStart(2, '0')}时:${c}` : null))
+        .filter(Boolean);
+      sections.push(``);
+      sections.push(
+        `高心率关联：训练±2h ${near}/${hh}（${nearPct}%）· 非运动窗 ${rest}/${hh}` +
+          (hourBits.length ? `；小时分布 ${hourBits.join('、')}` : '')
+      );
+      if (ecgStats.recentHighHr && ecgStats.recentHighHr.length) {
+        sections.push(
+          `最近高心率时刻：${ecgStats.recentHighHr.map((d) => String(d).slice(0, 16)).join(' · ')}`
+        );
+      }
+    }
     sections.push(``);
     sections.push(`| 分类 | 份数 |`);
     sections.push(`|---|---:|`);

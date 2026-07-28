@@ -25,6 +25,7 @@ import {
   EcgStats,
   ERecordSummary,
   RecoveryWeekStats,
+  RecoveryWeekPoint,
 } from './types';
 import { getDate, getHour, parseAppleDate, workoutTypeLabel } from './parser';
 
@@ -331,6 +332,11 @@ export function calcWatchStats(watchDaily: Record<string, WatchDaySummary> | und
   const vo2Latest = vo2Series.length ? vo2Series[vo2Series.length - 1].vo2Max : null;
   const vo2Earliest = vo2Series.length ? vo2Series[0].vo2Max : null;
 
+  const bdSeries = days.filter((d) => d.breathingDisturbance != null);
+  const breathingDisturbanceLatest = bdSeries.length
+    ? bdSeries[bdSeries.length - 1].breathingDisturbance
+    : null;
+
   return {
     days,
     activeKcalMean7d: meanLastN(days.map((d) => d.activeKcal), 7),
@@ -349,6 +355,11 @@ export function calcWatchStats(watchDaily: Record<string, WatchDaySummary> | und
     vo2Delta:
       vo2Latest != null && vo2Earliest != null ? vo2Latest - vo2Earliest : null,
     wristTempMean7d: meanLastN(days.map((d) => d.wristTempMean), 7),
+    breathingDisturbanceMean7d: meanLastN(
+      days.map((d) => d.breathingDisturbance),
+      7
+    ),
+    breathingDisturbanceLatest,
     daylightMinMean7d: meanLastN(
       days.map((d) => (d.daylightMin > 0 ? d.daylightMin : null)),
       7
@@ -361,6 +372,7 @@ export function calcWatchStats(watchDaily: Record<string, WatchDaySummary> | und
     spo2DayCount: days.filter((d) => d.spo2Mean != null).length,
     spo2NightDayCount: days.filter((d) => d.spo2NightMean != null).length,
     vo2DayCount: vo2Series.length,
+    breathingDisturbanceDayCount: bdSeries.length,
   };
 }
 
@@ -431,8 +443,91 @@ export function calcWorkoutStats(
   };
 }
 
-/** ECG 分类汇总 */
-export function calcEcgStats(ecg: ERecordSummary[] | undefined): EcgStats | null {
+const ECG_NEAR_WORKOUT_MS = 2 * 3600 * 1000;
+const ECG_RECENT_HIGH_HR = 5;
+
+function isHighHrClassification(c: string): boolean {
+  return /高心率|High Heart/i.test(c);
+}
+
+/** 小时是否落在启发式夜间/清晨窗口 22–08（含 8 点） */
+function isNightOrEarlyHour(hour: number): boolean {
+  return hour >= 22 || hour <= 8;
+}
+
+/**
+ * 高心率 ECG 与时段 / Workout 关联（±2h 训练窗；22–08 或无附近训练 → 非运动窗）
+ * 可单独测试；calcEcgStats / analyzeAll 会合并进 EcgStats。
+ */
+export function enrichEcgWithContext(
+  ecg: ERecordSummary[] | undefined,
+  workouts?: WorkoutSession[] | undefined
+): Pick<
+  EcgStats,
+  'highHrByHour' | 'highHrNearWorkoutCount' | 'highHrRestingWindowCount' | 'recentHighHr'
+> {
+  const highHrByHour = Array.from({ length: 24 }, () => 0);
+  let highHrNearWorkoutCount = 0;
+  let highHrRestingWindowCount = 0;
+  const highHrDatetimes: string[] = [];
+
+  if (!ecg || !ecg.length) {
+    return {
+      highHrByHour,
+      highHrNearWorkoutCount,
+      highHrRestingWindowCount,
+      recentHighHr: [],
+    };
+  }
+
+  const workoutStarts = (workouts || [])
+    .map((w) => parseAppleDate(w.startDate))
+    .filter((t): t is number => Number.isFinite(t))
+    .sort((a, b) => a - b);
+
+  const nearWorkout = (t: number): boolean => {
+    if (!Number.isFinite(t) || !workoutStarts.length) return false;
+    // 线性扫描即可（ECG / workout 规模通常很小）；有序可提前结束
+    for (const ws of workoutStarts) {
+      const d = Math.abs(ws - t);
+      if (d <= ECG_NEAR_WORKOUT_MS) return true;
+      if (ws > t + ECG_NEAR_WORKOUT_MS) break;
+    }
+    return false;
+  };
+
+  const highHrs = ecg
+    .filter((e) => isHighHrClassification(e.classification || ''))
+    .sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
+
+  for (const e of highHrs) {
+    const hour = getHour(e.datetime);
+    if (Number.isFinite(hour) && hour >= 0 && hour <= 23) {
+      highHrByHour[hour] += 1;
+    }
+    const t = parseAppleDate(e.datetime);
+    const near = nearWorkout(t);
+    if (near) highHrNearWorkoutCount += 1;
+    // 非运动窗：夜间/清晨 22–08，或附近无 Workout
+    if (isNightOrEarlyHour(hour) || !near) {
+      highHrRestingWindowCount += 1;
+    }
+    highHrDatetimes.push(e.datetime);
+  }
+
+  return {
+    highHrByHour,
+    highHrNearWorkoutCount,
+    highHrRestingWindowCount,
+    recentHighHr: highHrDatetimes.slice(-ECG_RECENT_HIGH_HR),
+  };
+}
+
+/** ECG 分类汇总；可选 workouts 用于高心率时段/训练关联 */
+export function calcEcgStats(
+  ecg: ERecordSummary[] | undefined,
+  workouts?: WorkoutSession[] | undefined
+): EcgStats | null {
   if (!ecg || !ecg.length) return null;
   const sorted = [...ecg].sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
   const counts = new Map<string, number>();
@@ -444,13 +539,14 @@ export function calcEcgStats(ecg: ERecordSummary[] | undefined): EcgStats | null
     const c = e.classification || 'unknown';
     counts.set(c, (counts.get(c) || 0) + 1);
     if (/窦性|Sinus/i.test(c)) sinusCount += 1;
-    else if (/高心率|High Heart/i.test(c)) highHrCount += 1;
+    else if (isHighHrClassification(c)) highHrCount += 1;
     else if (/不佳|Inconclusive|Poor/i.test(c)) inconclusiveCount += 1;
     else otherCount += 1;
   }
   const byClassification = [...counts.entries()]
     .map(([classification, count]) => ({ classification, count }))
     .sort((a, b) => b.count - a.count);
+  const ctx = enrichEcgWithContext(sorted, workouts);
   return {
     count: sorted.length,
     byClassification,
@@ -459,6 +555,7 @@ export function calcEcgStats(ecg: ERecordSummary[] | undefined): EcgStats | null
     highHrCount,
     inconclusiveCount,
     otherCount,
+    ...ctx,
   };
 }
 
@@ -472,79 +569,97 @@ function meanMapLastN(map: Record<string, number>, n: number, endDate: string): 
   return recent.reduce((a, b) => a + b, 0) / recent.length;
 }
 
-/** 近 7 日负荷 / 恢复仪表 */
-export function calcRecoveryWeek(
-  analysis: {
-    dateRange: { start: string; end: string };
-    hrvByDate: Record<string, HrvDaySummary>;
-    restingHrByDate: Record<string, number>;
-    stepsByDate: Record<string, number>;
-    sleepByDate: Record<string, { total: number }>;
-    watchStats: WatchStats | null;
-    workoutStats: WorkoutStats | null;
-  }
-): RecoveryWeekStats | null {
-  const end = analysis.dateRange?.end;
-  if (!end) return null;
+function addDaysIso(date: string, deltaDays: number): string {
+  const t = Date.parse(`${date}T00:00:00Z`);
+  if (!Number.isFinite(t)) return date;
+  const d = new Date(t);
+  d.setUTCDate(d.getUTCDate() + deltaDays);
+  return d.toISOString().slice(0, 10);
+}
 
-  const hrvMeans: Record<string, number> = {};
-  for (const [d, h] of Object.entries(analysis.hrvByDate || {})) {
-    if (h && Number.isFinite(h.allMean)) hrvMeans[d] = h.allMean;
-  }
-  const sleepTotals: Record<string, number> = {};
-  for (const [d, s] of Object.entries(analysis.sleepByDate || {})) {
-    if (s && Number.isFinite(s.total)) sleepTotals[d] = s.total;
-  }
+/** 以 endDate 为截止，取 watch 日序列最后 n 个有效值的均值（与 meanLastN 语义一致） */
+function meanWatchSeriesLastN(
+  days: WatchDayView[] | undefined,
+  pick: (d: WatchDayView) => number | null | undefined,
+  n: number,
+  endDate: string
+): number | null {
+  if (!days?.length) return null;
+  const vals = days
+    .filter((d) => d.date <= endDate)
+    .map((d) => pick(d))
+    .filter((v): v is number => v != null && Number.isFinite(v));
+  if (!vals.length) return null;
+  const slice = vals.slice(-n);
+  return slice.reduce((a, b) => a + b, 0) / slice.length;
+}
 
-  const hrvMean7d = meanMapLastN(hrvMeans, 7, end);
-  const restingHrMean7d = meanMapLastN(analysis.restingHrByDate || {}, 7, end);
-  const stepsMean7d = meanMapLastN(analysis.stepsByDate || {}, 7, end);
-  const sleepMean7d = meanMapLastN(sleepTotals, 7, end);
-  const ws = analysis.watchStats;
-  const wos = analysis.workoutStats;
+function workoutWindowAt(
+  sessions: WorkoutSession[] | undefined,
+  endDate: string,
+  windowDays: number
+): { count: number; duration: number } {
+  if (!sessions?.length) return { count: 0, duration: 0 };
+  const list = sessions.filter(
+    (s) => s.date <= endDate && daysBetween(s.date, endDate) <= windowDays - 1
+  );
+  return {
+    count: list.length,
+    duration: list.reduce((a, s) => a + (s.durationMin || 0), 0),
+  };
+}
 
-  const nightHrMean7d = ws?.nightHrMean7d ?? null;
-  const exerciseMinMean7d = ws?.exerciseMinMean7d ?? null;
-  const standHoursMean7d = ws?.standHoursMean7d ?? null;
-  const daylightMinMean7d = ws?.daylightMinMean7d ?? null;
-  const spo2NightMean7d = ws?.spo2NightMean7d ?? null;
-  const workoutCount7d = wos?.count7d ?? 0;
-  const workoutDuration7d = wos?.durationSum7d ?? 0;
-
-  // 启发式评分（可缺省维度）
-  let recoveryParts: number[] = [];
-  if (hrvMean7d != null) {
+/** 恢复/负荷启发式评分（共享，避免单周与多周漂移） */
+function scoreRecoveryLoad(input: {
+  hrvMean7d: number | null;
+  sleepMean7d: number | null;
+  nightHrMean7d: number | null;
+  restingHrMean7d: number | null;
+  spo2NightMean7d: number | null;
+  exerciseMinMean7d: number | null;
+  workoutDuration7d: number;
+  stepsMean7d: number | null;
+}): {
+  recoveryScore: number | null;
+  loadScore: number | null;
+  statusLabel: string;
+  statusTone: RecoveryWeekStats['statusTone'];
+} {
+  const recoveryParts: number[] = [];
+  if (input.hrvMean7d != null) {
     // 约 20–60 ms 映射到 30–90
-    recoveryParts.push(Math.max(0, Math.min(100, ((hrvMean7d - 15) / 45) * 100)));
+    recoveryParts.push(Math.max(0, Math.min(100, ((input.hrvMean7d - 15) / 45) * 100)));
   }
-  if (sleepMean7d != null) {
-    recoveryParts.push(Math.max(0, Math.min(100, (sleepMean7d / 8) * 100)));
+  if (input.sleepMean7d != null) {
+    recoveryParts.push(Math.max(0, Math.min(100, (input.sleepMean7d / 8) * 100)));
   }
-  if (nightHrMean7d != null && restingHrMean7d != null) {
-    const delta = nightHrMean7d - restingHrMean7d;
+  if (input.nightHrMean7d != null && input.restingHrMean7d != null) {
+    const delta = input.nightHrMean7d - input.restingHrMean7d;
     recoveryParts.push(Math.max(0, Math.min(100, 80 - delta * 4)));
-  } else if (nightHrMean7d != null) {
-    recoveryParts.push(Math.max(0, Math.min(100, 100 - (nightHrMean7d - 50) * 1.5)));
+  } else if (input.nightHrMean7d != null) {
+    recoveryParts.push(Math.max(0, Math.min(100, 100 - (input.nightHrMean7d - 50) * 1.5)));
   }
-  if (spo2NightMean7d != null) {
-    recoveryParts.push(Math.max(0, Math.min(100, (spo2NightMean7d - 90) * 10)));
+  if (input.spo2NightMean7d != null) {
+    recoveryParts.push(Math.max(0, Math.min(100, (input.spo2NightMean7d - 90) * 10)));
   }
 
-  let loadParts: number[] = [];
-  if (exerciseMinMean7d != null) {
-    loadParts.push(Math.max(0, Math.min(100, (exerciseMinMean7d / 45) * 100)));
+  const loadParts: number[] = [];
+  if (input.exerciseMinMean7d != null) {
+    loadParts.push(Math.max(0, Math.min(100, (input.exerciseMinMean7d / 45) * 100)));
   }
-  if (workoutDuration7d > 0) {
-    loadParts.push(Math.max(0, Math.min(100, (workoutDuration7d / 150) * 100)));
+  if (input.workoutDuration7d > 0) {
+    loadParts.push(Math.max(0, Math.min(100, (input.workoutDuration7d / 150) * 100)));
   }
-  if (stepsMean7d != null) {
-    loadParts.push(Math.max(0, Math.min(100, (stepsMean7d / 10000) * 100)));
+  if (input.stepsMean7d != null) {
+    loadParts.push(Math.max(0, Math.min(100, (input.stepsMean7d / 10000) * 100)));
   }
 
   const avg = (arr: number[]) =>
     arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
-  const recoveryScore = avg(recoveryParts);
-  const loadScore = avg(loadParts);
+  const recoveryScoreRaw = avg(recoveryParts);
+  const loadScoreRaw = avg(loadParts);
+  const recoveryScore = recoveryScoreRaw != null ? Math.round(recoveryScoreRaw) : null;
+  const loadScore = loadScoreRaw != null ? Math.round(loadScoreRaw) : null;
 
   let statusLabel = '数据不足，暂不评估';
   let statusTone: RecoveryWeekStats['statusTone'] = 'neutral';
@@ -569,6 +684,63 @@ export function calcRecoveryWeek(
     }
   }
 
+  return { recoveryScore, loadScore, statusLabel, statusTone };
+}
+
+export type RecoveryAnalysisPartial = {
+  dateRange: { start: string; end: string };
+  hrvByDate: Record<string, HrvDaySummary>;
+  restingHrByDate: Record<string, number>;
+  stepsByDate: Record<string, number>;
+  sleepByDate: Record<string, { total: number }>;
+  watchStats: WatchStats | null;
+  workoutStats: WorkoutStats | null;
+};
+
+/** 以指定 weekEnd 计算近 7 日负荷/恢复（内部共用） */
+function buildRecoveryWeekAt(
+  analysis: RecoveryAnalysisPartial,
+  weekEnd: string
+): RecoveryWeekStats | null {
+  if (!weekEnd) return null;
+
+  const hrvMeans: Record<string, number> = {};
+  for (const [d, h] of Object.entries(analysis.hrvByDate || {})) {
+    if (h && Number.isFinite(h.allMean)) hrvMeans[d] = h.allMean;
+  }
+  const sleepTotals: Record<string, number> = {};
+  for (const [d, s] of Object.entries(analysis.sleepByDate || {})) {
+    if (s && Number.isFinite(s.total)) sleepTotals[d] = s.total;
+  }
+
+  const days = analysis.watchStats?.days;
+  const sessions = analysis.workoutStats?.sessions;
+
+  const hrvMean7d = meanMapLastN(hrvMeans, 7, weekEnd);
+  const restingHrMean7d = meanMapLastN(analysis.restingHrByDate || {}, 7, weekEnd);
+  const stepsMean7d = meanMapLastN(analysis.stepsByDate || {}, 7, weekEnd);
+  const sleepMean7d = meanMapLastN(sleepTotals, 7, weekEnd);
+
+  const nightHrMean7d = meanWatchSeriesLastN(days, (d) => d.nightHrMean, 7, weekEnd);
+  const exerciseMinMean7d = meanWatchSeriesLastN(days, (d) => d.exerciseMin, 7, weekEnd);
+  const standHoursMean7d = meanWatchSeriesLastN(
+    days,
+    (d) => (d.standHoursStood > 0 || d.standHoursIdle > 0 ? d.standHoursStood : null),
+    7,
+    weekEnd
+  );
+  const daylightMinMean7d = meanWatchSeriesLastN(
+    days,
+    (d) => (d.daylightMin > 0 ? d.daylightMin : null),
+    7,
+    weekEnd
+  );
+  const spo2NightMean7d = meanWatchSeriesLastN(days, (d) => d.spo2NightMean, 7, weekEnd);
+
+  const w7 = workoutWindowAt(sessions, weekEnd, 7);
+  const workoutCount7d = w7.count;
+  const workoutDuration7d = w7.duration;
+
   // 至少有一个维度才返回
   if (
     hrvMean7d == null &&
@@ -580,8 +752,19 @@ export function calcRecoveryWeek(
     return null;
   }
 
+  const scored = scoreRecoveryLoad({
+    hrvMean7d,
+    sleepMean7d,
+    nightHrMean7d,
+    restingHrMean7d,
+    spo2NightMean7d,
+    exerciseMinMean7d,
+    workoutDuration7d,
+    stepsMean7d,
+  });
+
   return {
-    weekEnd: end,
+    weekEnd,
     hrvMean7d,
     nightHrMean7d,
     restingHrMean7d,
@@ -593,11 +776,57 @@ export function calcRecoveryWeek(
     standHoursMean7d,
     daylightMinMean7d,
     spo2NightMean7d,
-    recoveryScore: recoveryScore != null ? Math.round(recoveryScore) : null,
-    loadScore: loadScore != null ? Math.round(loadScore) : null,
-    statusLabel,
-    statusTone,
+    recoveryScore: scored.recoveryScore,
+    loadScore: scored.loadScore,
+    statusLabel: scored.statusLabel,
+    statusTone: scored.statusTone,
   };
+}
+
+function toRecoveryWeekPoint(full: RecoveryWeekStats): RecoveryWeekPoint {
+  return {
+    weekEnd: full.weekEnd,
+    recoveryScore: full.recoveryScore,
+    loadScore: full.loadScore,
+    hrvMean7d: full.hrvMean7d,
+    nightHrMean7d: full.nightHrMean7d,
+    exerciseMinMean7d: full.exerciseMinMean7d,
+    sleepMean7d: full.sleepMean7d,
+    workoutCount7d: full.workoutCount7d,
+    statusLabel: full.statusLabel,
+    statusTone: full.statusTone,
+  };
+}
+
+/** 近 7 日负荷 / 恢复仪表（最新一周，截止 dateRange.end） */
+export function calcRecoveryWeek(analysis: RecoveryAnalysisPartial): RecoveryWeekStats | null {
+  const end = analysis.dateRange?.end;
+  if (!end) return null;
+  return buildRecoveryWeekAt(analysis, end);
+}
+
+/**
+ * 多周恢复/负荷序列：以 dateRange.end 为最后一周结束日，向前每 7 天一步。
+ * 默认 12 周；只保留有足够维度的周；顺序最旧→最新。
+ */
+export function calcRecoveryWeeks(
+  analysis: RecoveryAnalysisPartial,
+  options?: { weeks?: number }
+): RecoveryWeekPoint[] | null {
+  const end = analysis.dateRange?.end;
+  if (!end) return null;
+  const n = Math.max(1, Math.min(52, Math.floor(options?.weeks ?? 12)));
+  const start = analysis.dateRange?.start || '';
+  const points: RecoveryWeekPoint[] = [];
+
+  for (let i = n - 1; i >= 0; i--) {
+    const weekEnd = addDaysIso(end, -i * 7);
+    if (start && weekEnd < start) continue;
+    const full = buildRecoveryWeekAt(analysis, weekEnd);
+    if (full) points.push(toRecoveryWeekPoint(full));
+  }
+
+  return points.length ? points : null;
 }
 
 /** 完整分析入口 */
@@ -638,6 +867,9 @@ export function analyzeAll(data: HealthData): FullAnalysis {
     workoutStats,
   };
 
+  const recoveryWeek = calcRecoveryWeek(partial);
+  const recoveryWeeks = calcRecoveryWeeks(partial, { weeks: 12 });
+
   return {
     data,
     cgmStats: calcCgmStats(data.cgm),
@@ -645,8 +877,9 @@ export function analyzeAll(data: HealthData): FullAnalysis {
     weightStats: calcWeightStats(data.weight),
     watchStats,
     workoutStats,
-    ecgStats: calcEcgStats(data.ecg),
-    recoveryWeek: calcRecoveryWeek(partial),
+    ecgStats: calcEcgStats(data.ecg, data.workouts),
+    recoveryWeek,
+    recoveryWeeks,
     hrvByDate,
     restingHrByDate: data.restingHr,
     walkingHrByDate: data.walkingHr,

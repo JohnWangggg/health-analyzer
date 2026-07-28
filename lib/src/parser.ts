@@ -191,6 +191,7 @@ export function createEmptyData(referenceDate?: string): HealthData {
       hasVo2Max: false,
       hasWatchActivity: false,
       hasWristTemp: false,
+      hasBreathingDisturbance: false,
       hasWorkouts: false,
     },
     dataQuality: {
@@ -429,6 +430,7 @@ export function processRecord(
     if (!Number.isFinite(numericValue)) return;
     const w = ensureWatchDay(data, date);
     w.breathingDisturbance = numericValue;
+    data.dataAvailability.hasBreathingDisturbance = true;
   } else if (rec.type === 'HKQuantityTypeIdentifierHeartRate') {
     // 仅累加夜间 00:00–06:00，控制内存
     if (!Number.isFinite(numericValue) || numericValue < 30 || numericValue > 220) return;
