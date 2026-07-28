@@ -1,10 +1,12 @@
 /**
- * 导出 JSON / CSV（纯文本，无副作用）
+ * 导出 JSON / CSV / 周报 Markdown（纯文本，无副作用）
  */
 
 import { FullAnalysis } from './types';
 import { buildAnalysisSnapshot, AnalysisSnapshot } from './snapshot';
 import { detectCrossSignals, CrossSignal } from './signals';
+
+export { generateWeeklyReportMarkdown } from './weekly-report';
 
 function csvEscape(value: unknown): string {
   if (value == null) return '';

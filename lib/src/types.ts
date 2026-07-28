@@ -172,6 +172,16 @@ export interface EcgStats {
   highHrRestingWindowCount: number;
   /** 最近若干次高心率 ECG 的 datetime（时间升序，最多 5 条） */
   recentHighHr: string[];
+  /**
+   * 高心率 ECG 落在低活动日的份数：
+   * 当日步数 < 3000，且（若有）锻炼分钟 < 10
+   */
+  highHrOnLowActivityCount: number;
+  /**
+   * 高心率 ECG 落在高活动日/训练邻域的份数：
+   * 步数 ≥ 8000，或锻炼分钟 ≥ 20，或 Workout ±2h
+   */
+  highHrOnHighActivityCount: number;
 }
 
 export interface DataAvailability {
@@ -389,6 +399,16 @@ export interface RecoveryWeekStats {
   /** 人话一句话状态 */
   statusLabel: string;
   statusTone: 'positive' | 'neutral' | 'watch' | 'alert';
+  /**
+   * 个人基线：此前多周（不含本周）恢复分中位数。
+   * 至少 4 个有效周样本时才有值，否则 null。
+   */
+  baselineRecoveryMedian: number | null;
+  /**
+   * 本周恢复分相对基线中位的差值（本周 − 中位）。
+   * 无基线或本周无恢复分时为 null。
+   */
+  vsBaselineDelta: number | null;
 }
 
 /**

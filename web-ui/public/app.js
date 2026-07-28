@@ -1359,6 +1359,27 @@
     }
   }
 
+  function exportWeeklyReport() {
+    try {
+      if (!currentAnalysis) throw new Error('请先完成分析');
+      if (
+        !window.HealthAnalyzer ||
+        typeof window.HealthAnalyzer.generateWeeklyReportMarkdown !== 'function'
+      ) {
+        throw new Error('周报导出功能未加载，请刷新页面后重试');
+      }
+      const ctx = typeof getUserContextFromForm === 'function' ? getUserContextFromForm() : null;
+      const md = window.HealthAnalyzer.generateWeeklyReportMarkdown(currentAnalysis, ctx);
+      const end =
+        (currentAnalysis.dateRange && currentAnalysis.dateRange.end) ||
+        new Date().toISOString().slice(0, 10);
+      downloadText(`weekly-report-${end}.md`, md, 'text/markdown');
+      showExportStatus('✓ 本周报告已下载');
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  }
+
   async function refreshHistorySelect() {
     const select = $('history-select');
     if (!select || !window.HealthHistory) return;
@@ -2092,6 +2113,9 @@
       const nearW = es.highHrNearWorkoutCount ?? 0;
       const restW = es.highHrRestingWindowCount ?? 0;
       const otherHr = Math.max(0, (es.highHrCount || 0) - nearW);
+      const lowAct = es.highHrOnLowActivityCount;
+      const highAct = es.highHrOnHighActivityCount;
+      const showActCorr = lowAct != null || highAct != null;
       const topHourRows = (es.highHrByHour || [])
         .map((c, h) => ({ h, c }))
         .filter((x) => x.c > 0)
@@ -2103,7 +2127,11 @@
         es.highHrCount > 0
           ? `<tr><td>高心率·训练±2h</td><td class="num">${nearW}</td></tr>
             <tr><td>高心率·非运动窗</td><td class="num">${restW}</td></tr>
-            <tr><td>高心率·其他（非训练邻域粗算）</td><td class="num">${otherHr}</td></tr>`
+            <tr><td>高心率·其他（非训练邻域粗算）</td><td class="num">${otherHr}</td></tr>` +
+            (showActCorr
+              ? `<tr><td>高心率·低活动日</td><td class="num">${lowAct ?? 0}</td></tr>
+            <tr><td>高心率·高活动/训练邻域日</td><td class="num">${highAct ?? 0}</td></tr>`
+              : '')
           : '';
       const topHoursBlock = topHourRows
         ? `<table class="summary-table" style="margin-top:8px;">
@@ -2133,7 +2161,7 @@
               ${recentList}
             </table>
           </details>
-          <p class="hint" style="margin-top:8px;">高心率「训练±2h」相对 Workout 开始时间；「非运动窗」= 22–08 或附近无训练。请优先上传完整 ZIP 或含 electrocardiograms/ 的文件夹以收录 ECG。</p>
+          <p class="hint" style="margin-top:8px;">高心率「训练±2h」相对 Workout 开始时间；「非运动窗」= 22–08 或附近无训练；「低活动日」≈ 步数&lt;3000 且锻炼很少，「高活动」≈ 步数≥8000 / 锻炼≥20min / 训练邻域。请优先上传完整 ZIP 或含 electrocardiograms/ 的文件夹以收录 ECG。</p>
         </div>
       `);
     } else if (data.ecg && data.ecg.length > 0) {
@@ -2305,6 +2333,7 @@
   $('btn-export-json')?.addEventListener('click', exportJson);
   $('btn-export-csv')?.addEventListener('click', exportCsvBundle);
   $('btn-export-snapshot')?.addEventListener('click', exportSnapshot);
+  $('btn-export-weekly')?.addEventListener('click', exportWeeklyReport);
   $('btn-history-save')?.addEventListener('click', () => { saveCurrentToHistory(); });
   $('btn-history-refresh')?.addEventListener('click', () => { refreshHistorySelect(); });
   $('btn-history-clear')?.addEventListener('click', async () => {

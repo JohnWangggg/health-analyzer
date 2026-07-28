@@ -73,6 +73,7 @@ export {
 export {
   buildExportBundle,
   joinCsvBundle,
+  generateWeeklyReportMarkdown,
 } from './export';
 
 export {

@@ -574,6 +574,21 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
     sections.push(`|---|---|`);
     if (rw.recoveryScore != null) sections.push(`| 恢复分 | ${rw.recoveryScore} / 100 |`);
     if (rw.loadScore != null) sections.push(`| 负荷分 | ${rw.loadScore} / 100 |`);
+    if (rw.baselineRecoveryMedian != null) {
+      sections.push(`| 近几周恢复分中位（个人基线） | ${rw.baselineRecoveryMedian} |`);
+    }
+    if (rw.vsBaselineDelta != null) {
+      const sign = rw.vsBaselineDelta > 0 ? '+' : '';
+      sections.push(
+        `| 相对基线 | ${sign}${rw.vsBaselineDelta}` +
+          (Math.abs(rw.vsBaselineDelta) >= 8
+            ? rw.vsBaselineDelta > 0
+              ? '（高于近几周中位）'
+              : '（低于近几周中位）'
+            : '') +
+          ` |`
+      );
+    }
     if (rw.hrvMean7d != null) sections.push(`| HRV 日均 | ${rw.hrvMean7d.toFixed(1)} ms |`);
     if (rw.nightHrMean7d != null) sections.push(`| 夜间心率 | ${rw.nightHrMean7d.toFixed(0)} bpm |`);
     if (rw.restingHrMean7d != null) sections.push(`| 静息心率 | ${rw.restingHrMean7d.toFixed(0)} bpm |`);
@@ -630,6 +645,13 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
         `高心率关联：训练±2h ${near}/${hh}（${nearPct}%）· 非运动窗 ${rest}/${hh}` +
           (hourBits.length ? `；小时分布 ${hourBits.join('、')}` : '')
       );
+      const lowAct = ecgStats.highHrOnLowActivityCount ?? 0;
+      const highAct = ecgStats.highHrOnHighActivityCount ?? 0;
+      if (lowAct > 0 || highAct > 0) {
+        sections.push(
+          `高心率×活动日：低活动日 ${lowAct} 份 · 高活动/训练邻域 ${highAct} 份（低活动≈步数<3000 且锻炼少）`
+        );
+      }
       if (ecgStats.recentHighHr && ecgStats.recentHighHr.length) {
         sections.push(
           `最近高心率时刻：${ecgStats.recentHighHr.map((d) => String(d).slice(0, 16)).join(' · ')}`

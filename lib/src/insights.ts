@@ -251,6 +251,40 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
           `（共 ${wsWatch.breathingDisturbanceDayCount} 天有数据）。数值来自 Apple Watch 睡眠呼吸扰动估算，越高表示扰动相对越多；仅供自身趋势观察，不能诊断睡眠呼吸暂停。`,
         anchor: 'summary-watch',
       });
+      // 可选：紊乱 + 夜段血氧同向偏倚时补一条联合提示
+      const nightMeanLow =
+        wsWatch.spo2NightMean7d != null && wsWatch.spo2NightMean7d < 95;
+      const nightMinLow =
+        wsWatch.spo2NightMin7d != null && wsWatch.spo2NightMin7d < 92;
+      if (nightMeanLow || nightMinLow) {
+        const bdDays = (wsWatch.days || [])
+          .map((d) => d.breathingDisturbance)
+          .filter((v): v is number => v != null && Number.isFinite(v));
+        const allBdMean =
+          bdDays.length > 0
+            ? bdDays.reduce((a, b) => a + b, 0) / bdDays.length
+            : null;
+        const bdElevated =
+          allBdMean != null &&
+          allBdMean > 0 &&
+          wsWatch.breathingDisturbanceMean7d >= allBdMean * 1.15;
+        if (bdElevated || nightMinLow) {
+          bullets.push({
+            tone: 'watch',
+            title: '呼吸紊乱与夜段血氧',
+            detail:
+              `近 7 日呼吸紊乱均约 ${wsWatch.breathingDisturbanceMean7d.toFixed(2)}` +
+              (wsWatch.spo2NightMean7d != null
+                ? `，夜段 SpO₂ 均约 ${wsWatch.spo2NightMean7d.toFixed(1)}%`
+                : '') +
+              (wsWatch.spo2NightMin7d != null
+                ? `（最低约 ${wsWatch.spo2NightMin7d.toFixed(1)}%）`
+                : '') +
+              '。二者同向时更宜对照睡眠质量与白天精神；仍为腕表趋势，非诊断。',
+            anchor: 'summary-watch',
+          });
+        }
+      }
     }
   }
 

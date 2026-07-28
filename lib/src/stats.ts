@@ -445,6 +445,10 @@ export function calcWorkoutStats(
 
 const ECG_NEAR_WORKOUT_MS = 2 * 3600 * 1000;
 const ECG_RECENT_HIGH_HR = 5;
+const ECG_LOW_STEPS = 3000;
+const ECG_LOW_EXERCISE_MIN = 10;
+const ECG_HIGH_STEPS = 8000;
+const ECG_HIGH_EXERCISE_MIN = 20;
 
 function isHighHrClassification(c: string): boolean {
   return /高心率|High Heart/i.test(c);
@@ -455,20 +459,36 @@ function isNightOrEarlyHour(hour: number): boolean {
   return hour >= 22 || hour <= 8;
 }
 
+/** 高心率 ECG 与当日活动关联时的可选上下文 */
+export interface EcgActivityContext {
+  stepsByDate?: Record<string, number>;
+  /** Watch 日汇总（取 exerciseMin）；也接受已算好的日视图 */
+  watchDaily?: Record<string, { exerciseMin?: number } | undefined>;
+}
+
 /**
- * 高心率 ECG 与时段 / Workout 关联（±2h 训练窗；22–08 或无附近训练 → 非运动窗）
+ * 高心率 ECG 与时段 / Workout / 同日活动关联
+ * （±2h 训练窗；22–08 或无附近训练 → 非运动窗；步数/锻炼分钟 → 低/高活动日）
  * 可单独测试；calcEcgStats / analyzeAll 会合并进 EcgStats。
  */
 export function enrichEcgWithContext(
   ecg: ERecordSummary[] | undefined,
-  workouts?: WorkoutSession[] | undefined
+  workouts?: WorkoutSession[] | undefined,
+  activity?: EcgActivityContext
 ): Pick<
   EcgStats,
-  'highHrByHour' | 'highHrNearWorkoutCount' | 'highHrRestingWindowCount' | 'recentHighHr'
+  | 'highHrByHour'
+  | 'highHrNearWorkoutCount'
+  | 'highHrRestingWindowCount'
+  | 'recentHighHr'
+  | 'highHrOnLowActivityCount'
+  | 'highHrOnHighActivityCount'
 > {
   const highHrByHour = Array.from({ length: 24 }, () => 0);
   let highHrNearWorkoutCount = 0;
   let highHrRestingWindowCount = 0;
+  let highHrOnLowActivityCount = 0;
+  let highHrOnHighActivityCount = 0;
   const highHrDatetimes: string[] = [];
 
   if (!ecg || !ecg.length) {
@@ -477,6 +497,8 @@ export function enrichEcgWithContext(
       highHrNearWorkoutCount,
       highHrRestingWindowCount,
       recentHighHr: [],
+      highHrOnLowActivityCount,
+      highHrOnHighActivityCount,
     };
   }
 
@@ -496,6 +518,9 @@ export function enrichEcgWithContext(
     return false;
   };
 
+  const stepsByDate = activity?.stepsByDate || {};
+  const watchDaily = activity?.watchDaily || {};
+
   const highHrs = ecg
     .filter((e) => isHighHrClassification(e.classification || ''))
     .sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
@@ -512,6 +537,30 @@ export function enrichEcgWithContext(
     if (isNightOrEarlyHour(hour) || !near) {
       highHrRestingWindowCount += 1;
     }
+
+    const day = getDate(e.datetime);
+    const stepsRaw = stepsByDate[day];
+    const steps =
+      stepsRaw != null && Number.isFinite(stepsRaw) ? (stepsRaw as number) : null;
+    const exRaw = watchDaily[day]?.exerciseMin;
+    const exerciseMin =
+      exRaw != null && Number.isFinite(exRaw) ? (exRaw as number) : null;
+
+    // 低活动：步数 < 3000，且若有锻炼分钟则 < 10
+    if (steps != null && steps < ECG_LOW_STEPS) {
+      if (exerciseMin == null || exerciseMin < ECG_LOW_EXERCISE_MIN) {
+        highHrOnLowActivityCount += 1;
+      }
+    }
+    // 高活动：步数 ≥ 8000，或锻炼 ≥ 20，或训练 ±2h
+    if (
+      near ||
+      (steps != null && steps >= ECG_HIGH_STEPS) ||
+      (exerciseMin != null && exerciseMin >= ECG_HIGH_EXERCISE_MIN)
+    ) {
+      highHrOnHighActivityCount += 1;
+    }
+
     highHrDatetimes.push(e.datetime);
   }
 
@@ -520,13 +569,16 @@ export function enrichEcgWithContext(
     highHrNearWorkoutCount,
     highHrRestingWindowCount,
     recentHighHr: highHrDatetimes.slice(-ECG_RECENT_HIGH_HR),
+    highHrOnLowActivityCount,
+    highHrOnHighActivityCount,
   };
 }
 
-/** ECG 分类汇总；可选 workouts 用于高心率时段/训练关联 */
+/** ECG 分类汇总；可选 workouts / 活动日数据用于高心率关联 */
 export function calcEcgStats(
   ecg: ERecordSummary[] | undefined,
-  workouts?: WorkoutSession[] | undefined
+  workouts?: WorkoutSession[] | undefined,
+  activity?: EcgActivityContext
 ): EcgStats | null {
   if (!ecg || !ecg.length) return null;
   const sorted = [...ecg].sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
@@ -546,7 +598,7 @@ export function calcEcgStats(
   const byClassification = [...counts.entries()]
     .map(([classification, count]) => ({ classification, count }))
     .sort((a, b) => b.count - a.count);
-  const ctx = enrichEcgWithContext(sorted, workouts);
+  const ctx = enrichEcgWithContext(sorted, workouts, activity);
   return {
     count: sorted.length,
     byClassification,
@@ -609,6 +661,52 @@ function workoutWindowAt(
   };
 }
 
+/** 数值中位数；空数组返回 null */
+function medianNumber(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[mid];
+  return (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * 用多周历史给最新一周贴上个人恢复基线（轻量、非诊断）。
+ * 需要此前 ≥4 周有效 recoveryScore；|delta|≥8 时在 statusLabel 中提示。
+ */
+export function attachRecoveryBaseline(
+  week: RecoveryWeekStats,
+  recoveryWeeks: RecoveryWeekPoint[] | null | undefined
+): RecoveryWeekStats {
+  const priorScores = (recoveryWeeks || [])
+    .filter((p) => p.weekEnd !== week.weekEnd)
+    .map((p) => p.recoveryScore)
+    .filter((s): s is number => s != null && Number.isFinite(s));
+
+  let baselineRecoveryMedian: number | null = null;
+  let vsBaselineDelta: number | null = null;
+  let statusLabel = week.statusLabel;
+
+  if (week.recoveryScore != null && priorScores.length >= 4) {
+    const med = medianNumber(priorScores);
+    if (med != null) {
+      baselineRecoveryMedian = Math.round(med);
+      vsBaselineDelta = week.recoveryScore - baselineRecoveryMedian;
+      if (Math.abs(vsBaselineDelta) >= 8) {
+        const dir = vsBaselineDelta > 0 ? '高于' : '低于';
+        statusLabel = `${statusLabel}（${dir}近几周中位约 ${Math.abs(vsBaselineDelta)} 分）`;
+      }
+    }
+  }
+
+  return {
+    ...week,
+    baselineRecoveryMedian,
+    vsBaselineDelta,
+    statusLabel,
+  };
+}
+
 /** 恢复/负荷启发式评分（共享，避免单周与多周漂移） */
 function scoreRecoveryLoad(input: {
   hrvMean7d: number | null;
@@ -619,6 +717,8 @@ function scoreRecoveryLoad(input: {
   exerciseMinMean7d: number | null;
   workoutDuration7d: number;
   stepsMean7d: number | null;
+  /** 可选：此前多周恢复分中位（由 attachRecoveryBaseline 统一写入，此处仅预留） */
+  baselineRecoveryMedian?: number | null;
 }): {
   recoveryScore: number | null;
   loadScore: number | null;
@@ -681,6 +781,16 @@ function scoreRecoveryLoad(input: {
     } else {
       statusLabel = '负荷与恢复大致平衡';
       statusTone = 'neutral';
+    }
+  }
+
+  // 可选：评分时若已有基线中位，|delta|≥8 则附加说明（主路径仍由 attachRecoveryBaseline 负责）
+  const base = input.baselineRecoveryMedian;
+  if (recoveryScore != null && base != null && Number.isFinite(base)) {
+    const delta = recoveryScore - base;
+    if (Math.abs(delta) >= 8) {
+      const dir = delta > 0 ? '高于' : '低于';
+      statusLabel = `${statusLabel}（${dir}近几周中位约 ${Math.abs(delta)} 分）`;
     }
   }
 
@@ -780,6 +890,8 @@ function buildRecoveryWeekAt(
     loadScore: scored.loadScore,
     statusLabel: scored.statusLabel,
     statusTone: scored.statusTone,
+    baselineRecoveryMedian: null,
+    vsBaselineDelta: null,
   };
 }
 
@@ -798,11 +910,25 @@ function toRecoveryWeekPoint(full: RecoveryWeekStats): RecoveryWeekPoint {
   };
 }
 
-/** 近 7 日负荷 / 恢复仪表（最新一周，截止 dateRange.end） */
-export function calcRecoveryWeek(analysis: RecoveryAnalysisPartial): RecoveryWeekStats | null {
+/**
+ * 近 7 日负荷 / 恢复仪表（最新一周，截止 dateRange.end）。
+ * 默认用多周序列计算个人基线（≥4 周先验时写入 baseline 字段）。
+ * 可传入已算好的 recoveryWeeks 避免重复计算。
+ */
+export function calcRecoveryWeek(
+  analysis: RecoveryAnalysisPartial,
+  options?: { recoveryWeeks?: RecoveryWeekPoint[] | null; skipBaseline?: boolean }
+): RecoveryWeekStats | null {
   const end = analysis.dateRange?.end;
   if (!end) return null;
-  return buildRecoveryWeekAt(analysis, end);
+  const week = buildRecoveryWeekAt(analysis, end);
+  if (!week) return null;
+  if (options?.skipBaseline) return week;
+  const weeks =
+    options?.recoveryWeeks !== undefined
+      ? options.recoveryWeeks
+      : calcRecoveryWeeks(analysis, { weeks: 12 });
+  return attachRecoveryBaseline(week, weeks);
 }
 
 /**
@@ -867,8 +993,8 @@ export function analyzeAll(data: HealthData): FullAnalysis {
     workoutStats,
   };
 
-  const recoveryWeek = calcRecoveryWeek(partial);
   const recoveryWeeks = calcRecoveryWeeks(partial, { weeks: 12 });
+  const recoveryWeek = calcRecoveryWeek(partial, { recoveryWeeks });
 
   return {
     data,
@@ -877,7 +1003,10 @@ export function analyzeAll(data: HealthData): FullAnalysis {
     weightStats: calcWeightStats(data.weight),
     watchStats,
     workoutStats,
-    ecgStats: calcEcgStats(data.ecg, data.workouts),
+    ecgStats: calcEcgStats(data.ecg, data.workouts, {
+      stepsByDate,
+      watchDaily: data.watchDaily,
+    }),
     recoveryWeek,
     recoveryWeeks,
     hrvByDate,

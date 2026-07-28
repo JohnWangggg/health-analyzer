@@ -309,6 +309,116 @@ export function detectCrossSignals(analysis: FullAnalysis): CrossSignal[] {
       }
     }
 
+    // 睡眠呼吸紊乱 × 夜段血氧：同日/近邻日与 7 日联合（启发式，非诊断）
+    {
+      const days = ws.days || [];
+      const bdVals = days
+        .map((d) => d.breathingDisturbance)
+        .filter((v): v is number => v != null && Number.isFinite(v));
+      const bdBase =
+        bdVals.length >= 3
+          ? bdVals.reduce((a, b) => a + b, 0) / bdVals.length
+          : null;
+
+      const nightSpo2Low = (d: { spo2NightMin: number | null; spo2NightMean: number | null }) =>
+        (d.spo2NightMin != null && d.spo2NightMin < 92) ||
+        (d.spo2NightMean != null && d.spo2NightMean < 94);
+
+      const bdElevated = (bd: number) => {
+        if (bdBase != null && bdBase > 0) {
+          return bd >= bdBase * 1.3 && bd - bdBase >= 0.15;
+        }
+        return bd >= 1.5;
+      };
+
+      // 同日或 ±1 天：呼吸紊乱抬升 + 夜段血氧偏低
+      const jointDays: string[] = [];
+      for (let i = 0; i < days.length; i++) {
+        const d = days[i];
+        if (d.breathingDisturbance == null || !Number.isFinite(d.breathingDisturbance)) continue;
+        if (!bdElevated(d.breathingDisturbance)) continue;
+        const neighbors = [days[i], days[i - 1], days[i + 1]].filter(Boolean);
+        const spo2Hit = neighbors.find(
+          (n) =>
+            n &&
+            (n.spo2NightMean != null || n.spo2NightMin != null) &&
+            nightSpo2Low(n)
+        );
+        if (spo2Hit) jointDays.push(d.date);
+      }
+      // 只取近 14 天内的命中，避免历史噪声淹没
+      const recentJoint = jointDays.filter((d) => d >= (days[Math.max(0, days.length - 14)]?.date || d));
+      if (recentJoint.length >= 1) {
+        const sample = recentJoint.slice(-3).join('、');
+        const lastDate = recentJoint[recentJoint.length - 1];
+        const lastDay = days.find((d) => d.date === lastDate);
+        signals.push({
+          severity: 'watch',
+          date: lastDate,
+          title: '呼吸紊乱抬升且夜段血氧偏低',
+          detail:
+            `近段有 ${recentJoint.length} 日出现睡眠呼吸紊乱相对偏高，且同日或邻日夜段 SpO₂ 偏低` +
+            (lastDay?.breathingDisturbance != null
+              ? `（例 ${lastDate} 紊乱约 ${lastDay.breathingDisturbance.toFixed(2)}`
+              : '') +
+            (lastDay?.spo2NightMin != null
+              ? `，夜段最低约 ${lastDay.spo2NightMin.toFixed(1)}%`
+              : lastDay?.spo2NightMean != null
+                ? `，夜段均约 ${lastDay.spo2NightMean.toFixed(1)}%`
+                : '') +
+            (lastDay?.breathingDisturbance != null ? '）' : '') +
+            (sample && recentJoint.length > 1 ? `；涉及 ${sample}` : '') +
+            '。腕表估算受体位、饮酒、感冒等影响；若伴打鼾、白天嗜睡或反复低值，建议记录后咨询医生，本工具不作睡眠呼吸暂停诊断。',
+          dimensions: ['睡眠呼吸紊乱', '血氧', '睡眠'],
+        });
+      }
+
+      // 7 日联合：紊乱均值相对基线抬升 + 夜段血氧阈值
+      if (
+        bdVals.length >= 4 &&
+        ws.breathingDisturbanceMean7d != null &&
+        (ws.spo2NightMean7d != null || ws.spo2NightMin7d != null)
+      ) {
+        const recentN = Math.min(7, Math.max(3, Math.floor(bdVals.length / 2)));
+        const earlierN = Math.min(bdVals.length - recentN, Math.max(3, recentN));
+        const recentMean =
+          bdVals.slice(-recentN).reduce((a, b) => a + b, 0) / recentN;
+        const earlierMean =
+          earlierN > 0
+            ? bdVals.slice(0, earlierN).reduce((a, b) => a + b, 0) / earlierN
+            : bdBase;
+        const allMean = bdBase ?? recentMean;
+        const bd7Elevated =
+          (earlierMean != null &&
+            earlierMean > 0 &&
+            recentMean >= earlierMean * 1.3 &&
+            recentMean - earlierMean >= 0.15) ||
+          (allMean > 0 &&
+            ws.breathingDisturbanceMean7d >= allMean * 1.25 &&
+            ws.breathingDisturbanceMean7d - allMean >= 0.12);
+        const spo27Low =
+          (ws.spo2NightMean7d != null && ws.spo2NightMean7d < 95) ||
+          (ws.spo2NightMin7d != null && ws.spo2NightMin7d < 92);
+        if (bd7Elevated && spo27Low) {
+          signals.push({
+            severity: 'watch',
+            title: '近 7 日呼吸紊乱偏高且夜段血氧偏低',
+            detail:
+              `近 7 日有样本呼吸紊乱均约 ${ws.breathingDisturbanceMean7d.toFixed(2)}` +
+              (earlierMean != null ? `（前段约 ${earlierMean.toFixed(2)}）` : '') +
+              (ws.spo2NightMean7d != null
+                ? `；夜段 SpO₂ 均约 ${ws.spo2NightMean7d.toFixed(1)}%`
+                : '') +
+              (ws.spo2NightMin7d != null
+                ? `，期间夜段最低约 ${ws.spo2NightMin7d.toFixed(1)}%`
+                : '') +
+              '。二者同向偏倚更值得对照睡眠与症状；仍为腕表趋势提示，不能诊断睡眠呼吸暂停，必要时就医评估。',
+            dimensions: ['睡眠呼吸紊乱', '血氧', '睡眠'],
+          });
+        }
+      }
+    }
+
     // 活动 × HRV × 夜间心率：恢复压力组合
     if (
       hrvBase != null &&
@@ -405,6 +515,21 @@ export function detectCrossSignals(analysis: FullAnalysis): CrossSignal[] {
         dimensions: ['ECG'],
       });
     }
+  }
+
+  // 低活动日仍出现高心率 ECG（同日步数/锻炼启发式）
+  if (es && (es.highHrOnLowActivityCount ?? 0) >= 2) {
+    const low = es.highHrOnLowActivityCount;
+    const high = es.highHrOnHighActivityCount ?? 0;
+    signals.push({
+      severity: 'watch',
+      title: '低活动日仍出现高心率 ECG',
+      detail:
+        `约 ${low} 份高心率 ECG 落在步数偏低（<3000）且锻炼很少的日子` +
+        (high > 0 ? `；另有约 ${high} 份落在高活动/训练邻域日` : '') +
+        '。低活动日仍反复高心率更值得对照症状与复测情境；运动相关测量常见，不能据此自行诊断心律失常。',
+      dimensions: ['ECG', '步数', 'Watch活动'],
+    });
   }
 
   // Workout：大负荷次日 HRV 明显偏低
