@@ -169,6 +169,42 @@ export function buildExportBundle(analysis: FullAnalysis): ExportBundle {
     });
   }
 
+  if (analysis.watchStats?.days?.length) {
+    csvFiles.push({
+      filename: 'watch_daily.csv',
+      content: toCsv(
+        [
+          'date',
+          'active_kcal',
+          'exercise_min',
+          'stand_min',
+          'daylight_min',
+          'spo2_mean',
+          'spo2_min',
+          'rr_mean',
+          'night_hr_mean',
+          'vo2_max',
+          'wrist_temp_mean',
+          'breathing_disturbance',
+        ],
+        analysis.watchStats.days.map((d) => [
+          d.date,
+          d.activeKcal || '',
+          d.exerciseMin || '',
+          d.standMin || '',
+          d.daylightMin || '',
+          d.spo2Mean ?? '',
+          d.spo2Min ?? '',
+          d.rrMean ?? '',
+          d.nightHrMean ?? '',
+          d.vo2Max ?? '',
+          d.wristTempMean ?? '',
+          d.breathingDisturbance ?? '',
+        ])
+      ),
+    });
+  }
+
   if (signals.length) {
     csvFiles.push({
       filename: 'cross_signals.csv',
@@ -194,6 +230,24 @@ export function buildExportBundle(analysis: FullAnalysis): ExportBundle {
             lowest: analysis.bpStats.lowest,
             highest: analysis.bpStats.highest,
             records: analysis.bpStats.records,
+          }
+        : null,
+      watchStats: analysis.watchStats
+        ? {
+            dayCount: analysis.watchStats.dayCount,
+            spo2DayCount: analysis.watchStats.spo2DayCount,
+            vo2DayCount: analysis.watchStats.vo2DayCount,
+            activeKcalMean7d: analysis.watchStats.activeKcalMean7d,
+            exerciseMinMean7d: analysis.watchStats.exerciseMinMean7d,
+            spo2Mean7d: analysis.watchStats.spo2Mean7d,
+            spo2Min7d: analysis.watchStats.spo2Min7d,
+            rrMean7d: analysis.watchStats.rrMean7d,
+            nightHrMean7d: analysis.watchStats.nightHrMean7d,
+            vo2Latest: analysis.watchStats.vo2Latest,
+            vo2Earliest: analysis.watchStats.vo2Earliest,
+            vo2Delta: analysis.watchStats.vo2Delta,
+            wristTempMean7d: analysis.watchStats.wristTempMean7d,
+            days: analysis.watchStats.days,
           }
         : null,
       hrvByDate: analysis.hrvByDate,

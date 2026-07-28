@@ -830,6 +830,7 @@
       'summary-cgm': { section: 'step-summary', panel: 'cgm', chart: 'cgm' },
       'summary-bp': { section: 'step-summary', panel: 'bp', chart: 'bp' },
       'summary-hrv': { section: 'step-summary', panel: 'hrv', chart: 'hrv' },
+      'summary-watch': { section: 'step-summary', panel: 'watch', chart: 'spo2' },
       signals: { section: 'step-signals' },
       charts: { section: 'step-charts' },
       'charts-weight': { section: 'step-charts', chart: 'weight' },
@@ -837,6 +838,8 @@
       'charts-bp': { section: 'step-charts', chart: 'bp' },
       'charts-hrv': { section: 'step-charts', chart: 'hrv' },
       'charts-bodyfat': { section: 'step-charts', chart: 'bodyfat' },
+      'charts-spo2': { section: 'step-charts', chart: 'spo2' },
+      'charts-exercise': { section: 'step-charts', chart: 'exercise' },
       prompt: { section: 'step-prompt' },
     };
     const target = map[anchor] || map.summary;
@@ -925,6 +928,7 @@
     if (/血压/.test(t)) return 'bp';
     if (/体重|体脂/.test(t)) return 'weight';
     if (/HRV|心率变异/.test(t)) return 'hrv';
+    if (/Watch|血氧|VO₂|VO2|腕温|锻炼|活动/.test(t)) return 'watch';
     if (/静息|步行心率|心率/.test(t)) return 'hr';
     if (/步数/.test(t)) return 'steps';
     if (/睡眠/.test(t)) return 'sleep';
@@ -956,6 +960,7 @@
       if (a.includes('weight') || a.includes('bodyfat')) return 'weight';
       if (a.includes('bp') || a.includes('血压')) return 'bp';
       if (a.includes('hrv')) return 'hrv';
+      if (a.includes('watch') || a.includes('spo2') || a.includes('exercise')) return 'spo2';
       return '';
     };
 
@@ -969,6 +974,7 @@
         chartKey === 'weight' ? !!(analysis.weightStats || (analysis.data && analysis.data.weight && analysis.data.weight.length)) :
         chartKey === 'bp' ? !!(analysis.bpStats) :
         chartKey === 'hrv' ? !!(analysis.hrvByDate && Object.keys(analysis.hrvByDate).length) :
+        chartKey === 'spo2' || chartKey === 'exercise' ? !!(analysis.watchStats && analysis.watchStats.dayCount) :
         false;
       const actions = `
         <span class="insight-actions">
@@ -1081,6 +1087,49 @@
         sub: `${hrvDates.length} 天有数据`,
         tone: avg != null && avg < 25 ? 'watch' : avg != null && avg >= 40 ? 'good' : 'neutral',
       });
+    }
+    const wstats = analysis.watchStats;
+    if (wstats && wstats.dayCount > 0) {
+      if (wstats.exerciseMinMean7d != null || wstats.activeKcalMean7d != null) {
+        const ex = wstats.exerciseMinMean7d;
+        items.push({
+          label: '锻炼 7 日',
+          value: ex != null ? String(Math.round(ex)) : '—',
+          unit: 'min/日',
+          sub:
+            (wstats.activeKcalMean7d != null
+              ? `活动 ~${Math.round(wstats.activeKcalMean7d)} kcal`
+              : 'Watch 活动') + ` · ${wstats.dayCount} 天`,
+          tone: ex != null && ex >= 20 ? 'good' : ex != null && ex < 5 ? 'watch' : 'neutral',
+        });
+      }
+      if (wstats.spo2Mean7d != null) {
+        let tone = 'good';
+        if (wstats.spo2Min7d != null && wstats.spo2Min7d < 92) tone = 'watch';
+        else if (wstats.spo2Mean7d < 95) tone = 'watch';
+        items.push({
+          label: '血氧 7 日',
+          value: wstats.spo2Mean7d.toFixed(1),
+          unit: '%',
+          sub:
+            (wstats.spo2Min7d != null ? `最低 ${wstats.spo2Min7d.toFixed(1)}% · ` : '') +
+            `${wstats.spo2DayCount} 天`,
+          tone,
+        });
+      }
+      if (wstats.vo2Latest != null) {
+        const d = wstats.vo2Delta;
+        items.push({
+          label: 'VO₂ max',
+          value: wstats.vo2Latest.toFixed(1),
+          unit: 'mL/kg/min',
+          sub:
+            d != null
+              ? `Δ ${d >= 0 ? '+' : ''}${d.toFixed(1)} · ${wstats.vo2DayCount} 天`
+              : `${wstats.vo2DayCount} 天估算`,
+          tone: d != null && d <= -2 ? 'watch' : 'neutral',
+        });
+      }
     }
     if (!items.length) {
       items.push({
@@ -1476,6 +1525,41 @@
       { key: 'hasHeartRate', icon: '💗', name: '静息/步行心率', count: Object.keys(analysis.data.restingHr).length + ' 天' },
       { key: 'hasSteps', icon: '👟', name: '步数', count: Object.keys(analysis.data.steps).length + ' 天' },
       { key: 'hasSleep', icon: '😴', name: '睡眠', count: Object.keys(analysis.data.sleep).length + ' 天' },
+      {
+        key: 'hasWatchActivity',
+        icon: '⌚',
+        name: 'Watch 活动',
+        count: (analysis.watchStats?.dayCount || Object.keys(analysis.data.watchDaily || {}).length) + ' 天',
+      },
+      {
+        key: 'hasSpO2',
+        icon: '🫁',
+        name: '血氧 SpO₂',
+        count: (analysis.watchStats?.spo2DayCount || 0) + ' 天',
+      },
+      {
+        key: 'hasRespiratoryRate',
+        icon: '🌬️',
+        name: '呼吸频率',
+        count: analysis.watchStats?.rrMean7d != null ? '近 7 日 ' + analysis.watchStats.rrMean7d.toFixed(1) + '/分' : '有数据',
+      },
+      {
+        key: 'hasVo2Max',
+        icon: '🏃',
+        name: 'VO₂ max',
+        count:
+          analysis.watchStats?.vo2Latest != null
+            ? analysis.watchStats.vo2Latest.toFixed(1) + ' · ' + (analysis.watchStats.vo2DayCount || 0) + ' 天'
+            : (analysis.watchStats?.vo2DayCount || 0) + ' 天',
+      },
+      {
+        key: 'hasWristTemp',
+        icon: '🌡️',
+        name: '睡眠腕温',
+        count: analysis.watchStats?.wristTempMean7d != null
+          ? analysis.watchStats.wristTempMean7d.toFixed(2) + ' °C'
+          : '有数据',
+      },
       { key: 'hasEcg', icon: '📈', name: 'ECG 心电图', count: analysis.data.ecg.length + ' 份' },
     ];
 
@@ -1779,6 +1863,45 @@
             <tr><th>日期</th><th>总睡眠(h)</th><th>深睡(h)</th><th>REM(h)</th></tr>
             ${rows}
           </table>
+        </div>
+      `);
+    }
+
+    // Watch 活动 / 血氧 / VO2
+    if (analysis.watchStats && analysis.watchStats.dayCount > 0) {
+      const ws = analysis.watchStats;
+      const recent = ws.days.slice(-7).reverse();
+      const rows = recent.map((d) => {
+        const spo2 = d.spo2Mean != null ? d.spo2Mean.toFixed(1) : '—';
+        const spo2Min = d.spo2Min != null ? d.spo2Min.toFixed(1) : '—';
+        const rr = d.rrMean != null ? d.rrMean.toFixed(1) : '—';
+        const nhr = d.nightHrMean != null ? d.nightHrMean.toFixed(0) : '—';
+        const vo2 = d.vo2Max != null ? d.vo2Max.toFixed(1) : '—';
+        return `<tr><td>${d.date}</td><td class="num">${d.exerciseMin ? d.exerciseMin.toFixed(0) : '—'}</td><td class="num">${d.activeKcal ? d.activeKcal.toFixed(0) : '—'}</td><td class="num">${spo2}</td><td class="num">${spo2Min}</td><td class="num">${rr}</td><td class="num">${nhr}</td><td class="num">${vo2}</td></tr>`;
+      }).join('');
+      const vo2Delta =
+        ws.vo2Delta != null
+          ? `${ws.vo2Delta >= 0 ? '+' : ''}${ws.vo2Delta.toFixed(1)}`
+          : '—';
+      blocks.push(`
+        <div class="section-block">
+          <h3>⌚ Watch 活动 / 血氧 / VO₂（最近 ${recent.length} 天）</h3>
+          <table class="summary-table">
+            <tr><th>指标</th><th>值</th></tr>
+            <tr><td>日均锻炼（近 7 日样本）</td><td class="num">${ws.exerciseMinMean7d != null ? ws.exerciseMinMean7d.toFixed(0) + ' min' : '—'}</td></tr>
+            <tr><td>日均活动消耗</td><td class="num">${ws.activeKcalMean7d != null ? ws.activeKcalMean7d.toFixed(0) + ' kcal' : '—'}</td></tr>
+            <tr><td>血氧均值 / 最低</td><td class="num">${ws.spo2Mean7d != null ? ws.spo2Mean7d.toFixed(1) + '%' : '—'}${ws.spo2Min7d != null ? ' / ' + ws.spo2Min7d.toFixed(1) + '%' : ''}</td></tr>
+            <tr><td>呼吸频率日均</td><td class="num">${ws.rrMean7d != null ? ws.rrMean7d.toFixed(1) + ' /分' : '—'}</td></tr>
+            <tr><td>夜间心率 (0–6h)</td><td class="num">${ws.nightHrMean7d != null ? ws.nightHrMean7d.toFixed(0) + ' bpm' : '—'}</td></tr>
+            <tr><td>VO₂ max 最新 / Δ</td><td class="num">${ws.vo2Latest != null ? ws.vo2Latest.toFixed(1) : '—'} / ${vo2Delta}</td></tr>
+            <tr><td>睡眠腕温日均</td><td class="num">${ws.wristTempMean7d != null ? ws.wristTempMean7d.toFixed(2) + ' °C' : '—'}</td></tr>
+            <tr><td>有数据天数</td><td class="num">${ws.dayCount}（血氧 ${ws.spo2DayCount} · VO₂ ${ws.vo2DayCount}）</td></tr>
+          </table>
+          <table class="summary-table">
+            <tr><th>日期</th><th>锻炼</th><th>kcal</th><th>SpO₂</th><th>最低</th><th>呼吸</th><th>夜HR</th><th>VO₂</th></tr>
+            ${rows}
+          </table>
+          <p class="hint" style="margin-top:8px;">血氧与 VO₂ 为 Watch 估算；低值需结合症状，勿单次定论。</p>
         </div>
       `);
     }

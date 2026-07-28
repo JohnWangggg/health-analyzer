@@ -15,10 +15,13 @@ export type InsightAnchor =
   | 'summary-cgm'
   | 'summary-bp'
   | 'summary-hrv'
+  | 'summary-watch'
   | 'signals'
   | 'charts'
   | 'charts-weight'
   | 'charts-cgm'
+  | 'charts-spo2'
+  | 'charts-activity'
   | 'prompt';
 
 export interface InsightBullet {
@@ -136,6 +139,79 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
           (rhrAvg != null ? `，静息心率约 ${rhrAvg.toFixed(0)} bpm` : '') +
           '。数值受睡眠、训练与疾病影响，单日波动不必过度解读。',
         anchor: 'summary-hrv',
+      });
+    }
+  }
+
+  // Watch 活动 / 血氧 / VO2
+  const wsWatch = analysis.watchStats;
+  if (wsWatch && wsWatch.dayCount > 0) {
+    if (wsWatch.exerciseMinMean7d != null || wsWatch.activeKcalMean7d != null) {
+      const ex = wsWatch.exerciseMinMean7d;
+      const kcal = wsWatch.activeKcalMean7d;
+      let tone: InsightTone = 'neutral';
+      if (ex != null && ex >= 20) tone = 'positive';
+      else if (ex != null && ex < 5) tone = 'watch';
+      bullets.push({
+        tone,
+        title: 'Watch 活动',
+        detail:
+          `近 7 日日均锻炼约 ${ex != null ? ex.toFixed(0) : '—'} 分钟` +
+          (kcal != null ? `，活动消耗约 ${kcal.toFixed(0)} kcal` : '') +
+          '。低活动日可与睡眠/HRV 对照，避免过度解读单日。',
+        anchor: 'summary-watch',
+      });
+    }
+    if (wsWatch.spo2Mean7d != null) {
+      let tone: InsightTone = 'positive';
+      if (wsWatch.spo2Min7d != null && wsWatch.spo2Min7d < 92) tone = 'watch';
+      else if (wsWatch.spo2Mean7d < 95) tone = 'watch';
+      bullets.push({
+        tone,
+        title: '血氧（Watch）',
+        detail:
+          `近 7 日血氧均值约 ${wsWatch.spo2Mean7d.toFixed(1)}%` +
+          (wsWatch.spo2Min7d != null ? `，期间最低约 ${wsWatch.spo2Min7d.toFixed(1)}%` : '') +
+          `（${wsWatch.spo2DayCount} 天有样本）。低值需结合症状，勿单次定论。`,
+        anchor: 'summary-watch',
+      });
+    }
+    if (wsWatch.vo2Latest != null) {
+      const delta = wsWatch.vo2Delta;
+      bullets.push({
+        tone: delta != null && delta <= -2 ? 'watch' : 'neutral',
+        title: '心肺适能 VO₂ max',
+        detail:
+          `最新约 ${wsWatch.vo2Latest.toFixed(1)} mL/kg/min` +
+          (wsWatch.vo2Earliest != null
+            ? `（相对最早 ${wsWatch.vo2Earliest.toFixed(1)}，变化 ${delta != null && delta >= 0 ? '+' : ''}${delta?.toFixed(1)}）`
+            : '') +
+          `，共 ${wsWatch.vo2DayCount} 天有估算。Apple 估算值仅供趋势参考。`,
+        anchor: 'summary-watch',
+      });
+    }
+    if (wsWatch.nightHrMean7d != null) {
+      bullets.push({
+        tone: wsWatch.nightHrMean7d >= 80 ? 'watch' : 'neutral',
+        title: '夜间心率',
+        detail: `近 7 日 0–6 点心率均值约 ${wsWatch.nightHrMean7d.toFixed(0)} bpm（由 Watch 连续心率抽样汇总）。可与静息心率、睡眠对照。`,
+        anchor: 'summary-watch',
+      });
+    }
+    if (wsWatch.rrMean7d != null) {
+      bullets.push({
+        tone: wsWatch.rrMean7d >= 20 || wsWatch.rrMean7d < 10 ? 'watch' : 'neutral',
+        title: '呼吸频率',
+        detail: `近 7 日呼吸频率日均约 ${wsWatch.rrMean7d.toFixed(1)} 次/分（Watch 睡眠/静息采样）。显著偏离习惯基线时结合症状观察。`,
+        anchor: 'summary-watch',
+      });
+    }
+    if (wsWatch.wristTempMean7d != null) {
+      bullets.push({
+        tone: 'neutral',
+        title: '睡眠腕温',
+        detail: `近 7 日睡眠腕温日均约 ${wsWatch.wristTempMean7d.toFixed(2)} °C。Apple 腕温多为相对偏差用途，适合看自身趋势而非绝对体温。`,
+        anchor: 'summary-watch',
       });
     }
   }

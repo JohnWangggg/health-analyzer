@@ -58,6 +58,30 @@ export interface DataQualityInfo {
   futureSampleDates: string[];
 }
 
+/**
+ * Apple Watch 日汇总（解析期累加，避免存全部逐条心率）
+ * 单位约定：血氧 %、活动 kcal、锻炼/站立/日照 min、呼吸 次/分、VO2 mL/kg/min、腕温 °C
+ */
+export interface WatchDaySummary {
+  activeKcal: number;
+  exerciseMin: number;
+  standMin: number;
+  daylightMin: number;
+  spo2Sum: number;
+  spo2Count: number;
+  spo2Min: number;
+  rrSum: number;
+  rrCount: number;
+  nightHrSum: number;
+  nightHrCount: number;
+  /** 当日最后一条 VO2Max */
+  vo2Max?: number;
+  wristTempSum: number;
+  wristTempCount: number;
+  /** 睡眠呼吸紊乱指数类指标（若有） */
+  breathingDisturbance?: number;
+}
+
 export interface HealthData {
   cgm: CgmPoint[];
   bloodPressure: BloodPressureRecord[];
@@ -76,6 +100,8 @@ export interface HealthData {
     core: number;
     awake: number;
   }>;
+  /** Watch 日汇总 */
+  watchDaily: Record<string, WatchDaySummary>;
   ecg: ERecordSummary[];
   dataAvailability: DataAvailability;
   dataQuality: DataQualityInfo;
@@ -97,6 +123,11 @@ export interface DataAvailability {
   hasSteps: boolean;
   hasSleep: boolean;
   hasEcg: boolean;
+  hasSpO2: boolean;
+  hasRespiratoryRate: boolean;
+  hasVo2Max: boolean;
+  hasWatchActivity: boolean;
+  hasWristTemp: boolean;
 }
 
 // ============================================================
@@ -209,11 +240,47 @@ export interface HrvDaySummary {
   count: number;
 }
 
+/** 供展示/提示词的 Watch 日指标（均值已算好） */
+export interface WatchDayView {
+  date: string;
+  activeKcal: number;
+  exerciseMin: number;
+  standMin: number;
+  daylightMin: number;
+  spo2Mean: number | null;
+  spo2Min: number | null;
+  rrMean: number | null;
+  nightHrMean: number | null;
+  vo2Max: number | null;
+  wristTempMean: number | null;
+  breathingDisturbance: number | null;
+}
+
+export interface WatchStats {
+  days: WatchDayView[];
+  /** 近 7 日活动能量日均 */
+  activeKcalMean7d: number | null;
+  exerciseMinMean7d: number | null;
+  spo2Mean7d: number | null;
+  /** 近 7 个有样本日的日最低 SpO₂ 中的最小值 */
+  spo2Min7d: number | null;
+  rrMean7d: number | null;
+  nightHrMean7d: number | null;
+  vo2Latest: number | null;
+  vo2Earliest: number | null;
+  vo2Delta: number | null;
+  wristTempMean7d: number | null;
+  dayCount: number;
+  spo2DayCount: number;
+  vo2DayCount: number;
+}
+
 export interface FullAnalysis {
   data: HealthData;
   cgmStats: CgmStats | null;
   bpStats: BloodPressureStats | null;
   weightStats: WeightStats | null;
+  watchStats: WatchStats | null;
   hrvByDate: Record<string, HrvDaySummary>;
   restingHrByDate: Record<string, number>;
   walkingHrByDate: Record<string, number>;

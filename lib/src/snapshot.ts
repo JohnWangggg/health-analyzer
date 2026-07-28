@@ -34,6 +34,15 @@ export interface AnalysisSnapshotMetrics {
   sleepMean7d: number | null;
   sleepDays: number;
   ecgCount: number;
+  /** Watch 近 7 日日均锻炼分钟 */
+  exerciseMinMean7d: number | null;
+  activeKcalMean7d: number | null;
+  spo2Mean7d: number | null;
+  spo2Min7d: number | null;
+  nightHrMean7d: number | null;
+  vo2Latest: number | null;
+  vo2Delta: number | null;
+  watchDayCount: number;
 }
 
 export interface AnalysisSnapshot {
@@ -131,6 +140,14 @@ export function buildAnalysisSnapshot(
       sleepMean7d: lastNMeans(sleepTotals, 7),
       sleepDays: Object.keys(sleepTotals).length,
       ecgCount: data.ecg?.length || 0,
+      exerciseMinMean7d: analysis.watchStats?.exerciseMinMean7d ?? null,
+      activeKcalMean7d: analysis.watchStats?.activeKcalMean7d ?? null,
+      spo2Mean7d: analysis.watchStats?.spo2Mean7d ?? null,
+      spo2Min7d: analysis.watchStats?.spo2Min7d ?? null,
+      nightHrMean7d: analysis.watchStats?.nightHrMean7d ?? null,
+      vo2Latest: analysis.watchStats?.vo2Latest ?? null,
+      vo2Delta: analysis.watchStats?.vo2Delta ?? null,
+      watchDayCount: analysis.watchStats?.dayCount ?? 0,
     },
   };
 }
@@ -150,6 +167,11 @@ const DIFF_FIELDS: { key: keyof AnalysisSnapshotMetrics; label: string; unit: st
   { key: 'walkingHrMean7d', label: '步行心率近 7 天均值', unit: 'bpm' },
   { key: 'stepsMean7d', label: '步数近 7 天日均', unit: '步' },
   { key: 'sleepMean7d', label: '睡眠近 7 天日均', unit: 'h' },
+  { key: 'exerciseMinMean7d', label: '锻炼近 7 天日均', unit: 'min' },
+  { key: 'activeKcalMean7d', label: '活动消耗近 7 天日均', unit: 'kcal' },
+  { key: 'spo2Mean7d', label: '血氧近 7 天均值', unit: '%' },
+  { key: 'nightHrMean7d', label: '夜间心率近 7 天', unit: 'bpm' },
+  { key: 'vo2Latest', label: 'VO₂ max 最新', unit: 'mL/kg/min' },
 ];
 
 /** 对比两次快照的关键指标 */

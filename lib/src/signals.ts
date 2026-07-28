@@ -170,6 +170,68 @@ export function detectCrossSignals(analysis: FullAnalysis): CrossSignal[] {
     }
   }
 
+  // Watch：低血氧 / 低活动 / 低锻炼
+  const ws = analysis.watchStats;
+  if (ws && ws.dayCount > 0) {
+    if (ws.spo2Min7d != null && ws.spo2Min7d < 92) {
+      signals.push({
+        severity: 'watch',
+        title: '近 7 日出现较低血氧读数',
+        detail: `血氧近 7 日均值约 ${ws.spo2Mean7d != null ? ws.spo2Mean7d.toFixed(1) : '—'}%，期间最低约 ${ws.spo2Min7d.toFixed(1)}%（${ws.spo2DayCount} 天有样本）。Apple Watch 血氧易受运动/姿势/佩戴影响；若伴随胸闷、气短或反复偏低，建议复测并必要时就医评估。`,
+        dimensions: ['血氧'],
+      });
+    } else if (ws.spo2Mean7d != null && ws.spo2Mean7d < 95) {
+      signals.push({
+        severity: 'info',
+        title: '近 7 日血氧均值略偏低',
+        detail: `血氧近 7 日均值约 ${ws.spo2Mean7d.toFixed(1)}%。无症状时优先观察趋势与复测；勿单次读数定论。`,
+        dimensions: ['血氧'],
+      });
+    }
+
+    if (ws.exerciseMinMean7d != null && ws.exerciseMinMean7d < 5 && ws.dayCount >= 5) {
+      const lowActDays = ws.days
+        .slice(-7)
+        .filter((d) => d.exerciseMin < 5 && d.activeKcal < 150);
+      if (lowActDays.length >= 4) {
+        signals.push({
+          severity: 'info',
+          title: '近 7 日 Watch 活动量偏低',
+          detail: `日均锻炼约 ${ws.exerciseMinMean7d.toFixed(0)} 分钟` +
+            (ws.activeKcalMean7d != null
+              ? `，活动消耗约 ${ws.activeKcalMean7d.toFixed(0)} kcal`
+              : '') +
+            `。可与步数/睡眠对照；久坐日可穿插短时走动，避免仅凭戒指类环达标焦虑。`,
+          dimensions: ['Watch活动', '步数'],
+        });
+      }
+    }
+
+    // 低锻炼 + 低 HRV（恢复与负荷）
+    if (
+      ws.exerciseMinMean7d != null &&
+      ws.exerciseMinMean7d < 10 &&
+      hrvBase != null &&
+      hrvBase < 25
+    ) {
+      signals.push({
+        severity: 'info',
+        title: '低活动且 HRV 偏低',
+        detail: `近 7 日日均锻炼约 ${ws.exerciseMinMean7d.toFixed(0)} 分钟，HRV 约 ${hrvBase.toFixed(1)} ms。可能处于恢复不足或活动过少状态，建议优先睡眠与轻度日常活动，勿在低恢复日强上高强度训练。`,
+        dimensions: ['Watch活动', 'HRV'],
+      });
+    }
+
+    if (ws.nightHrMean7d != null && restBase != null && ws.nightHrMean7d > restBase + 10) {
+      signals.push({
+        severity: 'info',
+        title: '夜间心率高于日间静息',
+        detail: `近 7 日 0–6 点心率均值约 ${ws.nightHrMean7d.toFixed(0)} bpm，日间静息约 ${restBase.toFixed(0)} bpm。可结合睡眠质量、饮酒、疾病或室温解读；持续偏高可观察是否伴随 HRV 下降。`,
+        dimensions: ['夜间心率', '静息心率'],
+      });
+    }
+  }
+
   // 去重：同 title+date
   const seen = new Set<string>();
   const unique: CrossSignal[] = [];

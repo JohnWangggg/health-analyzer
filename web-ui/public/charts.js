@@ -426,8 +426,67 @@
       });
     }
 
+    const wdays = analysis.watchStats && analysis.watchStats.days;
+    if (wdays && wdays.length > 0) {
+      const watchDays = daysOpt === undefined ? 30 : daysOpt;
+      let spo2Pts = wdays
+        .filter((d) => d.spo2Mean != null && Number.isFinite(d.spo2Mean))
+        .map((d) => ({ x: d.date, y: d.spo2Mean }));
+      spo2Pts = sliceByDays(spo2Pts, watchDays);
+      if (spo2Pts.length >= 2) {
+        blocks.push({
+          key: 'spo2',
+          title: `血氧 SpO₂ 日均（${rangeLabel(watchDays)}）`,
+          color: '#3498db',
+          yLabel: '%',
+          unit: '%',
+          points: spo2Pts,
+          thresholds: [
+            { y: 95, color: '#e67e22', label: '95' },
+            { y: 92, color: '#c0392b', label: '92' },
+          ],
+          legend: [
+            { color: '#3498db', label: 'SpO₂ 日均', dashed: false },
+            { color: '#e67e22', label: '95%', dashed: true },
+            { color: '#c0392b', label: '92%', dashed: true },
+          ],
+        });
+      }
+      let exPts = wdays
+        .filter((d) => d.exerciseMin != null && Number.isFinite(d.exerciseMin))
+        .map((d) => ({ x: d.date, y: d.exerciseMin }));
+      exPts = sliceByDays(exPts, watchDays);
+      // 过滤全 0 序列
+      if (exPts.length >= 2 && exPts.some((p) => p.y > 0)) {
+        blocks.push({
+          key: 'exercise',
+          title: `Watch 锻炼分钟（${rangeLabel(watchDays)}）`,
+          color: '#27ae60',
+          yLabel: 'min',
+          unit: 'min',
+          points: exPts,
+          legend: [{ color: '#27ae60', label: '锻炼 min', dashed: false }],
+        });
+      }
+      let vo2Pts = wdays
+        .filter((d) => d.vo2Max != null && Number.isFinite(d.vo2Max))
+        .map((d) => ({ x: d.date, y: d.vo2Max }));
+      vo2Pts = sliceByDays(vo2Pts, watchDays === 0 ? 0 : Math.max(watchDays, 90));
+      if (vo2Pts.length >= 2) {
+        blocks.push({
+          key: 'vo2',
+          title: `VO₂ max 估算（${rangeLabel(watchDays === 0 ? 0 : Math.max(watchDays, 90))}）`,
+          color: '#8e44ad',
+          yLabel: 'mL/kg/min',
+          unit: 'mL/kg/min',
+          points: vo2Pts,
+          legend: [{ color: '#8e44ad', label: 'VO₂ max', dashed: false }],
+        });
+      }
+    }
+
     if (blocks.length === 0) {
-      container.innerHTML = '<div class="chart-empty">当前数据维度不足以绘制趋势图。上传含 CGM / 体重 / HRV / 血压的导出后再试。</div>';
+      container.innerHTML = '<div class="chart-empty">当前数据维度不足以绘制趋势图。上传含 CGM / 体重 / HRV / 血压 / Watch 的导出后再试。</div>';
       return;
     }
 

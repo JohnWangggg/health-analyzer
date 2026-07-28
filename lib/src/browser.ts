@@ -27,6 +27,7 @@ export {
   calcCgmStats,
   calcBloodPressureStats,
   calcWeightStats,
+  calcWatchStats,
   summarizeHrvByDay,
 } from './stats';
 

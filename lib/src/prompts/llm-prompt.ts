@@ -14,6 +14,7 @@ export const MAIN_PROMPT_TEMPLATE = `# 角色与任务
 - 可参考「自动监测摘要」组织「总结判断」，但须与原始统计交叉核对，勿照抄口号
 - 若提供了用药/目标体重/关注点，请在解读中对照使用，但仍不得改药或下诊断
 - 关注趋势、相关性与可操作建议；体重用晨起趋势，CGM 优先稳定期，血压区分晨晚
+- Watch 血氧 / VO₂ max 为估算值，低血氧须结合症状；VO₂ 看长期趋势勿单次定论
 - 数字优先、辅以解释，避免空话
 - 任何可疑异常必须给"复核建议"
 
@@ -30,6 +31,7 @@ export const MAIN_PROMPT_TEMPLATE = `# 角色与任务
 ## HRV 心率变异性
 ## 心率
 ## 步数与睡眠
+## Apple Watch（活动 / 血氧 / 呼吸 / VO₂ / 腕温）
 ## ECG 心电图
 （仅输出有数据的维度；每个维度包含：现状、趋势、解读、风险与建议）
 
@@ -60,7 +62,8 @@ export const MAIN_PROMPT_TEMPLATE = `# 角色与任务
 # 数据使用边界声明
 - CGM 测量组织间液葡萄糖，与指尖血存在 5-10 分钟滞后
 - 异常低值必须用指尖血复核，不能仅凭 CGM
-- 睡眠/步数/HRV 数据来自 Apple Watch，存在测量误差
+- 睡眠/步数/HRV/血氧/VO₂ 数据来自 Apple Watch，存在测量误差与算法估算
+- 血氧单次偏低常见于运动/睡眠姿势/佩戴松动，无症状时优先复测与对照趋势
 - 单次异常应先复测并结合症状、持续时间和重复次数判断
 - 本报告不替代医生门诊，所有降压/降糖方案调整请遵医嘱
 
@@ -137,7 +140,7 @@ export function formatUserContext(ctx?: UserContext | null): string {
  */
 export function formatAnalysisForLLM(analysis: FullAnalysis): string {
   const sections: string[] = [];
-  const { data, cgmStats, bpStats, weightStats, hrvByDate, dateRange } = analysis;
+  const { data, cgmStats, bpStats, weightStats, watchStats, hrvByDate, dateRange } = analysis;
   const detailDays = 90;
   const recentDateSet = (dates: string[]) => {
     const sorted = [...dates].sort();
@@ -187,6 +190,11 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
   sections.push(`| 静息/步行心率 | ${av.hasHeartRate ? '✅' : '❌'} | ${Object.keys(data.restingHr).length} 天 |`);
   sections.push(`| 步数 | ${av.hasSteps ? '✅' : '❌'} | ${Object.keys(data.steps).length} 天 |`);
   sections.push(`| 睡眠 | ${av.hasSleep ? '✅' : '❌'} | ${Object.keys(data.sleep).length} 天 |`);
+  sections.push(`| Watch 活动 | ${av.hasWatchActivity ? '✅' : '❌'} | ${watchStats?.dayCount ?? Object.keys(data.watchDaily || {}).length} 天 |`);
+  sections.push(`| 血氧 SpO₂ | ${av.hasSpO2 ? '✅' : '❌'} | ${watchStats?.spo2DayCount ?? 0} 天有样本 |`);
+  sections.push(`| 呼吸频率 | ${av.hasRespiratoryRate ? '✅' : '❌'} | — |`);
+  sections.push(`| VO₂ max | ${av.hasVo2Max ? '✅' : '❌'} | ${watchStats?.vo2DayCount ?? 0} 天 |`);
+  sections.push(`| 睡眠腕温 | ${av.hasWristTemp ? '✅' : '❌'} | — |`);
   sections.push(`| ECG | ${av.hasEcg ? '✅' : '❌'} | ${data.ecg.length} 份 |`);
   sections.push(``);
   sections.push(`数据时间范围：${dateRange.start} 至 ${dateRange.end}`);
@@ -379,6 +387,74 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
       const deepStr = sleep ? sleep.deep.toFixed(2) : '—';
       const remStr = sleep ? sleep.rem.toFixed(2) : '—';
       sections.push(`| ${date} | ${steps} | ${sleepStr} | ${deepStr} | ${remStr} |`);
+    }
+    sections.push(``);
+  }
+
+  // Apple Watch 日汇总（活动 / 血氧 / 呼吸 / VO2 / 腕温 / 夜间心率）
+  if (watchStats && watchStats.dayCount > 0) {
+    sections.push(`## Apple Watch（活动 / 血氧 / 呼吸 / VO₂ / 腕温）`);
+    sections.push(``);
+    sections.push(
+      `> 日汇总共 ${watchStats.dayCount} 天；血氧/呼吸为日内样本均值，VO₂ 为 Apple 估算，夜间心率为 0–6 点抽样。`
+    );
+    sections.push(``);
+    sections.push(`**近 7 日摘要**：`);
+    sections.push(``);
+    sections.push(`| 指标 | 值 |`);
+    sections.push(`|---|---|`);
+    if (watchStats.exerciseMinMean7d != null) {
+      sections.push(`| 日均锻炼 | ${watchStats.exerciseMinMean7d.toFixed(0)} min |`);
+    }
+    if (watchStats.activeKcalMean7d != null) {
+      sections.push(`| 日均活动消耗 | ${watchStats.activeKcalMean7d.toFixed(0)} kcal |`);
+    }
+    if (watchStats.spo2Mean7d != null) {
+      sections.push(
+        `| 血氧均值 / 最低 | ${watchStats.spo2Mean7d.toFixed(1)}%` +
+          (watchStats.spo2Min7d != null ? ` / ${watchStats.spo2Min7d.toFixed(1)}%` : '') +
+          `（${watchStats.spo2DayCount} 天） |`
+      );
+    }
+    if (watchStats.rrMean7d != null) {
+      sections.push(`| 呼吸频率日均 | ${watchStats.rrMean7d.toFixed(1)} 次/分 |`);
+    }
+    if (watchStats.nightHrMean7d != null) {
+      sections.push(`| 夜间心率 (0–6h) | ${watchStats.nightHrMean7d.toFixed(0)} bpm |`);
+    }
+    if (watchStats.vo2Latest != null) {
+      const d = watchStats.vo2Delta;
+      sections.push(
+        `| VO₂ max 最新` +
+          (watchStats.vo2Earliest != null ? ' / 最早 / Δ' : '') +
+          ` | ${watchStats.vo2Latest.toFixed(1)}` +
+          (watchStats.vo2Earliest != null
+            ? ` / ${watchStats.vo2Earliest.toFixed(1)} / ${d != null && d >= 0 ? '+' : ''}${d?.toFixed(1)}`
+            : '') +
+          ` mL/kg/min（${watchStats.vo2DayCount} 天） |`
+      );
+    }
+    if (watchStats.wristTempMean7d != null) {
+      sections.push(`| 睡眠腕温日均 | ${watchStats.wristTempMean7d.toFixed(2)} °C |`);
+    }
+    sections.push(``);
+    sections.push(`**分日明细**（最近 ${detailDays} 天）：`);
+    sections.push(``);
+    sections.push(
+      `| 日期 | 活动kcal | 锻炼min | 站立min | SpO₂均 | SpO₂最低 | 呼吸 | 夜间HR | VO₂ | 腕温 |`
+    );
+    sections.push(`|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|`);
+    const recentWatch = recentDateSet(watchStats.days.map((d) => d.date));
+    for (const d of watchStats.days.filter((x) => recentWatch.has(x.date))) {
+      const f = (v: number | null, dig = 1) =>
+        v != null && Number.isFinite(v) ? v.toFixed(dig) : '—';
+      sections.push(
+        `| ${d.date} | ${d.activeKcal ? d.activeKcal.toFixed(0) : '—'} | ${
+          d.exerciseMin ? d.exerciseMin.toFixed(0) : '—'
+        } | ${d.standMin ? d.standMin.toFixed(0) : '—'} | ${f(d.spo2Mean)} | ${f(d.spo2Min)} | ${f(
+          d.rrMean
+        )} | ${f(d.nightHrMean, 0)} | ${f(d.vo2Max)} | ${f(d.wristTempMean, 2)} |`
+      );
     }
     sections.push(``);
   }

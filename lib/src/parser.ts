@@ -8,6 +8,7 @@ import {
   HealthData,
   BloodPressureRecord,
   ERecordSummary,
+  WatchDaySummary,
 } from './types';
 
 /** 从 datetime 字符串提取日期部分 */
@@ -43,6 +44,28 @@ function noteSkippedFuture(data: HealthData, date: string): void {
     samples.push(date);
     samples.sort();
   }
+}
+
+function ensureWatchDay(data: HealthData, date: string): WatchDaySummary {
+  if (!data.watchDaily) data.watchDaily = {};
+  if (!data.watchDaily[date]) {
+    data.watchDaily[date] = {
+      activeKcal: 0,
+      exerciseMin: 0,
+      standMin: 0,
+      daylightMin: 0,
+      spo2Sum: 0,
+      spo2Count: 0,
+      spo2Min: Infinity,
+      rrSum: 0,
+      rrCount: 0,
+      nightHrSum: 0,
+      nightHrCount: 0,
+      wristTempSum: 0,
+      wristTempCount: 0,
+    };
+  }
+  return data.watchDaily[date];
 }
 
 /** 日期是否晚于参考日（均 YYYY-MM-DD 字符串比较） */
@@ -97,6 +120,7 @@ export function createEmptyData(referenceDate?: string): HealthData {
     walkingHr: {},
     steps: {},
     sleep: {},
+    watchDaily: {},
     ecg: [],
     dataAvailability: {
       hasCgm: false,
@@ -108,6 +132,11 @@ export function createEmptyData(referenceDate?: string): HealthData {
       hasSteps: false,
       hasSleep: false,
       hasEcg: false,
+      hasSpO2: false,
+      hasRespiratoryRate: false,
+      hasVo2Max: false,
+      hasWatchActivity: false,
+      hasWristTemp: false,
     },
     dataQuality: {
       referenceDate: ref,
@@ -273,6 +302,64 @@ export function processRecord(
     } catch {
       // ignore malformed
     }
+  } else if (rec.type === 'HKQuantityTypeIdentifierActiveEnergyBurned') {
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return;
+    const w = ensureWatchDay(data, date);
+    w.activeKcal += numericValue;
+    data.dataAvailability.hasWatchActivity = true;
+  } else if (rec.type === 'HKQuantityTypeIdentifierAppleExerciseTime') {
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return;
+    const w = ensureWatchDay(data, date);
+    w.exerciseMin += numericValue; // 每条多为 1 分钟
+    data.dataAvailability.hasWatchActivity = true;
+  } else if (rec.type === 'HKQuantityTypeIdentifierAppleStandTime') {
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return;
+    const w = ensureWatchDay(data, date);
+    w.standMin += numericValue;
+    data.dataAvailability.hasWatchActivity = true;
+  } else if (rec.type === 'HKQuantityTypeIdentifierTimeInDaylight') {
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return;
+    const w = ensureWatchDay(data, date);
+    w.daylightMin += numericValue;
+  } else if (rec.type === 'HKQuantityTypeIdentifierOxygenSaturation') {
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return;
+    const pct = numericValue <= 1.5 ? numericValue * 100 : numericValue;
+    if (pct < 50 || pct > 100) return;
+    const w = ensureWatchDay(data, date);
+    w.spo2Sum += pct;
+    w.spo2Count += 1;
+    w.spo2Min = Math.min(w.spo2Min, pct);
+    data.dataAvailability.hasSpO2 = true;
+  } else if (rec.type === 'HKQuantityTypeIdentifierRespiratoryRate') {
+    if (!Number.isFinite(numericValue) || numericValue < 5 || numericValue > 40) return;
+    const w = ensureWatchDay(data, date);
+    w.rrSum += numericValue;
+    w.rrCount += 1;
+    data.dataAvailability.hasRespiratoryRate = true;
+  } else if (rec.type === 'HKQuantityTypeIdentifierVO2Max') {
+    if (!Number.isFinite(numericValue) || numericValue < 10 || numericValue > 90) return;
+    const w = ensureWatchDay(data, date);
+    w.vo2Max = numericValue;
+    data.dataAvailability.hasVo2Max = true;
+  } else if (rec.type === 'HKQuantityTypeIdentifierAppleSleepingWristTemperature') {
+    if (!Number.isFinite(numericValue) || numericValue < 30 || numericValue > 40) return;
+    const w = ensureWatchDay(data, date);
+    w.wristTempSum += numericValue;
+    w.wristTempCount += 1;
+    data.dataAvailability.hasWristTemp = true;
+  } else if (rec.type === 'HKQuantityTypeIdentifierAppleSleepingBreathingDisturbances') {
+    if (!Number.isFinite(numericValue)) return;
+    const w = ensureWatchDay(data, date);
+    w.breathingDisturbance = numericValue;
+  } else if (rec.type === 'HKQuantityTypeIdentifierHeartRate') {
+    // 仅累加夜间 00:00–06:00，控制内存
+    if (!Number.isFinite(numericValue) || numericValue < 30 || numericValue > 220) return;
+    const hour = getHour(rdate);
+    if (hour >= 0 && hour < 6) {
+      const w = ensureWatchDay(data, date);
+      w.nightHrSum += numericValue;
+      w.nightHrCount += 1;
+    }
   }
 }
 
@@ -346,6 +433,28 @@ export function finalizeData(data: HealthData): void {
   }
   mergeBodyFatIntoWeight(data);
   if (data.bodyFat?.length) data.dataAvailability.hasBodyFat = true;
+  // 清理空的 Watch 日（仅被创建但无有效累加）
+  if (data.watchDaily) {
+    for (const d of Object.keys(data.watchDaily)) {
+      const w = data.watchDaily[d];
+      if (
+        w.activeKcal === 0 &&
+        w.exerciseMin === 0 &&
+        w.standMin === 0 &&
+        w.spo2Count === 0 &&
+        w.rrCount === 0 &&
+        w.nightHrCount === 0 &&
+        w.wristTempCount === 0 &&
+        w.vo2Max == null &&
+        w.breathingDisturbance == null &&
+        w.daylightMin === 0
+      ) {
+        delete data.watchDaily[d];
+      } else if (w.spo2Min === Infinity) {
+        w.spo2Min = 0;
+      }
+    }
+  }
 }
 
 export interface ParseHealthXmlOptions {

@@ -16,6 +16,9 @@ import {
   WeightStats,
   DailyWeight,
   BloodPressureRecord,
+  WatchStats,
+  WatchDayView,
+  WatchDaySummary,
 } from './types';
 import { getDate, getHour, parseAppleDate } from './parser';
 
@@ -272,6 +275,68 @@ export function summarizeHrvByDay(
   return result;
 }
 
+function meanLastN(values: (number | null | undefined)[], n: number): number | null {
+  const vals = values.filter((v): v is number => v != null && Number.isFinite(v));
+  if (!vals.length) return null;
+  const slice = vals.slice(-n);
+  return slice.reduce((a, b) => a + b, 0) / slice.length;
+}
+
+/** 近 n 个非空值中的最小值（用于血氧日最低） */
+function minLastN(values: (number | null | undefined)[], n: number): number | null {
+  const vals = values.filter((v): v is number => v != null && Number.isFinite(v));
+  if (!vals.length) return null;
+  return Math.min(...vals.slice(-n));
+}
+
+function toWatchView(date: string, w: WatchDaySummary): WatchDayView {
+  return {
+    date,
+    activeKcal: w.activeKcal,
+    exerciseMin: w.exerciseMin,
+    standMin: w.standMin,
+    daylightMin: w.daylightMin,
+    spo2Mean: w.spo2Count > 0 ? w.spo2Sum / w.spo2Count : null,
+    spo2Min: w.spo2Count > 0 && w.spo2Min > 0 && w.spo2Min < Infinity ? w.spo2Min : null,
+    rrMean: w.rrCount > 0 ? w.rrSum / w.rrCount : null,
+    nightHrMean: w.nightHrCount > 0 ? w.nightHrSum / w.nightHrCount : null,
+    vo2Max: w.vo2Max ?? null,
+    wristTempMean: w.wristTempCount > 0 ? w.wristTempSum / w.wristTempCount : null,
+    breathingDisturbance: w.breathingDisturbance ?? null,
+  };
+}
+
+/** Watch 活动 / 血氧 / 呼吸 / VO2 / 腕温 日汇总 */
+export function calcWatchStats(watchDaily: Record<string, WatchDaySummary> | undefined): WatchStats | null {
+  if (!watchDaily || !Object.keys(watchDaily).length) return null;
+  const days: WatchDayView[] = Object.keys(watchDaily)
+    .sort()
+    .map((d) => toWatchView(d, watchDaily[d]));
+
+  const vo2Series = days.filter((d) => d.vo2Max != null);
+  const vo2Latest = vo2Series.length ? vo2Series[vo2Series.length - 1].vo2Max : null;
+  const vo2Earliest = vo2Series.length ? vo2Series[0].vo2Max : null;
+
+  return {
+    days,
+    activeKcalMean7d: meanLastN(days.map((d) => d.activeKcal), 7),
+    exerciseMinMean7d: meanLastN(days.map((d) => d.exerciseMin), 7),
+    spo2Mean7d: meanLastN(days.map((d) => d.spo2Mean), 7),
+    // 近 7 个有血氧日的「日最低」中的最小值（不是日最低的均值）
+    spo2Min7d: minLastN(days.map((d) => d.spo2Min), 7),
+    rrMean7d: meanLastN(days.map((d) => d.rrMean), 7),
+    nightHrMean7d: meanLastN(days.map((d) => d.nightHrMean), 7),
+    vo2Latest,
+    vo2Earliest,
+    vo2Delta:
+      vo2Latest != null && vo2Earliest != null ? vo2Latest - vo2Earliest : null,
+    wristTempMean7d: meanLastN(days.map((d) => d.wristTempMean), 7),
+    dayCount: days.length,
+    spo2DayCount: days.filter((d) => d.spo2Mean != null).length,
+    vo2DayCount: vo2Series.length,
+  };
+}
+
 /** 完整分析入口 */
 export function analyzeAll(data: HealthData): FullAnalysis {
   const allDates: string[] = [
@@ -284,6 +349,7 @@ export function analyzeAll(data: HealthData): FullAnalysis {
     ...Object.keys(data.walkingHr),
     ...Object.keys(data.steps),
     ...Object.keys(data.sleep),
+    ...Object.keys(data.watchDaily || {}),
   ];
   allDates.sort();
   const start = allDates[0] || '';
@@ -294,6 +360,7 @@ export function analyzeAll(data: HealthData): FullAnalysis {
     cgmStats: calcCgmStats(data.cgm),
     bpStats: calcBloodPressureStats(data.bloodPressure),
     weightStats: calcWeightStats(data.weight),
+    watchStats: calcWatchStats(data.watchDaily),
     hrvByDate: summarizeHrvByDay(data.hrv, data.hrvOvernight),
     restingHrByDate: data.restingHr,
     walkingHrByDate: data.walkingHr,
