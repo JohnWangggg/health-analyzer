@@ -29,6 +29,8 @@ export {
   calcWeightStats,
   calcWatchStats,
   calcWorkoutStats,
+  calcEcgStats,
+  calcRecoveryWeek,
   summarizeHrvByDay,
 } from './stats';
 
@@ -36,6 +38,8 @@ export {
   processWorkoutBlock,
   processXmlLine,
   shortWorkoutType,
+  workoutTypeLabel,
+  mergeEcgEntries,
   xmlAttr,
 } from './parser';
 

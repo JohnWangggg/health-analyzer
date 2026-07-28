@@ -67,6 +67,9 @@ export interface WatchDaySummary {
   exerciseMin: number;
   standMin: number;
   daylightMin: number;
+  /** 站立小时：Stood 次数（AppleStandHour） */
+  standHoursStood: number;
+  standHoursIdle: number;
   spo2Sum: number;
   spo2Count: number;
   spo2Min: number;
@@ -97,6 +100,8 @@ export interface WorkoutSession {
   date: string;
   /** 去前缀后的类型，如 Walking / Running */
   activityType: string;
+  /** 中文展示名 */
+  activityLabel: string;
   durationMin: number;
   activeKcal?: number;
   distanceKm?: number;
@@ -139,6 +144,23 @@ export interface ERecordSummary {
   datetime: string;
   classification: string; // "窦性心律" | "高心率" | "记录结果不佳" 等
   device?: string;
+  /** 可选症状自述 */
+  symptoms?: string;
+}
+
+export interface EcgClassCount {
+  classification: string;
+  count: number;
+}
+
+export interface EcgStats {
+  count: number;
+  byClassification: EcgClassCount[];
+  latest: ERecordSummary | null;
+  sinusCount: number;
+  highHrCount: number;
+  inconclusiveCount: number;
+  otherCount: number;
 }
 
 export interface DataAvailability {
@@ -276,6 +298,8 @@ export interface WatchDayView {
   exerciseMin: number;
   standMin: number;
   daylightMin: number;
+  standHoursStood: number;
+  standHoursIdle: number;
   spo2Mean: number | null;
   spo2Min: number | null;
   spo2NightMean: number | null;
@@ -307,6 +331,8 @@ export interface WatchStats {
   vo2Earliest: number | null;
   vo2Delta: number | null;
   wristTempMean7d: number | null;
+  daylightMinMean7d: number | null;
+  standHoursMean7d: number | null;
   dayCount: number;
   spo2DayCount: number;
   spo2NightDayCount: number;
@@ -315,9 +341,35 @@ export interface WatchStats {
 
 export interface WorkoutTypeSummary {
   activityType: string;
+  activityLabel: string;
   count: number;
   durationMin: number;
   activeKcal: number;
+}
+
+/**
+ * 近 7 日负荷 / 恢复仪表（启发式，非诊断）
+ */
+export interface RecoveryWeekStats {
+  weekEnd: string;
+  hrvMean7d: number | null;
+  nightHrMean7d: number | null;
+  restingHrMean7d: number | null;
+  exerciseMinMean7d: number | null;
+  workoutCount7d: number;
+  workoutDuration7d: number;
+  sleepMean7d: number | null;
+  stepsMean7d: number | null;
+  standHoursMean7d: number | null;
+  daylightMinMean7d: number | null;
+  spo2NightMean7d: number | null;
+  /** 0–100，越高恢复越好（启发式） */
+  recoveryScore: number | null;
+  /** 0–100，越高训练/活动负荷越高（启发式） */
+  loadScore: number | null;
+  /** 人话一句话状态 */
+  statusLabel: string;
+  statusTone: 'positive' | 'neutral' | 'watch' | 'alert';
 }
 
 export interface WorkoutStats {
@@ -346,6 +398,8 @@ export interface FullAnalysis {
   weightStats: WeightStats | null;
   watchStats: WatchStats | null;
   workoutStats: WorkoutStats | null;
+  ecgStats: EcgStats | null;
+  recoveryWeek: RecoveryWeekStats | null;
   hrvByDate: Record<string, HrvDaySummary>;
   restingHrByDate: Record<string, number>;
   walkingHrByDate: Record<string, number>;

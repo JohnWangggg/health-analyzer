@@ -17,6 +17,8 @@ export type InsightAnchor =
   | 'summary-hrv'
   | 'summary-watch'
   | 'summary-workout'
+  | 'summary-recovery'
+  | 'summary-ecg'
   | 'signals'
   | 'charts'
   | 'charts-weight'
@@ -237,7 +239,10 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
   // Workout 会话
   const wos = analysis.workoutStats;
   if (wos && wos.count > 0) {
-    const top = wos.byType.slice(0, 3).map((t) => `${t.activityType}×${t.count}`).join('、');
+    const top = wos.byType
+      .slice(0, 3)
+      .map((t) => `${t.activityLabel || t.activityType}×${t.count}`)
+      .join('、');
     const last = wos.lastSession;
     let tone: InsightTone = 'neutral';
     if (wos.count30d >= 8) tone = 'positive';
@@ -247,15 +252,60 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
       title: 'Workout 训练',
       detail:
         `共 ${wos.count} 场` +
-        (wos.count30d ? `，近 30 日 ${wos.count30d} 场 / 共 ${wos.durationSum30d.toFixed(0)} min` : '') +
+        (wos.count30d
+          ? `，近 30 日 ${wos.count30d} 场 / 共 ${wos.durationSum30d.toFixed(0)} min`
+          : '，近 30 日 0 场') +
         (wos.count7d ? `，近 7 日 ${wos.count7d} 场` : '') +
         (top ? `；类型 ${top}` : '') +
         (last
-          ? `。最近：${last.date} ${last.activityType} ${last.durationMin.toFixed(0)} min` +
+          ? `。最近：${last.date} ${last.activityLabel || last.activityType} ${last.durationMin.toFixed(0)} min` +
             (last.hrAvg != null ? `，均 HR ${last.hrAvg.toFixed(0)}` : '')
           : '') +
         '。',
       anchor: 'summary-workout',
+    });
+  }
+
+  // 周恢复仪表
+  const rw = analysis.recoveryWeek;
+  if (rw) {
+    bullets.push({
+      tone: rw.statusTone,
+      title: '近 7 日负荷/恢复',
+      detail:
+        (rw.recoveryScore != null ? `恢复分约 ${rw.recoveryScore}` : '恢复分 —') +
+        (rw.loadScore != null ? `，负荷分约 ${rw.loadScore}` : '') +
+        `。${rw.statusLabel}` +
+        (rw.hrvMean7d != null ? ` HRV≈${rw.hrvMean7d.toFixed(0)}ms` : '') +
+        (rw.sleepMean7d != null ? ` 睡眠≈${rw.sleepMean7d.toFixed(1)}h` : '') +
+        (rw.exerciseMinMean7d != null ? ` 锻炼≈${rw.exerciseMinMean7d.toFixed(0)}min/日` : '') +
+        (rw.daylightMinMean7d != null ? ` 日照≈${rw.daylightMinMean7d.toFixed(0)}min` : '') +
+        '。',
+      anchor: 'summary-recovery',
+    });
+  }
+
+  // ECG
+  const es = analysis.ecgStats;
+  if (es && es.count > 0) {
+    let tone: InsightTone = 'positive';
+    if (es.highHrCount > 0) tone = 'watch';
+    if (es.otherCount > 0 && es.sinusCount === 0) tone = 'watch';
+    const latest = es.latest;
+    bullets.push({
+      tone,
+      title: 'ECG 心电图',
+      detail:
+        `共 ${es.count} 份` +
+        (es.sinusCount ? `，窦性 ${es.sinusCount}` : '') +
+        (es.highHrCount ? `，高心率 ${es.highHrCount}` : '') +
+        (es.inconclusiveCount ? `，结果不佳 ${es.inconclusiveCount}` : '') +
+        (es.otherCount ? `，其他 ${es.otherCount}` : '') +
+        (latest
+          ? `。最近 ${String(latest.datetime).slice(0, 16)}：${latest.classification}`
+          : '') +
+        '。单次异常需结合症状与复测，不能替代门诊。',
+      anchor: 'summary-ecg',
     });
   }
 

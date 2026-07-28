@@ -280,6 +280,48 @@ export function detectCrossSignals(analysis: FullAnalysis): CrossSignal[] {
     }
   }
 
+  // 日照偏低 + 睡眠偏短
+  if (ws && ws.daylightMinMean7d != null && ws.daylightMinMean7d < 20) {
+    const sleep7 = recentDates(Object.keys(sleepMap), 7);
+    const sleepAvg = mean(sleep7.map((d) => sleepMap[d]?.total).filter((v): v is number => v != null));
+    if (sleepAvg != null && sleepAvg < 6.5) {
+      signals.push({
+        severity: 'info',
+        title: '近 7 日日照偏少且睡眠偏短',
+        detail: `日照日均约 ${ws.daylightMinMean7d.toFixed(0)} 分钟，睡眠日均约 ${sleepAvg.toFixed(1)} h。可尝试白天户外走动；睡眠与日照关联因人而异，仅供自我观察。`,
+        dimensions: ['日照', '睡眠'],
+      });
+    } else {
+      signals.push({
+        severity: 'info',
+        title: '近 7 日户外日照偏少',
+        detail: `日照日均约 ${ws.daylightMinMean7d.toFixed(0)} 分钟（Watch 估算）。若室内为主可留意节律与情绪，非医疗指标。`,
+        dimensions: ['日照'],
+      });
+    }
+  }
+
+  // 站立小时偏低
+  if (ws && ws.standHoursMean7d != null && ws.standHoursMean7d < 6 && ws.dayCount >= 5) {
+    signals.push({
+      severity: 'info',
+      title: '近 7 日站立小时偏少',
+      detail: `站立小时日均约 ${ws.standHoursMean7d.toFixed(1)}（Apple 站立环）。久坐日可每小时起身片刻，与步数/锻炼互补。`,
+      dimensions: ['站立', 'Watch活动'],
+    });
+  }
+
+  // ECG 高心率分类偏多
+  const es = analysis.ecgStats;
+  if (es && es.count >= 2 && es.highHrCount >= 2) {
+    signals.push({
+      severity: 'watch',
+      title: 'ECG 多次「高心率」分类',
+      detail: `共 ${es.count} 份 ECG 中 ${es.highHrCount} 份为高心率相关分类。运动后测量常见；若静息下反复出现或伴心悸、胸闷，建议就医评估，勿自行诊断。`,
+      dimensions: ['ECG'],
+    });
+  }
+
   // Workout：大负荷次日 HRV 明显偏低
   const wos = analysis.workoutStats;
   if (wos && wos.sessions.length && Object.keys(hrvByDate).length) {

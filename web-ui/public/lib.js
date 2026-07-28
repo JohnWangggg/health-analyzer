@@ -35,6 +35,8 @@ var HealthAnalyzer = (() => {
     calcBloodPressureStats: () => calcBloodPressureStats,
     calcBpStats: () => calcBloodPressureStats,
     calcCgmStats: () => calcCgmStats,
+    calcEcgStats: () => calcEcgStats,
+    calcRecoveryWeek: () => calcRecoveryWeek,
     calcWatchStats: () => calcWatchStats,
     calcWeightStats: () => calcWeightStats,
     calcWorkoutStats: () => calcWorkoutStats,
@@ -55,6 +57,7 @@ var HealthAnalyzer = (() => {
     getLocalToday: () => getLocalToday,
     isFutureDate: () => isFutureDate,
     joinCsvBundle: () => joinCsvBundle,
+    mergeEcgEntries: () => mergeEcgEntries,
     mergeExternalCsvIntoData: () => mergeExternalCsvIntoData,
     parseAppleDate: () => parseAppleDate,
     parseBloodPressureCsv: () => parseBloodPressureCsv,
@@ -70,6 +73,7 @@ var HealthAnalyzer = (() => {
     processXmlLine: () => processXmlLine,
     shortWorkoutType: () => shortWorkoutType,
     summarizeHrvByDay: () => summarizeHrvByDay,
+    workoutTypeLabel: () => workoutTypeLabel,
     xmlAttr: () => xmlAttr
   });
 
@@ -107,6 +111,8 @@ var HealthAnalyzer = (() => {
         exerciseMin: 0,
         standMin: 0,
         daylightMin: 0,
+        standHoursStood: 0,
+        standHoursIdle: 0,
         spo2Sum: 0,
         spo2Count: 0,
         spo2Min: Infinity,
@@ -131,6 +137,8 @@ var HealthAnalyzer = (() => {
     if (w.spo2NightCount == null) w.spo2NightCount = 0;
     if (w.spo2DaySum == null) w.spo2DaySum = 0;
     if (w.spo2DayCount == null) w.spo2DayCount = 0;
+    if (w.standHoursStood == null) w.standHoursStood = 0;
+    if (w.standHoursIdle == null) w.standHoursIdle = 0;
     return w;
   }
   function xmlAttr(line, name) {
@@ -139,6 +147,30 @@ var HealthAnalyzer = (() => {
   }
   function shortWorkoutType(raw) {
     return raw.replace(/^HKWorkoutActivityType/, "") || raw || "Other";
+  }
+  var WORKOUT_TYPE_ZH = {
+    Walking: "\u6B65\u884C",
+    Running: "\u8DD1\u6B65",
+    Hiking: "\u5F92\u6B65",
+    Cycling: "\u9A91\u884C",
+    Swimming: "\u6E38\u6CF3",
+    Yoga: "\u745C\u4F3D",
+    Dance: "\u821E\u8E48",
+    Elliptical: "\u692D\u5706\u673A",
+    Stairs: "\u722C\u697C\u68AF",
+    StairClimbing: "\u722C\u697C\u68AF\u673A",
+    FunctionalStrengthTraining: "\u529F\u80FD\u6027\u529B\u91CF",
+    TraditionalStrengthTraining: "\u4F20\u7EDF\u529B\u91CF",
+    HighIntensityIntervalTraining: "\u9AD8\u5F3A\u5EA6\u95F4\u6B47",
+    CoreTraining: "\u6838\u5FC3\u8BAD\u7EC3",
+    Flexibility: "\u67D4\u97E7",
+    Cooldown: "\u653E\u677E\u6574\u7406",
+    MixedCardio: "\u6DF7\u5408\u6709\u6C27",
+    Other: "\u5176\u4ED6"
+  };
+  function workoutTypeLabel(activityType) {
+    if (!activityType) return "\u5176\u4ED6";
+    return WORKOUT_TYPE_ZH[activityType] || activityType;
   }
   function isFutureDate(date, referenceDate) {
     return Boolean(date && referenceDate && date > referenceDate);
@@ -238,7 +270,8 @@ var HealthAnalyzer = (() => {
       return;
     }
     const numericValue = Number.parseFloat(rec.value);
-    if (!Number.isFinite(numericValue) && rec.type !== "HKCategoryTypeIdentifierSleepAnalysis") {
+    const isCategory = rec.type === "HKCategoryTypeIdentifierSleepAnalysis" || rec.type === "HKCategoryTypeIdentifierAppleStandHour";
+    if (!Number.isFinite(numericValue) && !isCategory) {
       return;
     }
     if (rec.type === "HKQuantityTypeIdentifierBloodGlucose") {
@@ -322,6 +355,14 @@ var HealthAnalyzer = (() => {
         }
         data.dataAvailability.hasSleep = true;
       } catch {
+      }
+    } else if (rec.type === "HKCategoryTypeIdentifierAppleStandHour") {
+      const w = ensureWatchDay(data, date);
+      if (/Stood/i.test(rec.value)) {
+        w.standHoursStood += 1;
+        data.dataAvailability.hasWatchActivity = true;
+      } else if (/Idle/i.test(rec.value)) {
+        w.standHoursIdle += 1;
       }
     } else if (rec.type === "HKQuantityTypeIdentifierActiveEnergyBurned") {
       if (!Number.isFinite(numericValue) || numericValue <= 0) return;
@@ -421,6 +462,7 @@ var HealthAnalyzer = (() => {
       endDate: xmlAttr(head, "endDate"),
       date,
       activityType,
+      activityLabel: workoutTypeLabel(activityType),
       durationMin,
       source: xmlAttr(head, "sourceName")
     };
@@ -552,7 +594,7 @@ var HealthAnalyzer = (() => {
     if (data.watchDaily) {
       for (const d of Object.keys(data.watchDaily)) {
         const w = data.watchDaily[d];
-        if (w.activeKcal === 0 && w.exerciseMin === 0 && w.standMin === 0 && w.spo2Count === 0 && w.rrCount === 0 && w.nightHrCount === 0 && w.wristTempCount === 0 && w.vo2Max == null && w.breathingDisturbance == null && w.daylightMin === 0) {
+        if (w.activeKcal === 0 && w.exerciseMin === 0 && w.standMin === 0 && w.spo2Count === 0 && w.rrCount === 0 && w.nightHrCount === 0 && w.wristTempCount === 0 && w.vo2Max == null && w.breathingDisturbance == null && w.daylightMin === 0 && (w.standHoursStood || 0) === 0 && (w.standHoursIdle || 0) === 0) {
           delete data.watchDaily[d];
         } else {
           if (w.spo2Min === Infinity) w.spo2Min = 0;
@@ -741,18 +783,41 @@ var HealthAnalyzer = (() => {
         summary.classification = trimmed.replace("\u5206\u7C7B,", "").trim();
       } else if (trimmed.startsWith("\u8BBE\u5907,")) {
         summary.device = trimmed.replace("\u8BBE\u5907,", "").replace(/"/g, "").trim();
+      } else if (trimmed.startsWith("\u75C7\u72B6,")) {
+        const s = trimmed.replace("\u75C7\u72B6,", "").trim();
+        if (s) summary.symptoms = s;
       } else if (/^Record Date,/i.test(trimmed) || /^Date,/i.test(trimmed)) {
         summary.datetime = trimmed.replace(/^[^,]+,/, "").trim();
       } else if (/^Classification,/i.test(trimmed)) {
         summary.classification = trimmed.replace(/^[^,]+,/, "").trim();
       } else if (/^Device,/i.test(trimmed)) {
         summary.device = trimmed.replace(/^[^,]+,/, "").replace(/"/g, "").trim();
+      } else if (/^Symptoms,/i.test(trimmed)) {
+        const s = trimmed.replace(/^[^,]+,/, "").trim();
+        if (s) summary.symptoms = s;
       }
       if (/^-?\d/.test(trimmed) && trimmed.includes(".")) {
         break;
       }
     }
+    if (!summary.datetime) {
+    }
     return summary;
+  }
+  function mergeEcgEntries(existing, texts) {
+    const list = [...existing || []];
+    const seen = new Set(list.map((e) => `${e.datetime}|${e.classification}`));
+    for (const text of texts) {
+      if (!text || !text.includes("\u5206\u7C7B") && !/Classification/i.test(text)) continue;
+      const s = parseEcgCsv(text);
+      if (!s.datetime && s.classification === "unknown") continue;
+      const k = `${s.datetime}|${s.classification}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      list.push(s);
+    }
+    list.sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
+    return list;
   }
   async function extractXmlFromZip(zipFile) {
     const g = globalThis;
@@ -1017,6 +1082,8 @@ var HealthAnalyzer = (() => {
       exerciseMin: w.exerciseMin,
       standMin: w.standMin,
       daylightMin: w.daylightMin,
+      standHoursStood: w.standHoursStood || 0,
+      standHoursIdle: w.standHoursIdle || 0,
       spo2Mean: w.spo2Count > 0 ? w.spo2Sum / w.spo2Count : null,
       spo2Min: finiteMin(w.spo2Min, w.spo2Count),
       spo2NightMean: w.spo2NightCount > 0 ? w.spo2NightSum / w.spo2NightCount : null,
@@ -1053,6 +1120,14 @@ var HealthAnalyzer = (() => {
       vo2Earliest,
       vo2Delta: vo2Latest != null && vo2Earliest != null ? vo2Latest - vo2Earliest : null,
       wristTempMean7d: meanLastN(days.map((d) => d.wristTempMean), 7),
+      daylightMinMean7d: meanLastN(
+        days.map((d) => d.daylightMin > 0 ? d.daylightMin : null),
+        7
+      ),
+      standHoursMean7d: meanLastN(
+        days.map((d) => d.standHoursStood > 0 || d.standHoursIdle > 0 ? d.standHoursStood : null),
+        7
+      ),
       dayCount: days.length,
       spo2DayCount: days.filter((d) => d.spo2Mean != null).length,
       spo2NightDayCount: days.filter((d) => d.spo2NightMean != null).length,
@@ -1079,6 +1154,7 @@ var HealthAnalyzer = (() => {
     for (const s of sessions) {
       const cur = byTypeMap.get(s.activityType) || {
         activityType: s.activityType,
+        activityLabel: s.activityLabel || workoutTypeLabel(s.activityType),
         count: 0,
         durationMin: 0,
         activeKcal: 0
@@ -1107,6 +1183,137 @@ var HealthAnalyzer = (() => {
       hrAvgMean30d
     };
   }
+  function calcEcgStats(ecg) {
+    if (!ecg || !ecg.length) return null;
+    const sorted = [...ecg].sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
+    const counts = /* @__PURE__ */ new Map();
+    let sinusCount = 0;
+    let highHrCount = 0;
+    let inconclusiveCount = 0;
+    let otherCount = 0;
+    for (const e of sorted) {
+      const c = e.classification || "unknown";
+      counts.set(c, (counts.get(c) || 0) + 1);
+      if (/窦性|Sinus/i.test(c)) sinusCount += 1;
+      else if (/高心率|High Heart/i.test(c)) highHrCount += 1;
+      else if (/不佳|Inconclusive|Poor/i.test(c)) inconclusiveCount += 1;
+      else otherCount += 1;
+    }
+    const byClassification = [...counts.entries()].map(([classification, count]) => ({ classification, count })).sort((a, b) => b.count - a.count);
+    return {
+      count: sorted.length,
+      byClassification,
+      latest: sorted[sorted.length - 1],
+      sinusCount,
+      highHrCount,
+      inconclusiveCount,
+      otherCount
+    };
+  }
+  function meanMapLastN(map, n, endDate) {
+    const keys = Object.keys(map).filter((d) => d <= endDate).sort();
+    if (!keys.length) return null;
+    const recent = keys.slice(-n).map((d) => map[d]).filter(Number.isFinite);
+    if (!recent.length) return null;
+    return recent.reduce((a, b) => a + b, 0) / recent.length;
+  }
+  function calcRecoveryWeek(analysis) {
+    const end = analysis.dateRange?.end;
+    if (!end) return null;
+    const hrvMeans = {};
+    for (const [d, h] of Object.entries(analysis.hrvByDate || {})) {
+      if (h && Number.isFinite(h.allMean)) hrvMeans[d] = h.allMean;
+    }
+    const sleepTotals = {};
+    for (const [d, s] of Object.entries(analysis.sleepByDate || {})) {
+      if (s && Number.isFinite(s.total)) sleepTotals[d] = s.total;
+    }
+    const hrvMean7d = meanMapLastN(hrvMeans, 7, end);
+    const restingHrMean7d = meanMapLastN(analysis.restingHrByDate || {}, 7, end);
+    const stepsMean7d = meanMapLastN(analysis.stepsByDate || {}, 7, end);
+    const sleepMean7d = meanMapLastN(sleepTotals, 7, end);
+    const ws = analysis.watchStats;
+    const wos = analysis.workoutStats;
+    const nightHrMean7d = ws?.nightHrMean7d ?? null;
+    const exerciseMinMean7d = ws?.exerciseMinMean7d ?? null;
+    const standHoursMean7d = ws?.standHoursMean7d ?? null;
+    const daylightMinMean7d = ws?.daylightMinMean7d ?? null;
+    const spo2NightMean7d = ws?.spo2NightMean7d ?? null;
+    const workoutCount7d = wos?.count7d ?? 0;
+    const workoutDuration7d = wos?.durationSum7d ?? 0;
+    let recoveryParts = [];
+    if (hrvMean7d != null) {
+      recoveryParts.push(Math.max(0, Math.min(100, (hrvMean7d - 15) / 45 * 100)));
+    }
+    if (sleepMean7d != null) {
+      recoveryParts.push(Math.max(0, Math.min(100, sleepMean7d / 8 * 100)));
+    }
+    if (nightHrMean7d != null && restingHrMean7d != null) {
+      const delta = nightHrMean7d - restingHrMean7d;
+      recoveryParts.push(Math.max(0, Math.min(100, 80 - delta * 4)));
+    } else if (nightHrMean7d != null) {
+      recoveryParts.push(Math.max(0, Math.min(100, 100 - (nightHrMean7d - 50) * 1.5)));
+    }
+    if (spo2NightMean7d != null) {
+      recoveryParts.push(Math.max(0, Math.min(100, (spo2NightMean7d - 90) * 10)));
+    }
+    let loadParts = [];
+    if (exerciseMinMean7d != null) {
+      loadParts.push(Math.max(0, Math.min(100, exerciseMinMean7d / 45 * 100)));
+    }
+    if (workoutDuration7d > 0) {
+      loadParts.push(Math.max(0, Math.min(100, workoutDuration7d / 150 * 100)));
+    }
+    if (stepsMean7d != null) {
+      loadParts.push(Math.max(0, Math.min(100, stepsMean7d / 1e4 * 100)));
+    }
+    const avg = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+    const recoveryScore = avg(recoveryParts);
+    const loadScore = avg(loadParts);
+    let statusLabel = "\u6570\u636E\u4E0D\u8DB3\uFF0C\u6682\u4E0D\u8BC4\u4F30";
+    let statusTone = "neutral";
+    if (recoveryScore != null || loadScore != null) {
+      const r = recoveryScore ?? 50;
+      const l = loadScore ?? 40;
+      if (r >= 65 && l <= 70) {
+        statusLabel = "\u6062\u590D\u5C1A\u53EF\uFF0C\u53EF\u7EF4\u6301\u6216\u8F7B\u91CF\u63A8\u8FDB";
+        statusTone = "positive";
+      } else if (r < 45 && l >= 55) {
+        statusLabel = "\u8D1F\u8377\u504F\u9AD8\u4E14\u6062\u590D\u504F\u7D27\uFF0C\u5EFA\u8BAE\u8F7B\u677E\u65E5";
+        statusTone = "watch";
+      } else if (r < 40) {
+        statusLabel = "\u6062\u590D\u6307\u6807\u504F\u5F31\uFF0C\u4F18\u5148\u7761\u7720\u4E0E\u51CF\u8D1F";
+        statusTone = "watch";
+      } else if (l < 25 && r >= 50) {
+        statusLabel = "\u6062\u590D\u5C1A\u53EF\u4F46\u6D3B\u52A8\u504F\u4F4E\uFF0C\u53EF\u9002\u91CF\u589E\u52A0\u8D70\u52A8";
+        statusTone = "neutral";
+      } else {
+        statusLabel = "\u8D1F\u8377\u4E0E\u6062\u590D\u5927\u81F4\u5E73\u8861";
+        statusTone = "neutral";
+      }
+    }
+    if (hrvMean7d == null && nightHrMean7d == null && exerciseMinMean7d == null && sleepMean7d == null && workoutCount7d === 0) {
+      return null;
+    }
+    return {
+      weekEnd: end,
+      hrvMean7d,
+      nightHrMean7d,
+      restingHrMean7d,
+      exerciseMinMean7d,
+      workoutCount7d,
+      workoutDuration7d,
+      sleepMean7d,
+      stepsMean7d,
+      standHoursMean7d,
+      daylightMinMean7d,
+      spo2NightMean7d,
+      recoveryScore: recoveryScore != null ? Math.round(recoveryScore) : null,
+      loadScore: loadScore != null ? Math.round(loadScore) : null,
+      statusLabel,
+      statusTone
+    };
+  }
   function analyzeAll(data) {
     const allDates = [
       ...data.cgm.map((x) => getDate(x.datetime)),
@@ -1119,26 +1326,42 @@ var HealthAnalyzer = (() => {
       ...Object.keys(data.steps),
       ...Object.keys(data.sleep),
       ...Object.keys(data.watchDaily || {}),
-      ...(data.workouts || []).map((w) => w.date)
+      ...(data.workouts || []).map((w) => w.date),
+      ...(data.ecg || []).map((e) => getDate(e.datetime))
     ];
     allDates.sort();
     const start = allDates[0] || "";
     const end = allDates[allDates.length - 1] || "";
+    const hrvByDate = summarizeHrvByDay(data.hrv, data.hrvOvernight);
+    const stepsByDate = Object.fromEntries(
+      Object.entries(data.steps).map(([d, v]) => [d, v.max])
+    );
+    const watchStats = calcWatchStats(data.watchDaily);
+    const workoutStats = calcWorkoutStats(data.workouts, end || void 0);
+    const sleepByDate = data.sleep;
+    const partial = {
+      dateRange: { start, end },
+      hrvByDate,
+      restingHrByDate: data.restingHr,
+      stepsByDate,
+      sleepByDate,
+      watchStats,
+      workoutStats
+    };
     return {
       data,
       cgmStats: calcCgmStats(data.cgm),
       bpStats: calcBloodPressureStats(data.bloodPressure),
       weightStats: calcWeightStats(data.weight),
-      watchStats: calcWatchStats(data.watchDaily),
-      // 近 7/30 日相对整体数据结束日，避免「很久没练」被误算成仍有训练
-      workoutStats: calcWorkoutStats(data.workouts, end || void 0),
-      hrvByDate: summarizeHrvByDay(data.hrv, data.hrvOvernight),
+      watchStats,
+      workoutStats,
+      ecgStats: calcEcgStats(data.ecg),
+      recoveryWeek: calcRecoveryWeek(partial),
+      hrvByDate,
       restingHrByDate: data.restingHr,
       walkingHrByDate: data.walkingHr,
-      stepsByDate: Object.fromEntries(
-        Object.entries(data.steps).map(([d, v]) => [d, v.max])
-      ),
-      sleepByDate: data.sleep,
+      stepsByDate,
+      sleepByDate,
       dateRange: { start, end },
       generatedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
@@ -1344,6 +1567,42 @@ var HealthAnalyzer = (() => {
         });
       }
     }
+    if (ws && ws.daylightMinMean7d != null && ws.daylightMinMean7d < 20) {
+      const sleep7 = recentDates(Object.keys(sleepMap), 7);
+      const sleepAvg = mean(sleep7.map((d) => sleepMap[d]?.total).filter((v) => v != null));
+      if (sleepAvg != null && sleepAvg < 6.5) {
+        signals.push({
+          severity: "info",
+          title: "\u8FD1 7 \u65E5\u65E5\u7167\u504F\u5C11\u4E14\u7761\u7720\u504F\u77ED",
+          detail: `\u65E5\u7167\u65E5\u5747\u7EA6 ${ws.daylightMinMean7d.toFixed(0)} \u5206\u949F\uFF0C\u7761\u7720\u65E5\u5747\u7EA6 ${sleepAvg.toFixed(1)} h\u3002\u53EF\u5C1D\u8BD5\u767D\u5929\u6237\u5916\u8D70\u52A8\uFF1B\u7761\u7720\u4E0E\u65E5\u7167\u5173\u8054\u56E0\u4EBA\u800C\u5F02\uFF0C\u4EC5\u4F9B\u81EA\u6211\u89C2\u5BDF\u3002`,
+          dimensions: ["\u65E5\u7167", "\u7761\u7720"]
+        });
+      } else {
+        signals.push({
+          severity: "info",
+          title: "\u8FD1 7 \u65E5\u6237\u5916\u65E5\u7167\u504F\u5C11",
+          detail: `\u65E5\u7167\u65E5\u5747\u7EA6 ${ws.daylightMinMean7d.toFixed(0)} \u5206\u949F\uFF08Watch \u4F30\u7B97\uFF09\u3002\u82E5\u5BA4\u5185\u4E3A\u4E3B\u53EF\u7559\u610F\u8282\u5F8B\u4E0E\u60C5\u7EEA\uFF0C\u975E\u533B\u7597\u6307\u6807\u3002`,
+          dimensions: ["\u65E5\u7167"]
+        });
+      }
+    }
+    if (ws && ws.standHoursMean7d != null && ws.standHoursMean7d < 6 && ws.dayCount >= 5) {
+      signals.push({
+        severity: "info",
+        title: "\u8FD1 7 \u65E5\u7AD9\u7ACB\u5C0F\u65F6\u504F\u5C11",
+        detail: `\u7AD9\u7ACB\u5C0F\u65F6\u65E5\u5747\u7EA6 ${ws.standHoursMean7d.toFixed(1)}\uFF08Apple \u7AD9\u7ACB\u73AF\uFF09\u3002\u4E45\u5750\u65E5\u53EF\u6BCF\u5C0F\u65F6\u8D77\u8EAB\u7247\u523B\uFF0C\u4E0E\u6B65\u6570/\u953B\u70BC\u4E92\u8865\u3002`,
+        dimensions: ["\u7AD9\u7ACB", "Watch\u6D3B\u52A8"]
+      });
+    }
+    const es = analysis.ecgStats;
+    if (es && es.count >= 2 && es.highHrCount >= 2) {
+      signals.push({
+        severity: "watch",
+        title: "ECG \u591A\u6B21\u300C\u9AD8\u5FC3\u7387\u300D\u5206\u7C7B",
+        detail: `\u5171 ${es.count} \u4EFD ECG \u4E2D ${es.highHrCount} \u4EFD\u4E3A\u9AD8\u5FC3\u7387\u76F8\u5173\u5206\u7C7B\u3002\u8FD0\u52A8\u540E\u6D4B\u91CF\u5E38\u89C1\uFF1B\u82E5\u9759\u606F\u4E0B\u53CD\u590D\u51FA\u73B0\u6216\u4F34\u5FC3\u60B8\u3001\u80F8\u95F7\uFF0C\u5EFA\u8BAE\u5C31\u533B\u8BC4\u4F30\uFF0C\u52FF\u81EA\u884C\u8BCA\u65AD\u3002`,
+        dimensions: ["ECG"]
+      });
+    }
     const wos = analysis.workoutStats;
     if (wos && wos.sessions.length && Object.keys(hrvByDate).length) {
       for (const s of wos.sessions.slice(-20)) {
@@ -1543,7 +1802,7 @@ var HealthAnalyzer = (() => {
     }
     const wos = analysis.workoutStats;
     if (wos && wos.count > 0) {
-      const top = wos.byType.slice(0, 3).map((t) => `${t.activityType}\xD7${t.count}`).join("\u3001");
+      const top = wos.byType.slice(0, 3).map((t) => `${t.activityLabel || t.activityType}\xD7${t.count}`).join("\u3001");
       const last = wos.lastSession;
       let tone = "neutral";
       if (wos.count30d >= 8) tone = "positive";
@@ -1551,8 +1810,30 @@ var HealthAnalyzer = (() => {
       bullets.push({
         tone,
         title: "Workout \u8BAD\u7EC3",
-        detail: `\u5171 ${wos.count} \u573A` + (wos.count30d ? `\uFF0C\u8FD1 30 \u65E5 ${wos.count30d} \u573A / \u5171 ${wos.durationSum30d.toFixed(0)} min` : "") + (wos.count7d ? `\uFF0C\u8FD1 7 \u65E5 ${wos.count7d} \u573A` : "") + (top ? `\uFF1B\u7C7B\u578B ${top}` : "") + (last ? `\u3002\u6700\u8FD1\uFF1A${last.date} ${last.activityType} ${last.durationMin.toFixed(0)} min` + (last.hrAvg != null ? `\uFF0C\u5747 HR ${last.hrAvg.toFixed(0)}` : "") : "") + "\u3002",
+        detail: `\u5171 ${wos.count} \u573A` + (wos.count30d ? `\uFF0C\u8FD1 30 \u65E5 ${wos.count30d} \u573A / \u5171 ${wos.durationSum30d.toFixed(0)} min` : "\uFF0C\u8FD1 30 \u65E5 0 \u573A") + (wos.count7d ? `\uFF0C\u8FD1 7 \u65E5 ${wos.count7d} \u573A` : "") + (top ? `\uFF1B\u7C7B\u578B ${top}` : "") + (last ? `\u3002\u6700\u8FD1\uFF1A${last.date} ${last.activityLabel || last.activityType} ${last.durationMin.toFixed(0)} min` + (last.hrAvg != null ? `\uFF0C\u5747 HR ${last.hrAvg.toFixed(0)}` : "") : "") + "\u3002",
         anchor: "summary-workout"
+      });
+    }
+    const rw = analysis.recoveryWeek;
+    if (rw) {
+      bullets.push({
+        tone: rw.statusTone,
+        title: "\u8FD1 7 \u65E5\u8D1F\u8377/\u6062\u590D",
+        detail: (rw.recoveryScore != null ? `\u6062\u590D\u5206\u7EA6 ${rw.recoveryScore}` : "\u6062\u590D\u5206 \u2014") + (rw.loadScore != null ? `\uFF0C\u8D1F\u8377\u5206\u7EA6 ${rw.loadScore}` : "") + `\u3002${rw.statusLabel}` + (rw.hrvMean7d != null ? ` HRV\u2248${rw.hrvMean7d.toFixed(0)}ms` : "") + (rw.sleepMean7d != null ? ` \u7761\u7720\u2248${rw.sleepMean7d.toFixed(1)}h` : "") + (rw.exerciseMinMean7d != null ? ` \u953B\u70BC\u2248${rw.exerciseMinMean7d.toFixed(0)}min/\u65E5` : "") + (rw.daylightMinMean7d != null ? ` \u65E5\u7167\u2248${rw.daylightMinMean7d.toFixed(0)}min` : "") + "\u3002",
+        anchor: "summary-recovery"
+      });
+    }
+    const es = analysis.ecgStats;
+    if (es && es.count > 0) {
+      let tone = "positive";
+      if (es.highHrCount > 0) tone = "watch";
+      if (es.otherCount > 0 && es.sinusCount === 0) tone = "watch";
+      const latest = es.latest;
+      bullets.push({
+        tone,
+        title: "ECG \u5FC3\u7535\u56FE",
+        detail: `\u5171 ${es.count} \u4EFD` + (es.sinusCount ? `\uFF0C\u7AA6\u6027 ${es.sinusCount}` : "") + (es.highHrCount ? `\uFF0C\u9AD8\u5FC3\u7387 ${es.highHrCount}` : "") + (es.inconclusiveCount ? `\uFF0C\u7ED3\u679C\u4E0D\u4F73 ${es.inconclusiveCount}` : "") + (es.otherCount ? `\uFF0C\u5176\u4ED6 ${es.otherCount}` : "") + (latest ? `\u3002\u6700\u8FD1 ${String(latest.datetime).slice(0, 16)}\uFF1A${latest.classification}` : "") + "\u3002\u5355\u6B21\u5F02\u5E38\u9700\u7ED3\u5408\u75C7\u72B6\u4E0E\u590D\u6D4B\uFF0C\u4E0D\u80FD\u66FF\u4EE3\u95E8\u8BCA\u3002",
+        anchor: "summary-ecg"
       });
     }
     const signals = detectCrossSignals(analysis);
@@ -1643,6 +1924,7 @@ var HealthAnalyzer = (() => {
 ## \u6B65\u6570\u4E0E\u7761\u7720
 ## Apple Watch\uFF08\u6D3B\u52A8 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6E29\uFF09
 ## Workout \u8BAD\u7EC3\u4F1A\u8BDD
+## \u8FD1 7 \u65E5\u8D1F\u8377\u4E0E\u6062\u590D
 ## ECG \u5FC3\u7535\u56FE
 \uFF08\u4EC5\u8F93\u51FA\u6709\u6570\u636E\u7684\u7EF4\u5EA6\uFF1B\u6BCF\u4E2A\u7EF4\u5EA6\u5305\u542B\uFF1A\u73B0\u72B6\u3001\u8D8B\u52BF\u3001\u89E3\u8BFB\u3001\u98CE\u9669\u4E0E\u5EFA\u8BAE\uFF09
 
@@ -1734,7 +2016,18 @@ var HealthAnalyzer = (() => {
   }
   function formatAnalysisForLLM(analysis) {
     const sections = [];
-    const { data, cgmStats, bpStats, weightStats, watchStats, workoutStats, hrvByDate, dateRange } = analysis;
+    const {
+      data,
+      cgmStats,
+      bpStats,
+      weightStats,
+      watchStats,
+      workoutStats,
+      ecgStats,
+      recoveryWeek,
+      hrvByDate,
+      dateRange
+    } = analysis;
     const detailDays = 90;
     const recentDateSet = (dates) => {
       const sorted = [...dates].sort();
@@ -2005,6 +2298,12 @@ var HealthAnalyzer = (() => {
       if (watchStats.wristTempMean7d != null) {
         sections.push(`| \u7761\u7720\u8155\u6E29\u65E5\u5747 | ${watchStats.wristTempMean7d.toFixed(2)} \xB0C |`);
       }
+      if (watchStats.daylightMinMean7d != null) {
+        sections.push(`| \u65E5\u7167\u65E5\u5747 | ${watchStats.daylightMinMean7d.toFixed(0)} min |`);
+      }
+      if (watchStats.standHoursMean7d != null) {
+        sections.push(`| \u7AD9\u7ACB\u5C0F\u65F6\u65E5\u5747 | ${watchStats.standHoursMean7d.toFixed(1)} h |`);
+      }
       sections.push(``);
       sections.push(`**\u5206\u65E5\u660E\u7EC6**\uFF08\u6700\u8FD1 ${detailDays} \u5929\uFF09\uFF1A`);
       sections.push(``);
@@ -2036,8 +2335,9 @@ var HealthAnalyzer = (() => {
         sections.push(`| \u7C7B\u578B | \u573A\u6B21 | \u603B\u5206\u949F | \u6D3B\u52A8kcal |`);
         sections.push(`|---|---:|---:|---:|`);
         for (const t of workoutStats.byType) {
+          const label = t.activityLabel || t.activityType;
           sections.push(
-            `| ${t.activityType} | ${t.count} | ${t.durationMin.toFixed(0)} | ${t.activeKcal.toFixed(0)} |`
+            `| ${label} | ${t.count} | ${t.durationMin.toFixed(0)} | ${t.activeKcal.toFixed(0)} |`
           );
         }
       }
@@ -2048,25 +2348,68 @@ var HealthAnalyzer = (() => {
       sections.push(`|---|---|---:|---:|---:|---:|---:|---:|`);
       const recentW = workoutStats.sessions.slice(-40);
       for (const s of recentW) {
+        const label = s.activityLabel || s.activityType;
         sections.push(
-          `| ${s.startDate.slice(0, 16)} | ${s.activityType} | ${s.durationMin.toFixed(1)} | ${s.activeKcal != null ? s.activeKcal.toFixed(0) : "\u2014"} | ${s.distanceKm != null ? s.distanceKm.toFixed(2) : "\u2014"} | ${s.hrAvg != null ? s.hrAvg.toFixed(0) : "\u2014"} | ${s.hrMax != null ? s.hrMax.toFixed(0) : "\u2014"} | ${s.avgMets != null ? s.avgMets.toFixed(1) : "\u2014"} |`
+          `| ${s.startDate.slice(0, 16)} | ${label} | ${s.durationMin.toFixed(1)} | ${s.activeKcal != null ? s.activeKcal.toFixed(0) : "\u2014"} | ${s.distanceKm != null ? s.distanceKm.toFixed(2) : "\u2014"} | ${s.hrAvg != null ? s.hrAvg.toFixed(0) : "\u2014"} | ${s.hrMax != null ? s.hrMax.toFixed(0) : "\u2014"} | ${s.avgMets != null ? s.avgMets.toFixed(1) : "\u2014"} |`
         );
       }
       sections.push(``);
     }
-    if (data.ecg.length > 0) {
+    if (recoveryWeek) {
+      const rw = recoveryWeek;
+      sections.push(`## \u8FD1 7 \u65E5\u8D1F\u8377\u4E0E\u6062\u590D`);
+      sections.push(``);
+      sections.push(`> \u542F\u53D1\u5F0F\u8BC4\u5206\uFF0C\u975E\u8BCA\u65AD\uFF1B\u622A\u6B62 ${rw.weekEnd}\u3002\u72B6\u6001\uFF1A${rw.statusLabel}`);
+      sections.push(``);
+      sections.push(`| \u6307\u6807 | \u503C |`);
+      sections.push(`|---|---|`);
+      if (rw.recoveryScore != null) sections.push(`| \u6062\u590D\u5206 | ${rw.recoveryScore} / 100 |`);
+      if (rw.loadScore != null) sections.push(`| \u8D1F\u8377\u5206 | ${rw.loadScore} / 100 |`);
+      if (rw.hrvMean7d != null) sections.push(`| HRV \u65E5\u5747 | ${rw.hrvMean7d.toFixed(1)} ms |`);
+      if (rw.nightHrMean7d != null) sections.push(`| \u591C\u95F4\u5FC3\u7387 | ${rw.nightHrMean7d.toFixed(0)} bpm |`);
+      if (rw.restingHrMean7d != null) sections.push(`| \u9759\u606F\u5FC3\u7387 | ${rw.restingHrMean7d.toFixed(0)} bpm |`);
+      if (rw.exerciseMinMean7d != null) sections.push(`| \u953B\u70BC\u65E5\u5747 | ${rw.exerciseMinMean7d.toFixed(0)} min |`);
+      sections.push(`| Workout | ${rw.workoutCount7d} \u573A / ${rw.workoutDuration7d.toFixed(0)} min |`);
+      if (rw.sleepMean7d != null) sections.push(`| \u7761\u7720\u65E5\u5747 | ${rw.sleepMean7d.toFixed(2)} h |`);
+      if (rw.stepsMean7d != null) sections.push(`| \u6B65\u6570\u65E5\u5747 | ${Math.round(rw.stepsMean7d)} |`);
+      if (rw.standHoursMean7d != null) sections.push(`| \u7AD9\u7ACB\u5C0F\u65F6\u65E5\u5747 | ${rw.standHoursMean7d.toFixed(1)} |`);
+      if (rw.daylightMinMean7d != null) sections.push(`| \u65E5\u7167\u65E5\u5747 | ${rw.daylightMinMean7d.toFixed(0)} min |`);
+      if (rw.spo2NightMean7d != null) sections.push(`| \u591C\u6BB5\u8840\u6C27 | ${rw.spo2NightMean7d.toFixed(1)}% |`);
+      sections.push(``);
+    }
+    if (ecgStats && ecgStats.count > 0) {
+      sections.push(`## ECG \u5FC3\u7535\u56FE`);
+      sections.push(``);
+      sections.push(
+        `\u5171 ${ecgStats.count} \u4EFD\uFF08\u7AA6\u6027 ${ecgStats.sinusCount} \xB7 \u9AD8\u5FC3\u7387 ${ecgStats.highHrCount} \xB7 \u7ED3\u679C\u4E0D\u4F73 ${ecgStats.inconclusiveCount} \xB7 \u5176\u4ED6 ${ecgStats.otherCount}\uFF09`
+      );
+      sections.push(``);
+      sections.push(`| \u5206\u7C7B | \u4EFD\u6570 |`);
+      sections.push(`|---|---:|`);
+      for (const row of ecgStats.byClassification) {
+        sections.push(`| ${row.classification} | ${row.count} |`);
+      }
+      if (ecgStats.latest) {
+        sections.push(``);
+        sections.push(
+          `\u6700\u8FD1\uFF1A${ecgStats.latest.datetime} \u2014 **${ecgStats.latest.classification}**` + (ecgStats.latest.device ? `\uFF08${ecgStats.latest.device}\uFF09` : "")
+        );
+      }
+      sections.push(``);
+      sections.push(`**\u660E\u7EC6**\uFF08\u6700\u8FD1 30 \u4EFD\uFF09\uFF1A`);
+      sections.push(``);
+      sections.push(`| \u65F6\u95F4 | \u5206\u7C7B | \u8BBE\u5907 |`);
+      sections.push(`|---|---|---|`);
+      for (const e of data.ecg.slice(-30)) {
+        sections.push(
+          `| ${e.datetime} | ${e.classification} | ${e.device || "\u2014"} |`
+        );
+      }
+      sections.push(``);
+    } else if (data.ecg.length > 0) {
       sections.push(`## ECG \u5FC3\u7535\u56FE`);
       sections.push(``);
       sections.push(`\u5171 ${data.ecg.length} \u4EFD ECG`);
-      sections.push(``);
-      const counts = {};
-      for (const e of data.ecg) {
-        counts[e.classification] = (counts[e.classification] || 0) + 1;
-      }
-      sections.push(`\u5206\u7C7B\u7EDF\u8BA1\uFF1A`);
-      for (const [k, v] of Object.entries(counts)) {
-        sections.push(`- ${k}: ${v} \u4EFD`);
-      }
       sections.push(``);
     }
     return sections.join("\n");
@@ -2155,7 +2498,8 @@ var HealthAnalyzer = (() => {
         stepsDays: Object.keys(analysis.stepsByDate || data.steps || {}).length,
         sleepMean7d: lastNMeans(sleepTotals, 7),
         sleepDays: Object.keys(sleepTotals).length,
-        ecgCount: data.ecg?.length || 0,
+        ecgCount: analysis.ecgStats?.count ?? data.ecg?.length ?? 0,
+        ecgHighHrCount: analysis.ecgStats?.highHrCount ?? 0,
         exerciseMinMean7d: analysis.watchStats?.exerciseMinMean7d ?? null,
         activeKcalMean7d: analysis.watchStats?.activeKcalMean7d ?? null,
         spo2Mean7d: analysis.watchStats?.spo2Mean7d ?? null,
@@ -2166,7 +2510,11 @@ var HealthAnalyzer = (() => {
         watchDayCount: analysis.watchStats?.dayCount ?? 0,
         spo2NightMean7d: analysis.watchStats?.spo2NightMean7d ?? null,
         workoutCount30d: analysis.workoutStats?.count30d ?? 0,
-        workoutDuration30d: analysis.workoutStats?.durationSum30d ?? null
+        workoutDuration30d: analysis.workoutStats?.durationSum30d ?? null,
+        recoveryScore: analysis.recoveryWeek?.recoveryScore ?? null,
+        loadScore: analysis.recoveryWeek?.loadScore ?? null,
+        daylightMinMean7d: analysis.watchStats?.daylightMinMean7d ?? null,
+        standHoursMean7d: analysis.watchStats?.standHoursMean7d ?? null
       }
     };
   }
@@ -2192,7 +2540,12 @@ var HealthAnalyzer = (() => {
     { key: "vo2Latest", label: "VO\u2082 max \u6700\u65B0", unit: "mL/kg/min" },
     { key: "spo2NightMean7d", label: "\u591C\u6BB5\u8840\u6C27\u8FD1 7 \u5929\u5747\u503C", unit: "%" },
     { key: "workoutCount30d", label: "Workout \u8FD1 30 \u65E5\u573A\u6B21", unit: "\u573A" },
-    { key: "workoutDuration30d", label: "Workout \u8FD1 30 \u65E5\u603B\u5206\u949F", unit: "min" }
+    { key: "workoutDuration30d", label: "Workout \u8FD1 30 \u65E5\u603B\u5206\u949F", unit: "min" },
+    { key: "recoveryScore", label: "\u8FD1 7 \u65E5\u6062\u590D\u5206", unit: "" },
+    { key: "loadScore", label: "\u8FD1 7 \u65E5\u8D1F\u8377\u5206", unit: "" },
+    { key: "daylightMinMean7d", label: "\u65E5\u7167\u8FD1 7 \u5929\u65E5\u5747", unit: "min" },
+    { key: "standHoursMean7d", label: "\u7AD9\u7ACB\u5C0F\u65F6\u8FD1 7 \u5929\u65E5\u5747", unit: "h" },
+    { key: "ecgHighHrCount", label: "ECG \u9AD8\u5FC3\u7387\u4EFD\u6570", unit: "\u4EFD" }
   ];
   function compareSnapshots(previous, current) {
     const rows = [];
@@ -2361,6 +2714,8 @@ var HealthAnalyzer = (() => {
             "exercise_min",
             "stand_min",
             "daylight_min",
+            "stand_hours_stood",
+            "stand_hours_idle",
             "spo2_mean",
             "spo2_min",
             "spo2_night_mean",
@@ -2379,6 +2734,8 @@ var HealthAnalyzer = (() => {
             d.exerciseMin || "",
             d.standMin || "",
             d.daylightMin || "",
+            d.standHoursStood || "",
+            d.standHoursIdle || "",
             d.spo2Mean ?? "",
             d.spo2Min ?? "",
             d.spo2NightMean ?? "",
@@ -2403,6 +2760,7 @@ var HealthAnalyzer = (() => {
             "end",
             "date",
             "activity",
+            "activity_label",
             "duration_min",
             "active_kcal",
             "distance_km",
@@ -2418,6 +2776,7 @@ var HealthAnalyzer = (() => {
             s.endDate ?? "",
             s.date,
             s.activityType,
+            s.activityLabel || "",
             s.durationMin,
             s.activeKcal ?? "",
             s.distanceKm ?? "",
@@ -2487,6 +2846,8 @@ var HealthAnalyzer = (() => {
           lastSession: analysis.workoutStats.lastSession,
           sessions: analysis.workoutStats.sessions
         } : null,
+        recoveryWeek: analysis.recoveryWeek,
+        ecgStats: analysis.ecgStats,
         hrvByDate: analysis.hrvByDate,
         restingHrByDate: analysis.restingHrByDate,
         walkingHrByDate: analysis.walkingHrByDate,

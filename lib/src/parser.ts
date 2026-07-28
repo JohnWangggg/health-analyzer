@@ -55,6 +55,8 @@ function ensureWatchDay(data: HealthData, date: string): WatchDaySummary {
       exerciseMin: 0,
       standMin: 0,
       daylightMin: 0,
+      standHoursStood: 0,
+      standHoursIdle: 0,
       spo2Sum: 0,
       spo2Count: 0,
       spo2Min: Infinity,
@@ -80,6 +82,8 @@ function ensureWatchDay(data: HealthData, date: string): WatchDaySummary {
   if (w.spo2NightCount == null) w.spo2NightCount = 0;
   if (w.spo2DaySum == null) w.spo2DaySum = 0;
   if (w.spo2DayCount == null) w.spo2DayCount = 0;
+  if (w.standHoursStood == null) w.standHoursStood = 0;
+  if (w.standHoursIdle == null) w.standHoursIdle = 0;
   return w;
 }
 
@@ -92,6 +96,33 @@ export function xmlAttr(line: string, name: string): string | undefined {
 /** HKWorkoutActivityTypeWalking → Walking */
 export function shortWorkoutType(raw: string): string {
   return raw.replace(/^HKWorkoutActivityType/, '') || raw || 'Other';
+}
+
+/** Workout 类型中文名 */
+const WORKOUT_TYPE_ZH: Record<string, string> = {
+  Walking: '步行',
+  Running: '跑步',
+  Hiking: '徒步',
+  Cycling: '骑行',
+  Swimming: '游泳',
+  Yoga: '瑜伽',
+  Dance: '舞蹈',
+  Elliptical: '椭圆机',
+  Stairs: '爬楼梯',
+  StairClimbing: '爬楼梯机',
+  FunctionalStrengthTraining: '功能性力量',
+  TraditionalStrengthTraining: '传统力量',
+  HighIntensityIntervalTraining: '高强度间歇',
+  CoreTraining: '核心训练',
+  Flexibility: '柔韧',
+  Cooldown: '放松整理',
+  MixedCardio: '混合有氧',
+  Other: '其他',
+};
+
+export function workoutTypeLabel(activityType: string): string {
+  if (!activityType) return '其他';
+  return WORKOUT_TYPE_ZH[activityType] || activityType;
 }
 
 /** 日期是否晚于参考日（均 YYYY-MM-DD 字符串比较） */
@@ -233,7 +264,11 @@ export function processRecord(
   }
 
   const numericValue = Number.parseFloat(rec.value);
-  if (!Number.isFinite(numericValue) && rec.type !== 'HKCategoryTypeIdentifierSleepAnalysis') {
+  // 分类型 Record 的 value 非数字（睡眠阶段 / 站立小时等）
+  const isCategory =
+    rec.type === 'HKCategoryTypeIdentifierSleepAnalysis' ||
+    rec.type === 'HKCategoryTypeIdentifierAppleStandHour';
+  if (!Number.isFinite(numericValue) && !isCategory) {
     return;
   }
 
@@ -325,6 +360,14 @@ export function processRecord(
       data.dataAvailability.hasSleep = true;
     } catch {
       // ignore malformed
+    }
+  } else if (rec.type === 'HKCategoryTypeIdentifierAppleStandHour') {
+    const w = ensureWatchDay(data, date);
+    if (/Stood/i.test(rec.value)) {
+      w.standHoursStood += 1;
+      data.dataAvailability.hasWatchActivity = true;
+    } else if (/Idle/i.test(rec.value)) {
+      w.standHoursIdle += 1;
     }
   } else if (rec.type === 'HKQuantityTypeIdentifierActiveEnergyBurned') {
     if (!Number.isFinite(numericValue) || numericValue <= 0) return;
@@ -437,6 +480,7 @@ export function processWorkoutBlock(
     endDate: xmlAttr(head, 'endDate'),
     date,
     activityType,
+    activityLabel: workoutTypeLabel(activityType),
     durationMin,
     source: xmlAttr(head, 'sourceName'),
   };
@@ -617,7 +661,9 @@ export function finalizeData(data: HealthData): void {
         w.wristTempCount === 0 &&
         w.vo2Max == null &&
         w.breathingDisturbance == null &&
-        w.daylightMin === 0
+        w.daylightMin === 0 &&
+        (w.standHoursStood || 0) === 0 &&
+        (w.standHoursIdle || 0) === 0
       ) {
         delete data.watchDaily[d];
       } else {
@@ -895,6 +941,9 @@ export function parseEcgCsv(text: string): ERecordSummary {
       summary.classification = trimmed.replace('分类,', '').trim();
     } else if (trimmed.startsWith('设备,')) {
       summary.device = trimmed.replace('设备,', '').replace(/"/g, '').trim();
+    } else if (trimmed.startsWith('症状,')) {
+      const s = trimmed.replace('症状,', '').trim();
+      if (s) summary.symptoms = s;
     }
     // 英文变体
     else if (/^Record Date,/i.test(trimmed) || /^Date,/i.test(trimmed)) {
@@ -903,6 +952,9 @@ export function parseEcgCsv(text: string): ERecordSummary {
       summary.classification = trimmed.replace(/^[^,]+,/, '').trim();
     } else if (/^Device,/i.test(trimmed)) {
       summary.device = trimmed.replace(/^[^,]+,/, '').replace(/"/g, '').trim();
+    } else if (/^Symptoms,/i.test(trimmed)) {
+      const s = trimmed.replace(/^[^,]+,/, '').trim();
+      if (s) summary.symptoms = s;
     }
 
     // 采样行以数字或负号开头时跳过
@@ -911,7 +963,34 @@ export function parseEcgCsv(text: string): ERecordSummary {
     }
   }
 
+  // 文件名回退：ecg_2026-03-26.csv
+  if (!summary.datetime) {
+    // no-op
+  }
+
   return summary;
+}
+
+/**
+ * 批量解析 ECG CSV 文本列表，去重后排序
+ */
+export function mergeEcgEntries(
+  existing: ERecordSummary[] | undefined,
+  texts: string[]
+): ERecordSummary[] {
+  const list = [...(existing || [])];
+  const seen = new Set(list.map((e) => `${e.datetime}|${e.classification}`));
+  for (const text of texts) {
+    if (!text || (!text.includes('分类') && !/Classification/i.test(text))) continue;
+    const s = parseEcgCsv(text);
+    if (!s.datetime && s.classification === 'unknown') continue;
+    const k = `${s.datetime}|${s.classification}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    list.push(s);
+  }
+  list.sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
+  return list;
 }
 
 /**

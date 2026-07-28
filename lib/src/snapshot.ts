@@ -34,6 +34,7 @@ export interface AnalysisSnapshotMetrics {
   sleepMean7d: number | null;
   sleepDays: number;
   ecgCount: number;
+  ecgHighHrCount: number;
   /** Watch 近 7 日日均锻炼分钟 */
   exerciseMinMean7d: number | null;
   activeKcalMean7d: number | null;
@@ -46,6 +47,10 @@ export interface AnalysisSnapshotMetrics {
   spo2NightMean7d: number | null;
   workoutCount30d: number;
   workoutDuration30d: number | null;
+  recoveryScore: number | null;
+  loadScore: number | null;
+  daylightMinMean7d: number | null;
+  standHoursMean7d: number | null;
 }
 
 export interface AnalysisSnapshot {
@@ -142,7 +147,8 @@ export function buildAnalysisSnapshot(
       stepsDays: Object.keys(analysis.stepsByDate || data.steps || {}).length,
       sleepMean7d: lastNMeans(sleepTotals, 7),
       sleepDays: Object.keys(sleepTotals).length,
-      ecgCount: data.ecg?.length || 0,
+      ecgCount: analysis.ecgStats?.count ?? data.ecg?.length ?? 0,
+      ecgHighHrCount: analysis.ecgStats?.highHrCount ?? 0,
       exerciseMinMean7d: analysis.watchStats?.exerciseMinMean7d ?? null,
       activeKcalMean7d: analysis.watchStats?.activeKcalMean7d ?? null,
       spo2Mean7d: analysis.watchStats?.spo2Mean7d ?? null,
@@ -154,6 +160,10 @@ export function buildAnalysisSnapshot(
       spo2NightMean7d: analysis.watchStats?.spo2NightMean7d ?? null,
       workoutCount30d: analysis.workoutStats?.count30d ?? 0,
       workoutDuration30d: analysis.workoutStats?.durationSum30d ?? null,
+      recoveryScore: analysis.recoveryWeek?.recoveryScore ?? null,
+      loadScore: analysis.recoveryWeek?.loadScore ?? null,
+      daylightMinMean7d: analysis.watchStats?.daylightMinMean7d ?? null,
+      standHoursMean7d: analysis.watchStats?.standHoursMean7d ?? null,
     },
   };
 }
@@ -181,6 +191,11 @@ const DIFF_FIELDS: { key: keyof AnalysisSnapshotMetrics; label: string; unit: st
   { key: 'spo2NightMean7d', label: '夜段血氧近 7 天均值', unit: '%' },
   { key: 'workoutCount30d', label: 'Workout 近 30 日场次', unit: '场' },
   { key: 'workoutDuration30d', label: 'Workout 近 30 日总分钟', unit: 'min' },
+  { key: 'recoveryScore', label: '近 7 日恢复分', unit: '' },
+  { key: 'loadScore', label: '近 7 日负荷分', unit: '' },
+  { key: 'daylightMinMean7d', label: '日照近 7 天日均', unit: 'min' },
+  { key: 'standHoursMean7d', label: '站立小时近 7 天日均', unit: 'h' },
+  { key: 'ecgHighHrCount', label: 'ECG 高心率份数', unit: '份' },
 ];
 
 /** 对比两次快照的关键指标 */

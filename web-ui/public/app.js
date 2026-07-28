@@ -507,11 +507,22 @@
         } else {
           throw new Error('请选择 .zip 包或 .xml 文件');
         }
+        // ZIP/XML 同批上传的 ECG CSV 一并收录
+        if (!ecgFiles.length) {
+          ecgFiles = files.filter(
+            (f) =>
+              f.name.endsWith('.csv') &&
+              (f.name.includes('ecg') ||
+                (f.webkitRelativePath || '').includes('electrocardiograms'))
+          );
+        }
       } else if (source === 'xml_only') {
         const xmlFile = files.find(f => f.name.endsWith('.xml'));
         if (!xmlFile) throw new Error('未选择 XML 文件');
         setProgress(0.04, '读取 XML…', { stage: 'read' });
         xmlText = await readFileAsText(xmlFile);
+        // 同批多选的 CSV 一并尝试作为 ECG（内容校验在 ingest）
+        ecgFiles = files.filter((f) => f.name.endsWith('.csv'));
       } else if (source === 'folder') {
         const xmlFile = files.find(f => /export|导出/i.test(f.name) && f.name.endsWith('.xml'));
         if (!xmlFile) throw new Error('文件夹中未找到 export.xml 或 导出.xml');
@@ -832,6 +843,8 @@
       'summary-hrv': { section: 'step-summary', panel: 'hrv', chart: 'hrv' },
       'summary-watch': { section: 'step-summary', panel: 'watch', chart: 'spo2' },
       'summary-workout': { section: 'step-summary', panel: 'workout', chart: 'workout' },
+      'summary-recovery': { section: 'step-summary', panel: 'recovery' },
+      'summary-ecg': { section: 'step-summary', panel: 'ecg' },
       signals: { section: 'step-signals' },
       charts: { section: 'step-charts' },
       'charts-weight': { section: 'step-charts', chart: 'weight' },
@@ -930,6 +943,7 @@
     if (/血压/.test(t)) return 'bp';
     if (/体重|体脂/.test(t)) return 'weight';
     if (/HRV|心率变异/.test(t)) return 'hrv';
+    if (/负荷|恢复/.test(t)) return 'recovery';
     if (/Workout|训练会话|训练/.test(t)) return 'workout';
     if (/Watch|血氧|VO₂|VO2|腕温|锻炼|活动/.test(t)) return 'watch';
     if (/静息|步行心率|心率/.test(t)) return 'hr';
@@ -1147,6 +1161,32 @@
           (wos.hrAvgMean30d != null ? ` · 均HR ${wos.hrAvgMean30d.toFixed(0)}` : '') +
           ` · 共 ${wos.count} 场`,
         tone: wos.count30d >= 8 ? 'good' : wos.count30d === 0 ? 'watch' : 'neutral',
+      });
+    }
+    const rw = analysis.recoveryWeek;
+    if (rw && (rw.recoveryScore != null || rw.loadScore != null)) {
+      items.push({
+        label: '周恢复',
+        value: rw.recoveryScore != null ? String(rw.recoveryScore) : '—',
+        unit: '分',
+        sub:
+          (rw.loadScore != null ? `负荷 ${rw.loadScore}` : '') +
+          (rw.statusLabel ? ` · ${rw.statusLabel.slice(0, 18)}` : ''),
+        tone:
+          rw.statusTone === 'positive' ? 'good' :
+          rw.statusTone === 'watch' || rw.statusTone === 'alert' ? 'watch' : 'neutral',
+      });
+    }
+    if (analysis.ecgStats && analysis.ecgStats.count > 0) {
+      const es = analysis.ecgStats;
+      items.push({
+        label: 'ECG',
+        value: String(es.count),
+        unit: '份',
+        sub:
+          (es.highHrCount ? `高心率 ${es.highHrCount} · ` : '') +
+          (es.latest ? es.latest.classification : '有记录'),
+        tone: es.highHrCount >= 2 ? 'watch' : 'neutral',
       });
     }
     if (!items.length) {
@@ -1923,6 +1963,8 @@
             <tr><td>夜间心率 (0–6h)</td><td class="num">${ws.nightHrMean7d != null ? ws.nightHrMean7d.toFixed(0) + ' bpm' : '—'}</td></tr>
             <tr><td>VO₂ max 最新 / Δ</td><td class="num">${ws.vo2Latest != null ? ws.vo2Latest.toFixed(1) : '—'} / ${vo2Delta}</td></tr>
             <tr><td>睡眠腕温日均</td><td class="num">${ws.wristTempMean7d != null ? ws.wristTempMean7d.toFixed(2) + ' °C' : '—'}</td></tr>
+            <tr><td>日照日均</td><td class="num">${ws.daylightMinMean7d != null ? ws.daylightMinMean7d.toFixed(0) + ' min' : '—'}</td></tr>
+            <tr><td>站立小时日均</td><td class="num">${ws.standHoursMean7d != null ? ws.standHoursMean7d.toFixed(1) : '—'}</td></tr>
             <tr><td>有数据天数</td><td class="num">${ws.dayCount}（血氧 ${ws.spo2DayCount} · VO₂ ${ws.vo2DayCount}）</td></tr>
           </table>
           <table class="summary-table">
@@ -1938,10 +1980,10 @@
     if (analysis.workoutStats && analysis.workoutStats.count > 0) {
       const wos = analysis.workoutStats;
       const typeRows = wos.byType.slice(0, 8).map((t) =>
-        `<tr><td>${escapeHtml(t.activityType)}</td><td class="num">${t.count}</td><td class="num">${t.durationMin.toFixed(0)}</td><td class="num">${t.activeKcal ? t.activeKcal.toFixed(0) : '—'}</td></tr>`
+        `<tr><td>${escapeHtml(t.activityLabel || t.activityType)}</td><td class="num">${t.count}</td><td class="num">${t.durationMin.toFixed(0)}</td><td class="num">${t.activeKcal ? t.activeKcal.toFixed(0) : '—'}</td></tr>`
       ).join('');
       const recent = wos.sessions.slice(-8).reverse().map((s) => {
-        return `<tr><td>${escapeHtml(s.startDate.slice(0, 16))}</td><td>${escapeHtml(s.activityType)}</td><td class="num">${s.durationMin.toFixed(0)}</td><td class="num">${s.activeKcal != null ? s.activeKcal.toFixed(0) : '—'}</td><td class="num">${s.hrAvg != null ? s.hrAvg.toFixed(0) : '—'}</td><td class="num">${s.hrMax != null ? s.hrMax.toFixed(0) : '—'}</td></tr>`;
+        return `<tr><td>${escapeHtml(s.startDate.slice(0, 16))}</td><td>${escapeHtml(s.activityLabel || s.activityType)}</td><td class="num">${s.durationMin.toFixed(0)}</td><td class="num">${s.activeKcal != null ? s.activeKcal.toFixed(0) : '—'}</td><td class="num">${s.hrAvg != null ? s.hrAvg.toFixed(0) : '—'}</td><td class="num">${s.hrMax != null ? s.hrMax.toFixed(0) : '—'}</td></tr>`;
       }).join('');
       blocks.push(`
         <div class="section-block">
@@ -1966,17 +2008,43 @@
       `);
     }
 
+    // 周恢复仪表
+    if (analysis.recoveryWeek) {
+      const rw = analysis.recoveryWeek;
+      const row = (label, val) =>
+        val == null || val === ''
+          ? ''
+          : `<tr><td>${label}</td><td class="num">${escapeHtml(String(val))}</td></tr>`;
+      blocks.push(`
+        <div class="section-block">
+          <h3>🧭 近 7 日负荷与恢复</h3>
+          <p class="hint" style="margin:0 0 8px;">截止 ${escapeHtml(rw.weekEnd)} · ${escapeHtml(rw.statusLabel)}（启发式，非诊断）</p>
+          <table class="summary-table">
+            <tr><th>指标</th><th>值</th></tr>
+            ${row('恢复分', rw.recoveryScore != null ? rw.recoveryScore + ' / 100' : null)}
+            ${row('负荷分', rw.loadScore != null ? rw.loadScore + ' / 100' : null)}
+            ${row('HRV 日均', rw.hrvMean7d != null ? rw.hrvMean7d.toFixed(1) + ' ms' : null)}
+            ${row('夜间心率', rw.nightHrMean7d != null ? rw.nightHrMean7d.toFixed(0) + ' bpm' : null)}
+            ${row('静息心率', rw.restingHrMean7d != null ? rw.restingHrMean7d.toFixed(0) + ' bpm' : null)}
+            ${row('锻炼日均', rw.exerciseMinMean7d != null ? rw.exerciseMinMean7d.toFixed(0) + ' min' : null)}
+            ${row('Workout', rw.workoutCount7d + ' 场 · ' + rw.workoutDuration7d.toFixed(0) + ' min')}
+            ${row('睡眠日均', rw.sleepMean7d != null ? rw.sleepMean7d.toFixed(2) + ' h' : null)}
+            ${row('步数日均', rw.stepsMean7d != null ? Math.round(rw.stepsMean7d) + ' 步' : null)}
+            ${row('站立小时日均', rw.standHoursMean7d != null ? rw.standHoursMean7d.toFixed(1) : null)}
+            ${row('日照日均', rw.daylightMinMean7d != null ? rw.daylightMinMean7d.toFixed(0) + ' min' : null)}
+            ${row('夜段血氧', rw.spo2NightMean7d != null ? rw.spo2NightMean7d.toFixed(1) + '%' : null)}
+          </table>
+        </div>
+      `);
+    }
+
     // ECG 分类汇总
-    if (data.ecg && data.ecg.length > 0) {
-      const counts = {};
-      for (const e of data.ecg) {
-        const k = e.classification || 'unknown';
-        counts[k] = (counts[k] || 0) + 1;
-      }
-      const classRows = Object.keys(counts).sort().map(k =>
-        `<tr><td>${escapeHtml(k)}</td><td class="num">${counts[k]}</td></tr>`
+    if (analysis.ecgStats && analysis.ecgStats.count > 0) {
+      const es = analysis.ecgStats;
+      const classRows = es.byClassification.map((r) =>
+        `<tr><td>${escapeHtml(r.classification)}</td><td class="num">${r.count}</td></tr>`
       ).join('');
-      const recentList = data.ecg.slice(-5).reverse().map(e => {
+      const recentList = data.ecg.slice(-8).reverse().map(e => {
         const dt = e.datetime ? escapeHtml(String(e.datetime).slice(0, 16)) : '—';
         const cls = escapeHtml(e.classification || 'unknown');
         return `<tr><td>${dt}</td><td>${cls}</td></tr>`;
@@ -1986,19 +2054,29 @@
           <h3>📈 ECG 心电图</h3>
           <table class="summary-table">
             <tr><th>指标</th><th>值</th></tr>
-            <tr><td>总份数</td><td class="num">${data.ecg.length}</td></tr>
+            <tr><td>总份数</td><td class="num">${es.count}</td></tr>
+            <tr><td>窦性 / 高心率 / 不佳</td><td class="num">${es.sinusCount} / ${es.highHrCount} / ${es.inconclusiveCount}</td></tr>
+            ${es.latest ? `<tr><td>最近</td><td class="num">${escapeHtml(String(es.latest.datetime).slice(0, 16))} · ${escapeHtml(es.latest.classification)}</td></tr>` : ''}
           </table>
           <table class="summary-table">
             <tr><th>分类</th><th>份数</th></tr>
             ${classRows}
           </table>
           <details style="margin-top:8px;">
-            <summary style="cursor:pointer;color:var(--primary);font-size:13px;">最近 5 份记录</summary>
+            <summary style="cursor:pointer;color:var(--primary);font-size:13px;">最近记录</summary>
             <table class="summary-table" style="margin-top:8px;">
               <tr><th>时间</th><th>分类</th></tr>
               ${recentList}
             </table>
           </details>
+          <p class="hint" style="margin-top:8px;">请优先上传完整 ZIP 或含 electrocardiograms/ 的文件夹以收录 ECG。</p>
+        </div>
+      `);
+    } else if (data.ecg && data.ecg.length > 0) {
+      blocks.push(`
+        <div class="section-block">
+          <h3>📈 ECG 心电图</h3>
+          <p class="hint">共 ${data.ecg.length} 份</p>
         </div>
       `);
     }
