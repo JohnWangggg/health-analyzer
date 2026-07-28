@@ -230,6 +230,80 @@ export function detectCrossSignals(analysis: FullAnalysis): CrossSignal[] {
         dimensions: ['夜间心率', '静息心率'],
       });
     }
+
+    // 夜段血氧明显低于日段 / 夜段偏低
+    if (ws.spo2NightMin7d != null && ws.spo2NightMin7d < 92) {
+      signals.push({
+        severity: 'watch',
+        title: '近 7 日夜段血氧出现低值',
+        detail: `夜段(0–8点)最低约 ${ws.spo2NightMin7d.toFixed(1)}%` +
+          (ws.spo2NightMean7d != null ? `，夜段均值约 ${ws.spo2NightMean7d.toFixed(1)}%` : '') +
+          (ws.spo2DayMean7d != null ? `；日段均值约 ${ws.spo2DayMean7d.toFixed(1)}%` : '') +
+          '。夜段偏低更需结合睡眠姿势、呼吸与症状；无症状时优先复测与趋势观察。',
+        dimensions: ['血氧', '睡眠'],
+      });
+    } else if (
+      ws.spo2NightMean7d != null &&
+      ws.spo2DayMean7d != null &&
+      ws.spo2NightMean7d <= ws.spo2DayMean7d - 1.5
+    ) {
+      signals.push({
+        severity: 'info',
+        title: '夜段血氧均值低于日段',
+        detail: `近 7 日夜段 SpO₂ 均值约 ${ws.spo2NightMean7d.toFixed(1)}%，日段约 ${ws.spo2DayMean7d.toFixed(1)}%。差值在 Watch 测量误差范围内也可出现；若伴打鼾/白天嗜睡可记录后咨询医生。`,
+        dimensions: ['血氧', '睡眠'],
+      });
+    }
+
+    // 活动 × HRV × 夜间心率：恢复压力组合
+    if (
+      hrvBase != null &&
+      ws.nightHrMean7d != null &&
+      restBase != null &&
+      hrvBase < 28 &&
+      ws.nightHrMean7d >= restBase + 5
+    ) {
+      const ex = ws.exerciseMinMean7d;
+      const wos = analysis.workoutStats;
+      const trainNote =
+        wos && wos.count7d > 0
+          ? `近 7 日 Workout ${wos.count7d} 场、共约 ${wos.durationSum7d.toFixed(0)} 分钟`
+          : ex != null
+            ? `近 7 日日均锻炼约 ${ex.toFixed(0)} 分钟`
+            : '近期活动';
+      signals.push({
+        severity: hrvBase < 22 ? 'watch' : 'info',
+        title: '恢复偏紧（HRV↓ + 夜 HR↑）',
+        detail: `${trainNote}；HRV 近 7 日均约 ${hrvBase.toFixed(1)} ms，夜间心率约 ${ws.nightHrMean7d.toFixed(0)} bpm（静息约 ${restBase.toFixed(0)}）。可能反映睡眠/负荷/疾病恢复压力，建议优先睡眠与低强度日，避免连续高强度。`,
+        dimensions: ['HRV', '夜间心率', 'Watch活动'],
+      });
+    }
+  }
+
+  // Workout：大负荷次日 HRV 明显偏低
+  const wos = analysis.workoutStats;
+  if (wos && wos.sessions.length && Object.keys(hrvByDate).length) {
+    for (const s of wos.sessions.slice(-20)) {
+      if ((s.durationMin || 0) < 40 && (s.activeKcal || 0) < 300) continue;
+      // 次日日历
+      const next = new Date(`${s.date}T00:00:00Z`);
+      next.setUTCDate(next.getUTCDate() + 1);
+      const nextDate = next.toISOString().slice(0, 10);
+      const hNext = hrvByDate[nextDate];
+      if (!hNext || hrvBase == null) continue;
+      if (hNext.allMean < hrvBase * 0.75) {
+        signals.push({
+          severity: 'info',
+          date: nextDate,
+          title: '较大训练后次日 HRV 偏低',
+          detail: `${s.date} ${s.activityType} 约 ${s.durationMin.toFixed(0)} min` +
+            (s.activeKcal != null ? ` / ${s.activeKcal.toFixed(0)} kcal` : '') +
+            (s.hrAvg != null ? `，均 HR ${s.hrAvg.toFixed(0)}` : '') +
+            `；次日 ${nextDate} HRV ${hNext.allMean.toFixed(1)} ms（近 7 日均 ${hrvBase.toFixed(1)}）。属常见恢复反应，可安排轻松日。`,
+          dimensions: ['Workout', 'HRV'],
+        });
+      }
+    }
   }
 
   // 去重：同 title+date

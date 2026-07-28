@@ -483,10 +483,59 @@
           legend: [{ color: '#8e44ad', label: 'VO₂ max', dashed: false }],
         });
       }
+      let nightSpo2 = wdays
+        .filter((d) => d.spo2NightMean != null && Number.isFinite(d.spo2NightMean))
+        .map((d) => ({ x: d.date, y: d.spo2NightMean }));
+      nightSpo2 = sliceByDays(nightSpo2, watchDays);
+      if (nightSpo2.length >= 2) {
+        blocks.push({
+          key: 'spo2-night',
+          title: `夜段血氧 SpO₂（0–8h，${rangeLabel(watchDays)}）`,
+          color: '#2980b9',
+          yLabel: '%',
+          unit: '%',
+          points: nightSpo2,
+          thresholds: [
+            { y: 95, color: '#e67e22', label: '95' },
+            { y: 92, color: '#c0392b', label: '92' },
+          ],
+          legend: [
+            { color: '#2980b9', label: '夜段 SpO₂', dashed: false },
+            { color: '#e67e22', label: '95%', dashed: true },
+            { color: '#c0392b', label: '92%', dashed: true },
+          ],
+        });
+      }
+    }
+
+    const wos = analysis.workoutStats;
+    if (wos && wos.sessions && wos.sessions.length > 0) {
+      const workoutDays = daysOpt === undefined ? 90 : daysOpt;
+      // 按日汇总时长
+      const byDate = {};
+      for (const s of wos.sessions) {
+        if (!byDate[s.date]) byDate[s.date] = 0;
+        byDate[s.date] += s.durationMin || 0;
+      }
+      let wPts = Object.keys(byDate)
+        .sort()
+        .map((d) => ({ x: d, y: byDate[d] }));
+      wPts = sliceByDays(wPts, workoutDays);
+      if (wPts.length >= 2 && wPts.some((p) => p.y > 0)) {
+        blocks.push({
+          key: 'workout',
+          title: `Workout 日总时长（${rangeLabel(workoutDays)}）`,
+          color: '#d35400',
+          yLabel: 'min',
+          unit: 'min',
+          points: wPts,
+          legend: [{ color: '#d35400', label: '训练 min', dashed: false }],
+        });
+      }
     }
 
     if (blocks.length === 0) {
-      container.innerHTML = '<div class="chart-empty">当前数据维度不足以绘制趋势图。上传含 CGM / 体重 / HRV / 血压 / Watch 的导出后再试。</div>';
+      container.innerHTML = '<div class="chart-empty">当前数据维度不足以绘制趋势图。上传含 CGM / 体重 / HRV / 血压 / Watch / Workout 的导出后再试。</div>';
       return;
     }
 

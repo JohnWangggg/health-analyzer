@@ -70,6 +70,14 @@ export interface WatchDaySummary {
   spo2Sum: number;
   spo2Count: number;
   spo2Min: number;
+  /** 夜段 0–8 点血氧 */
+  spo2NightSum: number;
+  spo2NightCount: number;
+  spo2NightMin: number;
+  /** 日段 8–24 点血氧 */
+  spo2DaySum: number;
+  spo2DayCount: number;
+  spo2DayMin: number;
   rrSum: number;
   rrCount: number;
   nightHrSum: number;
@@ -80,6 +88,24 @@ export interface WatchDaySummary {
   wristTempCount: number;
   /** 睡眠呼吸紊乱指数类指标（若有） */
   breathingDisturbance?: number;
+}
+
+/** 单次 Workout 会话（来自 <Workout> 块，非逐条 Record） */
+export interface WorkoutSession {
+  startDate: string;
+  endDate?: string;
+  date: string;
+  /** 去前缀后的类型，如 Walking / Running */
+  activityType: string;
+  durationMin: number;
+  activeKcal?: number;
+  distanceKm?: number;
+  hrAvg?: number;
+  hrMin?: number;
+  hrMax?: number;
+  avgMets?: number;
+  indoor?: boolean;
+  source?: string;
 }
 
 export interface HealthData {
@@ -102,6 +128,8 @@ export interface HealthData {
   }>;
   /** Watch 日汇总 */
   watchDaily: Record<string, WatchDaySummary>;
+  /** Workout 会话列表 */
+  workouts: WorkoutSession[];
   ecg: ERecordSummary[];
   dataAvailability: DataAvailability;
   dataQuality: DataQualityInfo;
@@ -128,6 +156,7 @@ export interface DataAvailability {
   hasVo2Max: boolean;
   hasWatchActivity: boolean;
   hasWristTemp: boolean;
+  hasWorkouts: boolean;
 }
 
 // ============================================================
@@ -249,6 +278,10 @@ export interface WatchDayView {
   daylightMin: number;
   spo2Mean: number | null;
   spo2Min: number | null;
+  spo2NightMean: number | null;
+  spo2NightMin: number | null;
+  spo2DayMean: number | null;
+  spo2DayMin: number | null;
   rrMean: number | null;
   nightHrMean: number | null;
   vo2Max: number | null;
@@ -264,6 +297,10 @@ export interface WatchStats {
   spo2Mean7d: number | null;
   /** 近 7 个有样本日的日最低 SpO₂ 中的最小值 */
   spo2Min7d: number | null;
+  spo2NightMean7d: number | null;
+  spo2NightMin7d: number | null;
+  spo2DayMean7d: number | null;
+  spo2DayMin7d: number | null;
   rrMean7d: number | null;
   nightHrMean7d: number | null;
   vo2Latest: number | null;
@@ -272,7 +309,34 @@ export interface WatchStats {
   wristTempMean7d: number | null;
   dayCount: number;
   spo2DayCount: number;
+  spo2NightDayCount: number;
   vo2DayCount: number;
+}
+
+export interface WorkoutTypeSummary {
+  activityType: string;
+  count: number;
+  durationMin: number;
+  activeKcal: number;
+}
+
+export interface WorkoutStats {
+  sessions: WorkoutSession[];
+  count: number;
+  totalDurationMin: number;
+  totalActiveKcal: number;
+  /** 近 30 日场次 */
+  count30d: number;
+  durationSum30d: number;
+  durationMean30d: number | null;
+  activeKcalSum30d: number;
+  /** 近 7 日场次 / 总分钟 */
+  count7d: number;
+  durationSum7d: number;
+  byType: WorkoutTypeSummary[];
+  lastSession: WorkoutSession | null;
+  /** 近 30 日均心率（有 HR 的场次） */
+  hrAvgMean30d: number | null;
 }
 
 export interface FullAnalysis {
@@ -281,6 +345,7 @@ export interface FullAnalysis {
   bpStats: BloodPressureStats | null;
   weightStats: WeightStats | null;
   watchStats: WatchStats | null;
+  workoutStats: WorkoutStats | null;
   hrvByDate: Record<string, HrvDaySummary>;
   restingHrByDate: Record<string, number>;
   walkingHrByDate: Record<string, number>;

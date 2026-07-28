@@ -181,6 +181,10 @@ export function buildExportBundle(analysis: FullAnalysis): ExportBundle {
           'daylight_min',
           'spo2_mean',
           'spo2_min',
+          'spo2_night_mean',
+          'spo2_night_min',
+          'spo2_day_mean',
+          'spo2_day_min',
           'rr_mean',
           'night_hr_mean',
           'vo2_max',
@@ -195,11 +199,53 @@ export function buildExportBundle(analysis: FullAnalysis): ExportBundle {
           d.daylightMin || '',
           d.spo2Mean ?? '',
           d.spo2Min ?? '',
+          d.spo2NightMean ?? '',
+          d.spo2NightMin ?? '',
+          d.spo2DayMean ?? '',
+          d.spo2DayMin ?? '',
           d.rrMean ?? '',
           d.nightHrMean ?? '',
           d.vo2Max ?? '',
           d.wristTempMean ?? '',
           d.breathingDisturbance ?? '',
+        ])
+      ),
+    });
+  }
+
+  if (analysis.workoutStats?.sessions?.length) {
+    csvFiles.push({
+      filename: 'workouts.csv',
+      content: toCsv(
+        [
+          'start',
+          'end',
+          'date',
+          'activity',
+          'duration_min',
+          'active_kcal',
+          'distance_km',
+          'hr_avg',
+          'hr_min',
+          'hr_max',
+          'avg_mets',
+          'indoor',
+          'source',
+        ],
+        analysis.workoutStats.sessions.map((s) => [
+          s.startDate,
+          s.endDate ?? '',
+          s.date,
+          s.activityType,
+          s.durationMin,
+          s.activeKcal ?? '',
+          s.distanceKm ?? '',
+          s.hrAvg ?? '',
+          s.hrMin ?? '',
+          s.hrMax ?? '',
+          s.avgMets ?? '',
+          s.indoor == null ? '' : s.indoor ? 1 : 0,
+          s.source ?? '',
         ])
       ),
     });
@@ -236,11 +282,16 @@ export function buildExportBundle(analysis: FullAnalysis): ExportBundle {
         ? {
             dayCount: analysis.watchStats.dayCount,
             spo2DayCount: analysis.watchStats.spo2DayCount,
+            spo2NightDayCount: analysis.watchStats.spo2NightDayCount,
             vo2DayCount: analysis.watchStats.vo2DayCount,
             activeKcalMean7d: analysis.watchStats.activeKcalMean7d,
             exerciseMinMean7d: analysis.watchStats.exerciseMinMean7d,
             spo2Mean7d: analysis.watchStats.spo2Mean7d,
             spo2Min7d: analysis.watchStats.spo2Min7d,
+            spo2NightMean7d: analysis.watchStats.spo2NightMean7d,
+            spo2NightMin7d: analysis.watchStats.spo2NightMin7d,
+            spo2DayMean7d: analysis.watchStats.spo2DayMean7d,
+            spo2DayMin7d: analysis.watchStats.spo2DayMin7d,
             rrMean7d: analysis.watchStats.rrMean7d,
             nightHrMean7d: analysis.watchStats.nightHrMean7d,
             vo2Latest: analysis.watchStats.vo2Latest,
@@ -248,6 +299,20 @@ export function buildExportBundle(analysis: FullAnalysis): ExportBundle {
             vo2Delta: analysis.watchStats.vo2Delta,
             wristTempMean7d: analysis.watchStats.wristTempMean7d,
             days: analysis.watchStats.days,
+          }
+        : null,
+      workoutStats: analysis.workoutStats
+        ? {
+            count: analysis.workoutStats.count,
+            count30d: analysis.workoutStats.count30d,
+            count7d: analysis.workoutStats.count7d,
+            durationSum30d: analysis.workoutStats.durationSum30d,
+            durationSum7d: analysis.workoutStats.durationSum7d,
+            activeKcalSum30d: analysis.workoutStats.activeKcalSum30d,
+            hrAvgMean30d: analysis.workoutStats.hrAvgMean30d,
+            byType: analysis.workoutStats.byType,
+            lastSession: analysis.workoutStats.lastSession,
+            sessions: analysis.workoutStats.sessions,
           }
         : null,
       hrvByDate: analysis.hrvByDate,

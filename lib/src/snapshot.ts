@@ -43,6 +43,9 @@ export interface AnalysisSnapshotMetrics {
   vo2Latest: number | null;
   vo2Delta: number | null;
   watchDayCount: number;
+  spo2NightMean7d: number | null;
+  workoutCount30d: number;
+  workoutDuration30d: number | null;
 }
 
 export interface AnalysisSnapshot {
@@ -148,6 +151,9 @@ export function buildAnalysisSnapshot(
       vo2Latest: analysis.watchStats?.vo2Latest ?? null,
       vo2Delta: analysis.watchStats?.vo2Delta ?? null,
       watchDayCount: analysis.watchStats?.dayCount ?? 0,
+      spo2NightMean7d: analysis.watchStats?.spo2NightMean7d ?? null,
+      workoutCount30d: analysis.workoutStats?.count30d ?? 0,
+      workoutDuration30d: analysis.workoutStats?.durationSum30d ?? null,
     },
   };
 }
@@ -172,6 +178,9 @@ const DIFF_FIELDS: { key: keyof AnalysisSnapshotMetrics; label: string; unit: st
   { key: 'spo2Mean7d', label: '血氧近 7 天均值', unit: '%' },
   { key: 'nightHrMean7d', label: '夜间心率近 7 天', unit: 'bpm' },
   { key: 'vo2Latest', label: 'VO₂ max 最新', unit: 'mL/kg/min' },
+  { key: 'spo2NightMean7d', label: '夜段血氧近 7 天均值', unit: '%' },
+  { key: 'workoutCount30d', label: 'Workout 近 30 日场次', unit: '场' },
+  { key: 'workoutDuration30d', label: 'Workout 近 30 日总分钟', unit: 'min' },
 ];
 
 /** 对比两次快照的关键指标 */

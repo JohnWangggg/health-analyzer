@@ -19,6 +19,9 @@ import {
   WatchStats,
   WatchDayView,
   WatchDaySummary,
+  WorkoutSession,
+  WorkoutStats,
+  WorkoutTypeSummary,
 } from './types';
 import { getDate, getHour, parseAppleDate } from './parser';
 
@@ -290,6 +293,8 @@ function minLastN(values: (number | null | undefined)[], n: number): number | nu
 }
 
 function toWatchView(date: string, w: WatchDaySummary): WatchDayView {
+  const finiteMin = (v: number, count: number) =>
+    count > 0 && v > 0 && v < Infinity ? v : null;
   return {
     date,
     activeKcal: w.activeKcal,
@@ -297,7 +302,11 @@ function toWatchView(date: string, w: WatchDaySummary): WatchDayView {
     standMin: w.standMin,
     daylightMin: w.daylightMin,
     spo2Mean: w.spo2Count > 0 ? w.spo2Sum / w.spo2Count : null,
-    spo2Min: w.spo2Count > 0 && w.spo2Min > 0 && w.spo2Min < Infinity ? w.spo2Min : null,
+    spo2Min: finiteMin(w.spo2Min, w.spo2Count),
+    spo2NightMean: w.spo2NightCount > 0 ? w.spo2NightSum / w.spo2NightCount : null,
+    spo2NightMin: finiteMin(w.spo2NightMin, w.spo2NightCount),
+    spo2DayMean: w.spo2DayCount > 0 ? w.spo2DaySum / w.spo2DayCount : null,
+    spo2DayMin: finiteMin(w.spo2DayMin, w.spo2DayCount),
     rrMean: w.rrCount > 0 ? w.rrSum / w.rrCount : null,
     nightHrMean: w.nightHrCount > 0 ? w.nightHrSum / w.nightHrCount : null,
     vo2Max: w.vo2Max ?? null,
@@ -324,6 +333,10 @@ export function calcWatchStats(watchDaily: Record<string, WatchDaySummary> | und
     spo2Mean7d: meanLastN(days.map((d) => d.spo2Mean), 7),
     // 近 7 个有血氧日的「日最低」中的最小值（不是日最低的均值）
     spo2Min7d: minLastN(days.map((d) => d.spo2Min), 7),
+    spo2NightMean7d: meanLastN(days.map((d) => d.spo2NightMean), 7),
+    spo2NightMin7d: minLastN(days.map((d) => d.spo2NightMin), 7),
+    spo2DayMean7d: meanLastN(days.map((d) => d.spo2DayMean), 7),
+    spo2DayMin7d: minLastN(days.map((d) => d.spo2DayMin), 7),
     rrMean7d: meanLastN(days.map((d) => d.rrMean), 7),
     nightHrMean7d: meanLastN(days.map((d) => d.nightHrMean), 7),
     vo2Latest,
@@ -333,7 +346,74 @@ export function calcWatchStats(watchDaily: Record<string, WatchDaySummary> | und
     wristTempMean7d: meanLastN(days.map((d) => d.wristTempMean), 7),
     dayCount: days.length,
     spo2DayCount: days.filter((d) => d.spo2Mean != null).length,
+    spo2NightDayCount: days.filter((d) => d.spo2NightMean != null).length,
     vo2DayCount: vo2Series.length,
+  };
+}
+
+function daysBetween(a: string, b: string): number {
+  const ta = Date.parse(`${a}T00:00:00Z`);
+  const tb = Date.parse(`${b}T00:00:00Z`);
+  if (!Number.isFinite(ta) || !Number.isFinite(tb)) return 0;
+  return Math.round((tb - ta) / (24 * 3600 * 1000));
+}
+
+/** Workout 会话汇总；referenceDate 默认用最后一场日期，analyzeAll 传入数据结束日更合理 */
+export function calcWorkoutStats(
+  workouts: WorkoutSession[] | undefined,
+  referenceDate?: string
+): WorkoutStats | null {
+  if (!workouts || !workouts.length) return null;
+  const sessions = [...workouts].sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const last = sessions[sessions.length - 1];
+  const latestDate =
+    referenceDate && /^\d{4}-\d{2}-\d{2}$/.test(referenceDate)
+      ? referenceDate
+      : last.date;
+
+  const inWindow = (s: WorkoutSession, days: number) =>
+    daysBetween(s.date, latestDate) <= days - 1 && s.date <= latestDate;
+
+  const s30 = sessions.filter((s) => inWindow(s, 30));
+  const s7 = sessions.filter((s) => inWindow(s, 7));
+
+  const sumDur = (list: WorkoutSession[]) => list.reduce((a, s) => a + (s.durationMin || 0), 0);
+  const sumKcal = (list: WorkoutSession[]) =>
+    list.reduce((a, s) => a + (s.activeKcal != null && Number.isFinite(s.activeKcal) ? s.activeKcal : 0), 0);
+
+  const byTypeMap = new Map<string, WorkoutTypeSummary>();
+  for (const s of sessions) {
+    const cur = byTypeMap.get(s.activityType) || {
+      activityType: s.activityType,
+      count: 0,
+      durationMin: 0,
+      activeKcal: 0,
+    };
+    cur.count += 1;
+    cur.durationMin += s.durationMin || 0;
+    cur.activeKcal += s.activeKcal || 0;
+    byTypeMap.set(s.activityType, cur);
+  }
+  const byType = [...byTypeMap.values()].sort((a, b) => b.durationMin - a.durationMin);
+
+  const hr30 = s30.map((s) => s.hrAvg).filter((v): v is number => v != null && Number.isFinite(v));
+  const hrAvgMean30d =
+    hr30.length > 0 ? hr30.reduce((a, b) => a + b, 0) / hr30.length : null;
+
+  return {
+    sessions,
+    count: sessions.length,
+    totalDurationMin: sumDur(sessions),
+    totalActiveKcal: sumKcal(sessions),
+    count30d: s30.length,
+    durationSum30d: sumDur(s30),
+    durationMean30d: s30.length ? sumDur(s30) / s30.length : null,
+    activeKcalSum30d: sumKcal(s30),
+    count7d: s7.length,
+    durationSum7d: sumDur(s7),
+    byType,
+    lastSession: last,
+    hrAvgMean30d,
   };
 }
 
@@ -350,6 +430,7 @@ export function analyzeAll(data: HealthData): FullAnalysis {
     ...Object.keys(data.steps),
     ...Object.keys(data.sleep),
     ...Object.keys(data.watchDaily || {}),
+    ...(data.workouts || []).map((w) => w.date),
   ];
   allDates.sort();
   const start = allDates[0] || '';
@@ -361,6 +442,8 @@ export function analyzeAll(data: HealthData): FullAnalysis {
     bpStats: calcBloodPressureStats(data.bloodPressure),
     weightStats: calcWeightStats(data.weight),
     watchStats: calcWatchStats(data.watchDaily),
+    // 近 7/30 日相对整体数据结束日，避免「很久没练」被误算成仍有训练
+    workoutStats: calcWorkoutStats(data.workouts, end || undefined),
     hrvByDate: summarizeHrvByDay(data.hrv, data.hrvOvernight),
     restingHrByDate: data.restingHr,
     walkingHrByDate: data.walkingHr,

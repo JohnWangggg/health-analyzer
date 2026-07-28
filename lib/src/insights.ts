@@ -16,6 +16,7 @@ export type InsightAnchor =
   | 'summary-bp'
   | 'summary-hrv'
   | 'summary-watch'
+  | 'summary-workout'
   | 'signals'
   | 'charts'
   | 'charts-weight'
@@ -164,14 +165,31 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
     }
     if (wsWatch.spo2Mean7d != null) {
       let tone: InsightTone = 'positive';
-      if (wsWatch.spo2Min7d != null && wsWatch.spo2Min7d < 92) tone = 'watch';
-      else if (wsWatch.spo2Mean7d < 95) tone = 'watch';
+      if (
+        (wsWatch.spo2NightMin7d != null && wsWatch.spo2NightMin7d < 92) ||
+        (wsWatch.spo2Min7d != null && wsWatch.spo2Min7d < 92)
+      ) {
+        tone = 'watch';
+      } else if (wsWatch.spo2Mean7d < 95) tone = 'watch';
+      const nightBit =
+        wsWatch.spo2NightMean7d != null
+          ? `；夜段均 ${wsWatch.spo2NightMean7d.toFixed(1)}%` +
+            (wsWatch.spo2NightMin7d != null
+              ? `（最低 ${wsWatch.spo2NightMin7d.toFixed(1)}%）`
+              : '')
+          : '';
+      const dayBit =
+        wsWatch.spo2DayMean7d != null
+          ? `，日段均 ${wsWatch.spo2DayMean7d.toFixed(1)}%`
+          : '';
       bullets.push({
         tone,
         title: '血氧（Watch）',
         detail:
           `近 7 日血氧均值约 ${wsWatch.spo2Mean7d.toFixed(1)}%` +
           (wsWatch.spo2Min7d != null ? `，期间最低约 ${wsWatch.spo2Min7d.toFixed(1)}%` : '') +
+          nightBit +
+          dayBit +
           `（${wsWatch.spo2DayCount} 天有样本）。低值需结合症状，勿单次定论。`,
         anchor: 'summary-watch',
       });
@@ -214,6 +232,31 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
         anchor: 'summary-watch',
       });
     }
+  }
+
+  // Workout 会话
+  const wos = analysis.workoutStats;
+  if (wos && wos.count > 0) {
+    const top = wos.byType.slice(0, 3).map((t) => `${t.activityType}×${t.count}`).join('、');
+    const last = wos.lastSession;
+    let tone: InsightTone = 'neutral';
+    if (wos.count30d >= 8) tone = 'positive';
+    else if (wos.count30d === 0) tone = 'watch';
+    bullets.push({
+      tone,
+      title: 'Workout 训练',
+      detail:
+        `共 ${wos.count} 场` +
+        (wos.count30d ? `，近 30 日 ${wos.count30d} 场 / 共 ${wos.durationSum30d.toFixed(0)} min` : '') +
+        (wos.count7d ? `，近 7 日 ${wos.count7d} 场` : '') +
+        (top ? `；类型 ${top}` : '') +
+        (last
+          ? `。最近：${last.date} ${last.activityType} ${last.durationMin.toFixed(0)} min` +
+            (last.hrAvg != null ? `，均 HR ${last.hrAvg.toFixed(0)}` : '')
+          : '') +
+        '。',
+      anchor: 'summary-workout',
+    });
   }
 
   // 并入跨维度信号（高优先级）

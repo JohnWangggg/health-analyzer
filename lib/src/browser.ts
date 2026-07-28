@@ -28,8 +28,16 @@ export {
   calcBloodPressureStats,
   calcWeightStats,
   calcWatchStats,
+  calcWorkoutStats,
   summarizeHrvByDay,
 } from './stats';
+
+export {
+  processWorkoutBlock,
+  processXmlLine,
+  shortWorkoutType,
+  xmlAttr,
+} from './parser';
 
 export {
   generateLLMPrompt,

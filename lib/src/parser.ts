@@ -9,6 +9,7 @@ import {
   BloodPressureRecord,
   ERecordSummary,
   WatchDaySummary,
+  WorkoutSession,
 } from './types';
 
 /** 从 datetime 字符串提取日期部分 */
@@ -57,6 +58,12 @@ function ensureWatchDay(data: HealthData, date: string): WatchDaySummary {
       spo2Sum: 0,
       spo2Count: 0,
       spo2Min: Infinity,
+      spo2NightSum: 0,
+      spo2NightCount: 0,
+      spo2NightMin: Infinity,
+      spo2DaySum: 0,
+      spo2DayCount: 0,
+      spo2DayMin: Infinity,
       rrSum: 0,
       rrCount: 0,
       nightHrSum: 0,
@@ -65,7 +72,26 @@ function ensureWatchDay(data: HealthData, date: string): WatchDaySummary {
       wristTempCount: 0,
     };
   }
-  return data.watchDaily[date];
+  // 兼容旧/不完整对象
+  const w = data.watchDaily[date];
+  if (w.spo2NightMin == null) w.spo2NightMin = Infinity;
+  if (w.spo2DayMin == null) w.spo2DayMin = Infinity;
+  if (w.spo2NightSum == null) w.spo2NightSum = 0;
+  if (w.spo2NightCount == null) w.spo2NightCount = 0;
+  if (w.spo2DaySum == null) w.spo2DaySum = 0;
+  if (w.spo2DayCount == null) w.spo2DayCount = 0;
+  return w;
+}
+
+/** 从 XML 行取属性 */
+export function xmlAttr(line: string, name: string): string | undefined {
+  const match = line.match(new RegExp(`\\b${name}\\s*=\\s*(["'])(.*?)\\1`));
+  return match?.[2];
+}
+
+/** HKWorkoutActivityTypeWalking → Walking */
+export function shortWorkoutType(raw: string): string {
+  return raw.replace(/^HKWorkoutActivityType/, '') || raw || 'Other';
 }
 
 /** 日期是否晚于参考日（均 YYYY-MM-DD 字符串比较） */
@@ -77,20 +103,16 @@ export function isFutureDate(date: string, referenceDate: string): boolean {
  * 解析单个 Record 行的属性
  */
 export function parseRecordLine(line: string): RawRecord | null {
-  const attr = (name: string): string | undefined => {
-    const match = line.match(new RegExp(`\\b${name}\\s*=\\s*(["'])(.*?)\\1`));
-    return match?.[2];
-  };
-  const type = attr('type');
-  const startDate = attr('startDate');
+  const type = xmlAttr(line, 'type');
+  const startDate = xmlAttr(line, 'startDate');
 
   if (!type || !startDate) return null;
   return {
     type,
-    source: attr('sourceName') ?? '',
+    source: xmlAttr(line, 'sourceName') ?? '',
     startDate,
-    endDate: attr('endDate'),
-    value: attr('value') ?? '',
+    endDate: xmlAttr(line, 'endDate'),
+    value: xmlAttr(line, 'value') ?? '',
   };
 }
 
@@ -121,6 +143,7 @@ export function createEmptyData(referenceDate?: string): HealthData {
     steps: {},
     sleep: {},
     watchDaily: {},
+    workouts: [],
     ecg: [],
     dataAvailability: {
       hasCgm: false,
@@ -137,6 +160,7 @@ export function createEmptyData(referenceDate?: string): HealthData {
       hasVo2Max: false,
       hasWatchActivity: false,
       hasWristTemp: false,
+      hasWorkouts: false,
     },
     dataQuality: {
       referenceDate: ref,
@@ -329,6 +353,17 @@ export function processRecord(
     w.spo2Sum += pct;
     w.spo2Count += 1;
     w.spo2Min = Math.min(w.spo2Min, pct);
+    // 夜段 0–8 点 vs 日段 8–24 点（睡眠相关偏低多落在夜段）
+    const hour = getHour(rdate);
+    if (hour >= 0 && hour < 8) {
+      w.spo2NightSum += pct;
+      w.spo2NightCount += 1;
+      w.spo2NightMin = Math.min(w.spo2NightMin, pct);
+    } else {
+      w.spo2DaySum += pct;
+      w.spo2DayCount += 1;
+      w.spo2DayMin = Math.min(w.spo2DayMin, pct);
+    }
     data.dataAvailability.hasSpO2 = true;
   } else if (rec.type === 'HKQuantityTypeIdentifierRespiratoryRate') {
     if (!Number.isFinite(numericValue) || numericValue < 5 || numericValue > 40) return;
@@ -360,6 +395,141 @@ export function processRecord(
       w.nightHrSum += numericValue;
       w.nightHrCount += 1;
     }
+  }
+}
+
+/**
+ * 解析完整 <Workout>...</Workout> 或自关闭 Workout 行，写入 data.workouts
+ */
+export function processWorkoutBlock(
+  block: string,
+  data: HealthData,
+  options: ProcessRecordOptions = {}
+): void {
+  if (!data.workouts) data.workouts = [];
+  const headMatch = block.match(/<Workout\b[^>]*>/);
+  const head = headMatch ? headMatch[0] : block;
+  const startDate = xmlAttr(head, 'startDate');
+  if (!startDate) return;
+
+  const date = getDate(startDate);
+  const allowFuture = Boolean(options.allowFuture);
+  const referenceDate = options.referenceDate || data.dataQuality?.referenceDate || getLocalToday();
+  if (!data.dataQuality) {
+    data.dataQuality = { referenceDate, skippedFutureCount: 0, futureSampleDates: [] };
+  }
+  if (!allowFuture && isFutureDate(date, referenceDate)) {
+    noteSkippedFuture(data, date);
+    return;
+  }
+  if (options.startDate && date < options.startDate) return;
+  if (options.endDate && date > options.endDate) return;
+
+  let durationMin = parseFloat(xmlAttr(head, 'duration') || '');
+  const durationUnit = (xmlAttr(head, 'durationUnit') || 'min').toLowerCase();
+  if (!Number.isFinite(durationMin) || durationMin <= 0) return;
+  if (durationUnit.startsWith('sec') || durationUnit === 's') durationMin /= 60;
+  else if (durationUnit.startsWith('hr') || durationUnit === 'h') durationMin *= 60;
+
+  const activityType = shortWorkoutType(xmlAttr(head, 'workoutActivityType') || 'Other');
+  const session: WorkoutSession = {
+    startDate,
+    endDate: xmlAttr(head, 'endDate'),
+    date,
+    activityType,
+    durationMin,
+    source: xmlAttr(head, 'sourceName'),
+  };
+
+  // Metadata
+  const metsM = block.match(/key="HKAverageMETs"\s+value="([0-9.]+)/);
+  if (metsM) {
+    const v = parseFloat(metsM[1]);
+    if (Number.isFinite(v)) session.avgMets = v;
+  }
+  const indoorM = block.match(/key="HKIndoorWorkout"\s+value="([01])"/);
+  if (indoorM) session.indoor = indoorM[1] === '1';
+
+  // Statistics: ActiveEnergy / Distance / HeartRate
+  const statRe = /<WorkoutStatistics\b[^>]*>/g;
+  let sm: RegExpExecArray | null;
+  while ((sm = statRe.exec(block)) !== null) {
+    const tag = sm[0];
+    const st = xmlAttr(tag, 'type') || '';
+    if (st.includes('ActiveEnergyBurned')) {
+      const sum = parseFloat(xmlAttr(tag, 'sum') || '');
+      if (Number.isFinite(sum) && sum > 0) session.activeKcal = sum;
+    } else if (st.includes('DistanceWalkingRunning') || st.includes('DistanceCycling')) {
+      const sum = parseFloat(xmlAttr(tag, 'sum') || '');
+      const unit = (xmlAttr(tag, 'unit') || 'km').toLowerCase();
+      if (Number.isFinite(sum) && sum > 0) {
+        session.distanceKm = unit === 'm' ? sum / 1000 : sum;
+      }
+    } else if (st.includes('HeartRate')) {
+      const avg = parseFloat(xmlAttr(tag, 'average') || '');
+      const min = parseFloat(xmlAttr(tag, 'minimum') || '');
+      const max = parseFloat(xmlAttr(tag, 'maximum') || '');
+      if (Number.isFinite(avg)) session.hrAvg = avg;
+      if (Number.isFinite(min)) session.hrMin = min;
+      if (Number.isFinite(max)) session.hrMax = max;
+    }
+  }
+
+  data.workouts.push(session);
+  data.dataAvailability.hasWorkouts = true;
+}
+
+/** 多行 Workout 解析状态 */
+export interface ParseLineState {
+  workoutBuf: string[] | null;
+}
+
+export function createParseLineState(): ParseLineState {
+  return { workoutBuf: null };
+}
+
+/**
+ * 统一处理 XML 行：Record + 跨行 Workout
+ */
+export function processXmlLine(
+  line: string,
+  data: HealthData,
+  options: ProcessRecordOptions,
+  state: ParseLineState
+): void {
+  if (state.workoutBuf) {
+    state.workoutBuf.push(line);
+    if (line.indexOf('</Workout>') !== -1) {
+      processWorkoutBlock(state.workoutBuf.join('\n'), data, options);
+      state.workoutBuf = null;
+    }
+    return;
+  }
+
+  if (line.indexOf('<Workout ') !== -1 || line.indexOf('<Workout\t') !== -1) {
+    const trimmed = line.trim();
+    if (/\/>\s*$/.test(trimmed)) {
+      processWorkoutBlock(line, data, options);
+    } else {
+      state.workoutBuf = [line];
+    }
+    return;
+  }
+
+  if (line.indexOf('<Record ') !== -1 || line.indexOf('<Record\t') !== -1) {
+    const rec = parseRecordLine(line);
+    if (rec && rec.value !== '') processRecord(rec, data, options);
+  }
+}
+
+export function flushParseLineState(
+  state: ParseLineState,
+  data: HealthData,
+  options: ProcessRecordOptions
+): void {
+  if (state.workoutBuf && state.workoutBuf.length) {
+    processWorkoutBlock(state.workoutBuf.join('\n'), data, options);
+    state.workoutBuf = null;
   }
 }
 
@@ -450,10 +620,16 @@ export function finalizeData(data: HealthData): void {
         w.daylightMin === 0
       ) {
         delete data.watchDaily[d];
-      } else if (w.spo2Min === Infinity) {
-        w.spo2Min = 0;
+      } else {
+        if (w.spo2Min === Infinity) w.spo2Min = 0;
+        if (w.spo2NightMin === Infinity) w.spo2NightMin = 0;
+        if (w.spo2DayMin === Infinity) w.spo2DayMin = 0;
       }
     }
+  }
+  if (data.workouts?.length) {
+    data.workouts.sort((a, b) => a.startDate.localeCompare(b.startDate));
+    data.dataAvailability.hasWorkouts = true;
   }
 }
 
@@ -482,23 +658,18 @@ export function parseHealthXml(
     allowFuture,
     referenceDate: data.dataQuality.referenceDate,
   };
+  const state = createParseLineState();
   const lines = xmlText.split('\n');
   const total = lines.length;
   const reportEvery = Math.max(1, Math.floor(total / 100));
 
   for (let i = 0; i < total; i++) {
-    const line = lines[i];
-    if (line.indexOf('<Record ') === -1 && line.indexOf('<Record\t') === -1) continue;
-
-    const rec = parseRecordLine(line);
-    if (!rec || rec.value === '') continue;
-
-    processRecord(rec, data, recOpts);
-
+    processXmlLine(lines[i], data, recOpts, state);
     if (onProgress && i % reportEvery === 0) {
       onProgress(i / total);
     }
   }
+  flushParseLineState(state, data, recOpts);
 
   finalizeData(data);
   if (onProgress) onProgress(1);
@@ -624,6 +795,61 @@ export async function parseXmlStream(
 /**
  * 高层 API：异步解析（用于大文件 / Uint8Array）
  */
+/**
+ * 按行回调扫描 XML（字符串或字节），供异步解析含 Workout 块
+ */
+async function forEachXmlLine(
+  source: string | Uint8Array | ArrayBuffer,
+  onLine: (line: string) => void,
+  onProgress?: OnProgressCallback
+): Promise<void> {
+  if (typeof source === 'string') {
+    let pos = 0;
+    const len = source.length;
+    let i = 0;
+    let lastReport = 0;
+    while (pos < len) {
+      let endPos = source.indexOf('\n', pos);
+      if (endPos === -1) endPos = len;
+      onLine(source.substring(pos, endPos));
+      pos = endPos + 1;
+      i++;
+      if (i - lastReport > 5000) {
+        lastReport = i;
+        if (onProgress) onProgress(pos / len);
+      }
+    }
+    if (onProgress) onProgress(1);
+    return;
+  }
+
+  const view = source instanceof Uint8Array ? source : new Uint8Array(source);
+  const decoder = new TextDecoder('utf-8');
+  const totalBytes = view.byteLength;
+  const chunkSize = 4 * 1024 * 1024;
+  let pendingLine = '';
+  let lastYield = Date.now();
+
+  for (let offset = 0; offset < totalBytes; offset += chunkSize) {
+    const chunk = view.subarray(offset, Math.min(offset + chunkSize, totalBytes));
+    let text = decoder.decode(chunk, { stream: true });
+    text = pendingLine + text;
+    pendingLine = '';
+    const lines = text.split('\n');
+    if (offset + chunkSize < totalBytes) {
+      pendingLine = lines.pop() ?? '';
+    }
+    for (const line of lines) onLine(line);
+    if (onProgress) onProgress((offset + chunk.byteLength) / totalBytes);
+    if (Date.now() - lastYield > 50) {
+      await new Promise((r) => setTimeout(r, 0));
+      lastYield = Date.now();
+    }
+  }
+  if (pendingLine) onLine(pendingLine);
+  if (onProgress) onProgress(1);
+}
+
 export async function parseHealthXmlAsync(
   source: string | Uint8Array | ArrayBuffer,
   options: ParseHealthXmlOptions = {}
@@ -636,14 +862,14 @@ export async function parseHealthXmlAsync(
     allowFuture,
     referenceDate: data.dataQuality.referenceDate,
   };
+  const state = createParseLineState();
 
-  await parseXmlStream(
+  await forEachXmlLine(
     source,
-    (rec) => {
-      processRecord(rec, data, recOpts);
-    },
+    (line) => processXmlLine(line, data, recOpts, state),
     onProgress
   );
+  flushParseLineState(state, data, recOpts);
 
   finalizeData(data);
   return data;

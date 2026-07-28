@@ -32,6 +32,7 @@ export const MAIN_PROMPT_TEMPLATE = `# 角色与任务
 ## 心率
 ## 步数与睡眠
 ## Apple Watch（活动 / 血氧 / 呼吸 / VO₂ / 腕温）
+## Workout 训练会话
 ## ECG 心电图
 （仅输出有数据的维度；每个维度包含：现状、趋势、解读、风险与建议）
 
@@ -140,7 +141,7 @@ export function formatUserContext(ctx?: UserContext | null): string {
  */
 export function formatAnalysisForLLM(analysis: FullAnalysis): string {
   const sections: string[] = [];
-  const { data, cgmStats, bpStats, weightStats, watchStats, hrvByDate, dateRange } = analysis;
+  const { data, cgmStats, bpStats, weightStats, watchStats, workoutStats, hrvByDate, dateRange } = analysis;
   const detailDays = 90;
   const recentDateSet = (dates: string[]) => {
     const sorted = [...dates].sort();
@@ -195,6 +196,7 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
   sections.push(`| 呼吸频率 | ${av.hasRespiratoryRate ? '✅' : '❌'} | — |`);
   sections.push(`| VO₂ max | ${av.hasVo2Max ? '✅' : '❌'} | ${watchStats?.vo2DayCount ?? 0} 天 |`);
   sections.push(`| 睡眠腕温 | ${av.hasWristTemp ? '✅' : '❌'} | — |`);
+  sections.push(`| Workout 会话 | ${av.hasWorkouts ? '✅' : '❌'} | ${workoutStats?.count ?? data.workouts?.length ?? 0} 场 |`);
   sections.push(`| ECG | ${av.hasEcg ? '✅' : '❌'} | ${data.ecg.length} 份 |`);
   sections.push(``);
   sections.push(`数据时间范围：${dateRange.start} 至 ${dateRange.end}`);
@@ -416,6 +418,25 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
           `（${watchStats.spo2DayCount} 天） |`
       );
     }
+    if (watchStats.spo2NightMean7d != null || watchStats.spo2DayMean7d != null) {
+      sections.push(
+        `| 血氧 夜段(0–8) / 日段 | ` +
+          (watchStats.spo2NightMean7d != null
+            ? `${watchStats.spo2NightMean7d.toFixed(1)}%` +
+              (watchStats.spo2NightMin7d != null
+                ? `（最低 ${watchStats.spo2NightMin7d.toFixed(1)}%）`
+                : '')
+            : '—') +
+          ` / ` +
+          (watchStats.spo2DayMean7d != null
+            ? `${watchStats.spo2DayMean7d.toFixed(1)}%` +
+              (watchStats.spo2DayMin7d != null
+                ? `（最低 ${watchStats.spo2DayMin7d.toFixed(1)}%）`
+                : '')
+            : '—') +
+          ` |`
+      );
+    }
     if (watchStats.rrMean7d != null) {
       sections.push(`| 呼吸频率日均 | ${watchStats.rrMean7d.toFixed(1)} 次/分 |`);
     }
@@ -441,7 +462,7 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
     sections.push(`**分日明细**（最近 ${detailDays} 天）：`);
     sections.push(``);
     sections.push(
-      `| 日期 | 活动kcal | 锻炼min | 站立min | SpO₂均 | SpO₂最低 | 呼吸 | 夜间HR | VO₂ | 腕温 |`
+      `| 日期 | 活动kcal | 锻炼min | SpO₂均 | 夜均 | 日均 | 呼吸 | 夜间HR | VO₂ | 腕温 |`
     );
     sections.push(`|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|`);
     const recentWatch = recentDateSet(watchStats.days.map((d) => d.date));
@@ -451,9 +472,55 @@ export function formatAnalysisForLLM(analysis: FullAnalysis): string {
       sections.push(
         `| ${d.date} | ${d.activeKcal ? d.activeKcal.toFixed(0) : '—'} | ${
           d.exerciseMin ? d.exerciseMin.toFixed(0) : '—'
-        } | ${d.standMin ? d.standMin.toFixed(0) : '—'} | ${f(d.spo2Mean)} | ${f(d.spo2Min)} | ${f(
+        } | ${f(d.spo2Mean)} | ${f(d.spo2NightMean)} | ${f(d.spo2DayMean)} | ${f(
           d.rrMean
         )} | ${f(d.nightHrMean, 0)} | ${f(d.vo2Max)} | ${f(d.wristTempMean, 2)} |`
+      );
+    }
+    sections.push(``);
+  }
+
+  // Workout
+  if (workoutStats && workoutStats.count > 0) {
+    sections.push(`## Workout 训练会话`);
+    sections.push(``);
+    sections.push(
+      `共 ${workoutStats.count} 场；近 30 日 ${workoutStats.count30d} 场 / ${workoutStats.durationSum30d.toFixed(0)} min` +
+        (workoutStats.activeKcalSum30d
+          ? ` / ${workoutStats.activeKcalSum30d.toFixed(0)} kcal`
+          : '') +
+        (workoutStats.hrAvgMean30d != null
+          ? `，近 30 日场均心率 ${workoutStats.hrAvgMean30d.toFixed(0)} bpm`
+          : '') +
+        `；近 7 日 ${workoutStats.count7d} 场 / ${workoutStats.durationSum7d.toFixed(0)} min。`
+    );
+    if (workoutStats.byType.length) {
+      sections.push(``);
+      sections.push(`**类型分布**：`);
+      sections.push(``);
+      sections.push(`| 类型 | 场次 | 总分钟 | 活动kcal |`);
+      sections.push(`|---|---:|---:|---:|`);
+      for (const t of workoutStats.byType) {
+        sections.push(
+          `| ${t.activityType} | ${t.count} | ${t.durationMin.toFixed(0)} | ${t.activeKcal.toFixed(0)} |`
+        );
+      }
+    }
+    sections.push(``);
+    sections.push(`**最近会话**（最多 40 场）：`);
+    sections.push(``);
+    sections.push(`| 开始 | 类型 | 分钟 | kcal | 距离km | HR均 | HR最大 | METs |`);
+    sections.push(`|---|---|---:|---:|---:|---:|---:|---:|`);
+    const recentW = workoutStats.sessions.slice(-40);
+    for (const s of recentW) {
+      sections.push(
+        `| ${s.startDate.slice(0, 16)} | ${s.activityType} | ${s.durationMin.toFixed(1)} | ${
+          s.activeKcal != null ? s.activeKcal.toFixed(0) : '—'
+        } | ${s.distanceKm != null ? s.distanceKm.toFixed(2) : '—'} | ${
+          s.hrAvg != null ? s.hrAvg.toFixed(0) : '—'
+        } | ${s.hrMax != null ? s.hrMax.toFixed(0) : '—'} | ${
+          s.avgMets != null ? s.avgMets.toFixed(1) : '—'
+        } |`
       );
     }
     sections.push(``);
