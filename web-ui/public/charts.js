@@ -307,6 +307,7 @@
         400
       );
       blocks.push({
+        key: 'cgm',
         title: 'CGM（最近约 7 天）',
         color: '#e74c3c',
         yLabel: 'mmol/L',
@@ -328,6 +329,7 @@
     if (trend && trend.length > 0) {
       const recent = trend.slice(-90);
       blocks.push({
+        key: 'weight',
         title: '体重趋势（晨起优先，最多 90 日）',
         color: '#1abc9c',
         yLabel: 'kg',
@@ -338,6 +340,7 @@
       const fatPts = recent.filter((w) => w.bodyFat != null && Number.isFinite(w.bodyFat));
       if (fatPts.length >= 2) {
         blocks.push({
+          key: 'bodyfat',
           title: '体脂趋势（与体重同日合并，最多 90 日）',
           color: '#9b59b6',
           yLabel: '%',
@@ -350,6 +353,7 @@
       const sorted = [...data.weight].sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
       const recent = sorted.slice(-90);
       blocks.push({
+        key: 'weight',
         title: '体重（最多 90 条原始）',
         color: '#1abc9c',
         yLabel: 'kg',
@@ -364,6 +368,7 @@
     if (hrvDates.length > 0) {
       const recent = hrvDates.slice(-30);
       blocks.push({
+        key: 'hrv',
         title: 'HRV 全天均值（最近最多 30 天）',
         color: theme.primary,
         yLabel: 'ms',
@@ -376,6 +381,7 @@
     if (analysis.bpStats && analysis.bpStats.records && analysis.bpStats.records.length > 0) {
       const recs = analysis.bpStats.records.slice(-40);
       blocks.push({
+        key: 'bp',
         title: '收缩压（最近最多 40 条）',
         color: '#e74c3c',
         yLabel: 'mmHg',
@@ -402,6 +408,8 @@
       if (!b.points || b.points.length === 0) continue;
       const wrap = document.createElement('div');
       wrap.className = 'chart-block';
+      if (b.key) wrap.setAttribute('data-chart', b.key);
+      wrap.id = b.key ? `chart-block-${b.key}` : undefined;
 
       const title = document.createElement('h3');
       title.textContent = b.title;

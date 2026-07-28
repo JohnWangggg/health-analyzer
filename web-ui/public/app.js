@@ -762,7 +762,6 @@
     setResultsVisible(true);
 
     renderAvailability(analysis);
-    renderInsights(analysis);
     renderKpis(analysis);
     renderSummary(analysis);
     renderSignals(analysis);
@@ -770,41 +769,114 @@
     renderPrompt();
     refreshHistorySelect().catch(() => { /* ignore */ });
 
+    // 图表 DOM 就绪后再渲染可点摘要（含「看曲线」）与引导
+    renderInsights(analysis);
+    showInsightCoachOnce();
+
     $('step-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  function navigateToInsight(anchor) {
+  function flashEl(el, ms) {
+    if (!el) return;
+    el.classList.add('section-flash');
+    setTimeout(() => el.classList.remove('section-flash'), ms || 1200);
+  }
+
+  function navigateToInsight(anchor, prefer) {
     const map = {
       overview: { section: 'step-overview' },
       summary: { section: 'step-summary' },
-      'summary-weight': { section: 'step-summary', panel: 'weight' },
-      'summary-cgm': { section: 'step-summary', panel: 'cgm' },
-      'summary-bp': { section: 'step-summary', panel: 'bp' },
-      'summary-hrv': { section: 'step-summary', panel: 'hrv' },
+      'summary-weight': { section: 'step-summary', panel: 'weight', chart: 'weight' },
+      'summary-cgm': { section: 'step-summary', panel: 'cgm', chart: 'cgm' },
+      'summary-bp': { section: 'step-summary', panel: 'bp', chart: 'bp' },
+      'summary-hrv': { section: 'step-summary', panel: 'hrv', chart: 'hrv' },
       signals: { section: 'step-signals' },
       charts: { section: 'step-charts' },
-      'charts-weight': { section: 'step-charts' },
-      'charts-cgm': { section: 'step-charts' },
+      'charts-weight': { section: 'step-charts', chart: 'weight' },
+      'charts-cgm': { section: 'step-charts', chart: 'cgm' },
+      'charts-bp': { section: 'step-charts', chart: 'bp' },
+      'charts-hrv': { section: 'step-charts', chart: 'hrv' },
+      'charts-bodyfat': { section: 'step-charts', chart: 'bodyfat' },
       prompt: { section: 'step-prompt' },
     };
     const target = map[anchor] || map.summary;
-    const section = $(target.section);
+    // prefer: 'chart' | 'summary' | undefined
+    const goChart = prefer === 'chart' || (prefer !== 'summary' && String(anchor || '').startsWith('charts-'));
+    const sectionId = goChart && target.chart ? 'step-charts' : target.section;
+    const section = $(sectionId);
     if (!section) return;
     section.classList.remove('hidden');
-    if (target.panel) {
+
+    if (!goChart && target.panel) {
       const acc = section.querySelector(`.summary-acc[data-panel="${target.panel}"]`);
       if (acc) {
         acc.open = true;
-        // 关闭同级其他折叠，减少干扰
         section.querySelectorAll('.summary-acc').forEach((el) => {
           if (el !== acc) el.open = false;
         });
       }
     }
+
     section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    // 短暂高亮
-    section.classList.add('section-flash');
-    setTimeout(() => section.classList.remove('section-flash'), 1200);
+    flashEl(section, 1000);
+
+    if (target.chart) {
+      const chartSec = $('step-charts');
+      const chartBlock = chartSec && chartSec.querySelector(`[data-chart="${target.chart}"]`);
+      if (goChart && chartBlock) {
+        setTimeout(() => {
+          chartBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          flashEl(chartBlock, 1400);
+        }, 280);
+      } else if (!goChart && chartBlock && prefer !== 'summary') {
+        // 默认：先看明细，不强制滚图表；图表入口由「看曲线」触发
+      }
+    }
+  }
+
+  /** 轻量 toast（复制成功等） */
+  function showToast(message, opts) {
+    let host = document.getElementById('app-toast');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'app-toast';
+      host.className = 'app-toast';
+      host.setAttribute('role', 'status');
+      host.setAttribute('aria-live', 'polite');
+      document.body.appendChild(host);
+    }
+    host.textContent = message;
+    host.classList.add('is-show');
+    if (opts && opts.ok) host.classList.add('is-ok');
+    else host.classList.remove('is-ok');
+    clearTimeout(showToast._timer);
+    showToast._timer = setTimeout(() => {
+      host.classList.remove('is-show');
+    }, (opts && opts.ms) || 2200);
+  }
+
+  function showInsightCoachOnce() {
+    try {
+      if (window.localStorage.getItem('health-analyzer-insight-coach') === '1') return;
+    } catch (e) { /* ignore */ }
+    const panel = document.querySelector('.insight-panel');
+    if (!panel || panel.querySelector('.insight-coach')) return;
+    const tip = document.createElement('div');
+    tip.className = 'insight-coach';
+    tip.innerHTML = `
+      <span>点条目看<strong>明细</strong>，或点「看曲线」核对趋势。</span>
+      <button type="button" class="btn-ghost insight-coach-dismiss" aria-label="知道了">知道了</button>
+    `;
+    panel.insertBefore(tip, panel.querySelector('.insight-list'));
+    tip.querySelector('.insight-coach-dismiss')?.addEventListener('click', () => {
+      tip.remove();
+      try { window.localStorage.setItem('health-analyzer-insight-coach', '1'); } catch (e) { /* ignore */ }
+    });
+    // 8 秒后自动收起（不强制记 localStorage，除非点知道了）
+    setTimeout(() => {
+      if (tip.parentNode) tip.classList.add('is-fading');
+      setTimeout(() => tip.remove(), 400);
+    }, 8000);
   }
 
   function panelKeyFromTitle(title) {
@@ -838,24 +910,57 @@
       if (t === 'positive') return '积极';
       return '提示';
     };
-    list.innerHTML = bullets.map((b, idx) => `
-      <li class="insight-item tone-${escapeHtml(b.tone || 'neutral')} is-clickable" data-anchor="${escapeHtml(b.anchor || 'summary')}" data-idx="${idx}" role="button" tabindex="0">
+    const chartKeyFromAnchor = (a) => {
+      if (!a) return '';
+      if (a.includes('cgm')) return 'cgm';
+      if (a.includes('weight') || a.includes('bodyfat')) return 'weight';
+      if (a.includes('bp') || a.includes('血压')) return 'bp';
+      if (a.includes('hrv')) return 'hrv';
+      return '';
+    };
+
+    list.innerHTML = bullets.map((b, idx) => {
+      const anchor = b.anchor || 'summary';
+      const chartKey = chartKeyFromAnchor(anchor);
+      const hasChart = chartKey && document.querySelector(`#charts-content [data-chart="${chartKey}"]`);
+      // 图表可能尚未渲染完：根据分析数据预判
+      const canChart =
+        chartKey === 'cgm' ? !!(analysis.cgmStats) :
+        chartKey === 'weight' ? !!(analysis.weightStats || (analysis.data && analysis.data.weight && analysis.data.weight.length)) :
+        chartKey === 'bp' ? !!(analysis.bpStats) :
+        chartKey === 'hrv' ? !!(analysis.hrvByDate && Object.keys(analysis.hrvByDate).length) :
+        false;
+      const actions = `
+        <span class="insight-actions">
+          <button type="button" class="insight-act" data-prefer="summary" data-anchor="${escapeHtml(anchor)}">明细</button>
+          ${canChart ? `<button type="button" class="insight-act" data-prefer="chart" data-anchor="${escapeHtml(anchor)}">看曲线</button>` : ''}
+        </span>`;
+      return `
+      <li class="insight-item tone-${escapeHtml(b.tone || 'neutral')} is-clickable" data-anchor="${escapeHtml(anchor)}" data-idx="${idx}" role="button" tabindex="0">
         <div class="insight-meta">
           <span class="insight-badge">${toneLabel(b.tone)}</span>
-          <span class="insight-goto">查看详情 →</span>
+          ${actions}
         </div>
         <div class="insight-title">${escapeHtml(b.title)}</div>
         <p class="insight-detail">${escapeHtml(b.detail)}</p>
-      </li>
-    `).join('');
+      </li>`;
+    }).join('');
 
     list.querySelectorAll('.insight-item[data-anchor]').forEach((el) => {
-      const go = () => navigateToInsight(el.getAttribute('data-anchor'));
-      el.addEventListener('click', go);
+      const go = (prefer) => navigateToInsight(el.getAttribute('data-anchor'), prefer);
+      el.addEventListener('click', (e) => {
+        const act = e.target.closest('.insight-act');
+        if (act) {
+          e.stopPropagation();
+          go(act.getAttribute('data-prefer') || 'summary');
+          return;
+        }
+        go('summary');
+      });
       el.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          go();
+          go('summary');
         }
       });
     });
@@ -980,7 +1085,7 @@
         status.classList.add('show');
         setTimeout(() => status.classList.remove('show'), 2200);
       });
-      // 吸底按钮短暂反馈
+      showToast('已复制完整提示词，可粘贴到大模型', { ok: true, ms: 2400 });
       const sticky = $('btn-copy-sticky');
       if (sticky) {
         const prev = sticky.textContent;
@@ -988,7 +1093,7 @@
         setTimeout(() => { sticky.textContent = prev; }, 1600);
       }
       const hero = $('btn-copy-hero');
-      if (hero && statusEl !== hero) {
+      if (hero) {
         const prev = hero.textContent;
         hero.textContent = '✓ 已复制';
         setTimeout(() => { hero.textContent = prev; }, 1600);
@@ -998,7 +1103,7 @@
         $('prompt-output').select();
         document.execCommand('copy');
       }
-      alert('已尝试复制到剪贴板');
+      showToast('已尝试复制（若失败请长按文本手动复制）', { ms: 2800 });
     }
   }
 
@@ -1683,10 +1788,11 @@
         status.classList.add('show');
         setTimeout(() => status.classList.remove('show'), 2000);
       }
+      showToast('已复制到剪贴板', { ok: true });
     } catch (err) {
       $('prompt-output').select();
       document.execCommand('copy');
-      alert('已尝试复制');
+      showToast('已尝试复制', { ms: 2200 });
     }
   });
 
