@@ -197,3 +197,32 @@ export function formatInsightsForLLM(bullets: InsightBullet[]): string {
   lines.push('');
   return lines.join('\n');
 }
+
+/**
+ * 仅摘要短提示（适合上下文较短的模型，或先快速粘贴）
+ * 可选 prefix 由 UI 拼入个人背景，避免与 llm-prompt 循环依赖。
+ */
+export function generateInsightsOnlyPrompt(
+  analysis: FullAnalysis,
+  options: { prefix?: string } = {}
+): string {
+  const bullets = buildInsightBullets(analysis);
+  const body = formatInsightsForLLM(bullets)
+    .replace('> 以下为分维度原始统计与明细，请与摘要交叉核对。\n\n', '')
+    .trim();
+  const lines = [
+    '请基于以下「个人健康自我监测摘要」给出简洁中文建议（Markdown）：',
+    '- 不下诊断、不开药、不替代门诊',
+    '- 指出最值得优先关注的 3 点，并给出可操作的自我监测建议',
+    '- 异常需提示复核（如 CGM 指尖血、血压复测）',
+    '',
+  ];
+  if (options.prefix && options.prefix.trim()) {
+    lines.push(options.prefix.trim());
+    lines.push('');
+  }
+  lines.push(body || '（暂无摘要）');
+  lines.push('');
+  lines.push('（本段仅为程序摘要，非完整原始数据。需要完整统计请使用完整提示词。）');
+  return lines.join('\n');
+}

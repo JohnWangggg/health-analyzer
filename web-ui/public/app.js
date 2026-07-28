@@ -12,6 +12,10 @@
   let currentAnalysis = null;
   let currentPromptTab = 'full';
   let deferredInstallPrompt = null;
+  /** 图表时间范围：7|30|90|0(全部)；undefined 用各图默认 */
+  let chartRangeDays = 30;
+  /** 最近一次成功选中的文件，供失败后「重试（保留设置）」 */
+  let lastSelectedFiles = null;
   const CTX_STORAGE_KEY = 'health-analyzer-user-context-v1';
   const THEME_KEY = 'health-analyzer-theme'; // system | light | dark
 
@@ -462,6 +466,9 @@
   }
 
   async function handleFiles(files) {
+    if (files && files.length) {
+      lastSelectedFiles = Array.from(files);
+    }
     const source = document.querySelector('input[name="source"]:checked').value;
 
     show('step-progress');
@@ -641,32 +648,46 @@
 
   function showError(msg) {
     const card = $('step-progress');
+    const canRetrySame = !!(lastSelectedFiles && lastSelectedFiles.length);
     card.innerHTML = `
       <h2><span class="step-num">✗</span> 解析失败</h2>
       <div class="error-box" role="alert">
         <strong>错误信息：</strong> ${escapeHtml(msg)}
       </div>
+      <p class="progress-hint" style="text-align:left;margin-top:10px;">
+        日期范围与个人背景仍会保留。可直接重试同一文件，或重新选择文件。
+      </p>
       <details style="margin-top:12px;">
         <summary style="cursor:pointer;color:var(--primary);">可能的解决方案</summary>
         <ul style="padding-left:24px;margin-top:8px;font-size:14px;line-height:1.8;">
           <li>确认 ZIP 包是 iPhone 苹果健康 App 导出的原始数据</li>
-          <li>ZIP 包内应包含 <code>apple_health_export/export.xml</code> 或 <code>导出.xml</code> 主文件</li>
-          <li>如 ZIP 解压有问题，可手动解压后选择"📁 已解压的文件夹"或"📄 单独的 XML 文件"</li>
-          <li>大型文件（500MB+）解析可能需要 30-60 秒，请耐心等待</li>
-          <li>如浏览器内存不足，请关闭其他标签页后重试</li>
+          <li>ZIP 包内应包含 <code>export.xml</code> 或 <code>导出.xml</code>（非 export_cda.xml）</li>
+          <li>解压失败时可改用「单独 XML」或电脑端文件夹导入</li>
+          <li>大型文件（500MB+）请保持页面打开，并关闭其他标签页释放内存</li>
           <li>若设置了日期范围，请确认开始日期不晚于结束日期</li>
         </ul>
       </details>
-      <button id="btn-retry" class="btn-primary" style="margin-top:16px;" type="button">↺ 重新选择文件</button>
+      <div class="error-actions">
+        ${canRetrySame ? '<button id="btn-retry-same" class="btn-primary" type="button">重试（保留设置）</button>' : ''}
+        <button id="btn-retry" class="btn-secondary" type="button">重新选择文件</button>
+      </div>
     `;
     show('step-progress');
+    const retrySame = $('btn-retry-same');
     const retryBtn = $('btn-retry');
-    retryBtn?.focus();
+    (retrySame || retryBtn)?.focus();
+    retrySame?.addEventListener('click', () => {
+      card.innerHTML = PROGRESS_CARD_HTML;
+      if (lastSelectedFiles && lastSelectedFiles.length) {
+        handleFiles(lastSelectedFiles);
+      }
+    });
     retryBtn?.addEventListener('click', () => {
       card.innerHTML = PROGRESS_CARD_HTML;
       hide('step-progress');
       fileInput.value = '';
       folderInput.value = '';
+      openFilePicker();
     });
   }
 
@@ -1313,11 +1334,27 @@
     const container = $('charts-content');
     if (!container) return;
     if (window.HealthCharts && typeof window.HealthCharts.renderAnalysisCharts === 'function') {
-      window.HealthCharts.renderAnalysisCharts(container, analysis);
+      const days = chartRangeDays;
+      window.HealthCharts.renderAnalysisCharts(container, analysis, {
+        // 0 = 全部；chips 默认 30
+        days: days === 0 ? 0 : (days || 30),
+      });
     } else {
       container.innerHTML = '<p class="hint">图表模块未加载。</p>';
     }
+    // 同步 chips 激活态
+    document.querySelectorAll('#chart-range-chips .chip').forEach((btn) => {
+      const d = Number(btn.getAttribute('data-days'));
+      btn.classList.toggle('is-active', d === chartRangeDays);
+    });
   }
+
+  document.querySelectorAll('#chart-range-chips .chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      chartRangeDays = Number(btn.getAttribute('data-days')) || 0;
+      if (currentAnalysis) renderCharts(currentAnalysis);
+    });
+  });
 
   function renderDataQualityBanner(analysis) {
     const host = $('data-quality-banner');
@@ -1775,11 +1812,7 @@
     btn.setAttribute('aria-expanded', willExpand ? 'true' : 'false');
   });
 
-  // 提示词区：复制当前标签内容
-  $('btn-copy')?.addEventListener('click', async () => {
-    if (!currentAnalysis) return;
-    renderPrompt();
-    const text = $('prompt-output').value;
+  async function copyText(text, okMsg) {
     try {
       await navigator.clipboard.writeText(text);
       const status = $('copy-status');
@@ -1788,12 +1821,51 @@
         status.classList.add('show');
         setTimeout(() => status.classList.remove('show'), 2000);
       }
-      showToast('已复制到剪贴板', { ok: true });
+      showToast(okMsg || '已复制到剪贴板', { ok: true });
+      return true;
     } catch (err) {
-      $('prompt-output').select();
-      document.execCommand('copy');
-      showToast('已尝试复制', { ms: 2200 });
+      try {
+        const ta = $('prompt-output');
+        if (ta) {
+          const prev = ta.value;
+          ta.value = text;
+          ta.select();
+          document.execCommand('copy');
+          ta.value = prev;
+        }
+        showToast(okMsg || '已尝试复制', { ms: 2200 });
+        return true;
+      } catch (e2) {
+        showToast('复制失败，请长按文本手动复制', { ms: 2800 });
+        return false;
+      }
     }
+  }
+
+  // 提示词区：复制当前标签内容
+  $('btn-copy')?.addEventListener('click', async () => {
+    if (!currentAnalysis) return;
+    renderPrompt();
+    await copyText($('prompt-output').value, '已复制到剪贴板');
+  });
+
+  // 只复制自动监测摘要（短上下文）
+  $('btn-copy-insights')?.addEventListener('click', async () => {
+    if (!currentAnalysis) {
+      showToast('请先完成分析');
+      return;
+    }
+    if (typeof window.HealthAnalyzer.generateInsightsOnlyPrompt !== 'function') {
+      showToast('摘要复制不可用');
+      return;
+    }
+    const ctx = getUserContextFromForm();
+    let prefix = '';
+    if (window.HealthAnalyzer.formatUserContext) {
+      prefix = window.HealthAnalyzer.formatUserContext(ctx) || '';
+    }
+    const text = window.HealthAnalyzer.generateInsightsOnlyPrompt(currentAnalysis, { prefix });
+    await copyText(text, '已复制摘要短提示（适合短上下文模型）');
   });
 
   // 主 CTA / 吸底：始终复制完整提示词

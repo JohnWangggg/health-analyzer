@@ -1222,6 +1222,50 @@ body.has-results .app-toast {
   min-height: 40px;
 }
 
+.chart-range-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  min-height: 36px;
+}
+
+.chip:hover {
+  border-color: var(--primary);
+  color: var(--primary-dark);
+}
+
+.chip.is-active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.error-actions .btn-primary,
+.error-actions .btn-secondary {
+  flex: 1 1 140px;
+}
+
 @media (max-width: 600px) {
   .progress-stages {
     grid-template-columns: repeat(2, 1fr);

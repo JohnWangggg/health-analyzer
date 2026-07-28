@@ -243,7 +243,13 @@
 
     <section id="step-charts" class="card hidden result-section">
       <h2>趋势图</h2>
-      <p class="hint compact-hint">本地绘制。在图上滑动可读数；体重为晨起趋势，CGM 约近 7 天。</p>
+      <p class="hint compact-hint">本地绘制。在图上滑动可读数；体重为晨起趋势。</p>
+      <div class="chart-range-chips" id="chart-range-chips" role="group" aria-label="图表时间范围">
+        <button type="button" class="chip is-active" data-days="7">近 7 天</button>
+        <button type="button" class="chip" data-days="30">近 30 天</button>
+        <button type="button" class="chip" data-days="90">近 90 天</button>
+        <button type="button" class="chip" data-days="0">全部</button>
+      </div>
       <div id="charts-content" class="charts-content"></div>
     </section>
 
@@ -301,6 +307,7 @@
         <button type="button" id="btn-prompt-expand" class="btn-ghost btn-prompt-expand">展开全部预览</button>
         <div class="prompt-actions">
           <button type="button" id="btn-copy" class="btn-primary">复制到剪贴板</button>
+          <button type="button" id="btn-copy-insights" class="btn-secondary">只复制摘要</button>
           <button type="button" id="btn-download" class="btn-secondary">下载 .md</button>
           <span id="copy-status" class="copy-status" aria-live="polite"></span>
         </div>
@@ -330,7 +337,7 @@
   </main>
 
   <footer class="app-footer">
-    <p>开源 · 本地优先 · v1.9</p>
+    <p>开源 · 本地优先 · v1.10</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" aria-label="快捷操作">

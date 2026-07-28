@@ -46,6 +46,7 @@ var HealthAnalyzer = (() => {
     formatInsightsForLLM: () => formatInsightsForLLM,
     formatUserContext: () => formatUserContext,
     generateDataOnly: () => generateDataOnly,
+    generateInsightsOnlyPrompt: () => generateInsightsOnlyPrompt,
     generateLLMPrompt: () => generateLLMPrompt,
     getDate: () => getDate,
     getHour: () => getHour,
@@ -1019,6 +1020,25 @@ var HealthAnalyzer = (() => {
     lines.push("");
     lines.push("> \u4EE5\u4E0B\u4E3A\u5206\u7EF4\u5EA6\u539F\u59CB\u7EDF\u8BA1\u4E0E\u660E\u7EC6\uFF0C\u8BF7\u4E0E\u6458\u8981\u4EA4\u53C9\u6838\u5BF9\u3002");
     lines.push("");
+    return lines.join("\n");
+  }
+  function generateInsightsOnlyPrompt(analysis, options = {}) {
+    const bullets = buildInsightBullets(analysis);
+    const body = formatInsightsForLLM(bullets).replace("> \u4EE5\u4E0B\u4E3A\u5206\u7EF4\u5EA6\u539F\u59CB\u7EDF\u8BA1\u4E0E\u660E\u7EC6\uFF0C\u8BF7\u4E0E\u6458\u8981\u4EA4\u53C9\u6838\u5BF9\u3002\n\n", "").trim();
+    const lines = [
+      "\u8BF7\u57FA\u4E8E\u4EE5\u4E0B\u300C\u4E2A\u4EBA\u5065\u5EB7\u81EA\u6211\u76D1\u6D4B\u6458\u8981\u300D\u7ED9\u51FA\u7B80\u6D01\u4E2D\u6587\u5EFA\u8BAE\uFF08Markdown\uFF09\uFF1A",
+      "- \u4E0D\u4E0B\u8BCA\u65AD\u3001\u4E0D\u5F00\u836F\u3001\u4E0D\u66FF\u4EE3\u95E8\u8BCA",
+      "- \u6307\u51FA\u6700\u503C\u5F97\u4F18\u5148\u5173\u6CE8\u7684 3 \u70B9\uFF0C\u5E76\u7ED9\u51FA\u53EF\u64CD\u4F5C\u7684\u81EA\u6211\u76D1\u6D4B\u5EFA\u8BAE",
+      "- \u5F02\u5E38\u9700\u63D0\u793A\u590D\u6838\uFF08\u5982 CGM \u6307\u5C16\u8840\u3001\u8840\u538B\u590D\u6D4B\uFF09",
+      ""
+    ];
+    if (options.prefix && options.prefix.trim()) {
+      lines.push(options.prefix.trim());
+      lines.push("");
+    }
+    lines.push(body || "\uFF08\u6682\u65E0\u6458\u8981\uFF09");
+    lines.push("");
+    lines.push("\uFF08\u672C\u6BB5\u4EC5\u4E3A\u7A0B\u5E8F\u6458\u8981\uFF0C\u975E\u5B8C\u6574\u539F\u59CB\u6570\u636E\u3002\u9700\u8981\u5B8C\u6574\u7EDF\u8BA1\u8BF7\u4F7F\u7528\u5B8C\u6574\u63D0\u793A\u8BCD\u3002\uFF09");
     return lines.join("\n");
   }
 

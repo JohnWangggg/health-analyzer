@@ -52,6 +52,7 @@ export {
 export {
   buildInsightBullets,
   formatInsightsForLLM,
+  generateInsightsOnlyPrompt,
 } from './insights';
 
 export {

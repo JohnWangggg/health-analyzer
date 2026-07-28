@@ -280,10 +280,32 @@
     return `最新 ${last.toFixed(last >= 100 ? 0 : 2)}${u}  ·  最低 ${min.toFixed(min >= 100 ? 0 : 1)}${u}  ·  最高 ${max.toFixed(max >= 100 ? 0 : 1)}${u}  ·  ${points.length} 点`;
   }
 
+  function sliceByDays(points, days) {
+    if (!points || !points.length) return [];
+    if (!days || days <= 0) return points;
+    const dates = points.map((p) => String(p.x).slice(0, 10)).filter(Boolean).sort();
+    if (!dates.length) return points;
+    const latest = dates[dates.length - 1];
+    const cutoff = new Date(`${latest}T00:00:00Z`);
+    cutoff.setUTCDate(cutoff.getUTCDate() - (days - 1));
+    const cut = cutoff.toISOString().slice(0, 10);
+    return points.filter((p) => String(p.x).slice(0, 10) >= cut);
+  }
+
+  function rangeLabel(days) {
+    if (!days || days <= 0) return '全部';
+    return `近 ${days} 天`;
+  }
+
   /**
    * 从 FullAnalysis 渲染可用图表
+   * @param {HTMLElement} container
+   * @param {object} analysis
+   * @param {{ days?: number }} options days: 7|30|90|0(全部)；CGM 默认 7，体重/HRV/BP 默认 90
    */
-  function renderAnalysisCharts(container, analysis) {
+  function renderAnalysisCharts(container, analysis, options) {
+    options = options || {};
+    const daysOpt = options.days;
     if (!container) return;
     container.innerHTML = '';
     if (!analysis || !analysis.data) {
@@ -294,21 +316,18 @@
     const blocks = [];
     const data = analysis.data;
     const theme = themeColors();
+    // 默认：CGM 看 7 天，其余看 90 天；用户 chips 会统一 days
+    const cgmDays = daysOpt === undefined ? 7 : daysOpt;
+    const seriesDays = daysOpt === undefined ? 90 : daysOpt;
 
     if (data.cgm && data.cgm.length > 0) {
       const sorted = [...data.cgm].sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
-      const lastDate = String(sorted[sorted.length - 1].datetime).slice(0, 10);
-      const cutoffDate = new Date(`${lastDate}T00:00:00Z`);
-      cutoffDate.setUTCDate(cutoffDate.getUTCDate() - 6);
-      const cut = cutoffDate.toISOString().slice(0, 10);
-      const recent = sorted.filter((p) => String(p.datetime).slice(0, 10) >= cut);
-      const pts = downsample(
-        recent.map((p) => ({ x: p.datetime, y: p.value })),
-        400
-      );
+      let pts = sorted.map((p) => ({ x: p.datetime, y: p.value }));
+      pts = sliceByDays(pts, cgmDays);
+      pts = downsample(pts, 400);
       blocks.push({
         key: 'cgm',
-        title: 'CGM（最近约 7 天）',
+        title: `CGM（${rangeLabel(cgmDays)}）`,
         color: '#e74c3c',
         yLabel: 'mmol/L',
         unit: 'mmol/L',
@@ -327,38 +346,40 @@
 
     const trend = analysis.weightStats && analysis.weightStats.trendSeries;
     if (trend && trend.length > 0) {
-      const recent = trend.slice(-90);
+      let recent = trend.map((w) => ({ x: w.date, y: w.weight, bodyFat: w.bodyFat }));
+      recent = sliceByDays(recent, seriesDays);
       blocks.push({
         key: 'weight',
-        title: '体重趋势（晨起优先，最多 90 日）',
+        title: `体重趋势（晨起优先，${rangeLabel(seriesDays)}）`,
         color: '#1abc9c',
         yLabel: 'kg',
         unit: 'kg',
-        points: recent.map((w) => ({ x: w.date, y: w.weight })),
+        points: recent.map((w) => ({ x: w.x, y: w.y })),
         legend: [{ color: '#1abc9c', label: '趋势体重', dashed: false }],
       });
       const fatPts = recent.filter((w) => w.bodyFat != null && Number.isFinite(w.bodyFat));
       if (fatPts.length >= 2) {
         blocks.push({
           key: 'bodyfat',
-          title: '体脂趋势（与体重同日合并，最多 90 日）',
+          title: `体脂趋势（${rangeLabel(seriesDays)}）`,
           color: '#9b59b6',
           yLabel: '%',
           unit: '%',
-          points: fatPts.map((w) => ({ x: w.date, y: w.bodyFat })),
+          points: fatPts.map((w) => ({ x: w.x, y: w.bodyFat })),
           legend: [{ color: '#9b59b6', label: '体脂%', dashed: false }],
         });
       }
     } else if (data.weight && data.weight.length > 0) {
       const sorted = [...data.weight].sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
-      const recent = sorted.slice(-90);
+      let recent = sorted.map((w) => ({ x: w.datetime || w.date, y: w.value }));
+      recent = sliceByDays(recent, seriesDays);
       blocks.push({
         key: 'weight',
-        title: '体重（最多 90 条原始）',
+        title: `体重（${rangeLabel(seriesDays)}）`,
         color: '#1abc9c',
         yLabel: 'kg',
         unit: 'kg',
-        points: recent.map((w) => ({ x: w.datetime || w.date, y: w.value })),
+        points: recent,
         legend: [{ color: '#1abc9c', label: '体重', dashed: false }],
       });
     }
@@ -366,27 +387,33 @@
     const hrvByDate = analysis.hrvByDate || {};
     const hrvDates = Object.keys(hrvByDate).sort();
     if (hrvDates.length > 0) {
-      const recent = hrvDates.slice(-30);
+      let pts = hrvDates.map((d) => ({ x: d, y: hrvByDate[d].allMean }));
+      const hrvDays = daysOpt === undefined ? 30 : daysOpt;
+      pts = sliceByDays(pts, hrvDays);
       blocks.push({
         key: 'hrv',
-        title: 'HRV 全天均值（最近最多 30 天）',
+        title: `HRV 全天均值（${rangeLabel(hrvDays)}）`,
         color: theme.primary,
         yLabel: 'ms',
         unit: 'ms',
-        points: recent.map((d) => ({ x: d, y: hrvByDate[d].allMean })),
+        points: pts,
         legend: [{ color: theme.primary, label: 'HRV', dashed: false }],
       });
     }
 
     if (analysis.bpStats && analysis.bpStats.records && analysis.bpStats.records.length > 0) {
-      const recs = analysis.bpStats.records.slice(-40);
+      let pts = analysis.bpStats.records.map((r) => ({ x: r.datetime, y: r.systolic }));
+      const bpDays = daysOpt === undefined ? 90 : daysOpt;
+      pts = sliceByDays(pts, bpDays);
+      // 点数过多时降采样
+      if (pts.length > 120) pts = downsample(pts, 120);
       blocks.push({
         key: 'bp',
-        title: '收缩压（最近最多 40 条）',
+        title: `收缩压（${rangeLabel(bpDays)}）`,
         color: '#e74c3c',
         yLabel: 'mmHg',
         unit: 'mmHg',
-        points: recs.map((r) => ({ x: r.datetime, y: r.systolic })),
+        points: pts,
         thresholds: [
           { y: 90, color: '#e67e22', label: '90' },
           { y: 140, color: '#c0392b', label: '140' },
