@@ -151,7 +151,7 @@ body {
 }
 
 body.has-results {
-  padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(108px + env(safe-area-inset-bottom, 0px));
 }
 
 .step-lead {
@@ -1585,10 +1585,51 @@ body.has-results .result-section {
   padding-left: 2px;
 }
 
-.sticky-cta-btn {
+.sticky-cta-btns {
+  display: flex;
+  gap: 8px;
   width: 100%;
+}
+
+.sticky-cta-btn {
+  flex: 1.4;
   min-height: 48px;
   font-size: 15px;
+}
+
+.sticky-cta-btn-secondary {
+  flex: 1;
+  min-height: 48px;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+
+.csv-merge-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-top: 8px;
+}
+
+.csv-merge-fields input[type="file"] {
+  font-size: 13px;
+  max-width: 100%;
+}
+
+.quality-banner-info {
+  background: var(--signal-info-bg);
+  border-color: var(--signal-info-border);
+}
+
+@media (max-width: 600px) {
+  .sticky-cta-btns {
+    flex-direction: column;
+  }
+  .sticky-cta-btn,
+  .sticky-cta-btn-secondary {
+    width: 100%;
+    flex: none;
+  }
 }
 
 .sticky-cta-side {

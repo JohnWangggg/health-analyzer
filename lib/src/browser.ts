@@ -60,5 +60,11 @@ export {
   joinCsvBundle,
 } from './export';
 
+export {
+  parseWeightScaleCsv,
+  parseBloodPressureCsv,
+  mergeExternalCsvIntoData,
+} from './csv-import';
+
 // 兼容历史 lib.js：calcBpStats 别名
 export { calcBloodPressureStats as calcBpStats } from './stats';

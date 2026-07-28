@@ -12,10 +12,19 @@
   let currentAnalysis = null;
   let currentPromptTab = 'full';
   let deferredInstallPrompt = null;
-  /** 图表时间范围：7|30|90|0(全部)；undefined 用各图默认 */
-  let chartRangeDays = 30;
+  /** 图表时间范围：7|30|90|0(全部) */
+  const CHART_RANGE_KEY = 'health-analyzer-chart-range';
+  let chartRangeDays = (() => {
+    try {
+      const v = Number(window.localStorage.getItem(CHART_RANGE_KEY));
+      if (v === 0 || v === 7 || v === 30 || v === 90) return v;
+    } catch (e) { /* ignore */ }
+    return 30;
+  })();
   /** 最近一次成功选中的文件，供失败后「重试（保留设置）」 */
   let lastSelectedFiles = null;
+  /** 最近一次 CSV 合并说明（展示在质量横幅旁） */
+  let lastCsvMergeNote = '';
   const CTX_STORAGE_KEY = 'health-analyzer-user-context-v1';
   const THEME_KEY = 'health-analyzer-theme'; // system | light | dark
 
@@ -566,7 +575,17 @@
         }
       }
 
-      setProgress(0.88, '生成统计与摘要…', { stage: 'stats', hint: '计算 KPI、晨重、CGM 稳定期与提示词…' });
+      // 可选：合并外部 CSV（上传区已选文件）
+      setProgress(0.86, '合并外部 CSV…', { stage: 'stats', hint: '若已选择体脂秤/血压 CSV 则合并…' });
+      lastCsvMergeNote = '';
+      try {
+        const mergeNote = await applySelectedCsvToData(data);
+        if (mergeNote) lastCsvMergeNote = mergeNote;
+      } catch (e) {
+        console.warn('CSV 合并跳过', e);
+      }
+
+      setProgress(0.92, '生成统计与摘要…', { stage: 'stats', hint: '计算 KPI、晨重、CGM 稳定期与提示词…' });
       currentAnalysis = window.HealthAnalyzer.analyzeAll(data);
 
       setProgress(1, '完成', { stage: 'done', hint: '即将展示监测概览…' });
@@ -1352,33 +1371,96 @@
   document.querySelectorAll('#chart-range-chips .chip').forEach((btn) => {
     btn.addEventListener('click', () => {
       chartRangeDays = Number(btn.getAttribute('data-days')) || 0;
+      try { window.localStorage.setItem(CHART_RANGE_KEY, String(chartRangeDays)); } catch (e) { /* ignore */ }
       if (currentAnalysis) renderCharts(currentAnalysis);
     });
   });
+
+  $('btn-csv-apply')?.addEventListener('click', () => { reapplyCsvAndRefresh(); });
 
   function renderDataQualityBanner(analysis) {
     const host = $('data-quality-banner');
     if (!host) return;
     const dq = analysis && analysis.data && analysis.data.dataQuality;
-    if (!dq || !dq.skippedFutureCount) {
+    const parts = [];
+    if (dq && dq.skippedFutureCount) {
+      const samples = (dq.futureSampleDates || []).slice(0, 5).join('、') || '（未列出）';
+      parts.push(`
+        <div class="quality-banner" role="status">
+          <strong>已排除未来日期数据</strong>
+          <p>
+            参考日 <code>${escapeHtml(dq.referenceDate)}</code> 之后共跳过
+            <strong>${dq.skippedFutureCount}</strong> 条记录
+            （日期样本：${escapeHtml(samples)}）。
+            请到手机「健康」中删除错误条目；统计与提示词均<strong>不含</strong>这些未来记录。
+          </p>
+        </div>
+      `);
+    }
+    if (lastCsvMergeNote) {
+      parts.push(`
+        <div class="quality-banner quality-banner-info" role="status">
+          <strong>已合并外部 CSV</strong>
+          <p>${escapeHtml(lastCsvMergeNote)}</p>
+        </div>
+      `);
+    }
+    if (!parts.length) {
       host.innerHTML = '';
       host.classList.add('hidden');
       return;
     }
-    const samples = (dq.futureSampleDates || []).slice(0, 5).join('、') || '（未列出）';
     host.classList.remove('hidden');
-    host.innerHTML = `
-      <div class="quality-banner" role="status">
-        <strong>已排除未来日期数据</strong>
-        <p>
-          参考日 <code>${escapeHtml(dq.referenceDate)}</code> 之后共跳过
-          <strong>${dq.skippedFutureCount}</strong> 条记录
-          （日期样本：${escapeHtml(samples)}）。
-          常见原因是健康 App 中误录了未来体重等；请到手机「健康」中删除错误条目。
-          统计、图表与提示词均<strong>不含</strong>这些未来记录。
-        </p>
-      </div>
-    `;
+    host.innerHTML = parts.join('');
+  }
+
+  async function readOptionalCsv(inputId) {
+    const el = $(inputId);
+    if (!el || !el.files || !el.files[0]) return '';
+    return readFileAsText(el.files[0]);
+  }
+
+  async function applySelectedCsvToData(data) {
+    if (!window.HealthAnalyzer || typeof window.HealthAnalyzer.mergeExternalCsvIntoData !== 'function') {
+      return '';
+    }
+    const weightCsvText = await readOptionalCsv('csv-weight-input');
+    const bpCsvText = await readOptionalCsv('csv-bp-input');
+    if (!weightCsvText && !bpCsvText) return '';
+    const result = window.HealthAnalyzer.mergeExternalCsvIntoData(data, {
+      weightCsvText: weightCsvText || undefined,
+      bpCsvText: bpCsvText || undefined,
+    });
+    const bits = [];
+    if (result.weightAdded) bits.push(`体重 +${result.weightAdded}`);
+    if (result.weightUpdated) bits.push(`补全体脂/BMI ${result.weightUpdated}`);
+    if (result.bodyFatFilled) bits.push(`体脂字段 ${result.bodyFatFilled}`);
+    if (result.bpAdded) bits.push(`血压 +${result.bpAdded}`);
+    if (result.skipped) bits.push(`跳过重复 ${result.skipped}`);
+    if (result.notes && result.notes.length) bits.push(result.notes.join('；'));
+    return bits.length ? bits.join(' · ') : 'CSV 已处理（无新增）';
+  }
+
+  async function reapplyCsvAndRefresh() {
+    if (!currentAnalysis || !currentAnalysis.data) {
+      showToast('请先完成苹果健康数据解析');
+      return;
+    }
+    try {
+      const note = await applySelectedCsvToData(currentAnalysis.data);
+      lastCsvMergeNote = note || 'CSV 已处理';
+      currentAnalysis = window.HealthAnalyzer.analyzeAll(currentAnalysis.data);
+      renderResults(currentAnalysis);
+      const st = $('csv-merge-status');
+      if (st) {
+        st.textContent = '✓ ' + lastCsvMergeNote;
+        st.classList.add('show');
+        setTimeout(() => st.classList.remove('show'), 3000);
+      }
+      showToast('已合并 CSV 并刷新分析', { ok: true });
+    } catch (e) {
+      showToast('CSV 合并失败：' + (e.message || e), { ms: 2800 });
+    }
   }
 
   function renderAvailability(analysis) {
@@ -1849,8 +1931,7 @@
     await copyText($('prompt-output').value, '已复制到剪贴板');
   });
 
-  // 只复制自动监测摘要（短上下文）
-  $('btn-copy-insights')?.addEventListener('click', async () => {
+  async function copyInsightsOnly() {
     if (!currentAnalysis) {
       showToast('请先完成分析');
       return;
@@ -1866,7 +1947,11 @@
     }
     const text = window.HealthAnalyzer.generateInsightsOnlyPrompt(currentAnalysis, { prefix });
     await copyText(text, '已复制摘要短提示（适合短上下文模型）');
-  });
+  }
+
+  // 只复制自动监测摘要（短上下文）
+  $('btn-copy-insights')?.addEventListener('click', () => { copyInsightsOnly(); });
+  $('btn-copy-insights-sticky')?.addEventListener('click', () => { copyInsightsOnly(); });
 
   // 主 CTA / 吸底：始终复制完整提示词
   $('btn-copy-hero')?.addEventListener('click', () => copyFullPrompt($('copy-status')));

@@ -315,11 +315,28 @@ export function finalizeData(data: HealthData): void {
   }
 
   const map = bpMaps.get(data);
-  if (map) {
-    data.bloodPressure = [...map.values()].filter((r) => r.systolic > 0 && r.diastolic > 0);
+  if (map && map.size > 0) {
+    // 解析阶段写入 Map；与已有 bloodPressure（如外部 CSV）合并
+    const byDt = new Map<string, (typeof data.bloodPressure)[0]>();
+    for (const r of data.bloodPressure || []) {
+      byDt.set(r.datetime, { ...r });
+    }
+    for (const r of map.values()) {
+      const cur = byDt.get(r.datetime) || {
+        datetime: r.datetime,
+        date: r.date,
+        systolic: 0,
+        diastolic: 0,
+      };
+      if (r.systolic > 0) cur.systolic = r.systolic;
+      if (r.diastolic > 0) cur.diastolic = r.diastolic;
+      byDt.set(r.datetime, cur);
+    }
+    data.bloodPressure = [...byDt.values()].filter((r) => r.systolic > 0 && r.diastolic > 0);
     bpMaps.delete(data);
   } else {
-    data.bloodPressure = data.bloodPressure.filter((r) => r.systolic > 0 && r.diastolic > 0);
+    data.bloodPressure = (data.bloodPressure || []).filter((r) => r.systolic > 0 && r.diastolic > 0);
+    if (map) bpMaps.delete(data);
   }
   data.bloodPressure.sort((a, b) => a.datetime.localeCompare(b.datetime));
   data.cgm.sort((a, b) => a.datetime.localeCompare(b.datetime));

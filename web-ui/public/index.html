@@ -91,6 +91,28 @@
         </div>
       </div>
 
+      <details class="advanced-box" id="csv-merge-box">
+        <summary>可选：合并体脂秤 / 血压计 CSV</summary>
+        <p class="date-filter-hint">
+          支持欧姆龙类中文表头（含「测量日期时间」「体重」「体脂肪率」或「高压」「低压」）。
+          与苹果健康数据按时间合并，不覆盖已有记录；可在分析后补选再点下方按钮刷新。
+        </p>
+        <div class="csv-merge-fields">
+          <label class="date-field">
+            <span>体重 / 体脂 CSV</span>
+            <input type="file" id="csv-weight-input" accept=".csv,text/csv" aria-label="体重体脂 CSV">
+          </label>
+          <label class="date-field">
+            <span>血压 CSV</span>
+            <input type="file" id="csv-bp-input" accept=".csv,text/csv" aria-label="血压 CSV">
+          </label>
+        </div>
+        <button type="button" id="btn-csv-apply" class="btn-secondary" style="margin-top:10px;">
+          应用到当前分析（需已解析）
+        </button>
+        <span id="csv-merge-status" class="copy-status" aria-live="polite"></span>
+      </details>
+
       <details class="date-filter-box" id="date-filter-box">
         <summary>可选：限制分析日期范围</summary>
         <p class="date-filter-hint">不填则使用导出中的全部记录。</p>
@@ -337,13 +359,16 @@
   </main>
 
   <footer class="app-footer">
-    <p>开源 · 本地优先 · v1.10</p>
+    <p>开源 · 本地优先 · v1.11</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" aria-label="快捷操作">
     <div class="sticky-cta-copy">
       <span class="sticky-cta-label">下一步</span>
-      <button type="button" id="btn-copy-sticky" class="btn-primary sticky-cta-btn">复制完整提示词</button>
+      <div class="sticky-cta-btns">
+        <button type="button" id="btn-copy-insights-sticky" class="btn-secondary sticky-cta-btn-secondary">复制摘要</button>
+        <button type="button" id="btn-copy-sticky" class="btn-primary sticky-cta-btn">复制完整提示词</button>
+      </div>
     </div>
     <button type="button" id="btn-sticky-top" class="btn-ghost sticky-cta-side" title="回到概览" aria-label="回到概览">↑</button>
   </div>

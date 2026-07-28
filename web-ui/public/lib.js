@@ -53,12 +53,15 @@ var HealthAnalyzer = (() => {
     getLocalToday: () => getLocalToday,
     isFutureDate: () => isFutureDate,
     joinCsvBundle: () => joinCsvBundle,
+    mergeExternalCsvIntoData: () => mergeExternalCsvIntoData,
     parseAppleDate: () => parseAppleDate,
+    parseBloodPressureCsv: () => parseBloodPressureCsv,
     parseBytesStream: () => parseBytesStream,
     parseEcgCsv: () => parseEcgCsv,
     parseHealthXml: () => parseHealthXml,
     parseHealthXmlAsync: () => parseHealthXmlAsync,
     parseRecordLine: () => parseRecordLine,
+    parseWeightScaleCsv: () => parseWeightScaleCsv,
     parseXmlStream: () => parseXmlStream,
     processRecord: () => processRecord,
     summarizeHrvByDay: () => summarizeHrvByDay
@@ -301,11 +304,27 @@ var HealthAnalyzer = (() => {
       data.steps[date].max = Math.max(data.steps[date].watch, data.steps[date].iphone);
     }
     const map = bpMaps.get(data);
-    if (map) {
-      data.bloodPressure = [...map.values()].filter((r) => r.systolic > 0 && r.diastolic > 0);
+    if (map && map.size > 0) {
+      const byDt = /* @__PURE__ */ new Map();
+      for (const r of data.bloodPressure || []) {
+        byDt.set(r.datetime, { ...r });
+      }
+      for (const r of map.values()) {
+        const cur = byDt.get(r.datetime) || {
+          datetime: r.datetime,
+          date: r.date,
+          systolic: 0,
+          diastolic: 0
+        };
+        if (r.systolic > 0) cur.systolic = r.systolic;
+        if (r.diastolic > 0) cur.diastolic = r.diastolic;
+        byDt.set(r.datetime, cur);
+      }
+      data.bloodPressure = [...byDt.values()].filter((r) => r.systolic > 0 && r.diastolic > 0);
       bpMaps.delete(data);
     } else {
-      data.bloodPressure = data.bloodPressure.filter((r) => r.systolic > 0 && r.diastolic > 0);
+      data.bloodPressure = (data.bloodPressure || []).filter((r) => r.systolic > 0 && r.diastolic > 0);
+      if (map) bpMaps.delete(data);
     }
     data.bloodPressure.sort((a, b) => a.datetime.localeCompare(b.datetime));
     data.cgm.sort((a, b) => a.datetime.localeCompare(b.datetime));
@@ -1704,6 +1723,183 @@ var HealthAnalyzer = (() => {
   function joinCsvBundle(csvFiles) {
     return csvFiles.map((f) => `### ${f.filename}
 ${f.content}`).join("\n");
+  }
+
+  // src/csv-import.ts
+  function stripBom(text) {
+    return text.replace(/^\uFEFF/, "");
+  }
+  function parseCsvLine(line) {
+    return line.split(",").map((c) => c.trim());
+  }
+  function normalizeDt(raw) {
+    const s = raw.trim().replace("T", " ");
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s) && !/[+-]\d{4}$/.test(s) && !/Z$/.test(s)) {
+      return `${s} +0800`;
+    }
+    return s;
+  }
+  function parseNum(s) {
+    if (s == null || s === "") return null;
+    const n = Number(String(s).replace(/%/g, "").trim());
+    return Number.isFinite(n) ? n : null;
+  }
+  function parseWeightScaleCsv(text) {
+    const lines = stripBom(text).split(/\r?\n/).filter((l) => l.trim());
+    if (lines.length < 2) return [];
+    const header = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+    const idx = (names) => {
+      for (const n of names) {
+        const i = header.findIndex((h) => h.includes(n));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    const iDt = idx(["\u6D4B\u91CF\u65E5\u671F\u65F6\u95F4", "\u65E5\u671F\u65F6\u95F4", "datetime", "\u65F6\u95F4", "date"]);
+    const iW = idx(["\u4F53\u91CD", "weight"]);
+    const iFat = idx(["\u4F53\u8102\u80AA", "\u4F53\u8102", "bodyfat", "body fat"]);
+    const iBmi = idx(["bmi"]);
+    const iMuscle = idx(["\u9AA8\u9ABC\u808C", "muscle"]);
+    if (iDt < 0 || iW < 0) return [];
+    const out = [];
+    for (let r = 1; r < lines.length; r++) {
+      const cols = parseCsvLine(lines[r]);
+      if (!cols[iDt] || !cols[iW]) continue;
+      const datetime = normalizeDt(cols[iDt]);
+      const value = parseNum(cols[iW]);
+      if (value == null || value < 20 || value > 300) continue;
+      const rec = {
+        datetime,
+        date: getDate(datetime),
+        value
+      };
+      if (iFat >= 0) {
+        const fat = parseNum(cols[iFat]);
+        if (fat != null && fat > 0 && fat < 80) rec.bodyFat = fat;
+      }
+      if (iBmi >= 0) {
+        const bmi = parseNum(cols[iBmi]);
+        if (bmi != null) rec.bmi = bmi;
+      }
+      if (iMuscle >= 0) {
+        const m = parseNum(cols[iMuscle]);
+        if (m != null) rec.muscleMass = m;
+      }
+      out.push(rec);
+    }
+    return out;
+  }
+  function parseBloodPressureCsv(text) {
+    const lines = stripBom(text).split(/\r?\n/).filter((l) => l.trim());
+    if (lines.length < 2) return [];
+    const header = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+    const idx = (names) => {
+      for (const n of names) {
+        const i = header.findIndex((h) => h.includes(n));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    const iDt = idx(["\u6D4B\u91CF\u65E5\u671F\u65F6\u95F4", "\u65E5\u671F\u65F6\u95F4", "datetime", "\u65F6\u95F4", "date"]);
+    const iSys = idx(["\u9AD8\u538B", "\u6536\u7F29", "systolic", "sys"]);
+    const iDia = idx(["\u4F4E\u538B", "\u8212\u5F20", "diastolic", "dia"]);
+    if (iDt < 0 || iSys < 0 || iDia < 0) return [];
+    const out = [];
+    for (let r = 1; r < lines.length; r++) {
+      const cols = parseCsvLine(lines[r]);
+      if (!cols[iDt]) continue;
+      const datetime = normalizeDt(cols[iDt]);
+      const systolic = parseNum(cols[iSys]);
+      const diastolic = parseNum(cols[iDia]);
+      if (systolic == null || diastolic == null) continue;
+      if (systolic < 50 || systolic > 250 || diastolic < 30 || diastolic > 150) continue;
+      out.push({
+        datetime,
+        date: getDate(datetime),
+        systolic,
+        diastolic
+      });
+    }
+    return out;
+  }
+  function sameMinute(a, b) {
+    return a.slice(0, 16) === b.slice(0, 16);
+  }
+  function mergeExternalCsvIntoData(data, options = {}) {
+    const result = {
+      weightAdded: 0,
+      weightUpdated: 0,
+      bpAdded: 0,
+      bodyFatFilled: 0,
+      skipped: 0,
+      notes: []
+    };
+    if (options.weightCsvText) {
+      const rows = parseWeightScaleCsv(options.weightCsvText);
+      if (!rows.length) {
+        result.notes.push("\u4F53\u91CD CSV \u672A\u8BC6\u522B\u5230\u6709\u6548\u884C\uFF08\u8BF7\u786E\u8BA4\u542B\u300C\u6D4B\u91CF\u65E5\u671F\u65F6\u95F4\u300D\u300C\u4F53\u91CD\u300D\u5217\uFF09");
+      }
+      for (const row of rows) {
+        const hit = data.weight.find(
+          (w) => sameMinute(w.datetime, row.datetime) || w.date === row.date && Math.abs(w.value - row.value) < 0.05
+        );
+        if (hit) {
+          let updated = false;
+          if (hit.bodyFat == null && row.bodyFat != null) {
+            hit.bodyFat = row.bodyFat;
+            result.bodyFatFilled += 1;
+            updated = true;
+          }
+          if (hit.bmi == null && row.bmi != null) {
+            hit.bmi = row.bmi;
+            updated = true;
+          }
+          if (hit.muscleMass == null && row.muscleMass != null) {
+            hit.muscleMass = row.muscleMass;
+            updated = true;
+          }
+          if (updated) result.weightUpdated += 1;
+          else result.skipped += 1;
+        } else {
+          data.weight.push({ ...row });
+          if (row.bodyFat != null) {
+            data.bodyFat.push({
+              datetime: row.datetime,
+              date: row.date,
+              value: row.bodyFat,
+              source: "external-csv"
+            });
+          }
+          result.weightAdded += 1;
+        }
+      }
+      if (rows.length) {
+        data.dataAvailability.hasWeight = true;
+        if (data.weight.some((w) => w.bodyFat != null) || data.bodyFat.length) {
+          data.dataAvailability.hasBodyFat = true;
+        }
+      }
+    }
+    if (options.bpCsvText) {
+      const rows = parseBloodPressureCsv(options.bpCsvText);
+      if (!rows.length) {
+        result.notes.push("\u8840\u538B CSV \u672A\u8BC6\u522B\u5230\u6709\u6548\u884C\uFF08\u8BF7\u786E\u8BA4\u542B\u300C\u6D4B\u91CF\u65E5\u671F\u65F6\u95F4\u300D\u300C\u9AD8\u538B\u300D\u300C\u4F4E\u538B\u300D\u5217\uFF09");
+      }
+      for (const row of rows) {
+        const hit = data.bloodPressure.find(
+          (b) => sameMinute(b.datetime, row.datetime) || b.date === row.date && b.systolic === row.systolic && b.diastolic === row.diastolic
+        );
+        if (hit) {
+          result.skipped += 1;
+        } else {
+          data.bloodPressure.push({ ...row });
+          result.bpAdded += 1;
+        }
+      }
+      if (rows.length) data.dataAvailability.hasBloodPressure = true;
+    }
+    finalizeData(data);
+    return result;
   }
   return __toCommonJS(browser_exports);
 })();
