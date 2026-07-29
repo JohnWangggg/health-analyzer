@@ -1002,6 +1002,25 @@
   $('side-nav-toggle')?.addEventListener('click', toggleSideNav);
   initResultNavKeyboard();
 
+  function maybeShowImportHints(analysis) {
+    const host = $('import-hints');
+    if (!host) return;
+    const tips = [];
+    const av = analysis && analysis.data && analysis.data.dataAvailability;
+    if (av && !av.hasEcg) {
+      tips.push(t('import.hint.ecgZip'));
+    }
+    if (!tips.length) {
+      host.innerHTML = '';
+      host.classList.add('hidden');
+      return;
+    }
+    host.classList.remove('hidden');
+    host.innerHTML = tips
+      .map((msg) => `<div class="import-hint-banner" role="note">${escapeHtml(msg)}</div>`)
+      .join('');
+  }
+
   function renderResults(analysis) {
     show('step-overview');
     show('step-summary');
@@ -1012,6 +1031,7 @@
     setResultsVisible(true);
 
     renderAvailability(analysis);
+    maybeShowImportHints(analysis);
     renderKpis(analysis);
     renderSummary(analysis);
     bindRecoveryWeightsUi();
@@ -2763,6 +2783,45 @@
           t('recovery.breakdown.baselineMedian') || '基线中位'
         )}: ${escapeHtml(String(rw.baselineRecoveryMedian))}</p>`;
       }
+      // 算法子分条（有 components 时）
+      const comps = Array.isArray(rw.components) ? rw.components : [];
+      const sideLabel = (side) =>
+        side === 'recovery'
+          ? t('recovery.breakdown.sideRecovery') || '恢复侧'
+          : t('recovery.breakdown.sideLoad') || '负荷侧';
+      const componentRows = comps
+        .map((c) => {
+          const name = weightLabelMap[c.key] || c.key;
+          const pct = Math.max(0, Math.min(100, Number(c.score) || 0));
+          const rawTxt =
+            c.raw != null && Number.isFinite(c.raw)
+              ? `${Number(c.raw).toFixed(c.rawUnit === 'steps' || c.rawUnit === 'bpm' ? 0 : 1)}${c.rawUnit === 'steps' ? '' : c.rawUnit === 'min' ? ' min' : c.rawUnit === 'h' ? ' h' : c.rawUnit === '%' ? '%' : c.rawUnit === 'ms' ? ' ms' : c.rawUnit === 'bpm' ? ' bpm' : ''}`
+              : '—';
+          return `<div class="recovery-comp-row" data-side="${escapeHtml(c.side)}">
+            <div class="recovery-comp-meta">
+              <span class="recovery-comp-name">${escapeHtml(name)}</span>
+              <span class="recovery-comp-side">${escapeHtml(sideLabel(c.side))}</span>
+              <span class="recovery-comp-raw hint">${escapeHtml(rawTxt)}</span>
+              <span class="recovery-comp-score">${pct}</span>
+            </div>
+            <div class="recovery-comp-bar" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100">
+              <span class="recovery-comp-fill" style="width:${pct}%"></span>
+            </div>
+          </div>`;
+        })
+        .join('');
+      const componentsHtml = comps.length
+        ? `<div class="recovery-components">
+            <span class="recovery-breakdown-weights-label">${escapeHtml(
+              t('recovery.breakdown.components') || '维度子分（加权前）'
+            )}</span>
+            <p class="hint recovery-comp-hint">${escapeHtml(
+              t('recovery.breakdown.componentsHint') ||
+                '各维度映射到 0–100 后，再按权重合成恢复分/负荷分；启发式，非诊断。'
+            )}</p>
+            ${componentRows}
+          </div>`
+        : '';
       const breakdownPanel = `
           <div class="recovery-breakdown" id="recovery-breakdown" aria-label="${escapeHtml(
             t('recovery.breakdown.title') || '恢复评分拆解'
@@ -2790,6 +2849,7 @@
               t('recovery.breakdown.status') || '状态'
             )}: ${escapeHtml(rw.statusLabel || '—')}</p>
             ${baselineHtml}
+            ${componentsHtml}
             <div class="recovery-breakdown-weights">
               <span class="recovery-breakdown-weights-label">${escapeHtml(
                 t('recovery.breakdown.weights') || '当前权重'

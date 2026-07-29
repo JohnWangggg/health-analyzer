@@ -464,6 +464,21 @@ export const RECOVERY_WEIGHT_PRESETS: Record<
   },
 };
 
+/** 恢复/负荷评分中的单维构成（0–100 启发式子分 + 权重） */
+export interface RecoveryScorePart {
+  /** hrv | sleep | nightHr | spo2Night | exercise | workout | steps */
+  key: string;
+  side: 'recovery' | 'load';
+  /** 映射后的 0–100 子分（加权前） */
+  score: number;
+  /** 用户/预设权重 */
+  weight: number;
+  /** 原始指标值（如 HRV ms、睡眠 h），无可为 null */
+  raw: number | null;
+  /** 原始单位说明（ms / h / bpm / % / min / steps） */
+  rawUnit: string;
+}
+
 /**
  * 近 7 日负荷 / 恢复仪表（启发式，非诊断）
  */
@@ -497,6 +512,8 @@ export interface RecoveryWeekStats {
    * 无基线或本周无恢复分时为 null。
    */
   vsBaselineDelta: number | null;
+  /** 各维度子分构成（有数据才出现） */
+  components: RecoveryScorePart[];
 }
 
 /**

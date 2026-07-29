@@ -3320,4 +3320,45 @@ body.has-results .app-footer {
   }
 }
 
-
+/* Recovery component bars (algorithm breakdown) */
+.recovery-components { margin-top: 10px; }
+.recovery-comp-hint { margin: 4px 0 8px; font-size: 12px; }
+.recovery-comp-row { margin-bottom: 8px; }
+.recovery-comp-meta {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px;
+  font-size: 12px; margin-bottom: 3px;
+}
+.recovery-comp-name { font-weight: 600; color: var(--text); }
+.recovery-comp-side {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--text-light); padding: 1px 6px; border-radius: 999px;
+  background: color-mix(in srgb, var(--muted-surface) 80%, var(--border));
+}
+.recovery-comp-row[data-side="recovery"] .recovery-comp-fill {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--success) 70%, var(--primary)), var(--primary));
+}
+.recovery-comp-row[data-side="load"] .recovery-comp-fill {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--warning) 80%, var(--primary)), var(--warning));
+}
+.recovery-comp-score { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+.recovery-comp-bar {
+  height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--border) 55%, transparent);
+  overflow: hidden;
+}
+.recovery-comp-fill {
+  display: block; height: 100%; border-radius: 999px; min-width: 0;
+  transition: width 0.25s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .recovery-comp-fill { transition: none; }
+}
+.import-hint-banner {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm, 10px);
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border));
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.45;
+}

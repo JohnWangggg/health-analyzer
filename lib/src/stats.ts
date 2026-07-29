@@ -27,6 +27,7 @@ import {
   RecoveryWeekStats,
   RecoveryWeekPoint,
   RecoveryWeights,
+  RecoveryScorePart,
   DEFAULT_RECOVERY_WEIGHTS,
 } from './types';
 import { getDate, getHour, parseAppleDate, workoutTypeLabel } from './parser';
@@ -735,10 +736,11 @@ export function attachRecoveryBaseline(
     baselineRecoveryMedian,
     vsBaselineDelta,
     statusLabel,
+    components: week.components || [],
   };
 }
 
-/** 恢复/负荷启发式评分（共享，避免单周与多周漂移） */
+/** 恢复/负荷启发式评分（共享，避免单周与多周漂移）；附带各维子分构成 */
 function scoreRecoveryLoad(input: {
   hrvMean7d: number | null;
   sleepMean7d: number | null;
@@ -757,59 +759,109 @@ function scoreRecoveryLoad(input: {
   loadScore: number | null;
   statusLabel: string;
   statusTone: RecoveryWeekStats['statusTone'];
+  components: RecoveryScorePart[];
 } {
   const w = normalizeRecoveryWeights(input.weights);
+  const components: RecoveryScorePart[] = [];
 
   const recoveryParts: { value: number; weight: number }[] = [];
   if (input.hrvMean7d != null) {
     // 约 20–60 ms 映射到 30–90
-    recoveryParts.push({
-      value: Math.max(0, Math.min(100, ((input.hrvMean7d - 15) / 45) * 100)),
+    const value = Math.max(0, Math.min(100, ((input.hrvMean7d - 15) / 45) * 100));
+    recoveryParts.push({ value, weight: w.hrv });
+    components.push({
+      key: 'hrv',
+      side: 'recovery',
+      score: Math.round(value),
       weight: w.hrv,
+      raw: input.hrvMean7d,
+      rawUnit: 'ms',
     });
   }
   if (input.sleepMean7d != null) {
-    recoveryParts.push({
-      value: Math.max(0, Math.min(100, (input.sleepMean7d / 8) * 100)),
+    const value = Math.max(0, Math.min(100, (input.sleepMean7d / 8) * 100));
+    recoveryParts.push({ value, weight: w.sleep });
+    components.push({
+      key: 'sleep',
+      side: 'recovery',
+      score: Math.round(value),
       weight: w.sleep,
+      raw: input.sleepMean7d,
+      rawUnit: 'h',
     });
   }
   if (input.nightHrMean7d != null && input.restingHrMean7d != null) {
     const delta = input.nightHrMean7d - input.restingHrMean7d;
-    recoveryParts.push({
-      value: Math.max(0, Math.min(100, 80 - delta * 4)),
+    const value = Math.max(0, Math.min(100, 80 - delta * 4));
+    recoveryParts.push({ value, weight: w.nightHr });
+    components.push({
+      key: 'nightHr',
+      side: 'recovery',
+      score: Math.round(value),
       weight: w.nightHr,
+      raw: input.nightHrMean7d,
+      rawUnit: 'bpm',
     });
   } else if (input.nightHrMean7d != null) {
-    recoveryParts.push({
-      value: Math.max(0, Math.min(100, 100 - (input.nightHrMean7d - 50) * 1.5)),
+    const value = Math.max(0, Math.min(100, 100 - (input.nightHrMean7d - 50) * 1.5));
+    recoveryParts.push({ value, weight: w.nightHr });
+    components.push({
+      key: 'nightHr',
+      side: 'recovery',
+      score: Math.round(value),
       weight: w.nightHr,
+      raw: input.nightHrMean7d,
+      rawUnit: 'bpm',
     });
   }
   if (input.spo2NightMean7d != null) {
-    recoveryParts.push({
-      value: Math.max(0, Math.min(100, (input.spo2NightMean7d - 90) * 10)),
+    const value = Math.max(0, Math.min(100, (input.spo2NightMean7d - 90) * 10));
+    recoveryParts.push({ value, weight: w.spo2Night });
+    components.push({
+      key: 'spo2Night',
+      side: 'recovery',
+      score: Math.round(value),
       weight: w.spo2Night,
+      raw: input.spo2NightMean7d,
+      rawUnit: '%',
     });
   }
 
   const loadParts: { value: number; weight: number }[] = [];
   if (input.exerciseMinMean7d != null) {
-    loadParts.push({
-      value: Math.max(0, Math.min(100, (input.exerciseMinMean7d / 45) * 100)),
+    const value = Math.max(0, Math.min(100, (input.exerciseMinMean7d / 45) * 100));
+    loadParts.push({ value, weight: w.exercise });
+    components.push({
+      key: 'exercise',
+      side: 'load',
+      score: Math.round(value),
       weight: w.exercise,
+      raw: input.exerciseMinMean7d,
+      rawUnit: 'min',
     });
   }
   if (input.workoutDuration7d > 0) {
-    loadParts.push({
-      value: Math.max(0, Math.min(100, (input.workoutDuration7d / 150) * 100)),
+    const value = Math.max(0, Math.min(100, (input.workoutDuration7d / 150) * 100));
+    loadParts.push({ value, weight: w.workout });
+    components.push({
+      key: 'workout',
+      side: 'load',
+      score: Math.round(value),
       weight: w.workout,
+      raw: input.workoutDuration7d,
+      rawUnit: 'min',
     });
   }
   if (input.stepsMean7d != null) {
-    loadParts.push({
-      value: Math.max(0, Math.min(100, (input.stepsMean7d / 10000) * 100)),
+    const value = Math.max(0, Math.min(100, (input.stepsMean7d / 10000) * 100));
+    loadParts.push({ value, weight: w.steps });
+    components.push({
+      key: 'steps',
+      side: 'load',
+      score: Math.round(value),
       weight: w.steps,
+      raw: input.stepsMean7d,
+      rawUnit: 'steps',
     });
   }
 
@@ -851,7 +903,7 @@ function scoreRecoveryLoad(input: {
     }
   }
 
-  return { recoveryScore, loadScore, statusLabel, statusTone };
+  return { recoveryScore, loadScore, statusLabel, statusTone, components };
 }
 
 export type RecoveryAnalysisPartial = {
@@ -951,6 +1003,7 @@ function buildRecoveryWeekAt(
     statusTone: scored.statusTone,
     baselineRecoveryMedian: null,
     vsBaselineDelta: null,
+    components: scored.components || [],
   };
 }
 
