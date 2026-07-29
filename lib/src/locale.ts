@@ -15,7 +15,8 @@ export type LocaleOptions = { locale?: AppLocale | string };
  * Analysis bilingual copy (createL / pickLocale):
  * - en → English string
  * - zh-CN → Simplified Chinese
- * - zh-TW → Traditional via phrase dictionary (zh-tw-map), not full OpenCC
+ * - zh-TW → Traditional via phrase dictionary (zh-tw-map; expanded multi-char
+ *   medical phrases + common chars; not full OpenCC)
  * Full UI chrome uses Traditional Chinese in web-ui/public/i18n.js.
  */
 export function normalizeLocale(v?: string | null): AppLocale {

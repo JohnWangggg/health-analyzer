@@ -145,6 +145,19 @@ try {
   ok(tw && /恢復|負荷|資料|平衡|活動/.test(tw.statusLabel), `zh-TW status: ${tw?.statusLabel}`);
   ok(tw && !/恢复|负荷|数据不足/.test(tw.statusLabel), 'zh-TW status has no simplified recovery words');
   ok(mod.toTraditionalTitle('恢复') === '恢復', 'toTraditionalTitle(恢复)');
+  // residual-scan samples (should be fully traditionalized)
+  const samples = [
+    ['数值受睡眠、训练与疾病影响，单日波动不必过度解读。', /數值.*訓練.*波動.*過度解讀/],
+    ['单次异常需结合症状与复测，不能替代门诊。', /複測.*門診/],
+    ['不下诊断、不开药、不替代门诊', /診斷.*開藥.*門診/],
+    ['近 30 日 0 场', /0 場/],
+    ['（暂无摘要）', /暫無摘要/],
+    ['恢复指标偏弱，优先睡眠与减负', /恢復指標.*優先.*減負/],
+  ];
+  for (const [src, re] of samples) {
+    const tw = mod.toTraditionalTitle(src);
+    ok(re.test(tw) && !/训练|复测|门诊|开药|暂无|指标|减负|波动|解读/.test(tw), `TW sample: ${tw.slice(0, 36)}…`);
+  }
 } catch (e) {
   failed += 1;
   console.error('  ✗ lib.js smoke failed:', e.message);
