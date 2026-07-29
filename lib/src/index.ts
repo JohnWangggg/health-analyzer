@@ -16,3 +16,4 @@ export * from './signals';
 export * from './export';
 export * from './insights';
 export * from './csv-import';
+export * from './hae-import';

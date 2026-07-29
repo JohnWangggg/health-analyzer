@@ -2595,6 +2595,102 @@ body.has-results .result-section {
   max-width: 100%;
 }
 
+/* Health Auto Export 增量导入 */
+.hae-import-result {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border));
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.hae-import-result .hae-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 0 0 6px;
+  font-weight: 600;
+  color: var(--primary-dark);
+}
+
+.hae-import-result .hae-domain-list {
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--text-light);
+  font-size: 12px;
+}
+
+.hae-import-result .hae-domain-list li {
+  margin: 2px 0;
+}
+
+.hae-import-result .hae-notes {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.hae-import-result .hae-notes li::before {
+  content: '· ';
+  color: var(--primary);
+}
+
+.hae-unknown-metrics {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  font-size: 13px;
+}
+
+.hae-unknown-metrics .panel-subhead {
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.hae-unknown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.hae-unknown-list label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 2px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.hae-unknown-list label:hover {
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+}
+
+.hae-unknown-list input[type="checkbox"] {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+.hae-unknown-meta {
+  color: var(--text-light);
+  font-size: 11px;
+}
+
 .quality-banner-info {
   background: var(--signal-info-bg);
   border-color: var(--signal-info-border);

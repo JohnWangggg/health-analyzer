@@ -30,6 +30,7 @@ A pure front-end PWA that parses iPhone Apple Health exports (ZIP / XML), comput
 - ✅ **Dark mode**: system follow or manual light / dark / auto
 - ✅ **Responsive / adaptive UI**: mobile-first layout, safe-area insets, collapsible detail, sticky CTAs
 - ✅ **UI & docs i18n**: bilingual documentation (`docs/` + `docs/en/`); UI language resources under `web-ui/public/i18n/`
+- ✅ **Health Auto Export incremental import**: multi-file JSON/CSV or folder merge on-device, dedupe stats, unknown-metrics list (full ZIP still supported)
 
 ## Project layout
 
@@ -90,6 +91,16 @@ health-analyzer/
 
 6. **Paste into an LLM**  
    Use overview or sticky bar **Copy full prompt** → Doubao / Kimi / ChatGPT / Claude / Gemini. Always cross-check the model’s report against your raw numbers.
+
+### Health Auto Export (HAE) incremental import (v1.40)
+
+When you prefer scheduled **Health Auto Export** dumps (JSON/CSV) over re-exporting a full Apple Health ZIP every time:
+
+1. **Prefer** automated HAE export to **iCloud Drive** (JSON or CSV; multi-file per metric is fine).
+2. In the app, open **Health Auto Export incremental import**, pick files or a folder → **Merge HAE data**.
+3. After merge you’ll see **added / updated / skipped** counts; unmapped metrics appear in an **unknown-metrics list** (awareness only; checked names are recorded as intent—v1.40 still does not store unknown series).
+4. Still **local-only**; full Apple Health ZIP / XML / folder import remains supported and can complement HAE (ZIP once, HAE for deltas).
+5. **Not a substitute for clinical care**—stats and prompts are for personal review and visit prep, not diagnosis or treatment.
 
 ### Developer flow
 
@@ -199,7 +210,7 @@ Change parse/stats/prompts only under `lib/src/**`, then rebuild. Do not hand-ed
 
 ## Roadmap (selected)
 
-Done recently includes: Watch daily rollups, workouts, recovery dashboard & multi-week trends, ECG stats, breathing disturbance, joint signals, weekly MD report, tunable recovery weights, weekly-report history, CGM×sleep/activity signals, responsive UI polish, bilingual docs / i18n scaffolding.
+Done recently includes: Watch daily rollups, workouts, recovery dashboard & multi-week trends, ECG stats, breathing disturbance, joint signals, weekly MD report, tunable recovery weights, weekly-report history, CGM×sleep/activity signals, responsive UI polish, bilingual docs / i18n scaffolding, Health Auto Export JSON/CSV incremental import with dedupe stats and unknown-metrics listing.
 
 Still open:
 

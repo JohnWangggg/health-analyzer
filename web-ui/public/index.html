@@ -131,6 +131,29 @@
         <span id="csv-merge-status" class="copy-status" aria-live="polite"></span>
       </details>
 
+      <details class="advanced-box" id="hae-import-box">
+        <summary data-i18n="hae.summary">Health Auto Export 增量导入</summary>
+        <p class="date-filter-hint" data-i18n="hae.hint">
+          从 Health Auto Export 导出的 JSON 或 CSV（可多选 / 选文件夹），在本机合并到当前分析；增量去重，不上传。
+        </p>
+        <div class="csv-merge-fields hae-import-fields">
+          <label class="date-field">
+            <span data-i18n="hae.files">JSON / CSV 文件</span>
+            <input type="file" id="hae-file-input" accept=".json,.csv,application/json,text/csv" multiple data-i18n-aria="hae.files" aria-label="Health Auto Export JSON/CSV">
+          </label>
+          <label class="date-field">
+            <span data-i18n="hae.folder">或选择文件夹</span>
+            <input type="file" id="hae-folder-input" webkitdirectory directory multiple data-i18n-aria="hae.folder" aria-label="Health Auto Export folder">
+          </label>
+        </div>
+        <button type="button" id="btn-hae-apply" class="btn-secondary" style="margin-top:10px;" data-i18n="hae.apply">
+          合并 HAE 数据
+        </button>
+        <span id="hae-import-status" class="copy-status" aria-live="polite"></span>
+        <div id="hae-import-result" class="hae-import-result hidden" aria-live="polite"></div>
+        <div id="hae-unknown-metrics" class="hae-unknown-metrics hidden"></div>
+      </details>
+
       <details class="date-filter-box" id="date-filter-box">
         <summary data-i18n="date.summary">可选：限制分析日期范围</summary>
         <p class="date-filter-hint" data-i18n="date.hint">不填则使用导出中的全部记录。</p>

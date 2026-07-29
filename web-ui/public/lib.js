@@ -84,12 +84,18 @@ var HealthAnalyzer = (() => {
     joinCsvBundle: () => joinCsvBundle,
     mergeEcgEntries: () => mergeEcgEntries,
     mergeExternalCsvIntoData: () => mergeExternalCsvIntoData,
+    mergeHaeIntoData: () => mergeHaeIntoData,
+    mergeHaeJsonIntoData: () => mergeHaeJsonIntoData,
+    normalizeHaeMetricName: () => normalizeHaeMetricName,
     normalizeLocale: () => normalizeLocale,
     normalizeRecoveryWeights: () => normalizeRecoveryWeights,
     parseAppleDate: () => parseAppleDate,
     parseBloodPressureCsv: () => parseBloodPressureCsv,
     parseBytesStream: () => parseBytesStream,
     parseEcgCsv: () => parseEcgCsv,
+    parseHaeCsvFile: () => parseHaeCsvFile,
+    parseHaeInputs: () => parseHaeInputs,
+    parseHaeJson: () => parseHaeJson,
     parseHealthXml: () => parseHealthXml,
     parseHealthXmlAsync: () => parseHealthXmlAsync,
     parseRecordLine: () => parseRecordLine,
@@ -7256,6 +7262,1161 @@ ${f.content}`).join("\n");
     }
     finalizeData(data);
     return result;
+  }
+
+  // src/hae-import.ts
+  var KNOWN_METRIC_DOMAIN = {
+    blood_glucose: "cgm",
+    blood_pressure: "bloodPressure",
+    weight_body_mass: "weight",
+    body_mass: "weight",
+    body_weight: "weight",
+    weight: "weight",
+    body_fat_percentage: "bodyFat",
+    body_fat: "bodyFat",
+    body_mass_index: "weight",
+    bmi: "weight",
+    heart_rate_variability: "hrv",
+    heart_rate_variability_sdnn: "hrv",
+    hrv: "hrv",
+    resting_heart_rate: "restingHr",
+    walking_heart_rate: "walkingHr",
+    walking_heart_rate_average: "walkingHr",
+    heart_rate: "watch",
+    step_count: "steps",
+    steps: "steps",
+    sleep_analysis: "sleep",
+    sleep: "sleep",
+    active_energy: "watch",
+    active_energy_burned: "watch",
+    apple_exercise_time: "watch",
+    exercise_time: "watch",
+    apple_stand_time: "watch",
+    stand_time: "watch",
+    apple_stand_hour: "watch",
+    stand_hour: "watch",
+    time_in_daylight: "watch",
+    blood_oxygen_saturation: "watch",
+    oxygen_saturation: "watch",
+    spo2: "watch",
+    respiratory_rate: "watch",
+    vo2max: "watch",
+    vo2_max: "watch",
+    apple_sleeping_wrist_temperature: "watch",
+    sleeping_wrist_temperature: "watch",
+    wrist_temperature: "watch",
+    breathing_disturbances: "watch",
+    apple_sleeping_breathing_disturbances: "watch"
+  };
+  var WATCH_FIELD_BY_METRIC = {
+    active_energy: "activeKcal",
+    active_energy_burned: "activeKcal",
+    apple_exercise_time: "exerciseMin",
+    exercise_time: "exerciseMin",
+    apple_stand_time: "standMin",
+    stand_time: "standMin",
+    apple_stand_hour: "standHoursStood",
+    stand_hour: "standHoursStood",
+    time_in_daylight: "daylightMin",
+    blood_oxygen_saturation: "spo2",
+    oxygen_saturation: "spo2",
+    spo2: "spo2",
+    respiratory_rate: "rr",
+    vo2max: "vo2Max",
+    vo2_max: "vo2Max",
+    apple_sleeping_wrist_temperature: "wristTemp",
+    sleeping_wrist_temperature: "wristTemp",
+    wrist_temperature: "wristTemp",
+    breathing_disturbances: "breathingDisturbance",
+    apple_sleeping_breathing_disturbances: "breathingDisturbance",
+    heart_rate: "nightHr"
+  };
+  function normalizeHaeMetricName(name) {
+    if (!name) return "";
+    return String(name).trim().toLowerCase().replace(/[%]/g, "").replace(/[/\-]+/g, "_").replace(/\s+/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+  }
+  function isKnownMetric(name) {
+    return Boolean(KNOWN_METRIC_DOMAIN[name]);
+  }
+  function domainOf(name) {
+    return KNOWN_METRIC_DOMAIN[name];
+  }
+  function emptyDelta() {
+    return { added: 0, updated: 0, skipped: 0 };
+  }
+  function ensureDomain(stats, domain) {
+    if (!stats.byDomain[domain]) stats.byDomain[domain] = emptyDelta();
+    return stats.byDomain[domain];
+  }
+  function bump(stats, domain, kind, n = 1) {
+    const d = ensureDomain(stats, domain);
+    d[kind] += n;
+    if (kind === "added") stats.totalAdded += n;
+    else if (kind === "updated") stats.totalUpdated += n;
+    else stats.totalSkipped += n;
+  }
+  function stripBom2(text) {
+    return text.replace(/^\uFEFF/, "");
+  }
+  function sameMinute2(a, b) {
+    return a.slice(0, 16) === b.slice(0, 16);
+  }
+  function approxEq(a, b, eps = 0.05) {
+    return Math.abs(a - b) < eps;
+  }
+  function parseNum2(v) {
+    if (v == null || v === "") return null;
+    if (typeof v === "number") return Number.isFinite(v) ? v : null;
+    const n = Number(String(v).replace(/%/g, "").replace(/,/g, "").trim());
+    return Number.isFinite(n) ? n : null;
+  }
+  function normalizeDt2(raw) {
+    if (raw == null) return null;
+    let s = String(raw).trim();
+    if (!s) return null;
+    s = s.replace("T", " ");
+    s = s.replace(/(\d{2}:\d{2}:\d{2})\.\d+/, "$1");
+    s = s.replace(/([+-]\d{2}):(\d{2})$/, "$1$2");
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      return `${s} 00:00:00 +0000`;
+    }
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?$/.test(s)) {
+      if (s.length === 16) s = `${s}:00`;
+      return `${s} +0000`;
+    }
+    if (/^\d{4}-\d{2}-\d{2} /.test(s) || /^\d{4}-\d{2}-\d{2}T/.test(String(raw))) {
+      if (s.endsWith("Z")) s = s.replace(/Z$/, " +0000");
+      return s;
+    }
+    return s;
+  }
+  function dateFromPoint(pt) {
+    const raw = pt.date ?? pt.Date ?? pt.DateTime ?? pt.datetime ?? pt.startDate ?? pt.start ?? pt["\u6D4B\u91CF\u65E5\u671F\u65F6\u95F4"];
+    const dt = normalizeDt2(raw);
+    if (!dt) return null;
+    return getDate(dt);
+  }
+  function datetimeFromPoint(pt) {
+    const raw = pt.date ?? pt.Date ?? pt.DateTime ?? pt.datetime ?? pt.startDate ?? pt.start ?? pt["\u6D4B\u91CF\u65E5\u671F\u65F6\u95F4"];
+    return normalizeDt2(raw);
+  }
+  function qtyFromPoint(pt) {
+    const candidates = [
+      pt.qty,
+      pt.value,
+      pt.Value,
+      pt.Avg,
+      pt.avg,
+      pt.average,
+      pt["\u6570\u91CF"]
+    ];
+    for (const c of candidates) {
+      const n = parseNum2(c);
+      if (n != null) return n;
+    }
+    return null;
+  }
+  function ensureWatchDay2(data, date) {
+    if (!data.watchDaily) data.watchDaily = {};
+    if (!data.watchDaily[date]) {
+      data.watchDaily[date] = {
+        activeKcal: 0,
+        exerciseMin: 0,
+        standMin: 0,
+        daylightMin: 0,
+        standHoursStood: 0,
+        standHoursIdle: 0,
+        spo2Sum: 0,
+        spo2Count: 0,
+        spo2Min: Infinity,
+        spo2NightSum: 0,
+        spo2NightCount: 0,
+        spo2NightMin: Infinity,
+        spo2DaySum: 0,
+        spo2DayCount: 0,
+        spo2DayMin: Infinity,
+        rrSum: 0,
+        rrCount: 0,
+        nightHrSum: 0,
+        nightHrCount: 0,
+        wristTempSum: 0,
+        wristTempCount: 0
+      };
+    }
+    const w = data.watchDaily[date];
+    if (w.spo2NightMin == null) w.spo2NightMin = Infinity;
+    if (w.spo2DayMin == null) w.spo2DayMin = Infinity;
+    if (w.spo2NightSum == null) w.spo2NightSum = 0;
+    if (w.spo2NightCount == null) w.spo2NightCount = 0;
+    if (w.spo2DaySum == null) w.spo2DaySum = 0;
+    if (w.spo2DayCount == null) w.spo2DayCount = 0;
+    if (w.standHoursStood == null) w.standHoursStood = 0;
+    if (w.standHoursIdle == null) w.standHoursIdle = 0;
+    return w;
+  }
+  function parseCsvLine2(line) {
+    const out = [];
+    let cur = "";
+    let inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQ) {
+        if (ch === '"') {
+          if (line[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else {
+            inQ = false;
+          }
+        } else {
+          cur += ch;
+        }
+      } else if (ch === '"') {
+        inQ = true;
+      } else if (ch === ",") {
+        out.push(cur.trim());
+        cur = "";
+      } else {
+        cur += ch;
+      }
+    }
+    out.push(cur.trim());
+    return out;
+  }
+  function basenameNoExt(fileName) {
+    const base = fileName.split(/[/\\]/).pop() || fileName;
+    return base.replace(/\.(json|csv|txt)$/i, "");
+  }
+  function detectMetricFromFileName(fileName) {
+    return normalizeHaeMetricName(basenameNoExt(fileName));
+  }
+  function extractMetricsArray(root) {
+    const notes = [];
+    const metrics = [];
+    let workouts = [];
+    if (root == null) {
+      notes.push("JSON \u6839\u4E3A\u7A7A");
+      return { metrics, workouts, notes };
+    }
+    if (Array.isArray(root)) {
+      for (const item of root) {
+        if (item && typeof item === "object" && "name" in item) {
+          const m = item;
+          metrics.push({
+            name: normalizeHaeMetricName(m.name),
+            units: m.units,
+            data: Array.isArray(m.data) ? m.data.filter((d) => d && typeof d === "object") : []
+          });
+        }
+      }
+      return { metrics, workouts, notes };
+    }
+    if (typeof root !== "object") {
+      notes.push("JSON \u6839\u7C7B\u578B\u65E0\u6CD5\u8BC6\u522B");
+      return { metrics, workouts, notes };
+    }
+    const obj = root;
+    const dataBlock = obj.data && typeof obj.data === "object" && !Array.isArray(obj.data) ? obj.data : obj;
+    const rawMetrics = dataBlock.metrics ?? obj.metrics;
+    if (Array.isArray(rawMetrics)) {
+      for (const item of rawMetrics) {
+        if (!item || typeof item !== "object") continue;
+        const m = item;
+        if (!m.name) continue;
+        metrics.push({
+          name: normalizeHaeMetricName(m.name),
+          units: m.units,
+          data: Array.isArray(m.data) ? m.data.filter((d) => d && typeof d === "object") : []
+        });
+      }
+    }
+    const rawWorkouts = dataBlock.workouts ?? obj.workouts;
+    if (Array.isArray(rawWorkouts)) {
+      workouts = rawWorkouts.filter((w) => w && typeof w === "object");
+    }
+    if (!metrics.length && !workouts.length) {
+      notes.push("JSON \u4E2D\u672A\u627E\u5230 metrics / workouts");
+    }
+    return { metrics, workouts, notes };
+  }
+  function parseHaeJson(text, fileName) {
+    const notes = [];
+    const trimmed = stripBom2(text).trim();
+    if (!trimmed) {
+      notes.push(fileName ? `${fileName}: \u7A7A\u6587\u4EF6` : "\u7A7A JSON");
+      return { metrics: [], workouts: [], notes };
+    }
+    let root;
+    try {
+      root = JSON.parse(trimmed);
+    } catch (e) {
+      notes.push(
+        fileName ? `${fileName}: JSON \u89E3\u6790\u5931\u8D25 (${e.message})` : `JSON \u89E3\u6790\u5931\u8D25 (${e.message})`
+      );
+      return { metrics: [], workouts: [], notes };
+    }
+    const extracted = extractMetricsArray(root);
+    notes.push(...extracted.notes);
+    return {
+      metrics: extracted.metrics,
+      workouts: extracted.workouts,
+      notes
+    };
+  }
+  function parseHaeCsvFile(fileName, text) {
+    const notes = [];
+    const lines = stripBom2(text).split(/\r?\n/).filter((l) => l.trim());
+    if (lines.length < 2) {
+      notes.push(`${fileName}: CSV \u884C\u6570\u4E0D\u8DB3`);
+      return { metrics: [], notes };
+    }
+    const header = parseCsvLine2(lines[0]);
+    const headerLower = header.map((h) => h.toLowerCase().trim());
+    const findCol = (names) => {
+      for (const n of names) {
+        const i = headerLower.findIndex((h) => h === n || h.includes(n));
+        if (i >= 0) return i;
+      }
+      return -1;
+    };
+    const iDt = findCol(["\u6D4B\u91CF\u65E5\u671F\u65F6\u95F4", "datetime", "date", "date/time", "time", "\u65E5\u671F\u65F6\u95F4", "\u65E5\u671F"]);
+    const iQty = findCol(["qty", "value", "\u6570\u91CF", "val", "amount", "count"]);
+    const iSys = findCol(["systolic", "sys", "\u9AD8\u538B", "\u6536\u7F29"]);
+    const iDia = findCol(["diastolic", "dia", "\u4F4E\u538B", "\u8212\u5F20"]);
+    const iUnits = findCol(["units", "unit", "\u5355\u4F4D"]);
+    const iName = findCol(["name", "metric", "type", "\u6307\u6807"]);
+    if (iDt < 0) {
+      notes.push(`${fileName}: \u672A\u627E\u5230\u65E5\u671F\u5217`);
+      return { metrics: [], notes };
+    }
+    const metricFromFile = detectMetricFromFileName(fileName);
+    const isBpHint = metricFromFile === "blood_pressure" || metricFromFile.includes("blood_pressure") || iSys >= 0 && iDia >= 0;
+    if (iName >= 0) {
+      const byName = /* @__PURE__ */ new Map();
+      for (let r = 1; r < lines.length; r++) {
+        const cols = parseCsvLine2(lines[r]);
+        const nm = normalizeHaeMetricName(cols[iName] || "");
+        if (!nm) continue;
+        const dt = normalizeDt2(cols[iDt]);
+        if (!dt) continue;
+        const pt = { date: dt };
+        if (iQty >= 0 && cols[iQty] !== void 0) pt.qty = parseNum2(cols[iQty]) ?? cols[iQty];
+        if (iSys >= 0 && cols[iSys] !== void 0) pt.systolic = parseNum2(cols[iSys]);
+        if (iDia >= 0 && cols[iDia] !== void 0) pt.diastolic = parseNum2(cols[iDia]);
+        let units2;
+        if (iUnits >= 0 && cols[iUnits]) units2 = cols[iUnits];
+        if (!byName.has(nm)) byName.set(nm, { units: units2, data: [] });
+        const bucket = byName.get(nm);
+        if (units2 && !bucket.units) bucket.units = units2;
+        bucket.data.push(pt);
+      }
+      const metrics = [];
+      for (const [name, v] of byName) {
+        metrics.push({ name, units: v.units, data: v.data });
+      }
+      if (!metrics.length) notes.push(`${fileName}: \u65E0\u6709\u6548\u6570\u636E\u884C`);
+      return { metrics, notes };
+    }
+    let metricName = metricFromFile;
+    if (isBpHint && iSys >= 0 && iDia >= 0) {
+      metricName = "blood_pressure";
+    } else if (!metricName || metricName === "export" || metricName === "data") {
+      if (iSys >= 0 && iDia >= 0) metricName = "blood_pressure";
+      else metricName = "unknown_csv_metric";
+    }
+    let units;
+    const data = [];
+    for (let r = 1; r < lines.length; r++) {
+      const cols = parseCsvLine2(lines[r]);
+      if (!cols[iDt]) continue;
+      const dt = normalizeDt2(cols[iDt]);
+      if (!dt) continue;
+      const pt = { date: dt };
+      if (metricName === "blood_pressure" && iSys >= 0 && iDia >= 0) {
+        const sys = parseNum2(cols[iSys]);
+        const dia = parseNum2(cols[iDia]);
+        if (sys == null || dia == null) continue;
+        pt.systolic = sys;
+        pt.diastolic = dia;
+      } else if (iQty >= 0) {
+        const q = parseNum2(cols[iQty]);
+        if (q == null) continue;
+        pt.qty = q;
+      } else {
+        continue;
+      }
+      if (iUnits >= 0 && cols[iUnits] && !units) units = cols[iUnits];
+      data.push(pt);
+    }
+    if (!data.length) {
+      notes.push(`${fileName}: \u65E0\u6709\u6548\u6570\u636E\u884C`);
+      return { metrics: [], notes };
+    }
+    return {
+      metrics: [{ name: metricName, units, data }],
+      notes
+    };
+  }
+  function parseHaeInputs(files) {
+    const notes = [];
+    const fileNames = [];
+    const metricMap = /* @__PURE__ */ new Map();
+    const workouts = [];
+    let hasJson = false;
+    let hasCsv = false;
+    for (const f of files || []) {
+      if (!f || f.text == null) continue;
+      const name = f.name || "unknown";
+      fileNames.push(name);
+      const lower = name.toLowerCase();
+      const isJson = lower.endsWith(".json") || !lower.endsWith(".csv") && stripBom2(f.text).trim().startsWith("{") || stripBom2(f.text).trim().startsWith("[");
+      const isCsv = lower.endsWith(".csv") || !isJson && f.text.includes(",");
+      if (isJson && !lower.endsWith(".csv")) {
+        hasJson = true;
+        const parsed = parseHaeJson(f.text, name);
+        notes.push(...parsed.notes);
+        for (const m of parsed.metrics) {
+          const existing = metricMap.get(m.name);
+          if (existing) {
+            existing.data.push(...m.data);
+            if (!existing.units && m.units) existing.units = m.units;
+          } else {
+            metricMap.set(m.name, { name: m.name, units: m.units, data: [...m.data] });
+          }
+        }
+        if (parsed.workouts?.length) workouts.push(...parsed.workouts);
+      } else if (isCsv || lower.endsWith(".csv")) {
+        hasCsv = true;
+        const parsed = parseHaeCsvFile(name, f.text);
+        notes.push(...parsed.notes);
+        for (const m of parsed.metrics) {
+          const existing = metricMap.get(m.name);
+          if (existing) {
+            existing.data.push(...m.data);
+            if (!existing.units && m.units) existing.units = m.units;
+          } else {
+            metricMap.set(m.name, { name: m.name, units: m.units, data: [...m.data] });
+          }
+        }
+      } else {
+        const t = stripBom2(f.text).trim();
+        if (t.startsWith("{") || t.startsWith("[")) {
+          hasJson = true;
+          const parsed = parseHaeJson(f.text, name);
+          notes.push(...parsed.notes);
+          for (const m of parsed.metrics) {
+            const existing = metricMap.get(m.name);
+            if (existing) {
+              existing.data.push(...m.data);
+              if (!existing.units && m.units) existing.units = m.units;
+            } else {
+              metricMap.set(m.name, { name: m.name, units: m.units, data: [...m.data] });
+            }
+          }
+          if (parsed.workouts?.length) workouts.push(...parsed.workouts);
+        } else {
+          hasCsv = true;
+          const parsed = parseHaeCsvFile(name, f.text);
+          notes.push(...parsed.notes);
+          for (const m of parsed.metrics) {
+            const existing = metricMap.get(m.name);
+            if (existing) {
+              existing.data.push(...m.data);
+              if (!existing.units && m.units) existing.units = m.units;
+            } else {
+              metricMap.set(m.name, { name: m.name, units: m.units, data: [...m.data] });
+            }
+          }
+        }
+      }
+    }
+    let sourceFormat = "empty";
+    if (hasJson && hasCsv) sourceFormat = "mixed";
+    else if (hasJson) sourceFormat = "json";
+    else if (hasCsv) sourceFormat = "csv";
+    else if (fileNames.length === 0) sourceFormat = "empty";
+    return {
+      metrics: [...metricMap.values()],
+      workouts: workouts.length ? workouts : void 0,
+      sourceFormat,
+      files: fileNames,
+      notes
+    };
+  }
+  function mergeCgm(data, points, units, stats) {
+    if (!data.dataQuality.cgmUnit) {
+      data.dataQuality.cgmUnit = emptyCgmUnitInfo();
+    }
+    const meta = data.dataQuality.cgmUnit;
+    noteRawUnit(meta, units);
+    const kindFromUnits = classifyGlucoseUnit(units);
+    let inferred = null;
+    if (kindFromUnits === "unknown") {
+      const raws = [];
+      for (const pt of points) {
+        const q = qtyFromPoint(pt);
+        if (q != null) raws.push(q);
+      }
+      inferred = inferGlucoseUnitFromValues(raws);
+    }
+    for (const pt of points) {
+      const datetime = datetimeFromPoint(pt);
+      const qty = qtyFromPoint(pt);
+      if (!datetime || qty == null) {
+        bump(stats, "cgm", "skipped");
+        continue;
+      }
+      let kind = kindFromUnits;
+      if (kind === "unknown" && inferred && inferred !== "unknown") {
+        kind = inferred;
+      }
+      if (kind === "unknown" && qty >= 40) kind = "mg/dL";
+      if (kind === "unknown" && qty <= 25) kind = "mmol/L";
+      let value;
+      let originalValue = qty;
+      let unitPending = false;
+      if (kind === "mg/dL") {
+        value = toMmolL(qty, "mg/dL");
+        meta.convertedMgDlCount += 1;
+      } else if (kind === "mmol/L") {
+        value = qty;
+        meta.mmolCount += 1;
+      } else {
+        value = qty;
+        unitPending = true;
+        meta.unknownUnitCount += 1;
+      }
+      const hit = data.cgm.find(
+        (c) => sameMinute2(c.datetime, datetime) && approxEq(c.value, value, 0.02)
+      );
+      if (hit) {
+        bump(stats, "cgm", "skipped");
+        continue;
+      }
+      const rec = {
+        datetime,
+        value,
+        originalUnit: units,
+        originalValue
+      };
+      if (unitPending) rec.unitPending = true;
+      data.cgm.push(rec);
+      data.dataAvailability.hasCgm = true;
+      bump(stats, "cgm", "added");
+    }
+  }
+  function mergeBloodPressure(data, points, stats) {
+    for (const pt of points) {
+      const datetime = datetimeFromPoint(pt);
+      if (!datetime) {
+        bump(stats, "bloodPressure", "skipped");
+        continue;
+      }
+      const date = getDate(datetime);
+      const sys = parseNum2(pt.systolic ?? pt.Systolic ?? pt.sys);
+      const dia = parseNum2(pt.diastolic ?? pt.Diastolic ?? pt.dia);
+      if (sys == null || dia == null) {
+        bump(stats, "bloodPressure", "skipped");
+        continue;
+      }
+      if (sys < 50 || sys > 250 || dia < 30 || dia > 150) {
+        bump(stats, "bloodPressure", "skipped");
+        continue;
+      }
+      const hit = data.bloodPressure.find(
+        (b) => sameMinute2(b.datetime, datetime) || b.date === date && b.systolic === sys && b.diastolic === dia
+      );
+      if (hit) {
+        bump(stats, "bloodPressure", "skipped");
+        continue;
+      }
+      const rec = { datetime, date, systolic: sys, diastolic: dia };
+      data.bloodPressure.push(rec);
+      data.dataAvailability.hasBloodPressure = true;
+      bump(stats, "bloodPressure", "added");
+    }
+  }
+  function mergeWeight(data, points, stats, mode) {
+    for (const pt of points) {
+      const datetime = datetimeFromPoint(pt);
+      if (!datetime) {
+        bump(stats, "weight", "skipped");
+        continue;
+      }
+      const date = getDate(datetime);
+      if (mode === "bmi") {
+        const bmi2 = qtyFromPoint(pt);
+        if (bmi2 == null || bmi2 < 10 || bmi2 > 80) {
+          bump(stats, "weight", "skipped");
+          continue;
+        }
+        const sameDay = data.weight.filter((w) => w.date === date);
+        if (sameDay.length) {
+          let updated = false;
+          for (const w of sameDay) {
+            if (w.bmi == null) {
+              w.bmi = bmi2;
+              updated = true;
+            }
+          }
+          if (updated) bump(stats, "weight", "updated");
+          else bump(stats, "weight", "skipped");
+        } else {
+          bump(stats, "weight", "skipped");
+        }
+        continue;
+      }
+      const value = qtyFromPoint(pt);
+      if (value == null || value < 20 || value > 300) {
+        bump(stats, "weight", "skipped");
+        continue;
+      }
+      const bodyFat = parseNum2(pt.bodyFat ?? pt.body_fat ?? pt.fat);
+      const bmi = parseNum2(pt.bmi ?? pt.BMI);
+      const hit = data.weight.find(
+        (w) => sameMinute2(w.datetime, datetime) || w.date === date && approxEq(w.value, value, 0.05)
+      );
+      if (hit) {
+        let updated = false;
+        if (hit.bodyFat == null && bodyFat != null && bodyFat > 0 && bodyFat < 80) {
+          hit.bodyFat = bodyFat;
+          updated = true;
+        }
+        if (hit.bmi == null && bmi != null) {
+          hit.bmi = bmi;
+          updated = true;
+        }
+        if (updated) bump(stats, "weight", "updated");
+        else bump(stats, "weight", "skipped");
+        continue;
+      }
+      const rec = { datetime, date, value };
+      if (bodyFat != null && bodyFat > 0 && bodyFat < 80) rec.bodyFat = bodyFat;
+      if (bmi != null) rec.bmi = bmi;
+      data.weight.push(rec);
+      data.dataAvailability.hasWeight = true;
+      if (rec.bodyFat != null) data.dataAvailability.hasBodyFat = true;
+      bump(stats, "weight", "added");
+    }
+  }
+  function mergeBodyFat(data, points, stats) {
+    for (const pt of points) {
+      const datetime = datetimeFromPoint(pt);
+      if (!datetime) {
+        bump(stats, "bodyFat", "skipped");
+        continue;
+      }
+      const date = getDate(datetime);
+      let value = qtyFromPoint(pt);
+      if (value == null) {
+        bump(stats, "bodyFat", "skipped");
+        continue;
+      }
+      if (value > 0 && value <= 1) value = value * 100;
+      if (value <= 0 || value >= 80) {
+        bump(stats, "bodyFat", "skipped");
+        continue;
+      }
+      const weightHit = data.weight.find(
+        (w) => sameMinute2(w.datetime, datetime) || w.date === date
+      );
+      if (weightHit) {
+        if (weightHit.bodyFat == null) {
+          weightHit.bodyFat = value;
+          data.dataAvailability.hasBodyFat = true;
+          bump(stats, "bodyFat", "updated");
+        } else if (approxEq(weightHit.bodyFat, value, 0.2)) {
+          bump(stats, "bodyFat", "skipped");
+        } else {
+          const exists2 = data.bodyFat.some(
+            (b) => sameMinute2(b.datetime, datetime) && approxEq(b.value, value, 0.2)
+          );
+          if (exists2) {
+            bump(stats, "bodyFat", "skipped");
+          } else {
+            data.bodyFat.push({ datetime, date, value, source: "hae" });
+            data.dataAvailability.hasBodyFat = true;
+            bump(stats, "bodyFat", "added");
+          }
+        }
+        continue;
+      }
+      const exists = data.bodyFat.some(
+        (b) => sameMinute2(b.datetime, datetime) && approxEq(b.value, value, 0.2)
+      );
+      if (exists) {
+        bump(stats, "bodyFat", "skipped");
+        continue;
+      }
+      const rec = { datetime, date, value, source: "hae" };
+      data.bodyFat.push(rec);
+      data.dataAvailability.hasBodyFat = true;
+      bump(stats, "bodyFat", "added");
+    }
+  }
+  function mergeHrv(data, points, stats) {
+    for (const pt of points) {
+      const datetime = datetimeFromPoint(pt);
+      const qty = qtyFromPoint(pt);
+      if (!datetime || qty == null || qty <= 0) {
+        bump(stats, "hrv", "skipped");
+        continue;
+      }
+      const date = getDate(datetime);
+      if (!data.hrv[date]) data.hrv[date] = [];
+      if (data.hrv[date].some((v) => approxEq(v, qty, 0.01))) {
+        bump(stats, "hrv", "skipped");
+        continue;
+      }
+      data.hrv[date].push(qty);
+      if (getHour(datetime) < 9) {
+        if (!data.hrvOvernight[date]) data.hrvOvernight[date] = [];
+        if (!data.hrvOvernight[date].some((v) => approxEq(v, qty, 0.01))) {
+          data.hrvOvernight[date].push(qty);
+        }
+      }
+      data.dataAvailability.hasHrv = true;
+      bump(stats, "hrv", "added");
+    }
+  }
+  function mergeDailyHr(data, points, stats, field) {
+    const domain = field;
+    for (const pt of points) {
+      const datetime = datetimeFromPoint(pt);
+      const qty = qtyFromPoint(pt);
+      if (!datetime || qty == null || qty < 30 || qty > 220) {
+        bump(stats, domain, "skipped");
+        continue;
+      }
+      const date = getDate(datetime);
+      const map = field === "restingHr" ? data.restingHr : data.walkingHr;
+      if (map[date] != null) {
+        if (approxEq(map[date], qty, 0.5)) {
+          bump(stats, domain, "skipped");
+        } else {
+          map[date] = qty;
+          data.dataAvailability.hasHeartRate = true;
+          bump(stats, domain, "updated");
+        }
+      } else {
+        map[date] = qty;
+        data.dataAvailability.hasHeartRate = true;
+        bump(stats, domain, "added");
+      }
+    }
+  }
+  function mergeSteps(data, points, stats) {
+    for (const pt of points) {
+      const datetime = datetimeFromPoint(pt);
+      const qty = qtyFromPoint(pt);
+      if (!datetime || qty == null || qty < 0) {
+        bump(stats, "steps", "skipped");
+        continue;
+      }
+      const date = getDate(datetime);
+      if (!data.steps[date]) {
+        data.steps[date] = { watch: 0, iphone: 0, max: 0 };
+      }
+      const s = data.steps[date];
+      if (s.watch === 0 && s.iphone === 0 && s.max === 0) {
+        s.watch = qty;
+        s.max = qty;
+        data.dataAvailability.hasSteps = true;
+        bump(stats, "steps", "added");
+      } else if (qty > s.watch && qty > s.max) {
+        s.watch = qty;
+        s.max = Math.max(s.watch, s.iphone, qty);
+        data.dataAvailability.hasSteps = true;
+        bump(stats, "steps", "updated");
+      } else if (approxEq(qty, s.watch, 1) || approxEq(qty, s.max, 1) || qty <= s.max) {
+        bump(stats, "steps", "skipped");
+      } else {
+        s.watch = Math.max(s.watch, qty);
+        s.max = Math.max(s.watch, s.iphone);
+        data.dataAvailability.hasSteps = true;
+        bump(stats, "steps", "updated");
+      }
+    }
+  }
+  function mergeSleep(data, points, stats) {
+    for (const pt of points) {
+      const datetime = datetimeFromPoint(pt);
+      if (!datetime) {
+        bump(stats, "sleep", "skipped");
+        continue;
+      }
+      const date = getDate(datetime);
+      const totalSleep = parseNum2(
+        pt.totalSleep ?? pt.total_sleep ?? pt.asleep ?? pt.total ?? pt.qty
+      );
+      const core = parseNum2(pt.core ?? pt.Core) ?? 0;
+      const deep = parseNum2(pt.deep ?? pt.Deep) ?? 0;
+      const rem = parseNum2(pt.rem ?? pt.REM ?? pt.Rem) ?? 0;
+      const awake = parseNum2(pt.awake ?? pt.Awake) ?? 0;
+      let total = totalSleep;
+      if (total == null) {
+        const sumStages = core + deep + rem;
+        total = sumStages > 0 ? sumStages : null;
+      }
+      if (total == null || total <= 0) {
+        bump(stats, "sleep", "skipped");
+        continue;
+      }
+      const next = {
+        total,
+        deep,
+        rem,
+        core,
+        awake
+      };
+      if (data.sleep[date]) {
+        const prev = data.sleep[date];
+        if (approxEq(prev.total, next.total, 0.05) && approxEq(prev.deep, next.deep, 0.05) && approxEq(prev.rem, next.rem, 0.05) && approxEq(prev.core, next.core, 0.05)) {
+          bump(stats, "sleep", "skipped");
+        } else {
+          data.sleep[date] = next;
+          data.dataAvailability.hasSleep = true;
+          bump(stats, "sleep", "updated");
+        }
+      } else {
+        data.sleep[date] = next;
+        data.dataAvailability.hasSleep = true;
+        bump(stats, "sleep", "added");
+      }
+    }
+  }
+  function setMaxField(w, key, value) {
+    const prev = w[key] || 0;
+    if (prev === 0 && value > 0) {
+      w[key] = value;
+      return "added";
+    }
+    if (value > prev) {
+      w[key] = value;
+      return "updated";
+    }
+    return "skipped";
+  }
+  function mergeWatchMetric(data, metricName, points, stats) {
+    const field = WATCH_FIELD_BY_METRIC[metricName];
+    if (!field) {
+      return;
+    }
+    for (const pt of points) {
+      const datetime = datetimeFromPoint(pt);
+      if (!datetime) {
+        bump(stats, "watch", "skipped");
+        continue;
+      }
+      const date = getDate(datetime);
+      let qty = qtyFromPoint(pt);
+      if (field === "standHoursStood") {
+        const raw = pt.qty ?? pt.value ?? pt.Value;
+        if (typeof raw === "string") {
+          if (/stood/i.test(raw)) qty = 1;
+          else if (/idle/i.test(raw)) {
+            const w2 = ensureWatchDay2(data, date);
+            w2.standHoursIdle = (w2.standHoursIdle || 0) + 1;
+            bump(stats, "watch", "added");
+            continue;
+          }
+        }
+      }
+      if (qty == null || !Number.isFinite(qty)) {
+        bump(stats, "watch", "skipped");
+        continue;
+      }
+      const w = ensureWatchDay2(data, date);
+      if (field === "activeKcal" || field === "exerciseMin" || field === "standMin" || field === "daylightMin") {
+        const kind = setMaxField(w, field, qty);
+        if (kind !== "skipped") {
+          data.dataAvailability.hasWatchActivity = true;
+        }
+        bump(stats, "watch", kind);
+      } else if (field === "standHoursStood") {
+        const kind = setMaxField(w, "standHoursStood", qty);
+        if (kind !== "skipped") data.dataAvailability.hasWatchActivity = true;
+        bump(stats, "watch", kind);
+      } else if (field === "spo2") {
+        let pct = qty;
+        if (pct <= 1.5) pct = pct * 100;
+        if (pct < 50 || pct > 100) {
+          bump(stats, "watch", "skipped");
+          continue;
+        }
+        if (w.spo2Count > 0) {
+          bump(stats, "watch", "skipped");
+          continue;
+        }
+        w.spo2Sum += pct;
+        w.spo2Count += 1;
+        w.spo2Min = Math.min(w.spo2Min === Infinity ? pct : w.spo2Min, pct);
+        const hour = getHour(datetime);
+        if (hour >= 0 && hour < 8) {
+          w.spo2NightSum += pct;
+          w.spo2NightCount += 1;
+          w.spo2NightMin = Math.min(w.spo2NightMin === Infinity ? pct : w.spo2NightMin, pct);
+        } else {
+          w.spo2DaySum += pct;
+          w.spo2DayCount += 1;
+          w.spo2DayMin = Math.min(w.spo2DayMin === Infinity ? pct : w.spo2DayMin, pct);
+        }
+        data.dataAvailability.hasSpO2 = true;
+        bump(stats, "watch", "added");
+      } else if (field === "rr") {
+        if (qty < 5 || qty > 40) {
+          bump(stats, "watch", "skipped");
+          continue;
+        }
+        if (w.rrCount > 0) {
+          bump(stats, "watch", "skipped");
+          continue;
+        }
+        w.rrSum += qty;
+        w.rrCount += 1;
+        data.dataAvailability.hasRespiratoryRate = true;
+        bump(stats, "watch", "added");
+      } else if (field === "vo2Max") {
+        if (qty < 10 || qty > 90) {
+          bump(stats, "watch", "skipped");
+          continue;
+        }
+        if (w.vo2Max != null) {
+          if (approxEq(w.vo2Max, qty, 0.1)) {
+            bump(stats, "watch", "skipped");
+          } else {
+            w.vo2Max = qty;
+            data.dataAvailability.hasVo2Max = true;
+            bump(stats, "watch", "updated");
+          }
+        } else {
+          w.vo2Max = qty;
+          data.dataAvailability.hasVo2Max = true;
+          bump(stats, "watch", "added");
+        }
+      } else if (field === "wristTemp") {
+        if (qty < 30 || qty > 40) {
+          bump(stats, "watch", "skipped");
+          continue;
+        }
+        if (w.wristTempCount > 0) {
+          bump(stats, "watch", "skipped");
+          continue;
+        }
+        w.wristTempSum += qty;
+        w.wristTempCount += 1;
+        data.dataAvailability.hasWristTemp = true;
+        bump(stats, "watch", "added");
+      } else if (field === "breathingDisturbance") {
+        if (w.breathingDisturbance != null) {
+          if (approxEq(w.breathingDisturbance, qty, 0.01)) {
+            bump(stats, "watch", "skipped");
+          } else {
+            w.breathingDisturbance = qty;
+            data.dataAvailability.hasBreathingDisturbance = true;
+            bump(stats, "watch", "updated");
+          }
+        } else {
+          w.breathingDisturbance = qty;
+          data.dataAvailability.hasBreathingDisturbance = true;
+          bump(stats, "watch", "added");
+        }
+      } else if (field === "nightHr") {
+        if (qty < 30 || qty > 220) {
+          bump(stats, "watch", "skipped");
+          continue;
+        }
+        const hour = getHour(datetime);
+        if (hour >= 0 && hour < 6) {
+          w.nightHrSum += qty;
+          w.nightHrCount += 1;
+          data.dataAvailability.hasHeartRate = true;
+          bump(stats, "watch", "added");
+        } else if (hour === 0 && datetime.includes("00:00:00") && w.nightHrCount === 0) {
+          w.nightHrSum += qty;
+          w.nightHrCount += 1;
+          data.dataAvailability.hasHeartRate = true;
+          bump(stats, "watch", "added");
+        } else {
+          bump(stats, "watch", "skipped");
+        }
+      }
+    }
+  }
+  function mergeWorkouts(data, workouts, stats) {
+    if (!data.workouts) data.workouts = [];
+    for (const wo of workouts) {
+      const startRaw = wo.startDate ?? wo.start ?? wo.start_date;
+      const startDate = normalizeDt2(startRaw);
+      if (!startDate) {
+        bump(stats, "workouts", "skipped");
+        continue;
+      }
+      const date = getDate(startDate);
+      const activityRaw = wo.activityType ?? wo.workoutActivityType ?? wo.name ?? wo.type ?? "Other";
+      const activityType = shortWorkoutType(String(activityRaw));
+      let durationMin = parseNum2(wo.durationMin) ?? parseNum2(wo.duration) ?? parseNum2(wo.duration_min);
+      if (durationMin == null || durationMin <= 0) {
+        const endRaw = wo.endDate ?? wo.end;
+        const endDate2 = normalizeDt2(endRaw);
+        if (endDate2) {
+          const ms = parseAppleDate(endDate2) - parseAppleDate(startDate);
+          if (Number.isFinite(ms) && ms > 0) durationMin = ms / 6e4;
+        }
+      }
+      if (durationMin == null || durationMin <= 0) {
+        bump(stats, "workouts", "skipped");
+        continue;
+      }
+      if (durationMin > 24 * 60 && durationMin < 24 * 3600) {
+        durationMin = durationMin / 60;
+      }
+      const dup = data.workouts.find(
+        (w) => sameMinute2(w.startDate, startDate) && w.activityType === activityType && approxEq(w.durationMin, durationMin, 0.5)
+      );
+      if (dup) {
+        bump(stats, "workouts", "skipped");
+        continue;
+      }
+      const endDate = normalizeDt2(wo.endDate ?? wo.end) ?? void 0;
+      const session = {
+        startDate,
+        endDate,
+        date,
+        activityType,
+        activityLabel: workoutTypeLabel(activityType),
+        durationMin,
+        source: wo.source ? String(wo.source) : "hae"
+      };
+      const kcal = parseNum2(wo.activeEnergyBurned) ?? parseNum2(wo.activeEnergy) ?? parseNum2(wo.totalEnergyBurned);
+      if (kcal != null) session.activeKcal = kcal;
+      const dist = parseNum2(wo.distanceKm) ?? parseNum2(wo.distance);
+      if (dist != null) {
+        session.distanceKm = dist > 100 ? dist / 1e3 : dist;
+      }
+      const hrAvg = parseNum2(wo.hrAvg) ?? parseNum2(wo.avgHeartRate);
+      if (hrAvg != null) session.hrAvg = hrAvg;
+      const hrMin = parseNum2(wo.minHeartRate);
+      if (hrMin != null) session.hrMin = hrMin;
+      const hrMax = parseNum2(wo.maxHeartRate);
+      if (hrMax != null) session.hrMax = hrMax;
+      const mets = parseNum2(wo.avgMets);
+      if (mets != null) session.avgMets = mets;
+      if (typeof wo.indoor === "boolean") session.indoor = wo.indoor;
+      data.workouts.push(session);
+      data.dataAvailability.hasWorkouts = true;
+      bump(stats, "workouts", "added");
+    }
+  }
+  function applyMetric(data, metric, stats, unknownAcc) {
+    const name = metric.name;
+    if (!isKnownMetric(name)) {
+      const prev = unknownAcc.get(name);
+      const sampleDates = prev?.sampleDates ? [...prev.sampleDates] : [];
+      for (const pt of metric.data) {
+        const d = dateFromPoint(pt);
+        if (d && !sampleDates.includes(d) && sampleDates.length < 5) sampleDates.push(d);
+      }
+      unknownAcc.set(name, {
+        name,
+        sampleCount: (prev?.sampleCount || 0) + metric.data.length,
+        units: metric.units || prev?.units,
+        sampleDates: sampleDates.length ? sampleDates : void 0
+      });
+      return;
+    }
+    if (!stats.knownMetrics.includes(name)) {
+      stats.knownMetrics.push(name);
+    }
+    const domain = domainOf(name);
+    const pts = metric.data;
+    switch (domain) {
+      case "cgm":
+        mergeCgm(data, pts, metric.units, stats);
+        break;
+      case "bloodPressure":
+        mergeBloodPressure(data, pts, stats);
+        break;
+      case "weight":
+        if (name === "body_mass_index" || name === "bmi") {
+          mergeWeight(data, pts, stats, "bmi");
+        } else {
+          mergeWeight(data, pts, stats, "mass");
+        }
+        break;
+      case "bodyFat":
+        mergeBodyFat(data, pts, stats);
+        break;
+      case "hrv":
+        mergeHrv(data, pts, stats);
+        break;
+      case "restingHr":
+        mergeDailyHr(data, pts, stats, "restingHr");
+        break;
+      case "walkingHr":
+        mergeDailyHr(data, pts, stats, "walkingHr");
+        break;
+      case "steps":
+        mergeSteps(data, pts, stats);
+        break;
+      case "sleep":
+        mergeSleep(data, pts, stats);
+        break;
+      case "watch":
+        mergeWatchMetric(data, name, pts, stats);
+        break;
+      default:
+        unknownAcc.set(name, {
+          name,
+          sampleCount: pts.length,
+          units: metric.units
+        });
+    }
+  }
+  function mergeHaeIntoData(data, files, options = {}) {
+    const stats = {
+      sourceFormat: "empty",
+      files: [],
+      totalAdded: 0,
+      totalUpdated: 0,
+      totalSkipped: 0,
+      byDomain: {},
+      knownMetrics: [],
+      unknownMetrics: [],
+      notes: []
+    };
+    if (!files?.length) {
+      stats.notes.push("\u672A\u63D0\u4F9B\u6587\u4EF6");
+      return stats;
+    }
+    const parsed = parseHaeInputs(files);
+    stats.sourceFormat = parsed.sourceFormat;
+    stats.files = parsed.files;
+    stats.notes.push(...parsed.notes);
+    const unknownAcc = /* @__PURE__ */ new Map();
+    if (options.includeUnknown?.length) {
+      stats.notes.push(
+        `includeUnknown \u5DF2\u8BB0\u5F55\u4F46 v1.40 \u4E0D\u843D\u5E93: ${options.includeUnknown.join(", ")}`
+      );
+    }
+    for (const metric of parsed.metrics) {
+      applyMetric(data, metric, stats, unknownAcc);
+    }
+    const includeWorkouts = options.includeWorkouts !== false;
+    if (parsed.workouts?.length) {
+      if (includeWorkouts) {
+        mergeWorkouts(data, parsed.workouts, stats);
+      } else {
+        stats.notes.push(`\u5DF2\u8DF3\u8FC7 ${parsed.workouts.length} \u6761 workouts\uFF08includeWorkouts=false\uFF09`);
+      }
+    }
+    stats.unknownMetrics = [...unknownAcc.values()].sort((a, b) => a.name.localeCompare(b.name));
+    stats.knownMetrics.sort();
+    finalizeData(data);
+    return stats;
+  }
+  function mergeHaeJsonIntoData(data, text, options) {
+    return mergeHaeIntoData(data, [{ name: "export.json", text }], options);
   }
   return __toCommonJS(browser_exports);
 })();

@@ -1,0 +1,44 @@
+{
+  "data": {
+    "metrics": [
+      {
+        "name": "blood_glucose",
+        "units": "mmol/L",
+        "data": [
+          { "qty": 5.6, "date": "2026-07-10 08:00:00 +0800" },
+          { "qty": 6.2, "date": "2026-07-10 12:00:00 +0800" }
+        ]
+      },
+      {
+        "name": "blood_pressure",
+        "units": "mmHg",
+        "data": [
+          { "date": "2026-07-10 07:30:00 +0800", "systolic": 122, "diastolic": 78 },
+          { "date": "2026-07-11 07:30:00 +0800", "systolic": 118, "diastolic": 76 }
+        ]
+      },
+      {
+        "name": "resting_heart_rate",
+        "units": "count/min",
+        "data": [
+          { "date": "2026-07-10 00:00:00 +0800", "qty": 58 },
+          { "date": "2026-07-11 00:00:00 +0800", "Avg": 60 }
+        ]
+      },
+      {
+        "name": "step_count",
+        "units": "count",
+        "data": [
+          { "qty": 8000, "date": "2026-07-10 00:00:00 +0800" }
+        ]
+      },
+      {
+        "name": "foo_bar",
+        "units": "count",
+        "data": [
+          { "qty": 1, "date": "2026-07-10 00:00:00 +0800" }
+        ]
+      }
+    ]
+  }
+}

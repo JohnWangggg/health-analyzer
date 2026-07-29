@@ -2929,6 +2929,7 @@
   });
 
   $('btn-csv-apply')?.addEventListener('click', () => { reapplyCsvAndRefresh(); });
+  $('btn-hae-apply')?.addEventListener('click', () => { applyHaeImportAndRefresh(); });
 
   function sourceLabel(source) {
     if (source === 'zip') return t('import.diag.source.zip');
@@ -3233,6 +3234,239 @@
       showToast(t('csv.ok.merged'), { ok: true });
     } catch (e) {
       showToast(t('csv.err.mergeFail', { msg: e.message || e }), { ms: 2800 });
+    }
+  }
+
+  /** Health Auto Export 增量导入（JSON/CSV，本机合并） */
+  const HAE_MAX_FILES = 80;
+  /** @type {Set<string>} */
+  const haeIncludeUnknown = new Set();
+
+  function isHaeImportFile(file) {
+    if (!file || !file.name) return false;
+    const n = String(file.name).toLowerCase();
+    return n.endsWith('.json') || n.endsWith('.csv');
+  }
+
+  function collectHaeFileList() {
+    const seen = new Set();
+    const out = [];
+    const push = (file) => {
+      if (!isHaeImportFile(file)) return;
+      const key = `${file.name}|${file.size}|${file.lastModified || 0}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(file);
+    };
+    const fileEl = $('hae-file-input');
+    const folderEl = $('hae-folder-input');
+    if (fileEl && fileEl.files) {
+      for (let i = 0; i < fileEl.files.length; i++) push(fileEl.files[i]);
+    }
+    if (folderEl && folderEl.files) {
+      for (let i = 0; i < folderEl.files.length; i++) push(folderEl.files[i]);
+    }
+    return out;
+  }
+
+  function setHaeStatus(text, ok) {
+    const st = $('hae-import-status');
+    if (!st) return;
+    st.textContent = text ? (ok ? '✓ ' : '') + text : '';
+    if (text) {
+      st.classList.add('show');
+      setTimeout(() => st.classList.remove('show'), 4000);
+    } else {
+      st.classList.remove('show');
+    }
+  }
+
+  function renderHaeImportResult(result, meta) {
+    const host = $('hae-import-result');
+    if (!host) return;
+    if (!result) {
+      host.classList.add('hidden');
+      host.innerHTML = '';
+      return;
+    }
+    const added = result.totalAdded || 0;
+    const updated = result.totalUpdated || 0;
+    const skipped = result.totalSkipped || 0;
+    const parts = [];
+    parts.push('<div class="hae-stats">');
+    parts.push(`<span>${escapeHtml(t('hae.stats.added', { n: added }))}</span>`);
+    parts.push(`<span>${escapeHtml(t('hae.stats.updated', { n: updated }))}</span>`);
+    parts.push(`<span>${escapeHtml(t('hae.stats.skipped', { n: skipped }))}</span>`);
+    if (result.unknownMetrics && result.unknownMetrics.length) {
+      parts.push(
+        `<span>${escapeHtml(t('hae.stats.unknown', { n: result.unknownMetrics.length }))}</span>`
+      );
+    }
+    parts.push('</div>');
+
+    const byDomain = result.byDomain || {};
+    const domainKeys = Object.keys(byDomain);
+    if (domainKeys.length) {
+      parts.push('<ul class="hae-domain-list">');
+      for (const domain of domainKeys) {
+        const d = byDomain[domain] || {};
+        parts.push(
+          `<li>${escapeHtml(
+            t('hae.bit.domain', {
+              domain,
+              added: d.added || 0,
+              updated: d.updated || 0,
+              skipped: d.skipped || 0,
+            })
+          )}</li>`
+        );
+      }
+      parts.push('</ul>');
+    }
+
+    if (meta && meta.capNote) {
+      parts.push(`<p class="hint" style="margin:8px 0 0;">${escapeHtml(meta.capNote)}</p>`);
+    }
+    if (meta && meta.fileCount != null) {
+      parts.push(
+        `<p class="hint" style="margin:6px 0 0;">${escapeHtml(
+          t('hae.bit.files', { n: meta.fileCount, format: result.sourceFormat || '—' })
+        )}</p>`
+      );
+    }
+
+    const notes = Array.isArray(result.notes) ? result.notes.filter(Boolean) : [];
+    if (notes.length) {
+      parts.push('<ul class="hae-notes">');
+      for (const note of notes) {
+        parts.push(`<li>${escapeHtml(String(note))}</li>`);
+      }
+      parts.push('</ul>');
+    }
+
+    host.innerHTML = parts.join('');
+    host.classList.remove('hidden');
+  }
+
+  function renderHaeUnknownMetrics(unknownMetrics) {
+    const host = $('hae-unknown-metrics');
+    if (!host) return;
+    const list = Array.isArray(unknownMetrics) ? unknownMetrics : [];
+    if (!list.length) {
+      host.classList.add('hidden');
+      host.innerHTML = '';
+      return;
+    }
+    // Drop include flags for metrics no longer present
+    const names = new Set(list.map((u) => String(u && u.name != null ? u.name : '')).filter(Boolean));
+    for (const prev of [...haeIncludeUnknown]) {
+      if (!names.has(prev)) haeIncludeUnknown.delete(prev);
+    }
+
+    const rows = list
+      .map((u) => {
+        const name = String((u && u.name) || '');
+        if (!name) return '';
+        const count = (u && u.sampleCount) != null ? u.sampleCount : 0;
+        const units = u && u.units ? String(u.units) : '';
+        const checked = haeIncludeUnknown.has(name) ? ' checked' : '';
+        const id = 'hae-unk-' + encodeURIComponent(name).replace(/%/g, '_');
+        const metaBits = [t('hae.unknown.samples', { n: count })];
+        if (units) metaBits.push(units);
+        return (
+          `<li><label for="${id}">` +
+          `<input type="checkbox" id="${id}" data-hae-unknown="${escapeHtml(name)}"${checked}>` +
+          `<span><strong>${escapeHtml(name)}</strong>` +
+          ` <span class="hae-unknown-meta">${escapeHtml(metaBits.join(' · '))}</span></span>` +
+          `</label></li>`
+        );
+      })
+      .filter(Boolean)
+      .join('');
+
+    host.innerHTML =
+      `<p class="panel-subhead">${escapeHtml(t('hae.unknown.title'))}</p>` +
+      `<p class="hint" style="margin:0 0 6px;">${escapeHtml(t('hae.unknown.hint'))}</p>` +
+      `<ul class="hae-unknown-list">${rows}</ul>`;
+    host.classList.remove('hidden');
+
+    host.querySelectorAll('input[data-hae-unknown]').forEach((el) => {
+      el.addEventListener('change', () => {
+        const n = el.getAttribute('data-hae-unknown') || '';
+        if (!n) return;
+        if (el.checked) haeIncludeUnknown.add(n);
+        else haeIncludeUnknown.delete(n);
+      });
+    });
+  }
+
+  async function applyHaeImportAndRefresh() {
+    if (!window.HealthAnalyzer || typeof window.HealthAnalyzer.mergeHaeIntoData !== 'function') {
+      setHaeStatus(t('hae.err.needLib'), false);
+      showToast(t('hae.err.needLib'), { ms: 3200 });
+      return;
+    }
+    if (typeof window.HealthAnalyzer.createEmptyData !== 'function' ||
+        typeof window.HealthAnalyzer.analyzeAll !== 'function') {
+      setHaeStatus(t('hae.err.needLib'), false);
+      showToast(t('hae.err.needLib'), { ms: 3200 });
+      return;
+    }
+
+    const allFiles = collectHaeFileList();
+    if (!allFiles.length) {
+      setHaeStatus(t('hae.err.noFiles'), false);
+      showToast(t('hae.err.noFiles'));
+      return;
+    }
+
+    let capNote = '';
+    let files = allFiles;
+    if (allFiles.length > HAE_MAX_FILES) {
+      files = allFiles.slice(0, HAE_MAX_FILES);
+      capNote = t('hae.cap.truncated', { max: HAE_MAX_FILES, total: allFiles.length });
+    }
+
+    try {
+      setHaeStatus(t('hae.progress.reading', { n: files.length }), false);
+      const payloads = [];
+      for (const f of files) {
+        const text = await readFileAsText(f, FILE_LIMITS.MAX_CSV_BYTES);
+        payloads.push({ name: f.name || 'file', text: String(text || '') });
+      }
+
+      const baseData =
+        currentAnalysis && currentAnalysis.data
+          ? currentAnalysis.data
+          : window.HealthAnalyzer.createEmptyData();
+
+      const options = {};
+      if (haeIncludeUnknown.size) {
+        options.includeUnknown = [...haeIncludeUnknown];
+      }
+
+      const result = window.HealthAnalyzer.mergeHaeIntoData(baseData, payloads, options);
+      recoveryWeights = loadRecoveryWeights();
+      currentAnalysis = window.HealthAnalyzer.analyzeAll(baseData, {
+        recoveryWeights,
+        locale: getAnalysisLocale(),
+      });
+      renderResults(currentAnalysis);
+
+      const added = (result && result.totalAdded) || 0;
+      const updated = (result && result.totalUpdated) || 0;
+      const skipped = (result && result.totalSkipped) || 0;
+      renderHaeImportResult(result || {}, { capNote, fileCount: payloads.length });
+      renderHaeUnknownMetrics((result && result.unknownMetrics) || []);
+
+      const okMsg = t('hae.ok.merged', { added, updated, skipped });
+      setHaeStatus(okMsg + (capNote ? ' · ' + capNote : ''), true);
+      showToast(okMsg, { ok: true });
+    } catch (e) {
+      console.error(e);
+      const msg = t('hae.err.fail', { msg: (e && e.message) || e });
+      setHaeStatus(msg, false);
+      showToast(msg, { ms: 3200 });
     }
   }
 

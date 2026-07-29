@@ -124,5 +124,21 @@ export {
   mergeExternalCsvIntoData,
 } from './csv-import';
 
+export {
+  normalizeHaeMetricName,
+  parseHaeJson,
+  parseHaeCsvFile,
+  parseHaeInputs,
+  mergeHaeIntoData,
+  mergeHaeJsonIntoData,
+} from './hae-import';
+export type {
+  HaeFileInput,
+  HaeUnknownMetric,
+  HaeDomainDelta,
+  HaeImportStats,
+  HaeMergeOptions,
+} from './hae-import';
+
 // 兼容历史 lib.js：calcBpStats 别名
 export { calcBloodPressureStats as calcBpStats } from './stats';
