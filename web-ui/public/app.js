@@ -70,6 +70,12 @@
     BOMB_MIN_ORIGINAL: 50 * 1024 * 1024,
   };
 
+  /** 直接上传 XML / CSV 的大小上限（与 ZIP 内展开限制同量级但更严） */
+  const FILE_LIMITS = {
+    MAX_XML_BYTES: 400 * 1024 * 1024, // 400MB 直接 XML
+    MAX_CSV_BYTES: 20 * 1024 * 1024, // 20MB 单 CSV
+  };
+
   function formatBytes(n) {
     const v = Number(n) || 0;
     if (v >= 1024 * 1024 * 1024) return (v / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
@@ -796,7 +802,8 @@
           importDiag.xmlFileName = xmlFile.name || '';
           importDiag.xmlBytes = xmlFile.size || 0;
           setProgress(0.04, t('progress.readXml'), { stage: 'read' });
-          xmlText = await readFileAsText(xmlFile);
+          assertReadableFileSize(xmlFile, FILE_LIMITS.MAX_XML_BYTES, 'parse.err.xmlTooLarge');
+          xmlText = await readFileAsText(xmlFile, FILE_LIMITS.MAX_XML_BYTES);
         } else {
           throw new Error(t('parse.err.needZipOrXml'));
         }
@@ -816,7 +823,8 @@
         importDiag.xmlFileName = xmlFile.name || '';
         importDiag.xmlBytes = xmlFile.size || 0;
         setProgress(0.04, t('progress.readXml'), { stage: 'read' });
-        xmlText = await readFileAsText(xmlFile);
+        assertReadableFileSize(xmlFile, FILE_LIMITS.MAX_XML_BYTES, 'parse.err.xmlTooLarge');
+        xmlText = await readFileAsText(xmlFile, FILE_LIMITS.MAX_XML_BYTES);
         // 同批多选的 CSV 一并尝试作为 ECG（内容校验在 ingest）
         ecgFiles = files.filter((f) => f.name.endsWith('.csv'));
       } else if (source === 'folder') {
@@ -826,7 +834,8 @@
         importDiag.xmlFileName = xmlFile.name || xmlFile.webkitRelativePath || '';
         importDiag.xmlBytes = xmlFile.size || 0;
         setProgress(0.04, t('progress.readFolder'), { stage: 'read' });
-        xmlText = await readFileAsText(xmlFile);
+        assertReadableFileSize(xmlFile, FILE_LIMITS.MAX_XML_BYTES, 'parse.err.xmlTooLarge');
+        xmlText = await readFileAsText(xmlFile, FILE_LIMITS.MAX_XML_BYTES);
         // 收集 ECG 文件（electrocardiograms 目录或文件名含 ecg）
         ecgFiles = files.filter(f => f.name.endsWith('.csv') && (f.name.includes('ecg') || (f.webkitRelativePath || '').includes('electrocardiograms')));
       }
@@ -893,7 +902,8 @@
         for (const f of ecgFiles) {
           const label = f.name || f.filename || 'ecg.csv';
           try {
-            const text = f._text || await readFileAsText(f);
+            if (!f._text) assertReadableFileSize(f, FILE_LIMITS.MAX_CSV_BYTES, 'parse.err.fileTooLarge');
+            const text = f._text || await readFileAsText(f, FILE_LIMITS.MAX_CSV_BYTES);
             ingestEcg(window.HealthAnalyzer.parseEcgCsv(text), label);
           } catch (e) {
             importDiag.ecg.errors.push({
@@ -908,7 +918,8 @@
         for (const f of allCsv) {
           const label = f.name || 'ecg.csv';
           try {
-            const text = await readFileAsText(f);
+            assertReadableFileSize(f, FILE_LIMITS.MAX_CSV_BYTES, 'parse.err.fileTooLarge');
+            const text = await readFileAsText(f, FILE_LIMITS.MAX_CSV_BYTES);
             if (
               (text.includes('分类') && text.includes('记录日期')) ||
               (/Classification/i.test(text) && /Record Date/i.test(text))
@@ -1104,12 +1115,36 @@
     }[c]));
   }
 
-  function readFileAsText(file) {
+  function assertReadableFileSize(file, maxBytes, errKey) {
+    if (!file) return;
+    const size = file.size || 0;
+    if (size > maxBytes) {
+      throw new Error(
+        t(errKey || 'parse.err.fileTooLarge', {
+          name: file.name || 'file',
+          limit: formatBytes(maxBytes),
+        })
+      );
+    }
+  }
+
+  function readFileAsText(file, maxBytes) {
+    if (maxBytes != null) assertReadableFileSize(file, maxBytes);
     return new Promise((resolve, reject) => {
       const r = new FileReader();
       r.onload = () => resolve(r.result);
       r.onerror = () => reject(r.error);
       r.readAsText(file);
+    });
+  }
+
+  function readFileAsArrayBuffer(file, maxBytes) {
+    if (maxBytes != null) assertReadableFileSize(file, maxBytes);
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => reject(r.error);
+      r.readAsArrayBuffer(file);
     });
   }
 
@@ -1141,15 +1176,155 @@
     return /electrocardiograms/i.test(name) && /\.csv$/i.test(name);
   }
 
+  function mapZipUnzipError(code) {
+    if (code === 'ZIP_TOO_MANY_ENTRIES') {
+      return new Error(
+        t('parse.err.zipTooManyEntries', { n: ZIP_LIMITS.MAX_CENTRAL_ENTRIES })
+      );
+    }
+    if (code === 'ZIP_BOMB') return new Error(t('parse.err.zipBomb'));
+    if (code === 'ZIP_XML_TOO_LARGE') {
+      return new Error(
+        t('parse.err.zipXmlTooLarge', {
+          limit: formatBytes(ZIP_LIMITS.MAX_XML_INFLATED),
+        })
+      );
+    }
+    if (code === 'ZIP_INFLATED_TOO_LARGE') {
+      return new Error(
+        t('parse.err.zipInflatedTooLarge', {
+          limit: formatBytes(ZIP_LIMITS.MAX_SELECTED_INFLATED),
+        })
+      );
+    }
+    if (code === 'FFLATE_MISSING') {
+      return new Error(t('parse.err.fflateMissing'));
+    }
+    return new Error(t('parse.err.zipCorrupt', { msg: code }));
+  }
+
   /**
-   * 浏览器内解压 ZIP（本地 fflate）。
-   * 内存保护：体积上限、只提取 export.xml / ECG CSV、条目与展开体积限制、异常压缩比中止。
+   * 在 Worker 中解压 ZIP（失败回退主线程 unzipSync，避免 UI 长时间冻结）
    */
-  async function extractXmlFromZipBrowser(zipFile) {
+  function unzipZipInWorker(u8) {
+    return new Promise((resolve, reject) => {
+      if (typeof Worker === 'undefined') {
+        reject(new Error('NO_WORKER'));
+        return;
+      }
+      let worker;
+      try {
+        worker = new Worker('./unzip-worker.js');
+      } catch (e) {
+        reject(e);
+        return;
+      }
+      const timer = setTimeout(() => {
+        try { worker.terminate(); } catch (_) { /* ignore */ }
+        reject(new Error(t('parse.err.workerTimeout')));
+      }, 8 * 60 * 1000);
+      worker.onmessage = (ev) => {
+        clearTimeout(timer);
+        try { worker.terminate(); } catch (_) { /* ignore */ }
+        const msg = ev.data || {};
+        if (msg.type === 'ok') {
+          const unzipped = {};
+          for (const k of Object.keys(msg.files || {})) {
+            unzipped[k] = new Uint8Array(msg.files[k]);
+          }
+          resolve({ unzipped, meta: msg.meta || {} });
+        } else {
+          reject(mapZipUnzipError(msg.message || 'WORKER_FAIL'));
+        }
+      };
+      worker.onerror = (err) => {
+        clearTimeout(timer);
+        try { worker.terminate(); } catch (_) { /* ignore */ }
+        reject(err.error || new Error(err.message || 'WORKER_FAIL'));
+      };
+      // transfer buffer
+      const copy = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+      worker.postMessage(
+        { type: 'unzip', buffer: copy, limits: ZIP_LIMITS },
+        [copy]
+      );
+    });
+  }
+
+  function unzipZipOnMainThread(u8) {
     if (!window.fflate) {
       throw new Error(t('parse.err.fflateMissing'));
     }
+    let entryCount = 0;
+    let selectedInflated = 0;
+    let ecgAccepted = 0;
+    let ecgSeen = 0;
+    let ecgTruncated = false;
+    const nameSamples = [];
+    const filter = (file) => {
+      entryCount += 1;
+      if (entryCount > ZIP_LIMITS.MAX_CENTRAL_ENTRIES) {
+        throw new Error('ZIP_TOO_MANY_ENTRIES');
+      }
+      const rawName = file && file.name != null ? String(file.name) : '';
+      const name = decodeZipEntryName(rawName);
+      if (nameSamples.length < 12) nameSamples.push(name);
+      const originalSize = (file && file.originalSize) || 0;
+      const compressedSize = (file && file.size) || 0;
+      if (
+        originalSize >= ZIP_LIMITS.BOMB_MIN_ORIGINAL &&
+        compressedSize > 0 &&
+        originalSize / compressedSize >= ZIP_LIMITS.BOMB_RATIO
+      ) {
+        throw new Error('ZIP_BOMB');
+      }
+      if (isHealthExportXmlName(name)) {
+        if (originalSize > ZIP_LIMITS.MAX_XML_INFLATED) throw new Error('ZIP_XML_TOO_LARGE');
+        if (selectedInflated + originalSize > ZIP_LIMITS.MAX_SELECTED_INFLATED) {
+          throw new Error('ZIP_INFLATED_TOO_LARGE');
+        }
+        selectedInflated += originalSize;
+        return true;
+      }
+      if (isEcgCsvPath(name)) {
+        ecgSeen += 1;
+        if (ecgAccepted >= ZIP_LIMITS.MAX_ECG_FILES) {
+          ecgTruncated = true;
+          return false;
+        }
+        if (originalSize > ZIP_LIMITS.MAX_SINGLE_ECG_INFLATED) return false;
+        if (selectedInflated + originalSize > ZIP_LIMITS.MAX_SELECTED_INFLATED) {
+          throw new Error('ZIP_INFLATED_TOO_LARGE');
+        }
+        selectedInflated += originalSize;
+        ecgAccepted += 1;
+        return true;
+      }
+      return false;
+    };
+    try {
+      const unzipped = window.fflate.unzipSync(u8, { filter });
+      return {
+        unzipped,
+        meta: {
+          entryCount,
+          selectedInflated,
+          ecgAccepted,
+          ecgSeen,
+          ecgTruncated,
+          nameSamples,
+        },
+      };
+    } catch (e) {
+      throw mapZipUnzipError(e && e.message ? String(e.message) : String(e));
+    }
+  }
 
+  /**
+   * 浏览器内解压 ZIP（优先 Worker + fflate，失败回退主线程）。
+   * 内存保护：体积上限、只提取 export.xml / ECG CSV、条目与展开体积限制、异常压缩比中止。
+   */
+  async function extractXmlFromZipBrowser(zipFile) {
     const zipBytes = zipFile.size || 0;
     if (zipBytes > ZIP_LIMITS.REJECT_BYTES) {
       throw new Error(
@@ -1161,100 +1336,28 @@
     }
 
     let u8 = new Uint8Array(await zipFile.arrayBuffer());
-
-    let entryCount = 0;
-    let selectedInflated = 0;
-    let ecgAccepted = 0;
-    let ecgSeen = 0;
-    let ecgTruncated = false;
-    const nameSamples = [];
-
-    const filter = (file) => {
-      entryCount += 1;
-      if (entryCount > ZIP_LIMITS.MAX_CENTRAL_ENTRIES) {
-        throw new Error('ZIP_TOO_MANY_ENTRIES');
-      }
-
-      const rawName = file && file.name != null ? String(file.name) : '';
-      const name = decodeZipEntryName(rawName);
-      if (nameSamples.length < 12) nameSamples.push(name);
-
-      const originalSize = (file && file.originalSize) || 0;
-      const compressedSize = (file && file.size) || 0;
-
-      // 异常压缩比（简单 zip bomb 防护）
-      if (
-        originalSize >= ZIP_LIMITS.BOMB_MIN_ORIGINAL &&
-        compressedSize > 0 &&
-        originalSize / compressedSize >= ZIP_LIMITS.BOMB_RATIO
-      ) {
-        throw new Error('ZIP_BOMB');
-      }
-
-      if (isHealthExportXmlName(name)) {
-        if (originalSize > ZIP_LIMITS.MAX_XML_INFLATED) {
-          throw new Error('ZIP_XML_TOO_LARGE');
-        }
-        if (selectedInflated + originalSize > ZIP_LIMITS.MAX_SELECTED_INFLATED) {
-          throw new Error('ZIP_INFLATED_TOO_LARGE');
-        }
-        selectedInflated += originalSize;
-        return true;
-      }
-
-      if (isEcgCsvPath(name)) {
-        ecgSeen += 1;
-        if (ecgAccepted >= ZIP_LIMITS.MAX_ECG_FILES) {
-          ecgTruncated = true;
-          return false;
-        }
-        if (originalSize > ZIP_LIMITS.MAX_SINGLE_ECG_INFLATED) {
-          return false;
-        }
-        if (selectedInflated + originalSize > ZIP_LIMITS.MAX_SELECTED_INFLATED) {
-          throw new Error('ZIP_INFLATED_TOO_LARGE');
-        }
-        selectedInflated += originalSize;
-        ecgAccepted += 1;
-        return true;
-      }
-
-      // 不解压 workout-routes / 相册 / export_cda 等无关条目
-      return false;
-    };
-
     let unzipped;
+    let unzipMeta = {};
     try {
-      unzipped = window.fflate.unzipSync(u8, { filter });
-    } catch (e) {
-      const code = e && e.message ? String(e.message) : String(e);
-      if (code === 'ZIP_TOO_MANY_ENTRIES') {
-        throw new Error(
-          t('parse.err.zipTooManyEntries', { n: ZIP_LIMITS.MAX_CENTRAL_ENTRIES })
-        );
+      try {
+        const res = await unzipZipInWorker(u8);
+        unzipped = res.unzipped;
+        unzipMeta = res.meta || {};
+      } catch (workerErr) {
+        console.warn('ZIP Worker 解压失败，回退主线程:', workerErr);
+        const res = unzipZipOnMainThread(u8);
+        unzipped = res.unzipped;
+        unzipMeta = res.meta || {};
       }
-      if (code === 'ZIP_BOMB') {
-        throw new Error(t('parse.err.zipBomb'));
-      }
-      if (code === 'ZIP_XML_TOO_LARGE') {
-        throw new Error(
-          t('parse.err.zipXmlTooLarge', {
-            limit: formatBytes(ZIP_LIMITS.MAX_XML_INFLATED),
-          })
-        );
-      }
-      if (code === 'ZIP_INFLATED_TOO_LARGE') {
-        throw new Error(
-          t('parse.err.zipInflatedTooLarge', {
-            limit: formatBytes(ZIP_LIMITS.MAX_SELECTED_INFLATED),
-          })
-        );
-      }
-      throw new Error(t('parse.err.zipCorrupt', { msg: code }));
     } finally {
-      // 尽早丢弃压缩包缓冲引用，便于 GC（unzipped 仅含目标文件）
       u8 = null;
     }
+
+    const entryCount = unzipMeta.entryCount || 0;
+    const selectedInflated = unzipMeta.selectedInflated || 0;
+    const ecgTruncated = !!unzipMeta.ecgTruncated;
+    const ecgSeen = unzipMeta.ecgSeen || 0;
+    const nameSamples = unzipMeta.nameSamples || [];
 
     // 解码已提取条目的文件名
     const decodedEntries = {};
@@ -2000,14 +2103,23 @@
     }
     const hrvDates = Object.keys(analysis.hrvByDate || {}).sort();
     if (hrvDates.length) {
-      const recent = hrvDates.slice(-7);
+      const end = hrvDates[hrvDates.length - 1];
+      let recent = hrvDates.slice(-7);
+      // 近 7 自然日（含末日），与 lib window 语义一致
+      if (
+        window.HealthAnalyzer &&
+        typeof window.HealthAnalyzer.calendarWindowEndInclusive === 'function'
+      ) {
+        const win = window.HealthAnalyzer.calendarWindowEndInclusive(end, 7);
+        recent = hrvDates.filter((d) => d >= win.start && d <= win.end);
+      }
       const vals = recent.map((d) => analysis.hrvByDate[d].allMean).filter(Number.isFinite);
       const avg = meanOf(vals);
       items.push({
         label: t('kpi.hrv7d'),
         value: avg != null ? avg.toFixed(1) : '—',
         unit: 'ms',
-        sub: t('kpi.daysWithData', { n: hrvDates.length }),
+        sub: t('kpi.daysInWindow', { n: recent.length, days: 7 }),
         tone: avg != null && avg < 25 ? 'watch' : avg != null && avg >= 40 ? 'good' : 'neutral',
       });
     }
@@ -4124,15 +4236,57 @@
     if (cmp) cmp.innerHTML = '';
     await refreshHistorySelect();
     await refreshWeeklyReportList();
-    if (currentAnalysis) {
-      // 信号筛选依赖 prefs；重置后重绘
-      try {
-        if (typeof renderSignals === 'function') renderSignals(currentAnalysis);
-      } catch (e) { /* ignore */ }
-      renderPrompt();
-    }
+    // 同时清掉当前页内存分析结果与已渲染 UI（与「重新上传」一致）
+    resetResultsUi({ keepScroll: false });
     showExportStatus(t('privacy.wipeOk'));
     showToast(t('privacy.wipeOk'), { ok: true, ms: 2800 });
+  }
+
+  /**
+   * 隐藏结果区并清空内存中的分析 / 导入诊断（不删 localStorage/IndexedDB）
+   */
+  function resetResultsUi(opts) {
+    currentAnalysis = null;
+    lastImportDiagnostics = null;
+    lastCsvMergeNote = '';
+    lastSelectedFiles = null;
+    setResultsVisible(false);
+    hide('step-overview');
+    hide('step-summary');
+    hide('step-signals');
+    hide('step-charts');
+    hide('step-export');
+    hide('step-prompt');
+    const charts = $('charts-content');
+    if (charts) charts.innerHTML = '';
+    const signals = $('signals-content');
+    if (signals) signals.innerHTML = '';
+    const hist = $('history-compare');
+    if (hist) hist.innerHTML = '';
+    const kpis = $('kpi-grid');
+    if (kpis) kpis.innerHTML = '';
+    const insights = $('insight-list');
+    if (insights) insights.innerHTML = '';
+    const summary = $('summary-content');
+    if (summary) summary.innerHTML = '';
+    const promptOut = $('prompt-output');
+    if (promptOut) promptOut.value = '';
+    const banner = $('data-quality-banner');
+    if (banner) {
+      banner.innerHTML = '';
+      banner.classList.add('hidden');
+    }
+    const hints = $('import-hints');
+    if (hints) {
+      hints.innerHTML = '';
+      hints.classList.add('hidden');
+    }
+    show('step-source');
+    if (fileInput) fileInput.value = '';
+    if (folderInput) folderInput.value = '';
+    if (!(opts && opts.keepScroll)) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   }
 
   $('btn-clear-all-local')?.addEventListener('click', () => {
@@ -4165,40 +4319,7 @@
   });
 
   $('btn-reset')?.addEventListener('click', () => {
-    currentAnalysis = null;
-    lastImportDiagnostics = null;
-    lastCsvMergeNote = '';
-    setResultsVisible(false);
-    hide('step-overview');
-    hide('step-summary');
-    hide('step-signals');
-    hide('step-charts');
-    hide('step-export');
-    hide('step-prompt');
-    const charts = $('charts-content');
-    if (charts) charts.innerHTML = '';
-    const signals = $('signals-content');
-    if (signals) signals.innerHTML = '';
-    const hist = $('history-compare');
-    if (hist) hist.innerHTML = '';
-    const kpis = $('kpi-grid');
-    if (kpis) kpis.innerHTML = '';
-    const insights = $('insight-list');
-    if (insights) insights.innerHTML = '';
-    const banner = $('data-quality-banner');
-    if (banner) {
-      banner.innerHTML = '';
-      banner.classList.add('hidden');
-    }
-    const hints = $('import-hints');
-    if (hints) {
-      hints.innerHTML = '';
-      hints.classList.add('hidden');
-    }
-    show('step-source');
-    fileInput.value = '';
-    folderInput.value = '';
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    resetResultsUi();
   });
 
   // 窗口尺寸变化时重绘图表

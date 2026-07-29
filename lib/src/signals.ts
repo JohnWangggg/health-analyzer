@@ -193,8 +193,12 @@ export function detectCrossSignals(
     }
   }
 
-  // CGM：若稳定期正常而仅首日低值，弱化「全程低血糖」叙事（已有首日信号）
-  if (analysis.cgmStats?.stable && analysis.cgmStats.firstDay) {
+  // CGM：若稳定期正常而仅首日低值，弱化「全程低血糖」叙事（单位可靠时）
+  if (
+    analysis.cgmStats?.stable &&
+    analysis.cgmStats.firstDay &&
+    analysis.cgmStats.unitReliable !== false
+  ) {
     const st = analysis.cgmStats.stable;
     const fd = analysis.cgmStats.firstDay;
     if (fd.pctBelow39 >= 15 && st.pctBelow39 < 2 && st.pctBelow30 === 0) {
@@ -211,8 +215,8 @@ export function detectCrossSignals(
     }
   }
 
-  // CGM × 睡眠 / 活动联合（启发式，非诊断）
-  if (analysis.cgmStats?.daily) {
+  // CGM × 睡眠 / 活动联合（启发式，非诊断；单位不可靠时跳过阈值相关）
+  if (analysis.cgmStats?.daily && analysis.cgmStats.unitReliable !== false) {
     const daily = analysis.cgmStats.daily;
     const cgmDayDates = Object.keys(daily).sort();
     const nightHrByDate: Record<string, number> = {};

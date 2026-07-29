@@ -103,12 +103,26 @@ export function generateVisitSummaryMarkdown(
     const label = analysis.cgmStats?.stable
       ? L('CGM 稳定期', 'CGM stable period')
       : L('CGM 全程', 'CGM overall');
-    lines.push(
-      L(
-        `| ${label} | 均 ${cgm.mean.toFixed(2)} · TIR ${cgm.pctInRange.toFixed(0)}% · <3.9 ${cgm.pctBelow39.toFixed(1)}% · n=${cgm.count} |`,
-        `| ${label} | mean ${cgm.mean.toFixed(2)} · TIR ${cgm.pctInRange.toFixed(0)}% · <3.9 ${cgm.pctBelow39.toFixed(1)}% · n=${cgm.count} |`
-      )
-    );
+    const unitOk = analysis.cgmStats?.unitReliable !== false;
+    if (!unitOk) {
+      lines.push(
+        L(
+          `| ${label} | 单位待确认 · n=${cgm.count} · **TIR/低值占比不可信，暂停阈值解读** |`,
+          `| ${label} | units unconfirmed · n=${cgm.count} · **TIR/low share untrusted — pause threshold reading** |`
+        )
+      );
+    } else {
+      const method =
+        cgm.tirMethod === 'sample_share'
+          ? L('采样占比', 'sample-share')
+          : L('时间加权', 'time-weighted');
+      lines.push(
+        L(
+          `| ${label} | 均 ${cgm.mean.toFixed(2)} mmol/L · TIR ${cgm.pctInRange.toFixed(0)}%（${method}） · <3.9 ${cgm.pctBelow39.toFixed(1)}% · n=${cgm.count} |`,
+          `| ${label} | mean ${cgm.mean.toFixed(2)} mmol/L · TIR ${cgm.pctInRange.toFixed(0)}% (${method}) · <3.9 ${cgm.pctBelow39.toFixed(1)}% · n=${cgm.count} |`
+        )
+      );
+    }
   }
 
   const bp = analysis.bpStats?.mean7d;

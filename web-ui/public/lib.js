@@ -3018,7 +3018,7 @@ var HealthAnalyzer = (() => {
         });
       }
     }
-    if (analysis.cgmStats?.stable && analysis.cgmStats.firstDay) {
+    if (analysis.cgmStats?.stable && analysis.cgmStats.firstDay && analysis.cgmStats.unitReliable !== false) {
       const st = analysis.cgmStats.stable;
       const fd = analysis.cgmStats.firstDay;
       if (fd.pctBelow39 >= 15 && st.pctBelow39 < 2 && st.pctBelow30 === 0) {
@@ -3034,7 +3034,7 @@ var HealthAnalyzer = (() => {
         });
       }
     }
-    if (analysis.cgmStats?.daily) {
+    if (analysis.cgmStats?.daily && analysis.cgmStats.unitReliable !== false) {
       const daily = analysis.cgmStats.daily;
       const cgmDayDates = Object.keys(daily).sort();
       const nightHrByDate = {};
@@ -3585,8 +3585,10 @@ var HealthAnalyzer = (() => {
     const hrvByDate = analysis.hrvByDate || {};
     const hrvDates = Object.keys(hrvByDate).sort();
     if (hrvDates.length >= 21) {
-      const recentVals = hrvDates.slice(-7).map((d) => hrvByDate[d]?.allMean).filter((v) => v != null && Number.isFinite(v));
-      const priorVals = hrvDates.slice(0, -7).slice(-28).map((d) => hrvByDate[d]?.allMean).filter((v) => v != null && Number.isFinite(v));
+      const end = hrvDates[hrvDates.length - 1];
+      const { start } = calendarWindowEndInclusive(end, 7);
+      const recentVals = hrvDates.filter((d) => d >= start && d <= end).map((d) => hrvByDate[d]?.allMean).filter((v) => v != null && Number.isFinite(v));
+      const priorVals = hrvDates.filter((d) => d < start).slice(-28).map((d) => hrvByDate[d]?.allMean).filter((v) => v != null && Number.isFinite(v));
       if (recentVals.length >= 4 && priorVals.length >= 14) {
         hrvRecent = meanOf(recentVals);
         hrvBaseline = medianOf2(priorVals);
@@ -3624,8 +3626,10 @@ var HealthAnalyzer = (() => {
     const watchDays = analysis.watchStats?.days || [];
     const nightDays = watchDays.filter((d) => d.nightHrMean != null && Number.isFinite(d.nightHrMean)).map((d) => ({ date: d.date, v: d.nightHrMean })).sort((a, b) => a.date.localeCompare(b.date));
     if (nightDays.length >= 21) {
-      const recentVals = nightDays.slice(-7).map((d) => d.v);
-      const priorVals = nightDays.slice(0, -7).slice(-28).map((d) => d.v);
+      const end = nightDays[nightDays.length - 1].date;
+      const { start } = calendarWindowEndInclusive(end, 7);
+      const recentVals = nightDays.filter((d) => d.date >= start && d.date <= end).map((d) => d.v);
+      const priorVals = nightDays.filter((d) => d.date < start).slice(-28).map((d) => d.v);
       if (recentVals.length >= 4 && priorVals.length >= 14) {
         nightRecent = meanOf(recentVals);
         nightBaseline = medianOf2(priorVals);
@@ -3718,30 +3722,45 @@ var HealthAnalyzer = (() => {
       });
     }
     if (analysis.cgmStats) {
-      const st = analysis.cgmStats.stable || analysis.cgmStats.overall;
-      const fd = analysis.cgmStats.firstDay;
-      let tone = "positive";
-      if (st.pctBelow30 > 0) tone = "alert";
-      else if (st.pctBelow39 >= 5) tone = "watch";
-      else if (st.pctInRange >= 90 && st.pctAbove78 < 5) tone = "positive";
-      else tone = "neutral";
-      let detail = L(
-        `\u7A33\u5B9A\u671F/\u53EF\u7528\u6BB5\u5747\u503C ${st.mean.toFixed(2)} mmol/L\uFF0CTIR ${st.pctInRange.toFixed(1)}%\uFF0C<3.9 \u5360 ${st.pctBelow39.toFixed(1)}%\uFF08n=${st.count}\uFF09\u3002`,
-        `Stable/usable segment mean ${st.mean.toFixed(2)} mmol/L, TIR ${st.pctInRange.toFixed(1)}%, <3.9 ${st.pctBelow39.toFixed(1)}% (n=${st.count}).`
-      );
-      if (fd && analysis.cgmStats.firstDayDate && fd.pctBelow39 >= 10) {
-        detail += L(
-          ` \u9996\u65E5 ${analysis.cgmStats.firstDayDate} \u4F4E\u503C\u504F\u591A\uFF08<3.9 ${fd.pctBelow39.toFixed(1)}%\uFF09\uFF0C\u89E3\u8BFB\u8BF7\u4EE5\u7A33\u5B9A\u671F\u4E3A\u51C6\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`,
-          ` First day ${analysis.cgmStats.firstDayDate} had more lows (<3.9 ${fd.pctBelow39.toFixed(1)}%); prefer the stable segment and confirm suspect periods with finger-stick glucose.`
+      const unitOk = analysis.cgmStats.unitReliable !== false;
+      if (!unitOk) {
+        const units = (analysis.data?.dataQuality?.cgmUnit?.rawUnits || []).join(", ") || L("\u672A\u77E5", "unknown");
+        bullets.push({
+          tone: "alert",
+          title: L("\u8840\u7CD6\uFF08CGM\uFF09", "Glucose (CGM)"),
+          detail: L(
+            `\u5355\u4F4D\u5F85\u786E\u8BA4\uFF08\u5BFC\u51FA unit\uFF1A${units}\uFF09\u3002\u5728\u786E\u8BA4 mmol/L / mg/dL \u4E4B\u524D\uFF0C\u6682\u505C TIR \u4E0E <3.9/<3.0 \u7B49\u9608\u503C\u89E3\u8BFB\uFF1B\u8BF7\u5148\u6838\u5BF9\u8BBE\u5907\u4E0E\u5BFC\u51FA\u5355\u4F4D\u3002`,
+            `Units unconfirmed (export unit: ${units}). Pause TIR and <3.9/<3.0 threshold interpretation until mmol/L vs mg/dL is verified.`
+          ),
+          anchor: "summary-cgm"
+        });
+      } else {
+        const st = analysis.cgmStats.stable || analysis.cgmStats.overall;
+        const fd = analysis.cgmStats.firstDay;
+        let tone = "positive";
+        if (st.pctBelow30 > 0) tone = "alert";
+        else if (st.pctBelow39 >= 5) tone = "watch";
+        else if (st.pctInRange >= 90 && st.pctAbove78 < 5) tone = "positive";
+        else tone = "neutral";
+        const methodNote = st.tirMethod === "sample_share" ? L("\uFF08\u91C7\u6837\u70B9\u5360\u6BD4\uFF0C\u975E\u5B8C\u6574\u65F6\u95F4\u52A0\u6743 TIR\uFF09", " (sample-share %, not full time-weighted TIR)") : "";
+        let detail = L(
+          `\u7A33\u5B9A\u671F/\u53EF\u7528\u6BB5\u5747\u503C ${st.mean.toFixed(2)} mmol/L\uFF0CTIR ${st.pctInRange.toFixed(1)}%${methodNote}\uFF0C<3.9 \u5360 ${st.pctBelow39.toFixed(1)}%\uFF08n=${st.count}\uFF09\u3002`,
+          `Stable/usable segment mean ${st.mean.toFixed(2)} mmol/L, TIR ${st.pctInRange.toFixed(1)}%${methodNote}, <3.9 ${st.pctBelow39.toFixed(1)}% (n=${st.count}).`
         );
-        if (tone === "positive") tone = "neutral";
+        if (fd && analysis.cgmStats.firstDayDate && fd.pctBelow39 >= 10) {
+          detail += L(
+            ` \u9996\u65E5 ${analysis.cgmStats.firstDayDate} \u4F4E\u503C\u504F\u591A\uFF08<3.9 ${fd.pctBelow39.toFixed(1)}%\uFF09\uFF0C\u89E3\u8BFB\u8BF7\u4EE5\u7A33\u5B9A\u671F\u4E3A\u51C6\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`,
+            ` First day ${analysis.cgmStats.firstDayDate} had more lows (<3.9 ${fd.pctBelow39.toFixed(1)}%); prefer the stable segment and confirm suspect periods with finger-stick glucose.`
+          );
+          if (tone === "positive") tone = "neutral";
+        }
+        bullets.push({
+          tone,
+          title: L("\u8840\u7CD6\uFF08CGM\uFF09", "Glucose (CGM)"),
+          detail,
+          anchor: "summary-cgm"
+        });
       }
-      bullets.push({
-        tone,
-        title: L("\u8840\u7CD6\uFF08CGM\uFF09", "Glucose (CGM)"),
-        detail,
-        anchor: "summary-cgm"
-      });
     }
     if (analysis.bpStats?.mean7d) {
       const m = analysis.bpStats.mean7d;
@@ -3772,10 +3791,12 @@ var HealthAnalyzer = (() => {
     }
     const hrvDates = Object.keys(analysis.hrvByDate || {}).sort();
     if (hrvDates.length) {
-      const recent = hrvDates.slice(-7);
+      const end = hrvDates[hrvDates.length - 1];
+      const { start } = calendarWindowEndInclusive(end, 7);
+      const recent = hrvDates.filter((d) => d >= start && d <= end);
       const hrvVals = recent.map((d) => analysis.hrvByDate[d].allMean).filter(Number.isFinite);
       const rhrMap = analysis.restingHrByDate || data.restingHr || {};
-      const rhrRecent = Object.keys(rhrMap).sort().slice(-7).map((d) => rhrMap[d]).filter(Number.isFinite);
+      const rhrRecent = Object.keys(rhrMap).sort().filter((d) => d >= start && d <= end).map((d) => rhrMap[d]).filter(Number.isFinite);
       if (hrvVals.length) {
         const hrvAvg = hrvVals.reduce((a, b) => a + b, 0) / hrvVals.length;
         const rhrAvg = rhrRecent.length ? rhrRecent.reduce((a, b) => a + b, 0) / rhrRecent.length : null;
@@ -3786,8 +3807,8 @@ var HealthAnalyzer = (() => {
           tone,
           title: L("\u6062\u590D\uFF08HRV / \u9759\u606F\u5FC3\u7387\uFF09", "Recovery (HRV / resting HR)"),
           detail: L(
-            `\u8FD1 7 \u65E5 HRV \u5168\u5929\u5747\u503C\u7EA6 ${hrvAvg.toFixed(1)} ms`,
-            `Last 7 days all-day HRV mean ~${hrvAvg.toFixed(1)} ms`
+            `\u8FD1 7 \u81EA\u7136\u65E5 HRV \u5168\u5929\u5747\u503C\u7EA6 ${hrvAvg.toFixed(1)} ms\uFF08${hrvVals.length}/7 \u5929\u6709\u6570\u636E\uFF09`,
+            `Last 7 calendar days all-day HRV mean ~${hrvAvg.toFixed(1)} ms (${hrvVals.length}/7 days with data)`
           ) + (rhrAvg != null ? L(
             `\uFF0C\u9759\u606F\u5FC3\u7387\u7EA6 ${rhrAvg.toFixed(0)} bpm`,
             `, resting HR ~${rhrAvg.toFixed(0)} bpm`
@@ -5880,12 +5901,23 @@ List 5\u20137 working hypotheses that best fit the available data
     const cgm = analysis.cgmStats?.stable || analysis.cgmStats?.overall;
     if (cgm) {
       const label = analysis.cgmStats?.stable ? L("CGM \u7A33\u5B9A\u671F", "CGM stable period") : L("CGM \u5168\u7A0B", "CGM overall");
-      lines.push(
-        L(
-          `| ${label} | \u5747 ${cgm.mean.toFixed(2)} \xB7 TIR ${cgm.pctInRange.toFixed(0)}% \xB7 <3.9 ${cgm.pctBelow39.toFixed(1)}% \xB7 n=${cgm.count} |`,
-          `| ${label} | mean ${cgm.mean.toFixed(2)} \xB7 TIR ${cgm.pctInRange.toFixed(0)}% \xB7 <3.9 ${cgm.pctBelow39.toFixed(1)}% \xB7 n=${cgm.count} |`
-        )
-      );
+      const unitOk = analysis.cgmStats?.unitReliable !== false;
+      if (!unitOk) {
+        lines.push(
+          L(
+            `| ${label} | \u5355\u4F4D\u5F85\u786E\u8BA4 \xB7 n=${cgm.count} \xB7 **TIR/\u4F4E\u503C\u5360\u6BD4\u4E0D\u53EF\u4FE1\uFF0C\u6682\u505C\u9608\u503C\u89E3\u8BFB** |`,
+            `| ${label} | units unconfirmed \xB7 n=${cgm.count} \xB7 **TIR/low share untrusted \u2014 pause threshold reading** |`
+          )
+        );
+      } else {
+        const method = cgm.tirMethod === "sample_share" ? L("\u91C7\u6837\u5360\u6BD4", "sample-share") : L("\u65F6\u95F4\u52A0\u6743", "time-weighted");
+        lines.push(
+          L(
+            `| ${label} | \u5747 ${cgm.mean.toFixed(2)} mmol/L \xB7 TIR ${cgm.pctInRange.toFixed(0)}%\uFF08${method}\uFF09 \xB7 <3.9 ${cgm.pctBelow39.toFixed(1)}% \xB7 n=${cgm.count} |`,
+            `| ${label} | mean ${cgm.mean.toFixed(2)} mmol/L \xB7 TIR ${cgm.pctInRange.toFixed(0)}% (${method}) \xB7 <3.9 ${cgm.pctBelow39.toFixed(1)}% \xB7 n=${cgm.count} |`
+          )
+        );
+      }
     }
     const bp = analysis.bpStats?.mean7d;
     if (bp) {

@@ -6,6 +6,7 @@ import { FullAnalysis } from './types';
 import { detectCrossSignals } from './signals';
 import { AppLocale, createL, LocaleOptions, normalizeLocale } from './locale';
 import { toTraditionalTitle } from './zh-tw-map';
+import { calendarWindowEndInclusive } from './window';
 
 export type InsightTone = 'positive' | 'neutral' | 'watch' | 'alert';
 
@@ -72,13 +73,15 @@ function pushPersonalBaselineBullets(
   const hrvByDate = analysis.hrvByDate || {};
   const hrvDates = Object.keys(hrvByDate).sort();
   if (hrvDates.length >= 21) {
+    const end = hrvDates[hrvDates.length - 1];
+    const { start } = calendarWindowEndInclusive(end, 7);
     const recentVals = hrvDates
-      .slice(-7)
+      .filter((d) => d >= start && d <= end)
       .map((d) => hrvByDate[d]?.allMean)
       .filter((v): v is number => v != null && Number.isFinite(v));
-    // 排除近 7 日，取此前最多 28 天（约 4 周）
+    // 排除近 7 自然日，取此前最多 28 个有数据日（约 4 周）
     const priorVals = hrvDates
-      .slice(0, -7)
+      .filter((d) => d < start)
       .slice(-28)
       .map((d) => hrvByDate[d]?.allMean)
       .filter((v): v is number => v != null && Number.isFinite(v));
@@ -125,8 +128,13 @@ function pushPersonalBaselineBullets(
     .map((d) => ({ date: d.date, v: d.nightHrMean as number }))
     .sort((a, b) => a.date.localeCompare(b.date));
   if (nightDays.length >= 21) {
-    const recentVals = nightDays.slice(-7).map((d) => d.v);
-    const priorVals = nightDays.slice(0, -7).slice(-28).map((d) => d.v);
+    const end = nightDays[nightDays.length - 1].date;
+    const { start } = calendarWindowEndInclusive(end, 7);
+    const recentVals = nightDays.filter((d) => d.date >= start && d.date <= end).map((d) => d.v);
+    const priorVals = nightDays
+      .filter((d) => d.date < start)
+      .slice(-28)
+      .map((d) => d.v);
     if (recentVals.length >= 4 && priorVals.length >= 14) {
       nightRecent = meanOf(recentVals);
       nightBaseline = medianOf(priorVals);
@@ -237,33 +245,53 @@ export function buildInsightBullets(
     });
   }
 
-  // CGM：优先稳定期
+  // CGM：优先稳定期；单位不可靠时暂停阈值解读
   if (analysis.cgmStats) {
-    const st = analysis.cgmStats.stable || analysis.cgmStats.overall;
-    const fd = analysis.cgmStats.firstDay;
-    let tone: InsightTone = 'positive';
-    if (st.pctBelow30 > 0) tone = 'alert';
-    else if (st.pctBelow39 >= 5) tone = 'watch';
-    else if (st.pctInRange >= 90 && st.pctAbove78 < 5) tone = 'positive';
-    else tone = 'neutral';
+    const unitOk = analysis.cgmStats.unitReliable !== false;
+    if (!unitOk) {
+      const units =
+        (analysis.data?.dataQuality?.cgmUnit?.rawUnits || []).join(', ') ||
+        L('未知', 'unknown');
+      bullets.push({
+        tone: 'alert',
+        title: L('血糖（CGM）', 'Glucose (CGM)'),
+        detail: L(
+          `单位待确认（导出 unit：${units}）。在确认 mmol/L / mg/dL 之前，暂停 TIR 与 <3.9/<3.0 等阈值解读；请先核对设备与导出单位。`,
+          `Units unconfirmed (export unit: ${units}). Pause TIR and <3.9/<3.0 threshold interpretation until mmol/L vs mg/dL is verified.`
+        ),
+        anchor: 'summary-cgm',
+      });
+    } else {
+      const st = analysis.cgmStats.stable || analysis.cgmStats.overall;
+      const fd = analysis.cgmStats.firstDay;
+      let tone: InsightTone = 'positive';
+      if (st.pctBelow30 > 0) tone = 'alert';
+      else if (st.pctBelow39 >= 5) tone = 'watch';
+      else if (st.pctInRange >= 90 && st.pctAbove78 < 5) tone = 'positive';
+      else tone = 'neutral';
 
-    let detail = L(
-      `稳定期/可用段均值 ${st.mean.toFixed(2)} mmol/L，TIR ${st.pctInRange.toFixed(1)}%，<3.9 占 ${st.pctBelow39.toFixed(1)}%（n=${st.count}）。`,
-      `Stable/usable segment mean ${st.mean.toFixed(2)} mmol/L, TIR ${st.pctInRange.toFixed(1)}%, <3.9 ${st.pctBelow39.toFixed(1)}% (n=${st.count}).`
-    );
-    if (fd && analysis.cgmStats.firstDayDate && fd.pctBelow39 >= 10) {
-      detail += L(
-        ` 首日 ${analysis.cgmStats.firstDayDate} 低值偏多（<3.9 ${fd.pctBelow39.toFixed(1)}%），解读请以稳定期为准并指尖血复核可疑时段。`,
-        ` First day ${analysis.cgmStats.firstDayDate} had more lows (<3.9 ${fd.pctBelow39.toFixed(1)}%); prefer the stable segment and confirm suspect periods with finger-stick glucose.`
+      const methodNote =
+        st.tirMethod === 'sample_share'
+          ? L('（采样点占比，非完整时间加权 TIR）', ' (sample-share %, not full time-weighted TIR)')
+          : '';
+      let detail = L(
+        `稳定期/可用段均值 ${st.mean.toFixed(2)} mmol/L，TIR ${st.pctInRange.toFixed(1)}%${methodNote}，<3.9 占 ${st.pctBelow39.toFixed(1)}%（n=${st.count}）。`,
+        `Stable/usable segment mean ${st.mean.toFixed(2)} mmol/L, TIR ${st.pctInRange.toFixed(1)}%${methodNote}, <3.9 ${st.pctBelow39.toFixed(1)}% (n=${st.count}).`
       );
-      if (tone === 'positive') tone = 'neutral';
+      if (fd && analysis.cgmStats.firstDayDate && fd.pctBelow39 >= 10) {
+        detail += L(
+          ` 首日 ${analysis.cgmStats.firstDayDate} 低值偏多（<3.9 ${fd.pctBelow39.toFixed(1)}%），解读请以稳定期为准并指尖血复核可疑时段。`,
+          ` First day ${analysis.cgmStats.firstDayDate} had more lows (<3.9 ${fd.pctBelow39.toFixed(1)}%); prefer the stable segment and confirm suspect periods with finger-stick glucose.`
+        );
+        if (tone === 'positive') tone = 'neutral';
+      }
+      bullets.push({
+        tone,
+        title: L('血糖（CGM）', 'Glucose (CGM)'),
+        detail,
+        anchor: 'summary-cgm',
+      });
     }
-    bullets.push({
-      tone,
-      title: L('血糖（CGM）', 'Glucose (CGM)'),
-      detail,
-      anchor: 'summary-cgm',
-    });
   }
 
   // 血压晨晚
@@ -296,17 +324,19 @@ export function buildInsightBullets(
     bullets.push({ tone, title: L('血压', 'Blood pressure'), detail, anchor: 'summary-bp' });
   }
 
-  // 恢复：HRV + RHR 近 7 日
+  // 恢复：HRV + RHR 近 7 自然日
   const hrvDates = Object.keys(analysis.hrvByDate || {}).sort();
   if (hrvDates.length) {
-    const recent = hrvDates.slice(-7);
+    const end = hrvDates[hrvDates.length - 1];
+    const { start } = calendarWindowEndInclusive(end, 7);
+    const recent = hrvDates.filter((d) => d >= start && d <= end);
     const hrvVals = recent
       .map((d) => analysis.hrvByDate[d].allMean)
       .filter(Number.isFinite);
     const rhrMap = analysis.restingHrByDate || data.restingHr || {};
     const rhrRecent = Object.keys(rhrMap)
       .sort()
-      .slice(-7)
+      .filter((d) => d >= start && d <= end)
       .map((d) => rhrMap[d])
       .filter(Number.isFinite);
     if (hrvVals.length) {
@@ -322,8 +352,8 @@ export function buildInsightBullets(
         title: L('恢复（HRV / 静息心率）', 'Recovery (HRV / resting HR)'),
         detail:
           L(
-            `近 7 日 HRV 全天均值约 ${hrvAvg.toFixed(1)} ms`,
-            `Last 7 days all-day HRV mean ~${hrvAvg.toFixed(1)} ms`
+            `近 7 自然日 HRV 全天均值约 ${hrvAvg.toFixed(1)} ms（${hrvVals.length}/7 天有数据）`,
+            `Last 7 calendar days all-day HRV mean ~${hrvAvg.toFixed(1)} ms (${hrvVals.length}/7 days with data)`
           ) +
           (rhrAvg != null
             ? L(
