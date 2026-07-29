@@ -318,8 +318,11 @@ export interface CgmStats {
 export interface BpPeriodMean {
   systolic: number;
   diastolic: number;
+  /** 窗口内读数条数 */
   count: number;
   lowCount: number;
+  /** 窗口内有读数的自然日数 */
+  daysWithData: number;
 }
 
 export interface BloodPressureStats {
@@ -407,11 +410,11 @@ export interface WatchDayView {
 
 export interface WatchStats {
   days: WatchDayView[];
-  /** 近 7 日活动能量日均 */
+  /** 近 7 自然日活动能量日均（以末日为截止的日历窗） */
   activeKcalMean7d: number | null;
   exerciseMinMean7d: number | null;
   spo2Mean7d: number | null;
-  /** 近 7 个有样本日的日最低 SpO₂ 中的最小值 */
+  /** 近 7 自然日内有样本日的日最低 SpO₂ 中的最小值 */
   spo2Min7d: number | null;
   spo2NightMean7d: number | null;
   spo2NightMin7d: number | null;
@@ -423,7 +426,7 @@ export interface WatchStats {
   vo2Earliest: number | null;
   vo2Delta: number | null;
   wristTempMean7d: number | null;
-  /** 近 7 个有样本日的睡眠呼吸紊乱日值均值（HealthKit 原始量，越高扰动越多） */
+  /** 近 7 自然日内睡眠呼吸紊乱日值均值（HealthKit 原始量，越高扰动越多） */
   breathingDisturbanceMean7d: number | null;
   /** 最新一日有样本的睡眠呼吸紊乱值 */
   breathingDisturbanceLatest: number | null;
@@ -435,6 +438,8 @@ export interface WatchStats {
   vo2DayCount: number;
   /** 有睡眠呼吸紊乱样本的天数 */
   breathingDisturbanceDayCount: number;
+  /** 近 7 自然日内至少有一项 Watch 指标的自然日数 */
+  daysWithData7d?: number;
 }
 
 export interface WorkoutTypeSummary {
@@ -550,9 +555,12 @@ export interface RecoveryScorePart {
 
 /**
  * 近 7 日负荷 / 恢复仪表（启发式，非诊断）
+ * 窗口语义：以 weekEnd 为末日的最近 7 个自然日 [windowStart, weekEnd]。
  */
 export interface RecoveryWeekStats {
   weekEnd: string;
+  /** 近 7 自然日窗口起始（含） */
+  windowStart: string;
   hrvMean7d: number | null;
   nightHrMean7d: number | null;
   restingHrMean7d: number | null;
@@ -564,7 +572,10 @@ export interface RecoveryWeekStats {
   standHoursMean7d: number | null;
   daylightMinMean7d: number | null;
   spo2NightMean7d: number | null;
-  /** 0–100，越高恢复越好（启发式） */
+  /**
+   * 0–100，越高恢复越好（启发式）。
+   * 有 ≥28 天/≥4 周个人历史时以个人基线偏离为主导；覆盖不足时可为 null。
+   */
   recoveryScore: number | null;
   /** 0–100，越高训练/活动负荷越高（启发式） */
   loadScore: number | null;
@@ -581,8 +592,12 @@ export interface RecoveryWeekStats {
    * 无基线或本周无恢复分时为 null。
    */
   vsBaselineDelta: number | null;
-  /** 各维度子分构成（有数据才出现） */
+  /** 各维度子分构成（有原始指标即可出现；总分 null 时仍可返回） */
   components: RecoveryScorePart[];
+  /** 近 7 自然日内至少有一项恢复/负荷相关数据的自然日数 */
+  daysWithData: number;
+  /** 是否以个人基线（中位/分位）主导了恢复侧评分 */
+  usedPersonalBaseline: boolean;
 }
 
 /**

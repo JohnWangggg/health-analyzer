@@ -45,6 +45,10 @@ export {
   normalizeRecoveryWeights,
   summarizeHrvByDay,
   attachRecoveryBaseline,
+  calendarWindowEndInclusive,
+  countDaysWithData,
+  addDaysIso,
+  daysBetween,
 } from './stats';
 
 export { DEFAULT_RECOVERY_WEIGHTS, RECOVERY_WEIGHT_PRESETS } from './types';

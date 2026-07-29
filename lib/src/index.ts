@@ -6,6 +6,7 @@
 export * from './types';
 export * from './parser';
 export * from './stats';
+export * from './window';
 export * from './glucose';
 export * from './prompts/llm-prompt';
 export * from './snapshot';

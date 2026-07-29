@@ -33,6 +33,7 @@ var HealthAnalyzer = (() => {
     RECOVERY_WEIGHT_PRESETS: () => RECOVERY_WEIGHT_PRESETS,
     SHORT_SYSTEM_PROMPT: () => SHORT_SYSTEM_PROMPT,
     SHORT_SYSTEM_PROMPT_EN: () => SHORT_SYSTEM_PROMPT_EN,
+    addDaysIso: () => addDaysIso,
     analyzeAll: () => analyzeAll,
     attachRecoveryBaseline: () => attachRecoveryBaseline,
     buildAnalysisSnapshot: () => buildAnalysisSnapshot,
@@ -47,10 +48,13 @@ var HealthAnalyzer = (() => {
     calcWatchStats: () => calcWatchStats,
     calcWeightStats: () => calcWeightStats,
     calcWorkoutStats: () => calcWorkoutStats,
+    calendarWindowEndInclusive: () => calendarWindowEndInclusive,
     classifyGlucoseUnit: () => classifyGlucoseUnit,
     compareSnapshots: () => compareSnapshots,
+    countDaysWithData: () => countDaysWithData,
     createEmptyData: () => createEmptyData,
     createL: () => createL,
+    daysBetween: () => daysBetween,
     detectCrossSignals: () => detectCrossSignals,
     enrichEcgWithContext: () => enrichEcgWithContext,
     extractXmlFromZip: () => extractXmlFromZip,
@@ -1632,6 +1636,75 @@ var HealthAnalyzer = (() => {
     return fn;
   }
 
+  // src/window.ts
+  function addDaysIso(date, deltaDays) {
+    const t = Date.parse(`${date}T00:00:00Z`);
+    if (!Number.isFinite(t)) return date;
+    const d = new Date(t);
+    d.setUTCDate(d.getUTCDate() + deltaDays);
+    return d.toISOString().slice(0, 10);
+  }
+  function daysBetween(a, b) {
+    const ta = Date.parse(`${a}T00:00:00Z`);
+    const tb = Date.parse(`${b}T00:00:00Z`);
+    if (!Number.isFinite(ta) || !Number.isFinite(tb)) return 0;
+    return Math.round((tb - ta) / (24 * 3600 * 1e3));
+  }
+  function calendarWindowEndInclusive(endDate, days) {
+    const end = endDate;
+    const n = Math.floor(days);
+    if (!end || !Number.isFinite(n) || n <= 0) {
+      return { start: end, end };
+    }
+    return { start: addDaysIso(end, -(n - 1)), end };
+  }
+  function countDaysWithData(dates, start, end) {
+    const seen = /* @__PURE__ */ new Set();
+    for (const d of dates) {
+      if (d && d >= start && d <= end) seen.add(d);
+    }
+    return seen.size;
+  }
+  function valuesInCalendarWindow(map, start, end) {
+    if (!map) return { values: [], dates: [] };
+    const dates = [];
+    const values = [];
+    for (const d of Object.keys(map).sort()) {
+      if (d < start || d > end) continue;
+      const v = map[d];
+      if (v != null && Number.isFinite(v)) {
+        dates.push(d);
+        values.push(v);
+      }
+    }
+    return { values, dates };
+  }
+  function meanInCalendarWindow(map, endDate, days) {
+    const { start, end } = calendarWindowEndInclusive(endDate, days);
+    const { values } = valuesInCalendarWindow(map, start, end);
+    if (!values.length) {
+      return { mean: null, daysWithData: 0, start, end };
+    }
+    const mean2 = values.reduce((a, b) => a + b, 0) / values.length;
+    return { mean: mean2, daysWithData: values.length, start, end };
+  }
+  function priorValuesBeforeWindow(map, windowStart, maxDays) {
+    if (!map) return [];
+    const keys = Object.keys(map).filter((d) => d < windowStart).sort();
+    const limited = maxDays != null && maxDays > 0 ? keys.slice(-Math.floor(maxDays)) : keys;
+    return limited.map((d) => map[d]).filter((v) => v != null && Number.isFinite(v));
+  }
+  function filterByCalendarWindow(records, endDate, days) {
+    const { start, end } = calendarWindowEndInclusive(endDate, days);
+    const items = records.filter((r) => r.date >= start && r.date <= end);
+    const daysWithData = countDaysWithData(
+      items.map((r) => r.date),
+      start,
+      end
+    );
+    return { items, start, end, daysWithData };
+  }
+
   // src/stats.ts
   function normalizeRecoveryWeights(weights) {
     const base = { ...DEFAULT_RECOVERY_WEIGHTS };
@@ -1860,25 +1933,22 @@ var HealthAnalyzer = (() => {
     const meanSys = records.reduce((a, b) => a + b.systolic, 0) / records.length;
     const meanDia = records.reduce((a, b) => a + b.diastolic, 0) / records.length;
     const lowCount = records.filter((r) => r.systolic < 90 || r.diastolic < 60).length;
+    const daysWithData = new Set(records.map((r) => r.date)).size;
     return {
       systolic: meanSys,
       diastolic: meanDia,
       count: records.length,
-      lowCount
+      lowCount,
+      daysWithData
     };
   }
   function calcBloodPressureStats(records) {
     if (records.length === 0) return null;
     const sorted = [...records].sort((a, b) => a.datetime.localeCompare(b.datetime));
-    function inLastDays(days) {
-      const latest = sorted[sorted.length - 1].date;
-      const latestDate = /* @__PURE__ */ new Date(`${latest}T00:00:00Z`);
-      latestDate.setUTCDate(latestDate.getUTCDate() - days);
-      const startStr = latestDate.toISOString().slice(0, 10);
-      return sorted.filter((r) => r.date >= startStr && r.date <= latest);
-    }
+    const latest = sorted[sorted.length - 1].date;
     function periodStats(days, pred) {
-      let filtered = inLastDays(days);
+      const { items } = filterByCalendarWindow(sorted, latest, days);
+      let filtered = items;
       if (pred) filtered = filtered.filter(pred);
       return meanBp(filtered);
     }
@@ -1959,16 +2029,31 @@ var HealthAnalyzer = (() => {
     }
     return result;
   }
-  function meanLastN(values, n) {
-    const vals = values.filter((v) => v != null && Number.isFinite(v));
-    if (!vals.length) return null;
-    const slice = vals.slice(-n);
-    return slice.reduce((a, b) => a + b, 0) / slice.length;
+  function meanWatchInCalendarWindow(days, pick, endDate, n) {
+    const { start, end } = calendarWindowEndInclusive(endDate, n);
+    const vals = [];
+    for (const d of days) {
+      if (d.date < start || d.date > end) continue;
+      const v = pick(d);
+      if (v != null && Number.isFinite(v)) vals.push(v);
+    }
+    if (!vals.length) return { mean: null, daysWithData: 0 };
+    return {
+      mean: vals.reduce((a, b) => a + b, 0) / vals.length,
+      daysWithData: vals.length
+    };
   }
-  function minLastN(values, n) {
-    const vals = values.filter((v) => v != null && Number.isFinite(v));
-    if (!vals.length) return null;
-    return Math.min(...vals.slice(-n));
+  function minWatchInCalendarWindow(days, pick, endDate, n) {
+    const { start, end } = calendarWindowEndInclusive(endDate, n);
+    let min = null;
+    for (const d of days) {
+      if (d.date < start || d.date > end) continue;
+      const v = pick(d);
+      if (v != null && Number.isFinite(v)) {
+        min = min == null ? v : Math.min(min, v);
+      }
+    }
+    return min;
   }
   function toWatchView(date, w) {
     const finiteMin = (v, count) => count > 0 && v > 0 && v < Infinity ? v : null;
@@ -1996,53 +2081,63 @@ var HealthAnalyzer = (() => {
   function calcWatchStats(watchDaily) {
     if (!watchDaily || !Object.keys(watchDaily).length) return null;
     const days = Object.keys(watchDaily).sort().map((d) => toWatchView(d, watchDaily[d]));
+    const endDate = days[days.length - 1].date;
+    const win7 = calendarWindowEndInclusive(endDate, 7);
     const vo2Series = days.filter((d) => d.vo2Max != null);
     const vo2Latest = vo2Series.length ? vo2Series[vo2Series.length - 1].vo2Max : null;
     const vo2Earliest = vo2Series.length ? vo2Series[0].vo2Max : null;
     const bdSeries = days.filter((d) => d.breathingDisturbance != null);
     const breathingDisturbanceLatest = bdSeries.length ? bdSeries[bdSeries.length - 1].breathingDisturbance : null;
+    const daysWithData7d = countDaysWithData(
+      days.filter((d) => {
+        if (d.date < win7.start || d.date > win7.end) return false;
+        return d.activeKcal > 0 || d.exerciseMin > 0 || d.spo2Mean != null || d.nightHrMean != null || d.rrMean != null || d.wristTempMean != null || d.breathingDisturbance != null || d.standHoursStood > 0 || d.daylightMin > 0;
+      }).map((d) => d.date),
+      win7.start,
+      win7.end
+    );
     return {
       days,
-      activeKcalMean7d: meanLastN(days.map((d) => d.activeKcal), 7),
-      exerciseMinMean7d: meanLastN(days.map((d) => d.exerciseMin), 7),
-      spo2Mean7d: meanLastN(days.map((d) => d.spo2Mean), 7),
-      // 近 7 个有血氧日的「日最低」中的最小值（不是日最低的均值）
-      spo2Min7d: minLastN(days.map((d) => d.spo2Min), 7),
-      spo2NightMean7d: meanLastN(days.map((d) => d.spo2NightMean), 7),
-      spo2NightMin7d: minLastN(days.map((d) => d.spo2NightMin), 7),
-      spo2DayMean7d: meanLastN(days.map((d) => d.spo2DayMean), 7),
-      spo2DayMin7d: minLastN(days.map((d) => d.spo2DayMin), 7),
-      rrMean7d: meanLastN(days.map((d) => d.rrMean), 7),
-      nightHrMean7d: meanLastN(days.map((d) => d.nightHrMean), 7),
+      activeKcalMean7d: meanWatchInCalendarWindow(days, (d) => d.activeKcal, endDate, 7).mean,
+      exerciseMinMean7d: meanWatchInCalendarWindow(days, (d) => d.exerciseMin, endDate, 7).mean,
+      spo2Mean7d: meanWatchInCalendarWindow(days, (d) => d.spo2Mean, endDate, 7).mean,
+      spo2Min7d: minWatchInCalendarWindow(days, (d) => d.spo2Min, endDate, 7),
+      spo2NightMean7d: meanWatchInCalendarWindow(days, (d) => d.spo2NightMean, endDate, 7).mean,
+      spo2NightMin7d: minWatchInCalendarWindow(days, (d) => d.spo2NightMin, endDate, 7),
+      spo2DayMean7d: meanWatchInCalendarWindow(days, (d) => d.spo2DayMean, endDate, 7).mean,
+      spo2DayMin7d: minWatchInCalendarWindow(days, (d) => d.spo2DayMin, endDate, 7),
+      rrMean7d: meanWatchInCalendarWindow(days, (d) => d.rrMean, endDate, 7).mean,
+      nightHrMean7d: meanWatchInCalendarWindow(days, (d) => d.nightHrMean, endDate, 7).mean,
       vo2Latest,
       vo2Earliest,
       vo2Delta: vo2Latest != null && vo2Earliest != null ? vo2Latest - vo2Earliest : null,
-      wristTempMean7d: meanLastN(days.map((d) => d.wristTempMean), 7),
-      breathingDisturbanceMean7d: meanLastN(
-        days.map((d) => d.breathingDisturbance),
+      wristTempMean7d: meanWatchInCalendarWindow(days, (d) => d.wristTempMean, endDate, 7).mean,
+      breathingDisturbanceMean7d: meanWatchInCalendarWindow(
+        days,
+        (d) => d.breathingDisturbance,
+        endDate,
         7
-      ),
+      ).mean,
       breathingDisturbanceLatest,
-      daylightMinMean7d: meanLastN(
-        days.map((d) => d.daylightMin > 0 ? d.daylightMin : null),
+      daylightMinMean7d: meanWatchInCalendarWindow(
+        days,
+        (d) => d.daylightMin > 0 ? d.daylightMin : null,
+        endDate,
         7
-      ),
-      standHoursMean7d: meanLastN(
-        days.map((d) => d.standHoursStood > 0 || d.standHoursIdle > 0 ? d.standHoursStood : null),
+      ).mean,
+      standHoursMean7d: meanWatchInCalendarWindow(
+        days,
+        (d) => d.standHoursStood > 0 || d.standHoursIdle > 0 ? d.standHoursStood : null,
+        endDate,
         7
-      ),
+      ).mean,
       dayCount: days.length,
       spo2DayCount: days.filter((d) => d.spo2Mean != null).length,
       spo2NightDayCount: days.filter((d) => d.spo2NightMean != null).length,
       vo2DayCount: vo2Series.length,
-      breathingDisturbanceDayCount: bdSeries.length
+      breathingDisturbanceDayCount: bdSeries.length,
+      daysWithData7d
     };
-  }
-  function daysBetween(a, b) {
-    const ta = Date.parse(`${a}T00:00:00Z`);
-    const tb = Date.parse(`${b}T00:00:00Z`);
-    if (!Number.isFinite(ta) || !Number.isFinite(tb)) return 0;
-    return Math.round((tb - ta) / (24 * 3600 * 1e3));
   }
   function calcWorkoutStats(workouts, referenceDate) {
     if (!workouts || !workouts.length) return null;
@@ -2193,32 +2288,26 @@ var HealthAnalyzer = (() => {
       ...ctx
     };
   }
-  function meanMapLastN(map, n, endDate) {
-    const keys = Object.keys(map).filter((d) => d <= endDate).sort();
-    if (!keys.length) return null;
-    const recent = keys.slice(-n).map((d) => map[d]).filter(Number.isFinite);
-    if (!recent.length) return null;
-    return recent.reduce((a, b) => a + b, 0) / recent.length;
+  function meanMapCalendarN(map, n, endDate) {
+    return meanInCalendarWindow(map, endDate, n);
   }
-  function addDaysIso(date, deltaDays) {
-    const t = Date.parse(`${date}T00:00:00Z`);
-    if (!Number.isFinite(t)) return date;
-    const d = new Date(t);
-    d.setUTCDate(d.getUTCDate() + deltaDays);
-    return d.toISOString().slice(0, 10);
+  function meanWatchSeriesCalendarN(days, pick, n, endDate) {
+    if (!days?.length) return { mean: null, daysWithData: 0 };
+    return meanWatchInCalendarWindow(days, pick, endDate, n);
   }
-  function meanWatchSeriesLastN(days, pick, n, endDate) {
-    if (!days?.length) return null;
-    const vals = days.filter((d) => d.date <= endDate).map((d) => pick(d)).filter((v) => v != null && Number.isFinite(v));
-    if (!vals.length) return null;
-    const slice = vals.slice(-n);
-    return slice.reduce((a, b) => a + b, 0) / slice.length;
+  function watchSeriesToMap(days, pick) {
+    const map = {};
+    if (!days) return map;
+    for (const d of days) {
+      const v = pick(d);
+      if (v != null && Number.isFinite(v)) map[d.date] = v;
+    }
+    return map;
   }
   function workoutWindowAt(sessions, endDate, windowDays) {
     if (!sessions?.length) return { count: 0, duration: 0 };
-    const list = sessions.filter(
-      (s) => s.date <= endDate && daysBetween(s.date, endDate) <= windowDays - 1
-    );
+    const { start } = calendarWindowEndInclusive(endDate, windowDays);
+    const list = sessions.filter((s) => s.date >= start && s.date <= endDate);
     return {
       count: list.length,
       duration: list.reduce((a, s) => a + (s.durationMin || 0), 0)
@@ -2231,18 +2320,74 @@ var HealthAnalyzer = (() => {
     if (sorted.length % 2 === 1) return sorted[mid];
     return (sorted[mid - 1] + sorted[mid]) / 2;
   }
+  function percentileNumber(values, p) {
+    if (!values.length) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    if (sorted.length === 1) return sorted[0];
+    const idx = Math.max(0, Math.min(1, p)) * (sorted.length - 1);
+    const lo = Math.floor(idx);
+    const hi = Math.ceil(idx);
+    if (lo === hi) return sorted[lo];
+    const t = idx - lo;
+    return sorted[lo] * (1 - t) + sorted[hi] * t;
+  }
+  function scoreFromPersonalDistribution(current, prior, higherIsBetter) {
+    if (prior.length < 14) return null;
+    const med = medianNumber(prior);
+    const p25 = percentileNumber(prior, 0.25);
+    const p75 = percentileNumber(prior, 0.75);
+    if (med == null || p25 == null || p75 == null) return null;
+    const clamp = (x) => Math.max(0, Math.min(100, x));
+    if (higherIsBetter) {
+      if (current >= med) {
+        const span3 = Math.max(p75 - med, Math.abs(med) * 0.05, 1e-3);
+        return clamp(55 + 25 * ((current - med) / span3));
+      }
+      const span2 = Math.max(med - p25, Math.abs(med) * 0.05, 1e-3);
+      return clamp(55 - 25 * ((med - current) / span2));
+    }
+    if (current <= med) {
+      const span2 = Math.max(med - p25, Math.abs(med) * 0.05, 1e-3);
+      return clamp(55 + 25 * ((med - current) / span2));
+    }
+    const span = Math.max(p75 - med, Math.abs(med) * 0.05, 1e-3);
+    return clamp(55 - 25 * ((current - med) / span));
+  }
+  var PERSONAL_BASELINE_MIN_SAMPLES = 28;
+  var PERSONAL_BASELINE_MIN_SPAN_DAYS = 28;
+  var PERSONAL_BASELINE_MIN_SAMPLES_WITH_SPAN = 14;
+  var PERSONAL_SCORE_WEIGHT = 0.72;
+  var ABSOLUTE_SCORE_WEIGHT = 0.28;
+  function hasPersonalHistoryDepth(prior, priorDates) {
+    if (prior.length >= PERSONAL_BASELINE_MIN_SAMPLES) return true;
+    if (prior.length >= PERSONAL_BASELINE_MIN_SAMPLES_WITH_SPAN && priorDates && priorDates.length >= 2) {
+      const span = daysBetween(priorDates[0], priorDates[priorDates.length - 1]);
+      return span >= PERSONAL_BASELINE_MIN_SPAN_DAYS - 1;
+    }
+    return false;
+  }
+  function blendPersonalAbsolute(personal, absolute, prior, priorDates) {
+    if (personal != null && hasPersonalHistoryDepth(prior, priorDates)) {
+      return {
+        score: personal * PERSONAL_SCORE_WEIGHT + absolute * ABSOLUTE_SCORE_WEIGHT,
+        usedPersonal: true
+      };
+    }
+    return { score: absolute, usedPersonal: false };
+  }
   function attachRecoveryBaseline(week, recoveryWeeks, localeInput) {
     const L = createL(normalizeLocale(localeInput));
     const priorScores = (recoveryWeeks || []).filter((p) => p.weekEnd !== week.weekEnd).map((p) => p.recoveryScore).filter((s) => s != null && Number.isFinite(s));
     let baselineRecoveryMedian = null;
     let vsBaselineDelta = null;
     let statusLabel = week.statusLabel;
+    const alreadyAnnotated = /近几周中位|recent median/i.test(statusLabel);
     if (week.recoveryScore != null && priorScores.length >= 4) {
       const med = medianNumber(priorScores);
       if (med != null) {
         baselineRecoveryMedian = Math.round(med);
         vsBaselineDelta = week.recoveryScore - baselineRecoveryMedian;
-        if (Math.abs(vsBaselineDelta) >= 8) {
+        if (!alreadyAnnotated && Math.abs(vsBaselineDelta) >= 8) {
           const abs = Math.abs(vsBaselineDelta);
           statusLabel = vsBaselineDelta > 0 ? L(
             `${statusLabel}\uFF08\u9AD8\u4E8E\u8FD1\u51E0\u5468\u4E2D\u4F4D\u7EA6 ${abs} \u5206\uFF09`,
@@ -2259,33 +2404,44 @@ var HealthAnalyzer = (() => {
       baselineRecoveryMedian,
       vsBaselineDelta,
       statusLabel,
-      components: week.components || []
+      components: week.components || [],
+      usedPersonalBaseline: !!week.usedPersonalBaseline
     };
   }
   function scoreRecoveryLoad(input) {
     const L = createL(normalizeLocale(input.locale));
     const w = normalizeRecoveryWeights(input.weights);
     const components = [];
+    const priors = input.personalPriors || {};
+    let usedPersonalBaseline = false;
     const recoveryParts = [];
     if (input.hrvMean7d != null) {
-      const value = Math.max(0, Math.min(100, (input.hrvMean7d - 15) / 45 * 100));
-      recoveryParts.push({ value, weight: w.hrv });
+      const absolute = Math.max(0, Math.min(100, (input.hrvMean7d - 15) / 45 * 100));
+      const prior = priors.hrv || [];
+      const personal = scoreFromPersonalDistribution(input.hrvMean7d, prior, true);
+      const blended = blendPersonalAbsolute(personal, absolute, prior, priors.hrvDates);
+      if (blended.usedPersonal) usedPersonalBaseline = true;
+      recoveryParts.push({ value: blended.score, weight: w.hrv });
       components.push({
         key: "hrv",
         side: "recovery",
-        score: Math.round(value),
+        score: Math.round(blended.score),
         weight: w.hrv,
         raw: input.hrvMean7d,
         rawUnit: "ms"
       });
     }
     if (input.sleepMean7d != null) {
-      const value = Math.max(0, Math.min(100, input.sleepMean7d / 8 * 100));
-      recoveryParts.push({ value, weight: w.sleep });
+      const absolute = Math.max(0, Math.min(100, input.sleepMean7d / 8 * 100));
+      const prior = priors.sleep || [];
+      const personal = scoreFromPersonalDistribution(input.sleepMean7d, prior, true);
+      const blended = blendPersonalAbsolute(personal, absolute, prior, priors.sleepDates);
+      if (blended.usedPersonal) usedPersonalBaseline = true;
+      recoveryParts.push({ value: blended.score, weight: w.sleep });
       components.push({
         key: "sleep",
         side: "recovery",
-        score: Math.round(value),
+        score: Math.round(blended.score),
         weight: w.sleep,
         raw: input.sleepMean7d,
         rawUnit: "h"
@@ -2293,35 +2449,47 @@ var HealthAnalyzer = (() => {
     }
     if (input.nightHrMean7d != null && input.restingHrMean7d != null) {
       const delta = input.nightHrMean7d - input.restingHrMean7d;
-      const value = Math.max(0, Math.min(100, 80 - delta * 4));
-      recoveryParts.push({ value, weight: w.nightHr });
+      const absolute = Math.max(0, Math.min(100, 80 - delta * 4));
+      const prior = priors.nightHr || [];
+      const personal = scoreFromPersonalDistribution(input.nightHrMean7d, prior, false);
+      const blended = blendPersonalAbsolute(personal, absolute, prior, priors.nightHrDates);
+      if (blended.usedPersonal) usedPersonalBaseline = true;
+      recoveryParts.push({ value: blended.score, weight: w.nightHr });
       components.push({
         key: "nightHr",
         side: "recovery",
-        score: Math.round(value),
+        score: Math.round(blended.score),
         weight: w.nightHr,
         raw: input.nightHrMean7d,
         rawUnit: "bpm"
       });
     } else if (input.nightHrMean7d != null) {
-      const value = Math.max(0, Math.min(100, 100 - (input.nightHrMean7d - 50) * 1.5));
-      recoveryParts.push({ value, weight: w.nightHr });
+      const absolute = Math.max(0, Math.min(100, 100 - (input.nightHrMean7d - 50) * 1.5));
+      const prior = priors.nightHr || [];
+      const personal = scoreFromPersonalDistribution(input.nightHrMean7d, prior, false);
+      const blended = blendPersonalAbsolute(personal, absolute, prior, priors.nightHrDates);
+      if (blended.usedPersonal) usedPersonalBaseline = true;
+      recoveryParts.push({ value: blended.score, weight: w.nightHr });
       components.push({
         key: "nightHr",
         side: "recovery",
-        score: Math.round(value),
+        score: Math.round(blended.score),
         weight: w.nightHr,
         raw: input.nightHrMean7d,
         rawUnit: "bpm"
       });
     }
     if (input.spo2NightMean7d != null) {
-      const value = Math.max(0, Math.min(100, (input.spo2NightMean7d - 90) * 10));
-      recoveryParts.push({ value, weight: w.spo2Night });
+      const absolute = Math.max(0, Math.min(100, (input.spo2NightMean7d - 90) * 10));
+      const prior = priors.spo2Night || [];
+      const personal = scoreFromPersonalDistribution(input.spo2NightMean7d, prior, true);
+      const blended = blendPersonalAbsolute(personal, absolute, prior, priors.spo2NightDates);
+      if (blended.usedPersonal) usedPersonalBaseline = true;
+      recoveryParts.push({ value: blended.score, weight: w.spo2Night });
       components.push({
         key: "spo2Night",
         side: "recovery",
-        score: Math.round(value),
+        score: Math.round(blended.score),
         weight: w.spo2Night,
         raw: input.spo2NightMean7d,
         rawUnit: "%"
@@ -2329,7 +2497,14 @@ var HealthAnalyzer = (() => {
     }
     const loadParts = [];
     if (input.exerciseMinMean7d != null) {
-      const value = Math.max(0, Math.min(100, input.exerciseMinMean7d / 45 * 100));
+      const absolute = Math.max(0, Math.min(100, input.exerciseMinMean7d / 45 * 100));
+      const prior = priors.exercise || [];
+      const personal = scoreFromPersonalDistribution(input.exerciseMinMean7d, prior, true);
+      let value = absolute;
+      if (personal != null && hasPersonalHistoryDepth(prior, priors.exerciseDates)) {
+        value = personal * 0.55 + absolute * 0.45;
+        usedPersonalBaseline = true;
+      }
       loadParts.push({ value, weight: w.exercise });
       components.push({
         key: "exercise",
@@ -2353,7 +2528,14 @@ var HealthAnalyzer = (() => {
       });
     }
     if (input.stepsMean7d != null) {
-      const value = Math.max(0, Math.min(100, input.stepsMean7d / 1e4 * 100));
+      const absolute = Math.max(0, Math.min(100, input.stepsMean7d / 1e4 * 100));
+      const prior = priors.steps || [];
+      const personal = scoreFromPersonalDistribution(input.stepsMean7d, prior, true);
+      let value = absolute;
+      if (personal != null && hasPersonalHistoryDepth(prior, priors.stepsDates)) {
+        value = personal * 0.55 + absolute * 0.45;
+        usedPersonalBaseline = true;
+      }
       loadParts.push({ value, weight: w.steps });
       components.push({
         key: "steps",
@@ -2366,12 +2548,25 @@ var HealthAnalyzer = (() => {
     }
     const recoveryScoreRaw = weightedMean(recoveryParts);
     const loadScoreRaw = weightedMean(loadParts);
-    const recoveryScore = recoveryScoreRaw != null ? Math.round(recoveryScoreRaw) : null;
+    const daysWithData = input.daysWithData ?? 0;
+    const thinRecoveryCoverage = daysWithData > 0 && daysWithData < 3 && recoveryParts.length < 2 || recoveryParts.length === 0;
+    const recoveryScore = recoveryScoreRaw != null && !thinRecoveryCoverage ? Math.round(recoveryScoreRaw) : null;
     const loadScore = loadScoreRaw != null ? Math.round(loadScoreRaw) : null;
     let statusLabel = L("\u6570\u636E\u4E0D\u8DB3\uFF0C\u6682\u4E0D\u8BC4\u4F30", "Insufficient data to score");
     let statusTone = "neutral";
-    if (recoveryScore != null || loadScore != null) {
-      const r = recoveryScore ?? 50;
+    if (recoveryScore == null && loadScore == null) {
+      statusLabel = L(
+        "\u8FD1 7 \u65E5\u6570\u636E\u8986\u76D6\u4E0D\u8DB3\uFF0C\u6682\u4E0D\u7ED9\u51FA\u6062\u590D/\u8D1F\u8377\u603B\u5206",
+        "Insufficient coverage in last 7 days \u2014 no recovery/load total"
+      );
+    } else if (recoveryScore == null && loadScore != null) {
+      statusLabel = L(
+        "\u6062\u590D\u4FA7\u6570\u636E\u4E0D\u8DB3\uFF0C\u4EC5\u4F9B\u8D1F\u8377\u53C2\u8003",
+        "Insufficient recovery coverage \u2014 load only"
+      );
+      statusTone = "neutral";
+    } else if (recoveryScore != null) {
+      const r = recoveryScore;
       const l = loadScore ?? 40;
       if (r >= 65 && l <= 70) {
         statusLabel = L("\u6062\u590D\u5C1A\u53EF\uFF0C\u53EF\u7EF4\u6301\u6216\u8F7B\u91CF\u63A8\u8FDB", "Recovery looks OK \u2014 maintain or progress lightly");
@@ -2389,25 +2584,25 @@ var HealthAnalyzer = (() => {
         statusLabel = L("\u8D1F\u8377\u4E0E\u6062\u590D\u5927\u81F4\u5E73\u8861", "Load and recovery are roughly balanced");
         statusTone = "neutral";
       }
-    }
-    const base = input.baselineRecoveryMedian;
-    if (recoveryScore != null && base != null && Number.isFinite(base)) {
-      const delta = recoveryScore - base;
-      if (Math.abs(delta) >= 8) {
-        const abs = Math.abs(delta);
-        statusLabel = delta > 0 ? L(
-          `${statusLabel}\uFF08\u9AD8\u4E8E\u8FD1\u51E0\u5468\u4E2D\u4F4D\u7EA6 ${abs} \u5206\uFF09`,
-          `${statusLabel} (~${abs} pts above recent median)`
-        ) : L(
-          `${statusLabel}\uFF08\u4F4E\u4E8E\u8FD1\u51E0\u5468\u4E2D\u4F4D\u7EA6 ${abs} \u5206\uFF09`,
-          `${statusLabel} (~${abs} pts below recent median)`
+      if (usedPersonalBaseline) {
+        statusLabel = L(
+          `${statusLabel}\uFF08\u5DF2\u7ED3\u5408\u4E2A\u4EBA\u57FA\u7EBF\uFF09`,
+          `${statusLabel} (personal baseline applied)`
         );
       }
     }
-    return { recoveryScore, loadScore, statusLabel, statusTone, components };
+    return {
+      recoveryScore,
+      loadScore,
+      statusLabel,
+      statusTone,
+      components,
+      usedPersonalBaseline
+    };
   }
   function buildRecoveryWeekAt(analysis, weekEnd, weights, locale) {
     if (!weekEnd) return null;
+    const { start: windowStart } = calendarWindowEndInclusive(weekEnd, 7);
     const hrvMeans = {};
     for (const [d, h] of Object.entries(analysis.hrvByDate || {})) {
       if (h && Number.isFinite(h.allMean)) hrvMeans[d] = h.allMean;
@@ -2418,31 +2613,94 @@ var HealthAnalyzer = (() => {
     }
     const days = analysis.watchStats?.days;
     const sessions = analysis.workoutStats?.sessions;
-    const hrvMean7d = meanMapLastN(hrvMeans, 7, weekEnd);
-    const restingHrMean7d = meanMapLastN(analysis.restingHrByDate || {}, 7, weekEnd);
-    const stepsMean7d = meanMapLastN(analysis.stepsByDate || {}, 7, weekEnd);
-    const sleepMean7d = meanMapLastN(sleepTotals, 7, weekEnd);
-    const nightHrMean7d = meanWatchSeriesLastN(days, (d) => d.nightHrMean, 7, weekEnd);
-    const exerciseMinMean7d = meanWatchSeriesLastN(days, (d) => d.exerciseMin, 7, weekEnd);
-    const standHoursMean7d = meanWatchSeriesLastN(
+    const hrvWin = meanMapCalendarN(hrvMeans, 7, weekEnd);
+    const restWin = meanMapCalendarN(analysis.restingHrByDate || {}, 7, weekEnd);
+    const stepsWin = meanMapCalendarN(analysis.stepsByDate || {}, 7, weekEnd);
+    const sleepWin = meanMapCalendarN(sleepTotals, 7, weekEnd);
+    const nightWin = meanWatchSeriesCalendarN(days, (d) => d.nightHrMean, 7, weekEnd);
+    const exerciseWin = meanWatchSeriesCalendarN(days, (d) => d.exerciseMin, 7, weekEnd);
+    const standWin = meanWatchSeriesCalendarN(
       days,
       (d) => d.standHoursStood > 0 || d.standHoursIdle > 0 ? d.standHoursStood : null,
       7,
       weekEnd
     );
-    const daylightMinMean7d = meanWatchSeriesLastN(
+    const daylightWin = meanWatchSeriesCalendarN(
       days,
       (d) => d.daylightMin > 0 ? d.daylightMin : null,
       7,
       weekEnd
     );
-    const spo2NightMean7d = meanWatchSeriesLastN(days, (d) => d.spo2NightMean, 7, weekEnd);
+    const spo2NightWin = meanWatchSeriesCalendarN(days, (d) => d.spo2NightMean, 7, weekEnd);
+    const hrvMean7d = hrvWin.mean;
+    const restingHrMean7d = restWin.mean;
+    const stepsMean7d = stepsWin.mean;
+    const sleepMean7d = sleepWin.mean;
+    const nightHrMean7d = nightWin.mean;
+    const exerciseMinMean7d = exerciseWin.mean;
+    const standHoursMean7d = standWin.mean;
+    const daylightMinMean7d = daylightWin.mean;
+    const spo2NightMean7d = spo2NightWin.mean;
     const w7 = workoutWindowAt(sessions, weekEnd, 7);
     const workoutCount7d = w7.count;
     const workoutDuration7d = w7.duration;
     if (hrvMean7d == null && nightHrMean7d == null && exerciseMinMean7d == null && sleepMean7d == null && workoutCount7d === 0) {
       return null;
     }
+    const dataDates = /* @__PURE__ */ new Set();
+    for (const [d, v] of Object.entries(hrvMeans)) {
+      if (d >= windowStart && d <= weekEnd && Number.isFinite(v)) dataDates.add(d);
+    }
+    for (const [d, v] of Object.entries(sleepTotals)) {
+      if (d >= windowStart && d <= weekEnd && Number.isFinite(v)) dataDates.add(d);
+    }
+    for (const [d, v] of Object.entries(analysis.stepsByDate || {})) {
+      if (d >= windowStart && d <= weekEnd && Number.isFinite(v)) dataDates.add(d);
+    }
+    for (const [d, v] of Object.entries(analysis.restingHrByDate || {})) {
+      if (d >= windowStart && d <= weekEnd && Number.isFinite(v)) dataDates.add(d);
+    }
+    if (days) {
+      for (const d of days) {
+        if (d.date < windowStart || d.date > weekEnd) continue;
+        if (d.nightHrMean != null || d.exerciseMin > 0 || d.spo2NightMean != null || d.standHoursStood > 0 || d.daylightMin > 0) {
+          dataDates.add(d.date);
+        }
+      }
+    }
+    if (sessions) {
+      for (const s of sessions) {
+        if (s.date >= windowStart && s.date <= weekEnd) dataDates.add(s.date);
+      }
+    }
+    const daysWithData = dataDates.size;
+    const priorCap = 90;
+    const hrvPriorDates = Object.keys(hrvMeans).filter((d) => d < windowStart).sort().slice(-priorCap);
+    const sleepPriorDates = Object.keys(sleepTotals).filter((d) => d < windowStart).sort().slice(-priorCap);
+    const nightMap = watchSeriesToMap(days, (d) => d.nightHrMean);
+    const exerciseMap = watchSeriesToMap(
+      days,
+      (d) => d.exerciseMin > 0 ? d.exerciseMin : null
+    );
+    const spo2NightMap = watchSeriesToMap(days, (d) => d.spo2NightMean);
+    const nightPriorDates = Object.keys(nightMap).filter((d) => d < windowStart).sort().slice(-priorCap);
+    const exercisePriorDates = Object.keys(exerciseMap).filter((d) => d < windowStart).sort().slice(-priorCap);
+    const spo2PriorDates = Object.keys(spo2NightMap).filter((d) => d < windowStart).sort().slice(-priorCap);
+    const stepsPriorDates = Object.keys(analysis.stepsByDate || {}).filter((d) => d < windowStart).sort().slice(-priorCap);
+    const personalPriors = {
+      hrv: priorValuesBeforeWindow(hrvMeans, windowStart, priorCap),
+      sleep: priorValuesBeforeWindow(sleepTotals, windowStart, priorCap),
+      nightHr: priorValuesBeforeWindow(nightMap, windowStart, priorCap),
+      spo2Night: priorValuesBeforeWindow(spo2NightMap, windowStart, priorCap),
+      exercise: priorValuesBeforeWindow(exerciseMap, windowStart, priorCap),
+      steps: priorValuesBeforeWindow(analysis.stepsByDate || {}, windowStart, priorCap),
+      hrvDates: hrvPriorDates,
+      sleepDates: sleepPriorDates,
+      nightHrDates: nightPriorDates,
+      spo2NightDates: spo2PriorDates,
+      exerciseDates: exercisePriorDates,
+      stepsDates: stepsPriorDates
+    };
     const scored = scoreRecoveryLoad({
       hrvMean7d,
       sleepMean7d,
@@ -2452,11 +2710,14 @@ var HealthAnalyzer = (() => {
       exerciseMinMean7d,
       workoutDuration7d,
       stepsMean7d,
+      daysWithData,
+      personalPriors,
       weights,
       locale
     });
     return {
       weekEnd,
+      windowStart,
       hrvMean7d,
       nightHrMean7d,
       restingHrMean7d,
@@ -2474,7 +2735,9 @@ var HealthAnalyzer = (() => {
       statusTone: scored.statusTone,
       baselineRecoveryMedian: null,
       vsBaselineDelta: null,
-      components: scored.components || []
+      components: scored.components || [],
+      daysWithData,
+      usedPersonalBaseline: scored.usedPersonalBaseline
     };
   }
   function toRecoveryWeekPoint(full) {
