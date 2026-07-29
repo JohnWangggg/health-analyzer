@@ -218,7 +218,7 @@
       </ol>
     </section>
 
-    <!-- 结果区顶栏导航（有结果时显示） -->
+    <!-- 结果区顶栏导航（有结果时显示；移动端 / 窄屏） -->
     <nav id="result-sticky-nav" class="result-sticky-nav hidden" data-i18n-aria="nav.aria" aria-label="结果分区">
       <a href="#step-overview" class="result-nav-link" data-i18n="nav.overview">概览</a>
       <a href="#step-summary" class="result-nav-link" data-i18n="nav.summary">明细</a>
@@ -227,6 +227,16 @@
       <a href="#step-export" class="result-nav-link" data-i18n="nav.export">导出</a>
       <a href="#step-prompt" class="result-nav-link" data-i18n="nav.prompt">提示词</a>
     </nav>
+
+    <!-- 桌面左侧结果分区导航（≥1100px + has-results；CSS 控制可见性） -->
+    <aside id="result-side-nav" class="result-side-nav hidden" data-i18n-aria="nav.aria" aria-label="结果分区">
+      <a href="#step-overview" class="result-nav-link" data-i18n="nav.overview">概览</a>
+      <a href="#step-summary" class="result-nav-link" data-i18n="nav.summary">明细</a>
+      <a href="#step-signals" class="result-nav-link" data-i18n="nav.signals">提示</a>
+      <a href="#step-charts" class="result-nav-link" data-i18n="nav.charts">图表</a>
+      <a href="#step-export" class="result-nav-link" data-i18n="nav.export">导出</a>
+      <a href="#step-prompt" class="result-nav-link" data-i18n="nav.prompt">提示词</a>
+    </aside>
 
     <div class="results-layout">
     <!-- 结果概览（分析后主屏） -->

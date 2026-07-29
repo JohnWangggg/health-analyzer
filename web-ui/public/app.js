@@ -854,17 +854,94 @@
   // 结果渲染
   // ============================================================
 
+  /** Result section ids used by sticky top nav + desktop side rail */
+  const RESULT_SECTION_IDS = [
+    'step-overview',
+    'step-summary',
+    'step-signals',
+    'step-charts',
+    'step-export',
+    'step-prompt',
+  ];
+
+  let resultNavObserver = null;
+
+  function setResultNavActive(sectionId) {
+    if (!sectionId) return;
+    const href = '#' + sectionId;
+    document.querySelectorAll('.result-nav-link').forEach((a) => {
+      a.classList.toggle('is-active', a.getAttribute('href') === href);
+    });
+  }
+
+  function teardownResultNavSpy() {
+    if (resultNavObserver) {
+      resultNavObserver.disconnect();
+      resultNavObserver = null;
+    }
+    document.querySelectorAll('.result-nav-link.is-active').forEach((a) => {
+      a.classList.remove('is-active');
+    });
+  }
+
+  function setupResultNavSpy() {
+    teardownResultNavSpy();
+    if (typeof IntersectionObserver === 'undefined') return;
+
+    const sections = RESULT_SECTION_IDS
+      .map((id) => document.getElementById(id))
+      .filter((el) => el && !el.classList.contains('hidden'));
+    if (!sections.length) return;
+
+    // Track which sections are in view; pick the top-most intersecting one
+    const visible = new Map();
+    resultNavObserver = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) visible.set(entry.target.id, entry);
+          else visible.delete(entry.target.id);
+        }
+        let bestId = null;
+        let bestTop = Infinity;
+        visible.forEach((entry, id) => {
+          const top = entry.boundingClientRect.top;
+          if (top < bestTop) {
+            bestTop = top;
+            bestId = id;
+          }
+        });
+        if (bestId) setResultNavActive(bestId);
+      },
+      {
+        /* Prefer section near upper third of viewport */
+        root: null,
+        rootMargin: '-15% 0px -55% 0px',
+        threshold: [0, 0.1, 0.25, 0.5],
+      }
+    );
+    sections.forEach((el) => resultNavObserver.observe(el));
+  }
+
   function setResultsVisible(visible) {
     document.body.classList.toggle('has-results', !!visible);
     const sticky = $('sticky-cta');
     if (sticky) sticky.classList.toggle('hidden', !visible);
+    // Sticky top nav (mobile/tablet) + desktop left rail (CSS hides each at wrong breakpoints)
     const nav = $('result-sticky-nav');
     if (nav) nav.classList.toggle('hidden', !visible);
+    const sideNav = $('result-side-nav');
+    if (sideNav) sideNav.classList.toggle('hidden', !visible);
     // 有结果后收起上传区，降低干扰
     const source = $('step-source');
     if (source) {
       if (visible) source.classList.add('source-collapsed');
       else source.classList.remove('source-collapsed');
+    }
+    if (visible) {
+      // Defer until result sections are un-hidden by renderResults
+      requestAnimationFrame(() => setupResultNavSpy());
+    } else {
+      teardownResultNavSpy();
     }
   }
 
@@ -2571,13 +2648,18 @@
   function renderPrompt() {
     if (!currentAnalysis) return;
     const ctx = getUserContextFromForm();
+    const loc = analysisLocaleOpts();
     let text = '';
     if (currentPromptTab === 'full') {
-      text = window.HealthAnalyzer.generateLLMPrompt(currentAnalysis, ctx);
+      text = window.HealthAnalyzer.generateLLMPrompt(currentAnalysis, ctx, loc);
     } else if (currentPromptTab === 'data') {
-      text = window.HealthAnalyzer.generateDataOnly(currentAnalysis, ctx);
+      text = window.HealthAnalyzer.generateDataOnly(currentAnalysis, ctx, loc);
     } else {
-      text = window.HealthAnalyzer.SHORT_SYSTEM_PROMPT;
+      const locCode = (loc && loc.locale) || 'zh-CN';
+      text =
+        locCode === 'en' && window.HealthAnalyzer.SHORT_SYSTEM_PROMPT_EN
+          ? window.HealthAnalyzer.SHORT_SYSTEM_PROMPT_EN
+          : window.HealthAnalyzer.SHORT_SYSTEM_PROMPT;
     }
     const ta = $('prompt-output');
     if (ta) ta.value = text;
@@ -2716,7 +2798,7 @@
     renderHistoryCompare(e.target.value);
   });
 
-  // 结果区内锚点平滑滚动
+  // 结果区内锚点平滑滚动（顶栏 + 桌面侧栏共用 .result-nav-link）
   document.querySelectorAll('.result-nav-link').forEach((a) => {
     a.addEventListener('click', (e) => {
       const href = a.getAttribute('href');
@@ -2724,7 +2806,13 @@
       const target = document.querySelector(href);
       if (!target) return;
       e.preventDefault();
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      target.scrollIntoView({
+        behavior: reduceMotion ? 'auto' : 'smooth',
+        block: 'start',
+      });
+      const id = href.slice(1);
+      if (id) setResultNavActive(id);
     });
   });
 

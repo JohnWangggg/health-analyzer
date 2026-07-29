@@ -103,7 +103,7 @@ export function generateWeeklyReportMarkdown(
   lines.push(`---`);
   lines.push(``);
 
-  const ctx = formatUserContext(userContext);
+  const ctx = formatUserContext(userContext, { locale });
   if (ctx && ctx.trim()) {
     lines.push(ctx.trimEnd());
     lines.push(``);

@@ -57,7 +57,9 @@ export {
   formatAnalysisForLLM,
   formatUserContext,
   SHORT_SYSTEM_PROMPT,
+  SHORT_SYSTEM_PROMPT_EN,
   MAIN_PROMPT_TEMPLATE,
+  MAIN_PROMPT_TEMPLATE_EN,
 } from './prompts/llm-prompt';
 
 export {

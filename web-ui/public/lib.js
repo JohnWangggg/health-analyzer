@@ -28,7 +28,9 @@ var HealthAnalyzer = (() => {
   __export(browser_exports, {
     DEFAULT_RECOVERY_WEIGHTS: () => DEFAULT_RECOVERY_WEIGHTS,
     MAIN_PROMPT_TEMPLATE: () => MAIN_PROMPT_TEMPLATE,
+    MAIN_PROMPT_TEMPLATE_EN: () => MAIN_PROMPT_TEMPLATE_EN,
     SHORT_SYSTEM_PROMPT: () => SHORT_SYSTEM_PROMPT,
+    SHORT_SYSTEM_PROMPT_EN: () => SHORT_SYSTEM_PROMPT_EN,
     analyzeAll: () => analyzeAll,
     attachRecoveryBaseline: () => attachRecoveryBaseline,
     buildAnalysisSnapshot: () => buildAnalysisSnapshot,
@@ -2874,6 +2876,74 @@ var HealthAnalyzer = (() => {
 
 {ANALYSIS_JSON}
 `;
+  var MAIN_PROMPT_TEMPLATE_EN = `# Role & Task
+You are a rigorous clinical data analyst. Based on the sections below (Personal background if any, Automated monitoring summary, and Raw data & statistics), produce a *Personal Health Self-Monitoring Deep Analysis Report* following this structure and style:
+- Do not issue diagnoses, prescribe medication, or replace clinic visits
+- You may use the Automated monitoring summary to structure the Executive summary, but cross-check against raw stats; do not copy slogans
+- If medications / target weight / focus areas are provided, use them for interpretation context only \u2014 still no med changes or diagnoses
+- Focus on trends, correlations, and actionable suggestions; prefer morning weight trends, CGM stable period, and morning vs evening BP
+- Watch SpO\u2082 / VO\u2082 max are estimates; low SpO\u2082 needs symptoms context; judge VO\u2082 on long-term trend, not a single reading
+- Prefer numbers with brief explanation; avoid empty talk
+- Any suspicious abnormality must include a "recheck recommendation"
+
+# Output structure (fixed heading order; skip dimensions with no data)
+
+## 0. Executive summary
+- 3\u20135 bullets on the most important findings from this dataset
+- List current monitoring priorities (by risk / attention)
+
+## Data overview
+## CGM continuous glucose
+## Blood pressure
+## Weight
+## HRV (heart rate variability)
+## Heart rate
+## Steps & sleep
+## Apple Watch (activity / SpO\u2082 / respiration / VO\u2082 / wrist temp)
+## Workout sessions
+## Last 7 days load & recovery
+## ECG
+(Only output dimensions that have data; each includes: status, trend, interpretation, risks & suggestions)
+
+## Monitoring dashboard
+Track only ~8 core metrics daily to avoid data anxiety. Table: Module | Metric | Target / alert
+
+## Signals needing recheck or escalation
+Distinguish \u201Cseek emergency care now\u201D, \u201Ccontact a clinician soon\u201D, and \u201Cretest and keep logging\u201D; do not conclude from a single asymptomatic outlier.
+
+## Working hypotheses
+List 5\u20137 working hypotheses that best fit the available data
+
+## References
+- American Diabetes Association CGM Time in Range: https://diabetes.org/about-diabetes/devices-technology/cgm-time-in-range
+- International Consensus on Time in Range: https://diabetesjournals.org/care/article/42/8/1593/36184/Clinical-Targets-for-Continuous-Glucose-Monitoring
+- Abbott FreeStyle Libre CGM lag note: https://www.freestylelibre.com.au/difference-between-glucose-interstitial-glucose
+- U-M CGM nighttime low values: https://teamdynamix.umich.edu/TDClient/210/DepressionCenter/KB/Article/10689/CGM-Is-Reading-Low-Values
+
+# Writing style
+- Output in English; present data with Markdown tables
+- Right-align table numbers; mark thresholds/alerts with \`code formatting\`
+- Bold key findings with **bold**
+- Distinguish "confirmed" vs "to verify" vs "hypothesis"
+- CGM <3.9 mmol/L must say "must recheck with fingerstick"
+- <3.0 mmol/L escalate to "treat as hypoglycemia"
+- Hyperglycemia reference: random >11.1 mmol/L or fasting >7.0 mmol/L; CGM alone cannot diagnose \u2014 combine with retest and clinician/lab assessment
+
+# Data-use boundary
+- CGM measures interstitial glucose with ~5\u201310 min lag vs fingerstick
+- Abnormal lows must be confirmed by fingerstick; do not rely on CGM alone
+- Sleep / steps / HRV / SpO\u2082 / VO\u2082 come from Apple Watch with measurement error and algorithmic estimates
+- Single low SpO\u2082 often from exercise / sleep position / loose fit; if asymptomatic, prefer retest and trend
+- Single outliers: retest first and weigh symptoms, duration, and repeat counts
+- This report does not replace medical care; all BP / glucose regimen changes require a clinician
+
+---
+
+# Raw data & statistics
+(Please generate the report from the personal background and data below)
+
+{ANALYSIS_JSON}
+`;
   function trimText(value) {
     if (value == null) return "";
     return String(value).trim();
@@ -2884,44 +2954,89 @@ var HealthAnalyzer = (() => {
       ctx.age != null && Number.isFinite(Number(ctx.age)) || trimText(ctx.sex) || ctx.heightCm != null && Number.isFinite(Number(ctx.heightCm)) || trimText(ctx.medications) || trimText(ctx.conditions) || ctx.targetWeightKg != null && Number.isFinite(Number(ctx.targetWeightKg)) || trimText(ctx.focus) || trimText(ctx.notes)
     );
   }
-  function formatUserContext(ctx) {
+  function formatUserContext(ctx, options) {
     if (!hasAnyUserContext(ctx) || !ctx) return "";
+    const L = createL(options?.locale);
     const lines = [
-      "## \u4E2A\u4EBA\u80CC\u666F\uFF08\u7528\u6237\u81EA\u8FF0\uFF0C\u4EC5\u4F9B\u5BF9\u7167\uFF0C\u975E\u533B\u7597\u6863\u6848\uFF09",
+      L(
+        "## \u4E2A\u4EBA\u80CC\u666F\uFF08\u7528\u6237\u81EA\u8FF0\uFF0C\u4EC5\u4F9B\u5BF9\u7167\uFF0C\u975E\u533B\u7597\u6863\u6848\uFF09",
+        "## Personal background (user-reported, for context only \u2014 not a medical record)"
+      ),
       "",
-      "| \u9879\u76EE | \u5185\u5BB9 |",
+      L("| \u9879\u76EE | \u5185\u5BB9 |", "| Item | Value |"),
       "|---|---|"
     ];
     if (ctx.age != null && Number.isFinite(Number(ctx.age))) {
-      lines.push(`| \u5E74\u9F84 | ${Number(ctx.age)} \u5C81 |`);
+      lines.push(
+        L(
+          `| \u5E74\u9F84 | ${Number(ctx.age)} \u5C81 |`,
+          `| Age | ${Number(ctx.age)} years |`
+        )
+      );
     }
     if (trimText(ctx.sex)) {
-      lines.push(`| \u6027\u522B | ${trimText(ctx.sex)} |`);
+      lines.push(L(`| \u6027\u522B | ${trimText(ctx.sex)} |`, `| Sex | ${trimText(ctx.sex)} |`));
     }
     if (ctx.heightCm != null && Number.isFinite(Number(ctx.heightCm))) {
-      lines.push(`| \u8EAB\u9AD8 | ${Number(ctx.heightCm)} cm |`);
+      lines.push(
+        L(
+          `| \u8EAB\u9AD8 | ${Number(ctx.heightCm)} cm |`,
+          `| Height | ${Number(ctx.heightCm)} cm |`
+        )
+      );
     }
     if (ctx.targetWeightKg != null && Number.isFinite(Number(ctx.targetWeightKg))) {
-      lines.push(`| \u76EE\u6807\u4F53\u91CD | ${Number(ctx.targetWeightKg)} kg |`);
+      lines.push(
+        L(
+          `| \u76EE\u6807\u4F53\u91CD | ${Number(ctx.targetWeightKg)} kg |`,
+          `| Target weight | ${Number(ctx.targetWeightKg)} kg |`
+        )
+      );
     }
     if (trimText(ctx.medications)) {
-      lines.push(`| \u5F53\u524D\u7528\u836F | ${trimText(ctx.medications)} |`);
+      lines.push(
+        L(
+          `| \u5F53\u524D\u7528\u836F | ${trimText(ctx.medications)} |`,
+          `| Current medications | ${trimText(ctx.medications)} |`
+        )
+      );
     }
     if (trimText(ctx.conditions)) {
-      lines.push(`| \u5DF2\u77E5\u60C5\u51B5 | ${trimText(ctx.conditions)} |`);
+      lines.push(
+        L(
+          `| \u5DF2\u77E5\u60C5\u51B5 | ${trimText(ctx.conditions)} |`,
+          `| Known conditions | ${trimText(ctx.conditions)} |`
+        )
+      );
     }
     if (trimText(ctx.focus)) {
-      lines.push(`| \u672C\u6B21\u5173\u6CE8\u70B9 | ${trimText(ctx.focus)} |`);
+      lines.push(
+        L(
+          `| \u672C\u6B21\u5173\u6CE8\u70B9 | ${trimText(ctx.focus)} |`,
+          `| Focus this time | ${trimText(ctx.focus)} |`
+        )
+      );
     }
     if (trimText(ctx.notes)) {
-      lines.push(`| \u8865\u5145\u8BF4\u660E | ${trimText(ctx.notes)} |`);
+      lines.push(
+        L(
+          `| \u8865\u5145\u8BF4\u660E | ${trimText(ctx.notes)} |`,
+          `| Notes | ${trimText(ctx.notes)} |`
+        )
+      );
     }
     lines.push("");
-    lines.push("> \u4EE5\u4E0A\u4E3A\u7528\u6237\u672C\u5730\u586B\u5199\u7684\u81EA\u8FF0\u4FE1\u606F\uFF0C\u53EF\u80FD\u4E0D\u5B8C\u6574\uFF1B\u89E3\u8BFB\u65F6\u4F5C\u80CC\u666F\u53C2\u8003\uFF0C\u4E0D\u5F97\u636E\u6B64\u5F00\u836F\u6216\u4E0B\u8BCA\u65AD\u3002");
+    lines.push(
+      L(
+        "> \u4EE5\u4E0A\u4E3A\u7528\u6237\u672C\u5730\u586B\u5199\u7684\u81EA\u8FF0\u4FE1\u606F\uFF0C\u53EF\u80FD\u4E0D\u5B8C\u6574\uFF1B\u89E3\u8BFB\u65F6\u4F5C\u80CC\u666F\u53C2\u8003\uFF0C\u4E0D\u5F97\u636E\u6B64\u5F00\u836F\u6216\u4E0B\u8BCA\u65AD\u3002",
+        "> The above is local user-reported information and may be incomplete; use only as background. Do not prescribe or diagnose from it."
+      )
+    );
     lines.push("");
     return lines.join("\n");
   }
-  function formatAnalysisForLLM(analysis) {
+  function formatAnalysisForLLM(analysis, options) {
+    const L = createL(options?.locale);
     const sections = [];
     const {
       data,
@@ -2946,16 +3061,25 @@ var HealthAnalyzer = (() => {
       const cutoffDate = cutoff.toISOString().slice(0, 10);
       return new Set(sorted.filter((date) => date >= cutoffDate));
     };
+    const unitRecords = (n) => L(`${n} \u6761`, `${n} records`);
+    const unitDays = (n) => L(`${n} \u5929`, `${n} days`);
+    const unitSessions = (n) => L(`${n} \u573A`, `${n} sessions`);
+    const unitReports = (n) => L(`${n} \u4EFD`, `${n} reports`);
     const fmtSeg = (title, o) => {
-      sections.push(`**${title}**\uFF08\u5171 ${o.count} \u6761\uFF0C${o.timeRange}\uFF09`);
+      sections.push(
+        L(
+          `**${title}**\uFF08\u5171 ${o.count} \u6761\uFF0C${o.timeRange}\uFF09`,
+          `**${title}** (${o.count} records, ${o.timeRange})`
+        )
+      );
       sections.push(``);
-      sections.push(`| \u6307\u6807 | \u503C |`);
+      sections.push(L(`| \u6307\u6807 | \u503C |`, `| Metric | Value |`));
       sections.push(`|---|---|`);
-      sections.push(`| \u5E73\u5747 | ${o.mean.toFixed(2)} mmol/L |`);
-      sections.push(`| \u6807\u51C6\u5DEE | ${o.std.toFixed(2)} mmol/L |`);
-      sections.push(`| CV \u53D8\u5F02\u7CFB\u6570 | ${o.cv.toFixed(1)}% |`);
-      sections.push(`| \u6700\u4F4E | ${o.min.toFixed(1)} mmol/L |`);
-      sections.push(`| \u6700\u9AD8 | ${o.max.toFixed(1)} mmol/L |`);
+      sections.push(L(`| \u5E73\u5747 | ${o.mean.toFixed(2)} mmol/L |`, `| Mean | ${o.mean.toFixed(2)} mmol/L |`));
+      sections.push(L(`| \u6807\u51C6\u5DEE | ${o.std.toFixed(2)} mmol/L |`, `| Std dev | ${o.std.toFixed(2)} mmol/L |`));
+      sections.push(L(`| CV \u53D8\u5F02\u7CFB\u6570 | ${o.cv.toFixed(1)}% |`, `| CV | ${o.cv.toFixed(1)}% |`));
+      sections.push(L(`| \u6700\u4F4E | ${o.min.toFixed(1)} mmol/L |`, `| Min | ${o.min.toFixed(1)} mmol/L |`));
+      sections.push(L(`| \u6700\u9AD8 | ${o.max.toFixed(1)} mmol/L |`, `| Max | ${o.max.toFixed(1)} mmol/L |`));
       sections.push(`| TIR (3.9-10.0 mmol/L) | ${o.pctInRange.toFixed(1)}% |`);
       sections.push(`| <3.9 mmol/L | ${o.pctBelow39.toFixed(1)}% |`);
       sections.push(`| <3.0 mmol/L | ${o.pctBelow30.toFixed(1)}% |`);
@@ -2963,93 +3087,234 @@ var HealthAnalyzer = (() => {
       sections.push(`| >10.0 mmol/L | ${o.pctAbove100.toFixed(1)}% |`);
       sections.push(``);
     };
-    sections.push(`> \u660E\u7EC6\u8868\u9ED8\u8BA4\u5C55\u793A\u6700\u8FD1 ${detailDays} \u5929\uFF1B\u66F4\u65E9\u6570\u636E\u5DF2\u7EB3\u5165\u603B\u4F53\u7EDF\u8BA1\uFF0C\u4F46\u4E3A\u63A7\u5236\u63D0\u793A\u8BCD\u957F\u5EA6\u672A\u9010\u6761\u5C55\u5F00\u3002`);
-    sections.push(`> \u4F53\u91CD\u8D8B\u52BF\u9ED8\u8BA4\u53D6**\u6BCF\u65E5\u6668\u8D77**\uFF0812:00 \u524D\u6700\u65E9\u4E00\u6761\uFF0C\u82E5\u65E0\u5219\u53D6\u5168\u65E5\u6700\u65E9\uFF09\uFF1BCGM \u8BF7\u4F18\u5148\u770B**\u7A33\u5B9A\u671F**\uFF08\u6392\u9664\u4F20\u611F\u5668\u9996\u4E2A\u65E5\u5386\u65E5\uFF09\u3002`);
+    sections.push(
+      L(
+        `> \u660E\u7EC6\u8868\u9ED8\u8BA4\u5C55\u793A\u6700\u8FD1 ${detailDays} \u5929\uFF1B\u66F4\u65E9\u6570\u636E\u5DF2\u7EB3\u5165\u603B\u4F53\u7EDF\u8BA1\uFF0C\u4F46\u4E3A\u63A7\u5236\u63D0\u793A\u8BCD\u957F\u5EA6\u672A\u9010\u6761\u5C55\u5F00\u3002`,
+        `> Detail tables default to the last ${detailDays} days; earlier data is included in overall stats but not expanded row-by-row to limit prompt size.`
+      )
+    );
+    sections.push(
+      L(
+        `> \u4F53\u91CD\u8D8B\u52BF\u9ED8\u8BA4\u53D6**\u6BCF\u65E5\u6668\u8D77**\uFF0812:00 \u524D\u6700\u65E9\u4E00\u6761\uFF0C\u82E5\u65E0\u5219\u53D6\u5168\u65E5\u6700\u65E9\uFF09\uFF1BCGM \u8BF7\u4F18\u5148\u770B**\u7A33\u5B9A\u671F**\uFF08\u6392\u9664\u4F20\u611F\u5668\u9996\u4E2A\u65E5\u5386\u65E5\uFF09\u3002`,
+        `> Weight trend defaults to **morning** (earliest reading before 12:00, else earliest of the day); for CGM prefer the **stable period** (exclude sensor first calendar day).`
+      )
+    );
     sections.push(``);
     const av = data.dataAvailability;
-    sections.push(`## \u6570\u636E\u53EF\u7528\u6027`);
+    sections.push(L(`## \u6570\u636E\u53EF\u7528\u6027`, `## Data availability`));
     sections.push(``);
-    sections.push(`| \u7EF4\u5EA6 | \u662F\u5426\u5B58\u5728 | \u6570\u636E\u91CF |`);
-    sections.push(`|---|---|---|`);
-    sections.push(`| CGM \u52A8\u6001\u8840\u7CD6 | ${av.hasCgm ? "\u2705" : "\u274C"} | ${data.cgm.length} \u6761 |`);
-    sections.push(`| \u8840\u538B | ${av.hasBloodPressure ? "\u2705" : "\u274C"} | ${data.bloodPressure.length} \u6761 |`);
-    sections.push(`| \u4F53\u91CD | ${av.hasWeight ? "\u2705" : "\u274C"} | ${data.weight.length} \u6761\u539F\u59CB / ${weightStats?.dayCount ?? 0} \u8D8B\u52BF\u65E5 |`);
-    sections.push(`| \u4F53\u8102 | ${av.hasBodyFat ? "\u2705" : "\u274C"} | ${data.bodyFat?.length ?? 0} \u6761 / ${weightStats?.bodyFatDayCount ?? 0} \u8D8B\u52BF\u65E5 |`);
-    sections.push(`| HRV | ${av.hasHrv ? "\u2705" : "\u274C"} | ${Object.keys(hrvByDate).length} \u5929 |`);
-    sections.push(`| \u9759\u606F/\u6B65\u884C\u5FC3\u7387 | ${av.hasHeartRate ? "\u2705" : "\u274C"} | ${Object.keys(data.restingHr).length} \u5929 |`);
-    sections.push(`| \u6B65\u6570 | ${av.hasSteps ? "\u2705" : "\u274C"} | ${Object.keys(data.steps).length} \u5929 |`);
-    sections.push(`| \u7761\u7720 | ${av.hasSleep ? "\u2705" : "\u274C"} | ${Object.keys(data.sleep).length} \u5929 |`);
-    sections.push(`| Watch \u6D3B\u52A8 | ${av.hasWatchActivity ? "\u2705" : "\u274C"} | ${watchStats?.dayCount ?? Object.keys(data.watchDaily || {}).length} \u5929 |`);
-    sections.push(`| \u8840\u6C27 SpO\u2082 | ${av.hasSpO2 ? "\u2705" : "\u274C"} | ${watchStats?.spo2DayCount ?? 0} \u5929\u6709\u6837\u672C |`);
-    sections.push(`| \u547C\u5438\u9891\u7387 | ${av.hasRespiratoryRate ? "\u2705" : "\u274C"} | \u2014 |`);
-    sections.push(`| VO\u2082 max | ${av.hasVo2Max ? "\u2705" : "\u274C"} | ${watchStats?.vo2DayCount ?? 0} \u5929 |`);
-    sections.push(`| \u7761\u7720\u8155\u6E29 | ${av.hasWristTemp ? "\u2705" : "\u274C"} | \u2014 |`);
     sections.push(
-      `| \u7761\u7720\u547C\u5438\u7D0A\u4E71 | ${(watchStats?.breathingDisturbanceDayCount ?? 0) > 0 ? "\u2705" : "\u274C"} | ${watchStats?.breathingDisturbanceDayCount ?? 0} \u5929 |`
+      L(
+        `| \u7EF4\u5EA6 | \u662F\u5426\u5B58\u5728 | \u6570\u636E\u91CF |`,
+        `| Dimension | Available | Volume |`
+      )
     );
-    sections.push(`| Workout \u4F1A\u8BDD | ${av.hasWorkouts ? "\u2705" : "\u274C"} | ${workoutStats?.count ?? data.workouts?.length ?? 0} \u573A |`);
-    sections.push(`| ECG | ${av.hasEcg ? "\u2705" : "\u274C"} | ${data.ecg.length} \u4EFD |`);
+    sections.push(`|---|---|---|`);
+    sections.push(
+      L(
+        `| CGM \u52A8\u6001\u8840\u7CD6 | ${av.hasCgm ? "\u2705" : "\u274C"} | ${unitRecords(data.cgm.length)} |`,
+        `| CGM continuous glucose | ${av.hasCgm ? "\u2705" : "\u274C"} | ${unitRecords(data.cgm.length)} |`
+      )
+    );
+    sections.push(
+      L(
+        `| \u8840\u538B | ${av.hasBloodPressure ? "\u2705" : "\u274C"} | ${unitRecords(data.bloodPressure.length)} |`,
+        `| Blood pressure | ${av.hasBloodPressure ? "\u2705" : "\u274C"} | ${unitRecords(data.bloodPressure.length)} |`
+      )
+    );
+    sections.push(
+      L(
+        `| \u4F53\u91CD | ${av.hasWeight ? "\u2705" : "\u274C"} | ${unitRecords(data.weight.length)} \u539F\u59CB / ${weightStats?.dayCount ?? 0} \u8D8B\u52BF\u65E5 |`,
+        `| Weight | ${av.hasWeight ? "\u2705" : "\u274C"} | ${unitRecords(data.weight.length)} raw / ${weightStats?.dayCount ?? 0} trend days |`
+      )
+    );
+    sections.push(
+      L(
+        `| \u4F53\u8102 | ${av.hasBodyFat ? "\u2705" : "\u274C"} | ${unitRecords(data.bodyFat?.length ?? 0)} / ${weightStats?.bodyFatDayCount ?? 0} \u8D8B\u52BF\u65E5 |`,
+        `| Body fat | ${av.hasBodyFat ? "\u2705" : "\u274C"} | ${unitRecords(data.bodyFat?.length ?? 0)} / ${weightStats?.bodyFatDayCount ?? 0} trend days |`
+      )
+    );
+    sections.push(
+      L(
+        `| HRV | ${av.hasHrv ? "\u2705" : "\u274C"} | ${unitDays(Object.keys(hrvByDate).length)} |`,
+        `| HRV | ${av.hasHrv ? "\u2705" : "\u274C"} | ${unitDays(Object.keys(hrvByDate).length)} |`
+      )
+    );
+    sections.push(
+      L(
+        `| \u9759\u606F/\u6B65\u884C\u5FC3\u7387 | ${av.hasHeartRate ? "\u2705" : "\u274C"} | ${unitDays(Object.keys(data.restingHr).length)} |`,
+        `| Resting / walking HR | ${av.hasHeartRate ? "\u2705" : "\u274C"} | ${unitDays(Object.keys(data.restingHr).length)} |`
+      )
+    );
+    sections.push(
+      L(
+        `| \u6B65\u6570 | ${av.hasSteps ? "\u2705" : "\u274C"} | ${unitDays(Object.keys(data.steps).length)} |`,
+        `| Steps | ${av.hasSteps ? "\u2705" : "\u274C"} | ${unitDays(Object.keys(data.steps).length)} |`
+      )
+    );
+    sections.push(
+      L(
+        `| \u7761\u7720 | ${av.hasSleep ? "\u2705" : "\u274C"} | ${unitDays(Object.keys(data.sleep).length)} |`,
+        `| Sleep | ${av.hasSleep ? "\u2705" : "\u274C"} | ${unitDays(Object.keys(data.sleep).length)} |`
+      )
+    );
+    sections.push(
+      L(
+        `| Watch \u6D3B\u52A8 | ${av.hasWatchActivity ? "\u2705" : "\u274C"} | ${unitDays(watchStats?.dayCount ?? Object.keys(data.watchDaily || {}).length)} |`,
+        `| Watch activity | ${av.hasWatchActivity ? "\u2705" : "\u274C"} | ${unitDays(watchStats?.dayCount ?? Object.keys(data.watchDaily || {}).length)} |`
+      )
+    );
+    sections.push(
+      L(
+        `| \u8840\u6C27 SpO\u2082 | ${av.hasSpO2 ? "\u2705" : "\u274C"} | ${watchStats?.spo2DayCount ?? 0} \u5929\u6709\u6837\u672C |`,
+        `| SpO\u2082 | ${av.hasSpO2 ? "\u2705" : "\u274C"} | ${watchStats?.spo2DayCount ?? 0} days with samples |`
+      )
+    );
+    sections.push(
+      L(
+        `| \u547C\u5438\u9891\u7387 | ${av.hasRespiratoryRate ? "\u2705" : "\u274C"} | \u2014 |`,
+        `| Respiratory rate | ${av.hasRespiratoryRate ? "\u2705" : "\u274C"} | \u2014 |`
+      )
+    );
+    sections.push(
+      L(
+        `| VO\u2082 max | ${av.hasVo2Max ? "\u2705" : "\u274C"} | ${unitDays(watchStats?.vo2DayCount ?? 0)} |`,
+        `| VO\u2082 max | ${av.hasVo2Max ? "\u2705" : "\u274C"} | ${unitDays(watchStats?.vo2DayCount ?? 0)} |`
+      )
+    );
+    sections.push(
+      L(
+        `| \u7761\u7720\u8155\u6E29 | ${av.hasWristTemp ? "\u2705" : "\u274C"} | \u2014 |`,
+        `| Sleep wrist temp | ${av.hasWristTemp ? "\u2705" : "\u274C"} | \u2014 |`
+      )
+    );
+    sections.push(
+      L(
+        `| \u7761\u7720\u547C\u5438\u7D0A\u4E71 | ${(watchStats?.breathingDisturbanceDayCount ?? 0) > 0 ? "\u2705" : "\u274C"} | ${unitDays(watchStats?.breathingDisturbanceDayCount ?? 0)} |`,
+        `| Sleep breathing disturbances | ${(watchStats?.breathingDisturbanceDayCount ?? 0) > 0 ? "\u2705" : "\u274C"} | ${unitDays(watchStats?.breathingDisturbanceDayCount ?? 0)} |`
+      )
+    );
+    sections.push(
+      L(
+        `| Workout \u4F1A\u8BDD | ${av.hasWorkouts ? "\u2705" : "\u274C"} | ${unitSessions(workoutStats?.count ?? data.workouts?.length ?? 0)} |`,
+        `| Workout sessions | ${av.hasWorkouts ? "\u2705" : "\u274C"} | ${unitSessions(workoutStats?.count ?? data.workouts?.length ?? 0)} |`
+      )
+    );
+    sections.push(
+      L(
+        `| ECG | ${av.hasEcg ? "\u2705" : "\u274C"} | ${unitReports(data.ecg.length)} |`,
+        `| ECG | ${av.hasEcg ? "\u2705" : "\u274C"} | ${unitReports(data.ecg.length)} |`
+      )
+    );
     sections.push(``);
-    sections.push(`\u6570\u636E\u65F6\u95F4\u8303\u56F4\uFF1A${dateRange.start} \u81F3 ${dateRange.end}`);
+    sections.push(
+      L(
+        `\u6570\u636E\u65F6\u95F4\u8303\u56F4\uFF1A${dateRange.start} \u81F3 ${dateRange.end}`,
+        `Data date range: ${dateRange.start} to ${dateRange.end}`
+      )
+    );
     const dq = data.dataQuality;
     if (dq && dq.skippedFutureCount > 0) {
       sections.push(``);
-      sections.push(`### \u6570\u636E\u8D28\u91CF\u63D0\u793A\uFF08\u672A\u6765\u65E5\u671F\u5DF2\u6392\u9664\uFF09`);
+      sections.push(
+        L(
+          `### \u6570\u636E\u8D28\u91CF\u63D0\u793A\uFF08\u672A\u6765\u65E5\u671F\u5DF2\u6392\u9664\uFF09`,
+          `### Data quality note (future-dated records excluded)`
+        )
+      );
       sections.push(``);
       sections.push(
-        `- \u53C2\u8003\u65E5\uFF08\u672C\u5730\u300C\u4ECA\u5929\u300D\uFF09\uFF1A\`${dq.referenceDate}\``
+        L(
+          `- \u53C2\u8003\u65E5\uFF08\u672C\u5730\u300C\u4ECA\u5929\u300D\uFF09\uFF1A\`${dq.referenceDate}\``,
+          `- Reference day (local \u201Ctoday\u201D): \`${dq.referenceDate}\``
+        )
       );
       sections.push(
-        `- \u5DF2\u8DF3\u8FC7 **${dq.skippedFutureCount}** \u6761\u8D77\u59CB\u65E5\u671F\u665A\u4E8E\u53C2\u8003\u65E5\u7684\u8BB0\u5F55\uFF08\u5E38\u89C1\u4E8E\u8BEF\u5F55\u7684\u672A\u6765\u4F53\u91CD\u7B49\uFF09`
+        L(
+          `- \u5DF2\u8DF3\u8FC7 **${dq.skippedFutureCount}** \u6761\u8D77\u59CB\u65E5\u671F\u665A\u4E8E\u53C2\u8003\u65E5\u7684\u8BB0\u5F55\uFF08\u5E38\u89C1\u4E8E\u8BEF\u5F55\u7684\u672A\u6765\u4F53\u91CD\u7B49\uFF09`,
+          `- Skipped **${dq.skippedFutureCount}** records whose start date is after the reference day (often mis-entered future weights, etc.)`
+        )
       );
       if (dq.futureSampleDates && dq.futureSampleDates.length) {
         sections.push(
-          `- \u89C1\u5230\u7684\u672A\u6765\u65E5\u671F\u6837\u672C\uFF1A${dq.futureSampleDates.map((d) => `\`${d}\``).join("\u3001")}`
+          L(
+            `- \u89C1\u5230\u7684\u672A\u6765\u65E5\u671F\u6837\u672C\uFF1A${dq.futureSampleDates.map((d) => `\`${d}\``).join("\u3001")}`,
+            `- Future date samples seen: ${dq.futureSampleDates.map((d) => `\`${d}\``).join(", ")}`
+          )
         );
       }
       sections.push(
-        `- \u8BF7\u5728 iPhone\u300C\u5065\u5EB7\u300DApp \u4E2D\u6838\u5BF9\u5E76\u5220\u9664\u9519\u8BEF\u672A\u6765\u6761\u76EE\uFF1B\u672C\u62A5\u544A\u7EDF\u8BA1**\u4E0D\u5305\u542B**\u8FD9\u4E9B\u672A\u6765\u8BB0\u5F55`
+        L(
+          `- \u8BF7\u5728 iPhone\u300C\u5065\u5EB7\u300DApp \u4E2D\u6838\u5BF9\u5E76\u5220\u9664\u9519\u8BEF\u672A\u6765\u6761\u76EE\uFF1B\u672C\u62A5\u544A\u7EDF\u8BA1**\u4E0D\u5305\u542B**\u8FD9\u4E9B\u672A\u6765\u8BB0\u5F55`,
+          `- Please review and delete erroneous future entries in the iPhone Health app; this report\u2019s stats **exclude** those future records`
+        )
       );
     }
     sections.push(``);
     if (cgmStats) {
-      sections.push(`## CGM \u52A8\u6001\u8840\u7CD6`);
+      sections.push(L(`## CGM \u52A8\u6001\u8840\u7CD6`, `## CGM continuous glucose`));
       sections.push(``);
       if (cgmStats.firstDayDate) {
         sections.push(
-          `> \u4F20\u611F\u5668\u9996\u4E2A\u65E5\u5386\u65E5\u4E3A \`${cgmStats.firstDayDate}\`\uFF0C\u8BE5\u65E5\u4F4E\u503C\u6613\u4E3A\u4F69\u6234/\u6821\u51C6\u4F2A\u5F71\uFF1B**\u89E3\u8BFB\u8BF7\u4F18\u5148\u91C7\u7528\u7A33\u5B9A\u671F**\u3002`
+          L(
+            `> \u4F20\u611F\u5668\u9996\u4E2A\u65E5\u5386\u65E5\u4E3A \`${cgmStats.firstDayDate}\`\uFF0C\u8BE5\u65E5\u4F4E\u503C\u6613\u4E3A\u4F69\u6234/\u6821\u51C6\u4F2A\u5F71\uFF1B**\u89E3\u8BFB\u8BF7\u4F18\u5148\u91C7\u7528\u7A33\u5B9A\u671F**\u3002`,
+            `> Sensor first calendar day is \`${cgmStats.firstDayDate}\`; lows that day are often wear/calibration artifacts; **prefer the stable period for interpretation**.`
+          )
         );
         sections.push(``);
       }
-      fmtSeg("\u5168\u7A0B\u7EDF\u8BA1", cgmStats.overall);
+      fmtSeg(L("\u5168\u7A0B\u7EDF\u8BA1", "Overall stats"), cgmStats.overall);
       if (cgmStats.firstDay) {
-        fmtSeg(`\u9996\u65E5\uFF08${cgmStats.firstDayDate}\uFF09`, cgmStats.firstDay);
+        fmtSeg(
+          L(`\u9996\u65E5\uFF08${cgmStats.firstDayDate}\uFF09`, `First day (${cgmStats.firstDayDate})`),
+          cgmStats.firstDay
+        );
       }
       if (cgmStats.stable) {
-        fmtSeg("\u7A33\u5B9A\u671F\uFF08\u6392\u9664\u9996\u65E5\uFF09", cgmStats.stable);
+        fmtSeg(L("\u7A33\u5B9A\u671F\uFF08\u6392\u9664\u9996\u65E5\uFF09", "Stable period (excluding first day)"), cgmStats.stable);
       }
-      sections.push(`**\u5206\u65E5\u7EDF\u8BA1**\uFF1A`);
+      sections.push(L(`**\u5206\u65E5\u7EDF\u8BA1**\uFF1A`, `**Daily stats**:`));
       sections.push(``);
-      sections.push(`| \u65E5\u671F | \u6761\u6570 | \u5747\u503C | \u6700\u4F4E | \u6700\u9AD8 | CV% | <3.9% | >7.8% | \u5907\u6CE8 |`);
+      sections.push(
+        L(
+          `| \u65E5\u671F | \u6761\u6570 | \u5747\u503C | \u6700\u4F4E | \u6700\u9AD8 | CV% | <3.9% | >7.8% | \u5907\u6CE8 |`,
+          `| Date | Count | Mean | Min | Max | CV% | <3.9% | >7.8% | Note |`
+        )
+      );
       sections.push(`|---|---:|---:|---:|---:|---:|---:|---:|---|`);
       const recentDates2 = recentDateSet(Object.keys(cgmStats.daily));
       for (const date of Object.keys(cgmStats.daily).filter((date2) => recentDates2.has(date2)).sort()) {
         const d = cgmStats.daily[date];
-        const tag = date === cgmStats.firstDayDate ? "\u9996\u65E5" : "";
+        const tag = date === cgmStats.firstDayDate ? L("\u9996\u65E5", "First day") : "";
         sections.push(
           `| ${date} | ${d.count} | ${d.mean.toFixed(2)} | ${d.min.toFixed(1)} | ${d.max.toFixed(1)} | ${d.cv.toFixed(1)} | ${d.pctBelow39.toFixed(1)} | ${d.pctAbove78.toFixed(1)} | ${tag} |`
         );
       }
       sections.push(``);
-      sections.push(`**\u6700\u5927\u8840\u7CD6\u4E0A\u5347**\uFF1A30\u5206\u949F ${cgmStats.maxRises["30min"].rise.toFixed(1)} mmol/L, 60\u5206\u949F ${cgmStats.maxRises["60min"].rise.toFixed(1)} mmol/L, 120\u5206\u949F ${cgmStats.maxRises["120min"].rise.toFixed(1)} mmol/L`);
+      sections.push(
+        L(
+          `**\u6700\u5927\u8840\u7CD6\u4E0A\u5347**\uFF1A30\u5206\u949F ${cgmStats.maxRises["30min"].rise.toFixed(1)} mmol/L, 60\u5206\u949F ${cgmStats.maxRises["60min"].rise.toFixed(1)} mmol/L, 120\u5206\u949F ${cgmStats.maxRises["120min"].rise.toFixed(1)} mmol/L`,
+          `**Max glucose rise**: 30 min ${cgmStats.maxRises["30min"].rise.toFixed(1)} mmol/L, 60 min ${cgmStats.maxRises["60min"].rise.toFixed(1)} mmol/L, 120 min ${cgmStats.maxRises["120min"].rise.toFixed(1)} mmol/L`
+        )
+      );
       sections.push(``);
     }
     if (bpStats && bpStats.records.length > 0) {
-      sections.push(`## \u8840\u538B`);
+      sections.push(L(`## \u8840\u538B`, `## Blood pressure`));
       sections.push(``);
-      sections.push(`**\u8BB0\u5F55\u660E\u7EC6**\uFF08\u5171 ${bpStats.records.length} \u6761\uFF1B\u6668\u95F4=hour&lt;12\uFF0C\u665A\u95F4=hour\u226518\uFF09\uFF1A`);
+      sections.push(
+        L(
+          `**\u8BB0\u5F55\u660E\u7EC6**\uFF08\u5171 ${bpStats.records.length} \u6761\uFF1B\u6668\u95F4=hour&lt;12\uFF0C\u665A\u95F4=hour\u226518\uFF09\uFF1A`,
+          `**Record detail** (${bpStats.records.length} records; morning=hour&lt;12, evening=hour\u226518):`
+        )
+      );
       sections.push(``);
-      sections.push(`| \u65F6\u95F4 | \u6536\u7F29\u538B | \u8212\u5F20\u538B | \u5907\u6CE8 |`);
+      sections.push(
+        L(
+          `| \u65F6\u95F4 | \u6536\u7F29\u538B | \u8212\u5F20\u538B | \u5907\u6CE8 |`,
+          `| Time | Systolic | Diastolic | Note |`
+        )
+      );
       sections.push(`|---|---:|---:|---|`);
       const recentDates2 = recentDateSet(bpStats.records.map((r) => r.date));
       for (const r of bpStats.records.filter((r2) => recentDates2.has(r2.date))) {
@@ -3057,41 +3322,60 @@ var HealthAnalyzer = (() => {
         sections.push(`| ${r.datetime} | ${r.systolic} | ${r.diastolic} |${low} |`);
       }
       sections.push(``);
-      sections.push(`**\u65F6\u6BB5\u5747\u503C**\uFF1A`);
+      sections.push(L(`**\u65F6\u6BB5\u5747\u503C**\uFF1A`, `**Period means**:`));
       sections.push(``);
-      sections.push(`| \u65F6\u6BB5 | \u6536\u7F29\u538B | \u8212\u5F20\u538B | \u6761\u6570 | <90/60 |`);
+      sections.push(
+        L(
+          `| \u65F6\u6BB5 | \u6536\u7F29\u538B | \u8212\u5F20\u538B | \u6761\u6570 | <90/60 |`,
+          `| Period | Systolic | Diastolic | Count | <90/60 |`
+        )
+      );
       sections.push(`|---|---:|---:|---:|---:|`);
       const pushBp = (label, m) => {
         if (!m) return;
         sections.push(`| ${label} | ${m.systolic.toFixed(1)} | ${m.diastolic.toFixed(1)} | ${m.count} | ${m.lowCount} |`);
       };
-      pushBp("\u6700\u8FD1 7 \u5929\uFF08\u5168\u5929\uFF09", bpStats.mean7d);
-      pushBp("\u6700\u8FD1 7 \u5929\u6668\u95F4", bpStats.morning7d);
-      pushBp("\u6700\u8FD1 7 \u5929\u665A\u95F4", bpStats.evening7d);
-      pushBp("\u6700\u8FD1 14 \u5929\uFF08\u5168\u5929\uFF09", bpStats.mean14d);
-      pushBp("\u6700\u8FD1 14 \u5929\u6668\u95F4", bpStats.morning14d);
-      pushBp("\u6700\u8FD1 14 \u5929\u665A\u95F4", bpStats.evening14d);
-      pushBp("\u6700\u8FD1 30 \u5929\uFF08\u5168\u5929\uFF09", bpStats.mean30d);
+      pushBp(L("\u6700\u8FD1 7 \u5929\uFF08\u5168\u5929\uFF09", "Last 7 days (all day)"), bpStats.mean7d);
+      pushBp(L("\u6700\u8FD1 7 \u5929\u6668\u95F4", "Last 7 days morning"), bpStats.morning7d);
+      pushBp(L("\u6700\u8FD1 7 \u5929\u665A\u95F4", "Last 7 days evening"), bpStats.evening7d);
+      pushBp(L("\u6700\u8FD1 14 \u5929\uFF08\u5168\u5929\uFF09", "Last 14 days (all day)"), bpStats.mean14d);
+      pushBp(L("\u6700\u8FD1 14 \u5929\u6668\u95F4", "Last 14 days morning"), bpStats.morning14d);
+      pushBp(L("\u6700\u8FD1 14 \u5929\u665A\u95F4", "Last 14 days evening"), bpStats.evening14d);
+      pushBp(L("\u6700\u8FD1 30 \u5929\uFF08\u5168\u5929\uFF09", "Last 30 days (all day)"), bpStats.mean30d);
       sections.push(``);
     }
     if (weightStats && weightStats.dayCount > 0) {
-      sections.push(`## \u4F53\u91CD\u4E0E\u4F53\u8102`);
+      sections.push(L(`## \u4F53\u91CD\u4E0E\u4F53\u8102`, `## Weight & body fat`));
       sections.push(``);
       sections.push(
-        `\u539F\u59CB\u79F0\u91CD ${weightStats.rawCount} \u6761 \u2192 \u8D8B\u52BF\u65E5 ${weightStats.dayCount} \u5929\uFF08\u6BCF\u65E5\u4E00\u70B9\uFF1A\u4F18\u5148\u6668\u8D77\uFF09\u3002`
+        L(
+          `\u539F\u59CB\u79F0\u91CD ${weightStats.rawCount} \u6761 \u2192 \u8D8B\u52BF\u65E5 ${weightStats.dayCount} \u5929\uFF08\u6BCF\u65E5\u4E00\u70B9\uFF1A\u4F18\u5148\u6668\u8D77\uFF09\u3002`,
+          `Raw weigh-ins ${weightStats.rawCount} records \u2192 ${weightStats.dayCount} trend days (one point/day: prefer morning).`
+        )
       );
       if (weightStats.latestTrend && weightStats.earliestTrend) {
         sections.push(
-          `\u8D8B\u52BF\u4F53\u91CD\uFF1A\u6700\u65E9 ${weightStats.earliestTrend.weight.toFixed(1)} kg\uFF08${weightStats.earliestTrend.date}\uFF09\u2192 \u6700\u65B0 ${weightStats.latestTrend.weight.toFixed(1)} kg\uFF08${weightStats.latestTrend.date}\uFF09\uFF0C\u53D8\u5316 ${(weightStats.latestTrend.weight - weightStats.earliestTrend.weight).toFixed(1)} kg\u3002`
+          L(
+            `\u8D8B\u52BF\u4F53\u91CD\uFF1A\u6700\u65E9 ${weightStats.earliestTrend.weight.toFixed(1)} kg\uFF08${weightStats.earliestTrend.date}\uFF09\u2192 \u6700\u65B0 ${weightStats.latestTrend.weight.toFixed(1)} kg\uFF08${weightStats.latestTrend.date}\uFF09\uFF0C\u53D8\u5316 ${(weightStats.latestTrend.weight - weightStats.earliestTrend.weight).toFixed(1)} kg\u3002`,
+            `Trend weight: earliest ${weightStats.earliestTrend.weight.toFixed(1)} kg (${weightStats.earliestTrend.date}) \u2192 latest ${weightStats.latestTrend.weight.toFixed(1)} kg (${weightStats.latestTrend.date}), change ${(weightStats.latestTrend.weight - weightStats.earliestTrend.weight).toFixed(1)} kg.`
+          )
         );
       }
       if (weightStats.bodyFatDayCount > 0) {
         sections.push(
-          `\u4F53\u8102\u8D8B\u52BF\u65E5 ${weightStats.bodyFatDayCount}\uFF1A\u6700\u65E9 ${weightStats.bodyFatEarliest?.toFixed(1)}% \u2192 \u6700\u65B0 ${weightStats.bodyFatLatest?.toFixed(1)}%` + (weightStats.bodyFatDelta != null ? `\uFF0C\u53D8\u5316 ${weightStats.bodyFatDelta.toFixed(1)} \u4E2A\u767E\u5206\u70B9\u3002` : "\u3002")
+          L(
+            `\u4F53\u8102\u8D8B\u52BF\u65E5 ${weightStats.bodyFatDayCount}\uFF1A\u6700\u65E9 ${weightStats.bodyFatEarliest?.toFixed(1)}% \u2192 \u6700\u65B0 ${weightStats.bodyFatLatest?.toFixed(1)}%` + (weightStats.bodyFatDelta != null ? `\uFF0C\u53D8\u5316 ${weightStats.bodyFatDelta.toFixed(1)} \u4E2A\u767E\u5206\u70B9\u3002` : "\u3002"),
+            `Body fat trend days ${weightStats.bodyFatDayCount}: earliest ${weightStats.bodyFatEarliest?.toFixed(1)}% \u2192 latest ${weightStats.bodyFatLatest?.toFixed(1)}%` + (weightStats.bodyFatDelta != null ? `, change ${weightStats.bodyFatDelta.toFixed(1)} percentage points.` : ".")
+          )
         );
       }
       sections.push(``);
-      sections.push(`| \u65E5\u671F | \u8D8B\u52BF\u4F53\u91CD(kg) | \u6668\u8D77 | \u665A\u95F4 | \u4F53\u8102% | \u5F53\u65E5\u6761\u6570 |`);
+      sections.push(
+        L(
+          `| \u65E5\u671F | \u8D8B\u52BF\u4F53\u91CD(kg) | \u6668\u8D77 | \u665A\u95F4 | \u4F53\u8102% | \u5F53\u65E5\u6761\u6570 |`,
+          `| Date | Trend weight (kg) | Morning | Evening | Body fat % | Count that day |`
+        )
+      );
       sections.push(`|---|---:|---:|---:|---:|---:|`);
       const recentDates2 = recentDateSet(weightStats.daily.map((d) => d.date));
       for (const d of weightStats.daily.filter((x) => recentDates2.has(x.date))) {
@@ -3104,9 +3388,14 @@ var HealthAnalyzer = (() => {
       }
       sections.push(``);
     } else if (data.weight.length > 0) {
-      sections.push(`## \u4F53\u91CD`);
+      sections.push(L(`## \u4F53\u91CD`, `## Weight`));
       sections.push(``);
-      sections.push(`| \u65F6\u95F4 | \u4F53\u91CD (kg) | \u4F53\u8102% |`);
+      sections.push(
+        L(
+          `| \u65F6\u95F4 | \u4F53\u91CD (kg) | \u4F53\u8102% |`,
+          `| Time | Weight (kg) | Body fat % |`
+        )
+      );
       sections.push(`|---|---:|---:|`);
       const recentDates2 = recentDateSet(data.weight.map((w) => w.date));
       for (const w of data.weight.filter((w2) => recentDates2.has(w2.date))) {
@@ -3115,9 +3404,14 @@ var HealthAnalyzer = (() => {
       sections.push(``);
     }
     if (Object.keys(hrvByDate).length > 0) {
-      sections.push(`## HRV \u5FC3\u7387\u53D8\u5F02\u6027`);
+      sections.push(L(`## HRV \u5FC3\u7387\u53D8\u5F02\u6027`, `## HRV (heart rate variability)`));
       sections.push(``);
-      sections.push(`| \u65E5\u671F | \u5168\u5929\u5747\u503C | \u591C\u95F4\u5747\u503C | \u6700\u4F4E | \u6700\u9AD8 | \u6837\u672C\u6570 |`);
+      sections.push(
+        L(
+          `| \u65E5\u671F | \u5168\u5929\u5747\u503C | \u591C\u95F4\u5747\u503C | \u6700\u4F4E | \u6700\u9AD8 | \u6837\u672C\u6570 |`,
+          `| Date | All-day mean | Overnight mean | Min | Max | Samples |`
+        )
+      );
       sections.push(`|---|---:|---:|---:|---:|---:|`);
       const recentDates2 = recentDateSet(Object.keys(hrvByDate));
       for (const date of Object.keys(hrvByDate).filter((date2) => recentDates2.has(date2)).sort()) {
@@ -3130,7 +3424,7 @@ var HealthAnalyzer = (() => {
       sections.push(``);
     }
     if (Object.keys(data.restingHr).length > 0 || Object.keys(data.walkingHr).length > 0) {
-      sections.push(`## \u5FC3\u7387`);
+      sections.push(L(`## \u5FC3\u7387`, `## Heart rate`));
       sections.push(``);
       const allDates = /* @__PURE__ */ new Set([
         ...Object.keys(data.restingHr),
@@ -3138,7 +3432,12 @@ var HealthAnalyzer = (() => {
       ]);
       const recentDates2 = recentDateSet(Array.from(allDates));
       const visibleDates = Array.from(allDates).filter((date) => recentDates2.has(date));
-      sections.push(`| \u65E5\u671F | \u9759\u606F\u5FC3\u7387 | \u6B65\u884C\u5FC3\u7387 |`);
+      sections.push(
+        L(
+          `| \u65E5\u671F | \u9759\u606F\u5FC3\u7387 | \u6B65\u884C\u5FC3\u7387 |`,
+          `| Date | Resting HR | Walking HR |`
+        )
+      );
       sections.push(`|---|---:|---:|`);
       for (const date of visibleDates.sort()) {
         const r = data.restingHr[date] ?? "\u2014";
@@ -3148,14 +3447,19 @@ var HealthAnalyzer = (() => {
       sections.push(``);
     }
     if (Object.keys(data.steps).length > 0 || Object.keys(data.sleep).length > 0) {
-      sections.push(`## \u6B65\u6570\u4E0E\u7761\u7720`);
+      sections.push(L(`## \u6B65\u6570\u4E0E\u7761\u7720`, `## Steps & sleep`));
       sections.push(``);
       const allDates = /* @__PURE__ */ new Set([
         ...Object.keys(data.steps),
         ...Object.keys(data.sleep)
       ]);
       const recentDates2 = recentDateSet(Array.from(allDates));
-      sections.push(`| \u65E5\u671F | \u6B65\u6570 | \u7761\u7720(h) | \u6DF1\u7761(h) | REM(h) |`);
+      sections.push(
+        L(
+          `| \u65E5\u671F | \u6B65\u6570 | \u7761\u7720(h) | \u6DF1\u7761(h) | REM(h) |`,
+          `| Date | Steps | Sleep (h) | Deep (h) | REM (h) |`
+        )
+      );
       sections.push(`|---|---:|---:|---:|---:|`);
       for (const date of Array.from(allDates).filter((date2) => recentDates2.has(date2)).sort()) {
         const steps = data.steps[date]?.max ?? "\u2014";
@@ -3168,64 +3472,127 @@ var HealthAnalyzer = (() => {
       sections.push(``);
     }
     if (watchStats && watchStats.dayCount > 0) {
-      sections.push(`## Apple Watch\uFF08\u6D3B\u52A8 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6E29 / \u547C\u5438\u7D0A\u4E71\uFF09`);
-      sections.push(``);
       sections.push(
-        `> \u65E5\u6C47\u603B\u5171 ${watchStats.dayCount} \u5929\uFF1B\u8840\u6C27/\u547C\u5438\u4E3A\u65E5\u5185\u6837\u672C\u5747\u503C\uFF0CVO\u2082 \u4E3A Apple \u4F30\u7B97\uFF0C\u591C\u95F4\u5FC3\u7387\u4E3A 0\u20136 \u70B9\u62BD\u6837\uFF1B\u7761\u7720\u547C\u5438\u7D0A\u4E71\u4E3A Watch \u539F\u59CB\u91CF\uFF08\u8D8A\u9AD8\u6270\u52A8\u76F8\u5BF9\u8D8A\u591A\uFF0C\u975E\u8BCA\u65AD\uFF09\u3002`
+        L(
+          `## Apple Watch\uFF08\u6D3B\u52A8 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6E29 / \u547C\u5438\u7D0A\u4E71\uFF09`,
+          `## Apple Watch (activity / SpO\u2082 / respiration / VO\u2082 / wrist temp / breathing disturbances)`
+        )
       );
       sections.push(``);
-      sections.push(`**\u8FD1 7 \u65E5\u6458\u8981**\uFF1A`);
+      sections.push(
+        L(
+          `> \u65E5\u6C47\u603B\u5171 ${watchStats.dayCount} \u5929\uFF1B\u8840\u6C27/\u547C\u5438\u4E3A\u65E5\u5185\u6837\u672C\u5747\u503C\uFF0CVO\u2082 \u4E3A Apple \u4F30\u7B97\uFF0C\u591C\u95F4\u5FC3\u7387\u4E3A 0\u20136 \u70B9\u62BD\u6837\uFF1B\u7761\u7720\u547C\u5438\u7D0A\u4E71\u4E3A Watch \u539F\u59CB\u91CF\uFF08\u8D8A\u9AD8\u6270\u52A8\u76F8\u5BF9\u8D8A\u591A\uFF0C\u975E\u8BCA\u65AD\uFF09\u3002`,
+          `> Daily summary: ${watchStats.dayCount} days; SpO\u2082/respiration are intra-day sample means; VO\u2082 is Apple estimate; night HR is 0\u20136h samples; sleep breathing disturbance is Watch raw quantity (higher \u2248 more disturbance, not a diagnosis).`
+        )
+      );
       sections.push(``);
-      sections.push(`| \u6307\u6807 | \u503C |`);
+      sections.push(L(`**\u8FD1 7 \u65E5\u6458\u8981**\uFF1A`, `**Last 7 days summary**:`));
+      sections.push(``);
+      sections.push(L(`| \u6307\u6807 | \u503C |`, `| Metric | Value |`));
       sections.push(`|---|---|`);
       if (watchStats.exerciseMinMean7d != null) {
-        sections.push(`| \u65E5\u5747\u953B\u70BC | ${watchStats.exerciseMinMean7d.toFixed(0)} min |`);
+        sections.push(
+          L(
+            `| \u65E5\u5747\u953B\u70BC | ${watchStats.exerciseMinMean7d.toFixed(0)} min |`,
+            `| Exercise daily avg | ${watchStats.exerciseMinMean7d.toFixed(0)} min |`
+          )
+        );
       }
       if (watchStats.activeKcalMean7d != null) {
-        sections.push(`| \u65E5\u5747\u6D3B\u52A8\u6D88\u8017 | ${watchStats.activeKcalMean7d.toFixed(0)} kcal |`);
+        sections.push(
+          L(
+            `| \u65E5\u5747\u6D3B\u52A8\u6D88\u8017 | ${watchStats.activeKcalMean7d.toFixed(0)} kcal |`,
+            `| Active energy daily avg | ${watchStats.activeKcalMean7d.toFixed(0)} kcal |`
+          )
+        );
       }
       if (watchStats.spo2Mean7d != null) {
         sections.push(
-          `| \u8840\u6C27\u5747\u503C / \u6700\u4F4E | ${watchStats.spo2Mean7d.toFixed(1)}%` + (watchStats.spo2Min7d != null ? ` / ${watchStats.spo2Min7d.toFixed(1)}%` : "") + `\uFF08${watchStats.spo2DayCount} \u5929\uFF09 |`
+          L(
+            `| \u8840\u6C27\u5747\u503C / \u6700\u4F4E | ${watchStats.spo2Mean7d.toFixed(1)}%` + (watchStats.spo2Min7d != null ? ` / ${watchStats.spo2Min7d.toFixed(1)}%` : "") + `\uFF08${watchStats.spo2DayCount} \u5929\uFF09 |`,
+            `| SpO\u2082 mean / min | ${watchStats.spo2Mean7d.toFixed(1)}%` + (watchStats.spo2Min7d != null ? ` / ${watchStats.spo2Min7d.toFixed(1)}%` : "") + ` (${watchStats.spo2DayCount} days) |`
+          )
         );
       }
       if (watchStats.spo2NightMean7d != null || watchStats.spo2DayMean7d != null) {
         sections.push(
-          `| \u8840\u6C27 \u591C\u6BB5(0\u20138) / \u65E5\u6BB5 | ` + (watchStats.spo2NightMean7d != null ? `${watchStats.spo2NightMean7d.toFixed(1)}%` + (watchStats.spo2NightMin7d != null ? `\uFF08\u6700\u4F4E ${watchStats.spo2NightMin7d.toFixed(1)}%\uFF09` : "") : "\u2014") + ` / ` + (watchStats.spo2DayMean7d != null ? `${watchStats.spo2DayMean7d.toFixed(1)}%` + (watchStats.spo2DayMin7d != null ? `\uFF08\u6700\u4F4E ${watchStats.spo2DayMin7d.toFixed(1)}%\uFF09` : "") : "\u2014") + ` |`
+          L(
+            `| \u8840\u6C27 \u591C\u6BB5(0\u20138) / \u65E5\u6BB5 | ` + (watchStats.spo2NightMean7d != null ? `${watchStats.spo2NightMean7d.toFixed(1)}%` + (watchStats.spo2NightMin7d != null ? `\uFF08\u6700\u4F4E ${watchStats.spo2NightMin7d.toFixed(1)}%\uFF09` : "") : "\u2014") + ` / ` + (watchStats.spo2DayMean7d != null ? `${watchStats.spo2DayMean7d.toFixed(1)}%` + (watchStats.spo2DayMin7d != null ? `\uFF08\u6700\u4F4E ${watchStats.spo2DayMin7d.toFixed(1)}%\uFF09` : "") : "\u2014") + ` |`,
+            `| SpO\u2082 night (0\u20138) / day | ` + (watchStats.spo2NightMean7d != null ? `${watchStats.spo2NightMean7d.toFixed(1)}%` + (watchStats.spo2NightMin7d != null ? ` (min ${watchStats.spo2NightMin7d.toFixed(1)}%)` : "") : "\u2014") + ` / ` + (watchStats.spo2DayMean7d != null ? `${watchStats.spo2DayMean7d.toFixed(1)}%` + (watchStats.spo2DayMin7d != null ? ` (min ${watchStats.spo2DayMin7d.toFixed(1)}%)` : "") : "\u2014") + ` |`
+          )
         );
       }
       if (watchStats.rrMean7d != null) {
-        sections.push(`| \u547C\u5438\u9891\u7387\u65E5\u5747 | ${watchStats.rrMean7d.toFixed(1)} \u6B21/\u5206 |`);
+        sections.push(
+          L(
+            `| \u547C\u5438\u9891\u7387\u65E5\u5747 | ${watchStats.rrMean7d.toFixed(1)} \u6B21/\u5206 |`,
+            `| Respiratory rate daily avg | ${watchStats.rrMean7d.toFixed(1)} breaths/min |`
+          )
+        );
       }
       if (watchStats.nightHrMean7d != null) {
-        sections.push(`| \u591C\u95F4\u5FC3\u7387 (0\u20136h) | ${watchStats.nightHrMean7d.toFixed(0)} bpm |`);
+        sections.push(
+          L(
+            `| \u591C\u95F4\u5FC3\u7387 (0\u20136h) | ${watchStats.nightHrMean7d.toFixed(0)} bpm |`,
+            `| Night HR (0\u20136h) | ${watchStats.nightHrMean7d.toFixed(0)} bpm |`
+          )
+        );
       }
       if (watchStats.vo2Latest != null) {
         const d = watchStats.vo2Delta;
         sections.push(
-          `| VO\u2082 max \u6700\u65B0` + (watchStats.vo2Earliest != null ? " / \u6700\u65E9 / \u0394" : "") + ` | ${watchStats.vo2Latest.toFixed(1)}` + (watchStats.vo2Earliest != null ? ` / ${watchStats.vo2Earliest.toFixed(1)} / ${d != null && d >= 0 ? "+" : ""}${d?.toFixed(1)}` : "") + ` mL/kg/min\uFF08${watchStats.vo2DayCount} \u5929\uFF09 |`
+          L(
+            `| VO\u2082 max \u6700\u65B0` + (watchStats.vo2Earliest != null ? " / \u6700\u65E9 / \u0394" : "") + ` | ${watchStats.vo2Latest.toFixed(1)}` + (watchStats.vo2Earliest != null ? ` / ${watchStats.vo2Earliest.toFixed(1)} / ${d != null && d >= 0 ? "+" : ""}${d?.toFixed(1)}` : "") + ` mL/kg/min\uFF08${watchStats.vo2DayCount} \u5929\uFF09 |`,
+            `| VO\u2082 max latest` + (watchStats.vo2Earliest != null ? " / earliest / \u0394" : "") + ` | ${watchStats.vo2Latest.toFixed(1)}` + (watchStats.vo2Earliest != null ? ` / ${watchStats.vo2Earliest.toFixed(1)} / ${d != null && d >= 0 ? "+" : ""}${d?.toFixed(1)}` : "") + ` mL/kg/min (${watchStats.vo2DayCount} days) |`
+          )
         );
       }
       if (watchStats.wristTempMean7d != null) {
-        sections.push(`| \u7761\u7720\u8155\u6E29\u65E5\u5747 | ${watchStats.wristTempMean7d.toFixed(2)} \xB0C |`);
+        sections.push(
+          L(
+            `| \u7761\u7720\u8155\u6E29\u65E5\u5747 | ${watchStats.wristTempMean7d.toFixed(2)} \xB0C |`,
+            `| Sleep wrist temp daily avg | ${watchStats.wristTempMean7d.toFixed(2)} \xB0C |`
+          )
+        );
       }
       if (watchStats.breathingDisturbanceMean7d != null) {
         sections.push(
-          `| \u7761\u7720\u547C\u5438\u7D0A\u4E71\u65E5\u5747` + (watchStats.breathingDisturbanceLatest != null ? " / \u6700\u65B0" : "") + ` | ${watchStats.breathingDisturbanceMean7d.toFixed(2)}` + (watchStats.breathingDisturbanceLatest != null ? ` / ${watchStats.breathingDisturbanceLatest.toFixed(2)}` : "") + `\uFF08${watchStats.breathingDisturbanceDayCount} \u5929\uFF09 |`
+          L(
+            `| \u7761\u7720\u547C\u5438\u7D0A\u4E71\u65E5\u5747` + (watchStats.breathingDisturbanceLatest != null ? " / \u6700\u65B0" : "") + ` | ${watchStats.breathingDisturbanceMean7d.toFixed(2)}` + (watchStats.breathingDisturbanceLatest != null ? ` / ${watchStats.breathingDisturbanceLatest.toFixed(2)}` : "") + `\uFF08${watchStats.breathingDisturbanceDayCount} \u5929\uFF09 |`,
+            `| Sleep breathing disturbance daily avg` + (watchStats.breathingDisturbanceLatest != null ? " / latest" : "") + ` | ${watchStats.breathingDisturbanceMean7d.toFixed(2)}` + (watchStats.breathingDisturbanceLatest != null ? ` / ${watchStats.breathingDisturbanceLatest.toFixed(2)}` : "") + ` (${watchStats.breathingDisturbanceDayCount} days) |`
+          )
         );
       }
       if (watchStats.daylightMinMean7d != null) {
-        sections.push(`| \u65E5\u7167\u65E5\u5747 | ${watchStats.daylightMinMean7d.toFixed(0)} min |`);
+        sections.push(
+          L(
+            `| \u65E5\u7167\u65E5\u5747 | ${watchStats.daylightMinMean7d.toFixed(0)} min |`,
+            `| Daylight daily avg | ${watchStats.daylightMinMean7d.toFixed(0)} min |`
+          )
+        );
       }
       if (watchStats.standHoursMean7d != null) {
-        sections.push(`| \u7AD9\u7ACB\u5C0F\u65F6\u65E5\u5747 | ${watchStats.standHoursMean7d.toFixed(1)} h |`);
+        sections.push(
+          L(
+            `| \u7AD9\u7ACB\u5C0F\u65F6\u65E5\u5747 | ${watchStats.standHoursMean7d.toFixed(1)} h |`,
+            `| Stand hours daily avg | ${watchStats.standHoursMean7d.toFixed(1)} h |`
+          )
+        );
       }
       sections.push(``);
-      sections.push(`**\u5206\u65E5\u660E\u7EC6**\uFF08\u6700\u8FD1 ${detailDays} \u5929\uFF09\uFF1A`);
+      sections.push(
+        L(
+          `**\u5206\u65E5\u660E\u7EC6**\uFF08\u6700\u8FD1 ${detailDays} \u5929\uFF09\uFF1A`,
+          `**Daily detail** (last ${detailDays} days):`
+        )
+      );
       sections.push(``);
       const showBdCol = (watchStats.breathingDisturbanceDayCount ?? 0) > 0;
       sections.push(
-        `| \u65E5\u671F | \u6D3B\u52A8kcal | \u953B\u70BCmin | SpO\u2082\u5747 | \u591C\u5747 | \u65E5\u5747 | \u547C\u5438 | \u591C\u95F4HR | VO\u2082 | \u8155\u6E29` + (showBdCol ? " | \u547C\u5438\u7D0A\u4E71" : "") + ` |`
+        L(
+          `| \u65E5\u671F | \u6D3B\u52A8kcal | \u953B\u70BCmin | SpO\u2082\u5747 | \u591C\u5747 | \u65E5\u5747 | \u547C\u5438 | \u591C\u95F4HR | VO\u2082 | \u8155\u6E29` + (showBdCol ? " | \u547C\u5438\u7D0A\u4E71" : "") + ` |`,
+          `| Date | Active kcal | Exercise min | SpO\u2082 mean | Night mean | Day mean | Resp | Night HR | VO\u2082 | Wrist temp` + (showBdCol ? " | Breathing dist." : "") + ` |`
+        )
       );
       sections.push(
         `|---|---:|---:|---:|---:|---:|---:|---:|---:|---:` + (showBdCol ? "|---:" : "") + `|`
@@ -3242,16 +3609,24 @@ var HealthAnalyzer = (() => {
       sections.push(``);
     }
     if (workoutStats && workoutStats.count > 0) {
-      sections.push(`## Workout \u8BAD\u7EC3\u4F1A\u8BDD`);
+      sections.push(L(`## Workout \u8BAD\u7EC3\u4F1A\u8BDD`, `## Workout sessions`));
       sections.push(``);
       sections.push(
-        `\u5171 ${workoutStats.count} \u573A\uFF1B\u8FD1 30 \u65E5 ${workoutStats.count30d} \u573A / ${workoutStats.durationSum30d.toFixed(0)} min` + (workoutStats.activeKcalSum30d ? ` / ${workoutStats.activeKcalSum30d.toFixed(0)} kcal` : "") + (workoutStats.hrAvgMean30d != null ? `\uFF0C\u8FD1 30 \u65E5\u573A\u5747\u5FC3\u7387 ${workoutStats.hrAvgMean30d.toFixed(0)} bpm` : "") + `\uFF1B\u8FD1 7 \u65E5 ${workoutStats.count7d} \u573A / ${workoutStats.durationSum7d.toFixed(0)} min\u3002`
+        L(
+          `\u5171 ${workoutStats.count} \u573A\uFF1B\u8FD1 30 \u65E5 ${workoutStats.count30d} \u573A / ${workoutStats.durationSum30d.toFixed(0)} min` + (workoutStats.activeKcalSum30d ? ` / ${workoutStats.activeKcalSum30d.toFixed(0)} kcal` : "") + (workoutStats.hrAvgMean30d != null ? `\uFF0C\u8FD1 30 \u65E5\u573A\u5747\u5FC3\u7387 ${workoutStats.hrAvgMean30d.toFixed(0)} bpm` : "") + `\uFF1B\u8FD1 7 \u65E5 ${workoutStats.count7d} \u573A / ${workoutStats.durationSum7d.toFixed(0)} min\u3002`,
+          `Total ${workoutStats.count} sessions; last 30 days ${workoutStats.count30d} sessions / ${workoutStats.durationSum30d.toFixed(0)} min` + (workoutStats.activeKcalSum30d ? ` / ${workoutStats.activeKcalSum30d.toFixed(0)} kcal` : "") + (workoutStats.hrAvgMean30d != null ? `, last-30d mean session HR ${workoutStats.hrAvgMean30d.toFixed(0)} bpm` : "") + `; last 7 days ${workoutStats.count7d} sessions / ${workoutStats.durationSum7d.toFixed(0)} min.`
+        )
       );
       if (workoutStats.byType.length) {
         sections.push(``);
-        sections.push(`**\u7C7B\u578B\u5206\u5E03**\uFF1A`);
+        sections.push(L(`**\u7C7B\u578B\u5206\u5E03**\uFF1A`, `**By type**:`));
         sections.push(``);
-        sections.push(`| \u7C7B\u578B | \u573A\u6B21 | \u603B\u5206\u949F | \u6D3B\u52A8kcal |`);
+        sections.push(
+          L(
+            `| \u7C7B\u578B | \u573A\u6B21 | \u603B\u5206\u949F | \u6D3B\u52A8kcal |`,
+            `| Type | Sessions | Total min | Active kcal |`
+          )
+        );
         sections.push(`|---|---:|---:|---:|`);
         for (const t of workoutStats.byType) {
           const label = t.activityLabel || t.activityType;
@@ -3261,9 +3636,19 @@ var HealthAnalyzer = (() => {
         }
       }
       sections.push(``);
-      sections.push(`**\u6700\u8FD1\u4F1A\u8BDD**\uFF08\u6700\u591A 40 \u573A\uFF09\uFF1A`);
+      sections.push(
+        L(
+          `**\u6700\u8FD1\u4F1A\u8BDD**\uFF08\u6700\u591A 40 \u573A\uFF09\uFF1A`,
+          `**Recent sessions** (up to 40):`
+        )
+      );
       sections.push(``);
-      sections.push(`| \u5F00\u59CB | \u7C7B\u578B | \u5206\u949F | kcal | \u8DDD\u79BBkm | HR\u5747 | HR\u6700\u5927 | METs |`);
+      sections.push(
+        L(
+          `| \u5F00\u59CB | \u7C7B\u578B | \u5206\u949F | kcal | \u8DDD\u79BBkm | HR\u5747 | HR\u6700\u5927 | METs |`,
+          `| Start | Type | Min | kcal | Dist km | HR avg | HR max | METs |`
+        )
+      );
       sections.push(`|---|---|---:|---:|---:|---:|---:|---:|`);
       const recentW = workoutStats.sessions.slice(-40);
       for (const s of recentW) {
@@ -3276,42 +3661,147 @@ var HealthAnalyzer = (() => {
     }
     if (recoveryWeek) {
       const rw = recoveryWeek;
-      sections.push(`## \u8FD1 7 \u65E5\u8D1F\u8377\u4E0E\u6062\u590D`);
+      sections.push(L(`## \u8FD1 7 \u65E5\u8D1F\u8377\u4E0E\u6062\u590D`, `## Last 7 days load & recovery`));
       sections.push(``);
-      sections.push(`> \u542F\u53D1\u5F0F\u8BC4\u5206\uFF0C\u975E\u8BCA\u65AD\uFF1B\u622A\u6B62 ${rw.weekEnd}\u3002\u72B6\u6001\uFF1A${rw.statusLabel}`);
+      sections.push(
+        L(
+          `> \u542F\u53D1\u5F0F\u8BC4\u5206\uFF0C\u975E\u8BCA\u65AD\uFF1B\u622A\u6B62 ${rw.weekEnd}\u3002\u72B6\u6001\uFF1A${rw.statusLabel}`,
+          `> Heuristic score, not a diagnosis; through ${rw.weekEnd}. Status: ${rw.statusLabel}`
+        )
+      );
       sections.push(``);
-      sections.push(`| \u6307\u6807 | \u503C |`);
+      sections.push(L(`| \u6307\u6807 | \u503C |`, `| Metric | Value |`));
       sections.push(`|---|---|`);
-      if (rw.recoveryScore != null) sections.push(`| \u6062\u590D\u5206 | ${rw.recoveryScore} / 100 |`);
-      if (rw.loadScore != null) sections.push(`| \u8D1F\u8377\u5206 | ${rw.loadScore} / 100 |`);
+      if (rw.recoveryScore != null) {
+        sections.push(
+          L(
+            `| \u6062\u590D\u5206 | ${rw.recoveryScore} / 100 |`,
+            `| Recovery score | ${rw.recoveryScore} / 100 |`
+          )
+        );
+      }
+      if (rw.loadScore != null) {
+        sections.push(
+          L(
+            `| \u8D1F\u8377\u5206 | ${rw.loadScore} / 100 |`,
+            `| Load score | ${rw.loadScore} / 100 |`
+          )
+        );
+      }
       if (rw.baselineRecoveryMedian != null) {
-        sections.push(`| \u8FD1\u51E0\u5468\u6062\u590D\u5206\u4E2D\u4F4D\uFF08\u4E2A\u4EBA\u57FA\u7EBF\uFF09 | ${rw.baselineRecoveryMedian} |`);
+        sections.push(
+          L(
+            `| \u8FD1\u51E0\u5468\u6062\u590D\u5206\u4E2D\u4F4D\uFF08\u4E2A\u4EBA\u57FA\u7EBF\uFF09 | ${rw.baselineRecoveryMedian} |`,
+            `| Recent weeks recovery median (personal baseline) | ${rw.baselineRecoveryMedian} |`
+          )
+        );
       }
       if (rw.vsBaselineDelta != null) {
         const sign = rw.vsBaselineDelta > 0 ? "+" : "";
         sections.push(
-          `| \u76F8\u5BF9\u57FA\u7EBF | ${sign}${rw.vsBaselineDelta}` + (Math.abs(rw.vsBaselineDelta) >= 8 ? rw.vsBaselineDelta > 0 ? "\uFF08\u9AD8\u4E8E\u8FD1\u51E0\u5468\u4E2D\u4F4D\uFF09" : "\uFF08\u4F4E\u4E8E\u8FD1\u51E0\u5468\u4E2D\u4F4D\uFF09" : "") + ` |`
+          L(
+            `| \u76F8\u5BF9\u57FA\u7EBF | ${sign}${rw.vsBaselineDelta}` + (Math.abs(rw.vsBaselineDelta) >= 8 ? rw.vsBaselineDelta > 0 ? "\uFF08\u9AD8\u4E8E\u8FD1\u51E0\u5468\u4E2D\u4F4D\uFF09" : "\uFF08\u4F4E\u4E8E\u8FD1\u51E0\u5468\u4E2D\u4F4D\uFF09" : "") + ` |`,
+            `| vs baseline | ${sign}${rw.vsBaselineDelta}` + (Math.abs(rw.vsBaselineDelta) >= 8 ? rw.vsBaselineDelta > 0 ? " (above recent median)" : " (below recent median)" : "") + ` |`
+          )
         );
       }
-      if (rw.hrvMean7d != null) sections.push(`| HRV \u65E5\u5747 | ${rw.hrvMean7d.toFixed(1)} ms |`);
-      if (rw.nightHrMean7d != null) sections.push(`| \u591C\u95F4\u5FC3\u7387 | ${rw.nightHrMean7d.toFixed(0)} bpm |`);
-      if (rw.restingHrMean7d != null) sections.push(`| \u9759\u606F\u5FC3\u7387 | ${rw.restingHrMean7d.toFixed(0)} bpm |`);
-      if (rw.exerciseMinMean7d != null) sections.push(`| \u953B\u70BC\u65E5\u5747 | ${rw.exerciseMinMean7d.toFixed(0)} min |`);
-      sections.push(`| Workout | ${rw.workoutCount7d} \u573A / ${rw.workoutDuration7d.toFixed(0)} min |`);
-      if (rw.sleepMean7d != null) sections.push(`| \u7761\u7720\u65E5\u5747 | ${rw.sleepMean7d.toFixed(2)} h |`);
-      if (rw.stepsMean7d != null) sections.push(`| \u6B65\u6570\u65E5\u5747 | ${Math.round(rw.stepsMean7d)} |`);
-      if (rw.standHoursMean7d != null) sections.push(`| \u7AD9\u7ACB\u5C0F\u65F6\u65E5\u5747 | ${rw.standHoursMean7d.toFixed(1)} |`);
-      if (rw.daylightMinMean7d != null) sections.push(`| \u65E5\u7167\u65E5\u5747 | ${rw.daylightMinMean7d.toFixed(0)} min |`);
-      if (rw.spo2NightMean7d != null) sections.push(`| \u591C\u6BB5\u8840\u6C27 | ${rw.spo2NightMean7d.toFixed(1)}% |`);
+      if (rw.hrvMean7d != null) {
+        sections.push(
+          L(
+            `| HRV \u65E5\u5747 | ${rw.hrvMean7d.toFixed(1)} ms |`,
+            `| HRV daily avg | ${rw.hrvMean7d.toFixed(1)} ms |`
+          )
+        );
+      }
+      if (rw.nightHrMean7d != null) {
+        sections.push(
+          L(
+            `| \u591C\u95F4\u5FC3\u7387 | ${rw.nightHrMean7d.toFixed(0)} bpm |`,
+            `| Night HR | ${rw.nightHrMean7d.toFixed(0)} bpm |`
+          )
+        );
+      }
+      if (rw.restingHrMean7d != null) {
+        sections.push(
+          L(
+            `| \u9759\u606F\u5FC3\u7387 | ${rw.restingHrMean7d.toFixed(0)} bpm |`,
+            `| Resting HR | ${rw.restingHrMean7d.toFixed(0)} bpm |`
+          )
+        );
+      }
+      if (rw.exerciseMinMean7d != null) {
+        sections.push(
+          L(
+            `| \u953B\u70BC\u65E5\u5747 | ${rw.exerciseMinMean7d.toFixed(0)} min |`,
+            `| Exercise daily avg | ${rw.exerciseMinMean7d.toFixed(0)} min |`
+          )
+        );
+      }
+      sections.push(
+        L(
+          `| Workout | ${rw.workoutCount7d} \u573A / ${rw.workoutDuration7d.toFixed(0)} min |`,
+          `| Workout | ${rw.workoutCount7d} sessions / ${rw.workoutDuration7d.toFixed(0)} min |`
+        )
+      );
+      if (rw.sleepMean7d != null) {
+        sections.push(
+          L(
+            `| \u7761\u7720\u65E5\u5747 | ${rw.sleepMean7d.toFixed(2)} h |`,
+            `| Sleep daily avg | ${rw.sleepMean7d.toFixed(2)} h |`
+          )
+        );
+      }
+      if (rw.stepsMean7d != null) {
+        sections.push(
+          L(
+            `| \u6B65\u6570\u65E5\u5747 | ${Math.round(rw.stepsMean7d)} |`,
+            `| Steps daily avg | ${Math.round(rw.stepsMean7d)} |`
+          )
+        );
+      }
+      if (rw.standHoursMean7d != null) {
+        sections.push(
+          L(
+            `| \u7AD9\u7ACB\u5C0F\u65F6\u65E5\u5747 | ${rw.standHoursMean7d.toFixed(1)} |`,
+            `| Stand hours daily avg | ${rw.standHoursMean7d.toFixed(1)} |`
+          )
+        );
+      }
+      if (rw.daylightMinMean7d != null) {
+        sections.push(
+          L(
+            `| \u65E5\u7167\u65E5\u5747 | ${rw.daylightMinMean7d.toFixed(0)} min |`,
+            `| Daylight daily avg | ${rw.daylightMinMean7d.toFixed(0)} min |`
+          )
+        );
+      }
+      if (rw.spo2NightMean7d != null) {
+        sections.push(
+          L(
+            `| \u591C\u6BB5\u8840\u6C27 | ${rw.spo2NightMean7d.toFixed(1)}% |`,
+            `| Night SpO\u2082 | ${rw.spo2NightMean7d.toFixed(1)}% |`
+          )
+        );
+      }
       sections.push(``);
     }
     if (recoveryWeeks && recoveryWeeks.length > 0) {
       const recent = recoveryWeeks.slice(-8);
-      sections.push(`## \u591A\u5468\u6062\u590D/\u8D1F\u8377\u8D8B\u52BF`);
+      sections.push(L(`## \u591A\u5468\u6062\u590D/\u8D1F\u8377\u8D8B\u52BF`, `## Multi-week recovery / load trend`));
       sections.push(``);
-      sections.push(`> \u542F\u53D1\u5F0F\u8BC4\u5206\uFF0C\u975E\u8BCA\u65AD\uFF1B\u5171 ${recoveryWeeks.length} \u5468\u6837\u672C\uFF0C\u4E0B\u8868\u6700\u8FD1 ${recent.length} \u5468\uFF08\u6700\u65E7\u2192\u6700\u65B0\uFF09\u3002`);
+      sections.push(
+        L(
+          `> \u542F\u53D1\u5F0F\u8BC4\u5206\uFF0C\u975E\u8BCA\u65AD\uFF1B\u5171 ${recoveryWeeks.length} \u5468\u6837\u672C\uFF0C\u4E0B\u8868\u6700\u8FD1 ${recent.length} \u5468\uFF08\u6700\u65E7\u2192\u6700\u65B0\uFF09\u3002`,
+          `> Heuristic score, not a diagnosis; ${recoveryWeeks.length} week samples total; table shows last ${recent.length} weeks (oldest \u2192 newest).`
+        )
+      );
       sections.push(``);
-      sections.push(`| \u5468\u672B | \u6062\u590D\u5206 | \u8D1F\u8377\u5206 | HRV | \u591C\u5FC3 | \u953B\u70BC | \u7761\u7720 | Workout |`);
+      sections.push(
+        L(
+          `| \u5468\u672B | \u6062\u590D\u5206 | \u8D1F\u8377\u5206 | HRV | \u591C\u5FC3 | \u953B\u70BC | \u7761\u7720 | Workout |`,
+          `| Week end | Recovery | Load | HRV | Night HR | Exercise | Sleep | Workout |`
+        )
+      );
       sections.push(`|---|---:|---:|---:|---:|---:|---:|---:|`);
       for (const p of recent) {
         sections.push(
@@ -3321,36 +3811,50 @@ var HealthAnalyzer = (() => {
       sections.push(``);
     }
     if (ecgStats && ecgStats.count > 0) {
-      sections.push(`## ECG \u5FC3\u7535\u56FE`);
+      sections.push(L(`## ECG \u5FC3\u7535\u56FE`, `## ECG`));
       sections.push(``);
       sections.push(
-        `\u5171 ${ecgStats.count} \u4EFD\uFF08\u7AA6\u6027 ${ecgStats.sinusCount} \xB7 \u9AD8\u5FC3\u7387 ${ecgStats.highHrCount} \xB7 \u7ED3\u679C\u4E0D\u4F73 ${ecgStats.inconclusiveCount} \xB7 \u5176\u4ED6 ${ecgStats.otherCount}\uFF09`
+        L(
+          `\u5171 ${ecgStats.count} \u4EFD\uFF08\u7AA6\u6027 ${ecgStats.sinusCount} \xB7 \u9AD8\u5FC3\u7387 ${ecgStats.highHrCount} \xB7 \u7ED3\u679C\u4E0D\u4F73 ${ecgStats.inconclusiveCount} \xB7 \u5176\u4ED6 ${ecgStats.otherCount}\uFF09`,
+          `Total ${ecgStats.count} reports (sinus ${ecgStats.sinusCount} \xB7 high HR ${ecgStats.highHrCount} \xB7 inconclusive ${ecgStats.inconclusiveCount} \xB7 other ${ecgStats.otherCount})`
+        )
       );
       if (ecgStats.highHrCount > 0) {
         const near = ecgStats.highHrNearWorkoutCount ?? 0;
         const rest = ecgStats.highHrRestingWindowCount ?? 0;
         const hh = ecgStats.highHrCount;
         const nearPct = hh > 0 ? Math.round(near / hh * 100) : 0;
-        const hourBits = (ecgStats.highHrByHour || []).map((c, h) => c > 0 ? `${String(h).padStart(2, "0")}\u65F6:${c}` : null).filter(Boolean);
+        const hourBits = (ecgStats.highHrByHour || []).map(
+          (c, h) => c > 0 ? L(`${String(h).padStart(2, "0")}\u65F6:${c}`, `${String(h).padStart(2, "0")}h:${c}`) : null
+        ).filter(Boolean);
         sections.push(``);
         sections.push(
-          `\u9AD8\u5FC3\u7387\u5173\u8054\uFF1A\u8BAD\u7EC3\xB12h ${near}/${hh}\uFF08${nearPct}%\uFF09\xB7 \u975E\u8FD0\u52A8\u7A97 ${rest}/${hh}` + (hourBits.length ? `\uFF1B\u5C0F\u65F6\u5206\u5E03 ${hourBits.join("\u3001")}` : "")
+          L(
+            `\u9AD8\u5FC3\u7387\u5173\u8054\uFF1A\u8BAD\u7EC3\xB12h ${near}/${hh}\uFF08${nearPct}%\uFF09\xB7 \u975E\u8FD0\u52A8\u7A97 ${rest}/${hh}` + (hourBits.length ? `\uFF1B\u5C0F\u65F6\u5206\u5E03 ${hourBits.join("\u3001")}` : ""),
+            `High-HR association: workout \xB12h ${near}/${hh} (${nearPct}%) \xB7 non-exercise window ${rest}/${hh}` + (hourBits.length ? `; hour distribution ${hourBits.join(", ")}` : "")
+          )
         );
         const lowAct = ecgStats.highHrOnLowActivityCount ?? 0;
         const highAct = ecgStats.highHrOnHighActivityCount ?? 0;
         if (lowAct > 0 || highAct > 0) {
           sections.push(
-            `\u9AD8\u5FC3\u7387\xD7\u6D3B\u52A8\u65E5\uFF1A\u4F4E\u6D3B\u52A8\u65E5 ${lowAct} \u4EFD \xB7 \u9AD8\u6D3B\u52A8/\u8BAD\u7EC3\u90BB\u57DF ${highAct} \u4EFD\uFF08\u4F4E\u6D3B\u52A8\u2248\u6B65\u6570<3000 \u4E14\u953B\u70BC\u5C11\uFF09`
+            L(
+              `\u9AD8\u5FC3\u7387\xD7\u6D3B\u52A8\u65E5\uFF1A\u4F4E\u6D3B\u52A8\u65E5 ${lowAct} \u4EFD \xB7 \u9AD8\u6D3B\u52A8/\u8BAD\u7EC3\u90BB\u57DF ${highAct} \u4EFD\uFF08\u4F4E\u6D3B\u52A8\u2248\u6B65\u6570<3000 \u4E14\u953B\u70BC\u5C11\uFF09`,
+              `High HR \xD7 activity day: low-activity days ${lowAct} reports \xB7 high activity / near workout ${highAct} reports (low activity \u2248 steps <3000 and little exercise)`
+            )
           );
         }
         if (ecgStats.recentHighHr && ecgStats.recentHighHr.length) {
           sections.push(
-            `\u6700\u8FD1\u9AD8\u5FC3\u7387\u65F6\u523B\uFF1A${ecgStats.recentHighHr.map((d) => String(d).slice(0, 16)).join(" \xB7 ")}`
+            L(
+              `\u6700\u8FD1\u9AD8\u5FC3\u7387\u65F6\u523B\uFF1A${ecgStats.recentHighHr.map((d) => String(d).slice(0, 16)).join(" \xB7 ")}`,
+              `Recent high-HR times: ${ecgStats.recentHighHr.map((d) => String(d).slice(0, 16)).join(" \xB7 ")}`
+            )
           );
         }
       }
       sections.push(``);
-      sections.push(`| \u5206\u7C7B | \u4EFD\u6570 |`);
+      sections.push(L(`| \u5206\u7C7B | \u4EFD\u6570 |`, `| Classification | Count |`));
       sections.push(`|---|---:|`);
       for (const row of ecgStats.byClassification) {
         sections.push(`| ${row.classification} | ${row.count} |`);
@@ -3358,13 +3862,21 @@ var HealthAnalyzer = (() => {
       if (ecgStats.latest) {
         sections.push(``);
         sections.push(
-          `\u6700\u8FD1\uFF1A${ecgStats.latest.datetime} \u2014 **${ecgStats.latest.classification}**` + (ecgStats.latest.device ? `\uFF08${ecgStats.latest.device}\uFF09` : "")
+          L(
+            `\u6700\u8FD1\uFF1A${ecgStats.latest.datetime} \u2014 **${ecgStats.latest.classification}**` + (ecgStats.latest.device ? `\uFF08${ecgStats.latest.device}\uFF09` : ""),
+            `Latest: ${ecgStats.latest.datetime} \u2014 **${ecgStats.latest.classification}**` + (ecgStats.latest.device ? ` (${ecgStats.latest.device})` : "")
+          )
         );
       }
       sections.push(``);
-      sections.push(`**\u660E\u7EC6**\uFF08\u6700\u8FD1 30 \u4EFD\uFF09\uFF1A`);
+      sections.push(L(`**\u660E\u7EC6**\uFF08\u6700\u8FD1 30 \u4EFD\uFF09\uFF1A`, `**Detail** (last 30 reports):`));
       sections.push(``);
-      sections.push(`| \u65F6\u95F4 | \u5206\u7C7B | \u8BBE\u5907 |`);
+      sections.push(
+        L(
+          `| \u65F6\u95F4 | \u5206\u7C7B | \u8BBE\u5907 |`,
+          `| Time | Classification | Device |`
+        )
+      );
       sections.push(`|---|---|---|`);
       for (const e of data.ecg.slice(-30)) {
         sections.push(
@@ -3373,31 +3885,46 @@ var HealthAnalyzer = (() => {
       }
       sections.push(``);
     } else if (data.ecg.length > 0) {
-      sections.push(`## ECG \u5FC3\u7535\u56FE`);
+      sections.push(L(`## ECG \u5FC3\u7535\u56FE`, `## ECG`));
       sections.push(``);
-      sections.push(`\u5171 ${data.ecg.length} \u4EFD ECG`);
+      sections.push(
+        L(
+          `\u5171 ${data.ecg.length} \u4EFD ECG`,
+          `Total ${data.ecg.length} ECG reports`
+        )
+      );
       sections.push(``);
     }
     return sections.join("\n");
   }
-  function combineContextAndData(analysis, userContext) {
-    const insightsSection = formatInsightsForLLM(buildInsightBullets(analysis));
-    const dataSection = formatAnalysisForLLM(analysis);
-    const ctxSection = formatUserContext(userContext);
-    const signalsSection = formatCrossSignalsForLLM(detectCrossSignals(analysis));
+  function combineContextAndData(analysis, userContext, options) {
+    const localeOpts = { locale: normalizeLocale(options?.locale) };
+    const insightsSection = formatInsightsForLLM(
+      buildInsightBullets(analysis, localeOpts),
+      localeOpts
+    );
+    const dataSection = formatAnalysisForLLM(analysis, localeOpts);
+    const ctxSection = formatUserContext(userContext, localeOpts);
+    const signalsSection = formatCrossSignalsForLLM(
+      detectCrossSignals(analysis, localeOpts),
+      localeOpts
+    );
     const parts = [ctxSection, insightsSection, dataSection, signalsSection].filter(
       (s) => s && s.trim()
     );
     return parts.join("\n");
   }
-  function generateLLMPrompt(analysis, userContext) {
-    const dataSection = combineContextAndData(analysis, userContext);
-    return MAIN_PROMPT_TEMPLATE.replace("{ANALYSIS_JSON}", dataSection).replace("{ANALYSIS_DATA}", dataSection);
+  function generateLLMPrompt(analysis, userContext, options) {
+    const locale = normalizeLocale(options?.locale);
+    const dataSection = combineContextAndData(analysis, userContext, { locale });
+    const template = locale === "en" ? MAIN_PROMPT_TEMPLATE_EN : MAIN_PROMPT_TEMPLATE;
+    return template.replace("{ANALYSIS_JSON}", dataSection).replace("{ANALYSIS_DATA}", dataSection);
   }
-  function generateDataOnly(analysis, userContext) {
-    return combineContextAndData(analysis, userContext);
+  function generateDataOnly(analysis, userContext, options) {
+    return combineContextAndData(analysis, userContext, options);
   }
   var SHORT_SYSTEM_PROMPT = `\u4F60\u662F\u4E00\u4F4D\u4E25\u8C28\u7684\u5065\u5EB7\u6570\u636E\u5206\u6790\u5E08\u3002\u57FA\u4E8E\u7528\u6237\u63D0\u4F9B\u7684 Apple Health \u7EDF\u8BA1\u751F\u6210\u4E2D\u6587 Markdown \u62A5\u544A\uFF1B\u53EA\u5206\u6790\u5B9E\u9645\u5B58\u5728\u7684\u6570\u636E\uFF0C\u6309\u201C\u603B\u7ED3\u5224\u65AD\u3001\u6570\u636E\u7EF4\u5EA6\u3001\u76D1\u6D4B\u4EEA\u8868\u76D8\u3001\u9700\u8981\u590D\u67E5\u6216\u5347\u7EA7\u5904\u7406\u7684\u4FE1\u53F7\u3001\u5F53\u524D\u5DE5\u4F5C\u5047\u8BBE\u3001\u53C2\u8003\u4F9D\u636E\u201D\u987A\u5E8F\u7EC4\u7EC7\u3002\u4E0D\u4E0B\u8BCA\u65AD\u7ED3\u8BBA\uFF1BCGM <3.9 \u5FC5\u987B\u5EFA\u8BAE\u6307\u5C16\u8840\u590D\u6838\uFF0CCGM \u4E0D\u80FD\u5355\u72EC\u7528\u4E8E\u8BCA\u65AD\uFF1B\u5355\u6B21\u5F02\u5E38\u5148\u590D\u6D4B\u5E76\u7ED3\u5408\u75C7\u72B6\u5224\u65AD\uFF1B\u6240\u6709\u7528\u836F\u8C03\u6574\u8BF7\u9075\u533B\u5631\u3002`;
+  var SHORT_SYSTEM_PROMPT_EN = `You are a rigorous health data analyst. Based on the user's Apple Health statistics, produce an English Markdown report; only analyze data that actually exists, organized as: Executive summary, data dimensions, Monitoring dashboard, Signals needing recheck or escalation, Working hypotheses, References. Do not diagnose; CGM <3.9 must recommend fingerstick recheck; CGM alone cannot diagnose; retest single outliers and weigh symptoms; all medication changes require a clinician.`;
 
   // src/snapshot.ts
   function meanOf(values) {
@@ -3604,7 +4131,7 @@ var HealthAnalyzer = (() => {
     lines.push(``);
     lines.push(`---`);
     lines.push(``);
-    const ctx = formatUserContext(userContext);
+    const ctx = formatUserContext(userContext, { locale });
     if (ctx && ctx.trim()) {
       lines.push(ctx.trimEnd());
       lines.push(``);
