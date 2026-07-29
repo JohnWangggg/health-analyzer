@@ -1219,7 +1219,10 @@
     }
     const bullets = window.HealthAnalyzer.buildInsightBullets(analysis, analysisLocaleOpts()) || [];
     if (!bullets.length) {
-      list.innerHTML = '<li class="insight-item tone-neutral"><div class="insight-title">暂无足够数据生成摘要</div><p class="insight-detail">请确认导出包含体重、血压、CGM 或心率等记录。</p></li>';
+      list.innerHTML =
+        `<li class="insight-item tone-neutral empty-state-card">` +
+        `<div class="insight-title">${escapeHtml(t('empty.insights.title'))}</div>` +
+        `<p class="insight-detail">${escapeHtml(t('empty.insights.detail'))}</p></li>`;
       return;
     }
     const toneLabel = (tone) => {
@@ -1646,6 +1649,35 @@
         saveBtn.classList.add('btn-pulse-hint');
         setTimeout(() => saveBtn.classList.remove('btn-pulse-hint'), 1800);
       }
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  }
+
+  function buildVisitSummaryMarkdown() {
+    if (!currentAnalysis) throw new Error(t('export.err.needAnalysis'));
+    if (
+      !window.HealthAnalyzer ||
+      typeof window.HealthAnalyzer.generateVisitSummaryMarkdown !== 'function'
+    ) {
+      throw new Error(t('export.err.needAnalysis'));
+    }
+    const ctx = typeof getUserContextFromForm === 'function' ? getUserContextFromForm() : null;
+    return window.HealthAnalyzer.generateVisitSummaryMarkdown(
+      currentAnalysis,
+      ctx,
+      analysisLocaleOpts()
+    );
+  }
+
+  function exportVisitSummary() {
+    try {
+      const md = buildVisitSummaryMarkdown();
+      const end =
+        (currentAnalysis.dateRange && currentAnalysis.dateRange.end) ||
+        new Date().toISOString().slice(0, 10);
+      downloadText(`clinic-one-pager-${end}.md`, md, 'text/markdown');
+      showExportStatus(t('export.ok.visit'));
     } catch (e) {
       alert(e.message || String(e));
     }
@@ -2831,6 +2863,20 @@
   $('btn-export-csv')?.addEventListener('click', exportCsvBundle);
   $('btn-export-snapshot')?.addEventListener('click', exportSnapshot);
   $('btn-export-weekly')?.addEventListener('click', exportWeeklyReport);
+  $('btn-export-visit')?.addEventListener('click', exportVisitSummary);
+
+  // 有结果时 ⌘/Ctrl+Shift+C 复制完整提示词
+  window.addEventListener('keydown', (e) => {
+    if (!currentAnalysis) return;
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod || !e.shiftKey) return;
+    if (String(e.key).toLowerCase() !== 'c') return;
+    // 避免在输入框里抢剪贴板
+    const tag = (e.target && e.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return;
+    e.preventDefault();
+    copyFullPrompt($('copy-status'));
+  });
   $('btn-weekly-save')?.addEventListener('click', () => { saveWeeklyReportToHistory(); });
   $('btn-weekly-refresh')?.addEventListener('click', () => { refreshWeeklyReportList(); });
   $('weekly-report-list')?.addEventListener('click', (e) => {

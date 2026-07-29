@@ -59,6 +59,7 @@ var HealthAnalyzer = (() => {
     generateDataOnly: () => generateDataOnly,
     generateInsightsOnlyPrompt: () => generateInsightsOnlyPrompt,
     generateLLMPrompt: () => generateLLMPrompt,
+    generateVisitSummaryMarkdown: () => generateVisitSummaryMarkdown,
     generateWeeklyReportMarkdown: () => generateWeeklyReportMarkdown,
     getDate: () => getDate,
     getHour: () => getHour,
@@ -4418,6 +4419,194 @@ List 5\u20137 working hypotheses that best fit the available data
       L(
         `- \u6240\u6709\u7528\u836F\u4E0E\u6CBB\u7597\u8C03\u6574\u8BF7\u9075\u533B\u5631\u3002`,
         `- Any medication or treatment changes must follow clinical advice.`
+      )
+    );
+    lines.push(``);
+    return lines.join("\n");
+  }
+
+  // src/visit-summary.ts
+  function meanLast(map, n, end) {
+    if (!map) return null;
+    const keys = Object.keys(map).filter((d) => d <= end).sort();
+    if (!keys.length) return null;
+    const slice = keys.slice(-n).map((d) => map[d]).filter(Number.isFinite);
+    if (!slice.length) return null;
+    return slice.reduce((a, b) => a + b, 0) / slice.length;
+  }
+  function generateVisitSummaryMarkdown(analysis, userContext, options) {
+    const locale = normalizeLocale(options?.locale);
+    const L = createL(locale);
+    const end = analysis.dateRange?.end || "";
+    const start = analysis.dateRange?.start || "";
+    const lines = [];
+    lines.push(L("# \u95E8\u8BCA\u5FEB\u901F\u8BC4\u4F30\u4E00\u9875\u7EB8", "# Clinic visit one-pager"));
+    lines.push(``);
+    lines.push(
+      L(
+        `> **\u975E\u8BCA\u65AD** \xB7 \u4EC5\u4F9B\u95E8\u8BCA\u6C9F\u901A\u4E0E\u590D\u6D4B\u7EBF\u7D22\uFF1B\u7528\u836F/\u8BCA\u65AD\u8BF7\u9075\u533B\u5631\u3002`,
+        `> **Not a diagnosis** \xB7 For clinic discussion and recheck cues only; follow a clinician for meds/diagnosis.`
+      )
+    );
+    lines.push(``);
+    lines.push(
+      L(
+        `**\u6570\u636E\u8986\u76D6**\uFF1A${start || "\u2014"} ~ ${end || "\u2014"}`,
+        `**Data range**: ${start || "\u2014"} ~ ${end || "\u2014"}`
+      )
+    );
+    lines.push(
+      L(
+        `**\u751F\u6210**\uFF1A${analysis.generatedAt || (/* @__PURE__ */ new Date()).toISOString()}`,
+        `**Generated**: ${analysis.generatedAt || (/* @__PURE__ */ new Date()).toISOString()}`
+      )
+    );
+    lines.push(``);
+    const ctx = formatUserContext(userContext, { locale });
+    if (ctx?.trim()) {
+      lines.push(ctx.trimEnd());
+      lines.push(``);
+    }
+    lines.push(L("## \u6838\u5FC3\u6307\u6807\uFF08\u6458\u8981\uFF09", "## Key metrics (snapshot)"));
+    lines.push(``);
+    lines.push(L("| \u6307\u6807 | \u503C |", "| Metric | Value |"));
+    lines.push("|---|---|");
+    const ws = analysis.weightStats;
+    if (ws?.latestTrend) {
+      const d = ws.earliestTrend != null ? ws.latestTrend.weight - ws.earliestTrend.weight : null;
+      lines.push(
+        L(
+          `| \u6668\u8D77\u8D8B\u52BF\u4F53\u91CD | ${ws.latestTrend.weight.toFixed(1)} kg\uFF08${ws.latestTrend.date}\uFF09` + (d != null ? `\uFF0C\u76F8\u5BF9\u6700\u65E9 ${d >= 0 ? "+" : ""}${d.toFixed(1)} kg` : "") + ` |`,
+          `| Morning trend weight | ${ws.latestTrend.weight.toFixed(1)} kg (${ws.latestTrend.date})` + (d != null ? `, vs earliest ${d >= 0 ? "+" : ""}${d.toFixed(1)} kg` : "") + ` |`
+        )
+      );
+    }
+    if (ws?.bodyFatLatest != null) {
+      lines.push(
+        L(
+          `| \u6700\u65B0\u4F53\u8102 | ${ws.bodyFatLatest.toFixed(1)}% |`,
+          `| Latest body fat | ${ws.bodyFatLatest.toFixed(1)}% |`
+        )
+      );
+    }
+    const cgm = analysis.cgmStats?.stable || analysis.cgmStats?.overall;
+    if (cgm) {
+      const label = analysis.cgmStats?.stable ? L("CGM \u7A33\u5B9A\u671F", "CGM stable period") : L("CGM \u5168\u7A0B", "CGM overall");
+      lines.push(
+        L(
+          `| ${label} | \u5747 ${cgm.mean.toFixed(2)} \xB7 TIR ${cgm.pctInRange.toFixed(0)}% \xB7 <3.9 ${cgm.pctBelow39.toFixed(1)}% \xB7 n=${cgm.count} |`,
+          `| ${label} | mean ${cgm.mean.toFixed(2)} \xB7 TIR ${cgm.pctInRange.toFixed(0)}% \xB7 <3.9 ${cgm.pctBelow39.toFixed(1)}% \xB7 n=${cgm.count} |`
+        )
+      );
+    }
+    const bp = analysis.bpStats?.mean7d;
+    if (bp) {
+      const m = analysis.bpStats?.morning7d;
+      const e = analysis.bpStats?.evening7d;
+      lines.push(
+        L(
+          `| \u8840\u538B\u8FD1 7 \u65E5 | ${bp.systolic.toFixed(0)}/${bp.diastolic.toFixed(0)} mmHg` + (m && e ? `\uFF08\u6668 ${m.systolic.toFixed(0)} / \u665A ${e.systolic.toFixed(0)}\uFF09` : "") + ` |`,
+          `| BP last 7d | ${bp.systolic.toFixed(0)}/${bp.diastolic.toFixed(0)} mmHg` + (m && e ? ` (AM ${m.systolic.toFixed(0)} / PM ${e.systolic.toFixed(0)})` : "") + ` |`
+        )
+      );
+    }
+    if (end) {
+      const hrvMap = {};
+      for (const [d, h] of Object.entries(analysis.hrvByDate || {})) {
+        if (h && Number.isFinite(h.allMean)) hrvMap[d] = h.allMean;
+      }
+      const hrv = meanLast(hrvMap, 7, end);
+      if (hrv != null) {
+        lines.push(
+          L(`| HRV \u8FD1 7 \u65E5 | ${hrv.toFixed(1)} ms |`, `| HRV last 7d | ${hrv.toFixed(1)} ms |`)
+        );
+      }
+      const rest = meanLast(analysis.restingHrByDate || analysis.data.restingHr, 7, end);
+      if (rest != null) {
+        lines.push(
+          L(
+            `| \u9759\u606F\u5FC3\u7387\u8FD1 7 \u65E5 | ${rest.toFixed(0)} bpm |`,
+            `| Resting HR last 7d | ${rest.toFixed(0)} bpm |`
+          )
+        );
+      }
+    }
+    const rw = analysis.recoveryWeek;
+    if (rw) {
+      lines.push(
+        L(
+          `| \u8FD1 7 \u65E5\u6062\u590D/\u8D1F\u8377 | \u6062\u590D ${rw.recoveryScore ?? "\u2014"} \xB7 \u8D1F\u8377 ${rw.loadScore ?? "\u2014"} \xB7 ${rw.statusLabel} |`,
+          `| Recovery/load 7d | recovery ${rw.recoveryScore ?? "\u2014"} \xB7 load ${rw.loadScore ?? "\u2014"} \xB7 ${rw.statusLabel} |`
+        )
+      );
+    }
+    const wos = analysis.workoutStats;
+    if (wos) {
+      lines.push(
+        L(
+          `| Workout \u8FD1 30 \u65E5 | ${wos.count30d} \u573A / ${wos.durationSum30d.toFixed(0)} min |`,
+          `| Workouts last 30d | ${wos.count30d} sessions / ${wos.durationSum30d.toFixed(0)} min |`
+        )
+      );
+    }
+    const es = analysis.ecgStats;
+    if (es && es.count > 0) {
+      lines.push(
+        L(
+          `| ECG | ${es.count} \u4EFD\uFF08\u7AA6\u6027 ${es.sinusCount} \xB7 \u9AD8\u5FC3\u7387 ${es.highHrCount} \xB7 \u4E0D\u4F73 ${es.inconclusiveCount}\uFF09 |`,
+          `| ECG | ${es.count} (sinus ${es.sinusCount} \xB7 high HR ${es.highHrCount} \xB7 poor ${es.inconclusiveCount}) |`
+        )
+      );
+    }
+    lines.push(``);
+    const bullets = buildInsightBullets(analysis, { locale }).slice(0, 5);
+    lines.push(L("## \u76D1\u6D4B\u8981\u70B9\uFF08\u7A0B\u5E8F\u751F\u6210\uFF09", "## Monitoring highlights (auto)"));
+    lines.push(``);
+    if (!bullets.length) {
+      lines.push(L("- \uFF08\u6682\u65E0\u8DB3\u591F\u6458\u8981\uFF09", "- (No summary available)"));
+    } else {
+      for (const b of bullets) {
+        const tag = b.tone === "alert" ? L("\u9700\u5173\u6CE8", "Alert") : b.tone === "watch" ? L("\u89C2\u5BDF", "Watch") : b.tone === "positive" ? L("\u79EF\u6781", "Good") : L("\u63D0\u793A", "Note");
+        lines.push(`- **[${tag}] ${b.title}**\uFF1A${b.detail}`);
+      }
+    }
+    lines.push(``);
+    const signals = detectCrossSignals(analysis, { locale }).slice(0, 5);
+    lines.push(L("## \u9700\u590D\u6838\u7EBF\u7D22", "## Cues to recheck"));
+    lines.push(``);
+    if (!signals.length) {
+      lines.push(
+        L(
+          "- \u5F53\u524D\u89C4\u5219\u672A\u89E6\u53D1\u660E\u663E\u7EC4\u5408\u4FE1\u53F7\uFF1B\u8FB9\u754C\u503C\u4ECD\u5EFA\u8BAE\u4EBA\u5DE5\u6838\u5BF9\u3002",
+          "- No strong rule-based combo signals; still review edge values manually."
+        )
+      );
+    } else {
+      for (const s of signals) {
+        const sev = s.severity === "alert" ? L("\u8B66\u62A5", "Alert") : s.severity === "watch" ? L("\u7559\u610F", "Watch") : L("\u4FE1\u606F", "Info");
+        const when = s.date ? ` (${s.date})` : "";
+        lines.push(`- **[${sev}] ${s.title}**${when}\uFF1A${s.detail}`);
+      }
+    }
+    lines.push(``);
+    lines.push(L("## \u8FB9\u754C\u58F0\u660E", "## Disclaimer"));
+    lines.push(``);
+    lines.push(
+      L(
+        "- \u6570\u636E\u6765\u81EA Apple Health / \u53EF\u9009\u5916\u90E8 CSV\uFF0C\u5B58\u5728\u6D4B\u91CF\u4E0E\u7B97\u6CD5\u8BEF\u5DEE\u3002",
+        "- Data from Apple Health / optional CSV; measurement and algorithm error exist."
+      )
+    );
+    lines.push(
+      L(
+        "- CGM \u4E3A\u7EC4\u7EC7\u95F4\u6DB2\uFF0C\u5F02\u5E38\u987B\u6307\u5C16\u8840\u590D\u6838\uFF1B\u4E0D\u80FD\u5355\u72EC\u8BCA\u65AD\u3002",
+        "- CGM is interstitial fluid; abnormal values need fingerstick; not diagnostic alone."
+      )
+    );
+    lines.push(
+      L(
+        "- \u672C\u6587\u4E0D\u66FF\u4EE3\u95E8\u8BCA\uFF0C\u4E0D\u5F00\u836F\u3001\u4E0D\u4E0B\u8BCA\u65AD\u3002",
+        "- This sheet does not replace a clinical visit; no prescriptions or diagnoses."
       )
     );
     lines.push(``);

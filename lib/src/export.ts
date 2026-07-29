@@ -7,6 +7,7 @@ import { buildAnalysisSnapshot, AnalysisSnapshot } from './snapshot';
 import { detectCrossSignals, CrossSignal } from './signals';
 
 export { generateWeeklyReportMarkdown } from './weekly-report';
+export { generateVisitSummaryMarkdown } from './visit-summary';
 
 function csvEscape(value: unknown): string {
   if (value == null) return '';

@@ -89,6 +89,7 @@ export {
   buildExportBundle,
   joinCsvBundle,
   generateWeeklyReportMarkdown,
+  generateVisitSummaryMarkdown,
 } from './export';
 
 export {
