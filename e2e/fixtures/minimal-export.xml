@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<HealthData>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="70.00" startDate="2026-07-10 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="40.0" startDate="2026-07-10 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="55" startDate="2026-07-10 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="5000" startDate="2026-07-10 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-10 00:00:00 +0800" endDate="2026-07-10 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="300" startDate="2026-07-10 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="20" startDate="2026-07-10 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-10 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureSystolic" value="118" startDate="2026-07-10 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureDiastolic" value="76" startDate="2026-07-10 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.2" startDate="2026-07-10 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.5" startDate="2026-07-10 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="69.95" startDate="2026-07-11 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="41.0" startDate="2026-07-11 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="56" startDate="2026-07-11 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="5100" startDate="2026-07-11 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-11 00:00:00 +0800" endDate="2026-07-11 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="305" startDate="2026-07-11 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="21" startDate="2026-07-11 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-11 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.4" startDate="2026-07-11 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.8" startDate="2026-07-11 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="69.90" startDate="2026-07-12 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="42.0" startDate="2026-07-12 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="57" startDate="2026-07-12 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="5200" startDate="2026-07-12 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-12 00:00:00 +0800" endDate="2026-07-12 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="310" startDate="2026-07-12 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="22" startDate="2026-07-12 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-12 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureSystolic" value="120" startDate="2026-07-12 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureDiastolic" value="78" startDate="2026-07-12 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.6" startDate="2026-07-12 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.5" startDate="2026-07-12 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="69.85" startDate="2026-07-13 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="43.0" startDate="2026-07-13 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="55" startDate="2026-07-13 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="5300" startDate="2026-07-13 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-13 00:00:00 +0800" endDate="2026-07-13 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="315" startDate="2026-07-13 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="23" startDate="2026-07-13 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-13 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.2" startDate="2026-07-13 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.8" startDate="2026-07-13 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="69.80" startDate="2026-07-14 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="44.0" startDate="2026-07-14 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="56" startDate="2026-07-14 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="5400" startDate="2026-07-14 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-14 00:00:00 +0800" endDate="2026-07-14 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="320" startDate="2026-07-14 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="24" startDate="2026-07-14 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-14 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureSystolic" value="118" startDate="2026-07-14 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureDiastolic" value="77" startDate="2026-07-14 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.4" startDate="2026-07-14 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.5" startDate="2026-07-14 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="69.75" startDate="2026-07-15 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="40.0" startDate="2026-07-15 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="57" startDate="2026-07-15 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="5500" startDate="2026-07-15 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-15 00:00:00 +0800" endDate="2026-07-15 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="325" startDate="2026-07-15 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="25" startDate="2026-07-15 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-15 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.6" startDate="2026-07-15 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.8" startDate="2026-07-15 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="69.70" startDate="2026-07-16 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="41.0" startDate="2026-07-16 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="55" startDate="2026-07-16 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="5600" startDate="2026-07-16 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-16 00:00:00 +0800" endDate="2026-07-16 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="330" startDate="2026-07-16 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="26" startDate="2026-07-16 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-16 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureSystolic" value="120" startDate="2026-07-16 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureDiastolic" value="76" startDate="2026-07-16 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.2" startDate="2026-07-16 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.5" startDate="2026-07-16 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="69.65" startDate="2026-07-17 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="42.0" startDate="2026-07-17 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="56" startDate="2026-07-17 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="5700" startDate="2026-07-17 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-17 00:00:00 +0800" endDate="2026-07-17 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="335" startDate="2026-07-17 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="27" startDate="2026-07-17 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-17 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.4" startDate="2026-07-17 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.8" startDate="2026-07-17 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="69.60" startDate="2026-07-18 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="43.0" startDate="2026-07-18 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="57" startDate="2026-07-18 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="5800" startDate="2026-07-18 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-18 00:00:00 +0800" endDate="2026-07-18 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="340" startDate="2026-07-18 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="28" startDate="2026-07-18 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-18 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureSystolic" value="118" startDate="2026-07-18 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureDiastolic" value="78" startDate="2026-07-18 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.6" startDate="2026-07-18 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.5" startDate="2026-07-18 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="69.55" startDate="2026-07-19 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="44.0" startDate="2026-07-19 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="55" startDate="2026-07-19 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="5900" startDate="2026-07-19 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-19 00:00:00 +0800" endDate="2026-07-19 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="345" startDate="2026-07-19 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="29" startDate="2026-07-19 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-19 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.2" startDate="2026-07-19 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.8" startDate="2026-07-19 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="69.50" startDate="2026-07-20 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="40.0" startDate="2026-07-20 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="56" startDate="2026-07-20 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="6000" startDate="2026-07-20 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-20 00:00:00 +0800" endDate="2026-07-20 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="350" startDate="2026-07-20 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="20" startDate="2026-07-20 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-20 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureSystolic" value="120" startDate="2026-07-20 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureDiastolic" value="77" startDate="2026-07-20 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.4" startDate="2026-07-20 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.5" startDate="2026-07-20 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="69.45" startDate="2026-07-21 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="41.0" startDate="2026-07-21 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="57" startDate="2026-07-21 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="6100" startDate="2026-07-21 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-21 00:00:00 +0800" endDate="2026-07-21 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="355" startDate="2026-07-21 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="21" startDate="2026-07-21 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-21 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.6" startDate="2026-07-21 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.8" startDate="2026-07-21 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="69.40" startDate="2026-07-22 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="42.0" startDate="2026-07-22 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="55" startDate="2026-07-22 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="6200" startDate="2026-07-22 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-22 00:00:00 +0800" endDate="2026-07-22 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="360" startDate="2026-07-22 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="22" startDate="2026-07-22 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-22 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureSystolic" value="118" startDate="2026-07-22 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodPressureDiastolic" value="76" startDate="2026-07-22 08:00:00 +0800" sourceName="iPhone"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.2" startDate="2026-07-22 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.5" startDate="2026-07-22 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBodyMass" value="69.35" startDate="2026-07-23 07:30:00 +0800" sourceName="Scale"/>
+<Record type="HKQuantityTypeIdentifierHeartRateVariabilitySDNN" value="43.0" startDate="2026-07-23 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierRestingHeartRate" value="56" startDate="2026-07-23 06:10:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierStepCount" value="6300" startDate="2026-07-23 12:00:00 +0800" sourceName="John的Apple Watch"/>
+<Record type="HKCategoryTypeIdentifierSleepAnalysis" value="HKCategoryValueSleepAnalysisAsleepCore" startDate="2026-07-23 00:00:00 +0800" endDate="2026-07-23 06:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierActiveEnergyBurned" value="365" startDate="2026-07-23 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierAppleExerciseTime" value="23" startDate="2026-07-23 10:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierOxygenSaturation" value="0.97" startDate="2026-07-23 02:00:00 +0800" sourceName="Apple Watch"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.4" startDate="2026-07-23 08:30:00 +0800" sourceName="CGM Sensor"/>
+<Record type="HKQuantityTypeIdentifierBloodGlucose" value="5.8" startDate="2026-07-23 12:30:00 +0800" sourceName="CGM Sensor"/>
+<Workout workoutActivityType="HKWorkoutActivityTypeWalking" duration="30" durationUnit="min" sourceName="Apple Watch" startDate="2026-07-20 18:00:00 +0800" endDate="2026-07-20 18:30:00 +0800">
+  <WorkoutStatistics type="HKQuantityTypeIdentifierActiveEnergyBurned" sum="120" unit="kcal"/>
+  <WorkoutStatistics type="HKQuantityTypeIdentifierHeartRate" average="110" minimum="90" maximum="130" unit="count/min"/>
+</Workout>
+</HealthData>

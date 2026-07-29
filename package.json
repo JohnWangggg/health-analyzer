@@ -1,0 +1,16 @@
+{
+  "name": "health-analyzer",
+  "private": true,
+  "description": "Apple Health analyzer PWA — root scripts for smoke & E2E",
+  "scripts": {
+    "smoke": "node scripts/smoke.mjs",
+    "test:lib": "npm --prefix lib test",
+    "build:lib": "npm --prefix lib run build",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install chromium",
+    "test:all": "npm run test:lib && npm run build:lib && npm run smoke && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.0"
+  }
+}

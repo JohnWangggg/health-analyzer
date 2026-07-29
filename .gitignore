@@ -1,6 +1,12 @@
 # 依赖
 node_modules/
 
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
 # TypeScript 构建产物（lib/dist 是构建产物，源码在 lib/src）
 lib/dist/
 lib/.test-dist/

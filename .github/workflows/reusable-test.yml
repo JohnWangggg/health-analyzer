@@ -35,3 +35,17 @@ jobs:
       - name: UI / i18n smoke (static + locale)
         working-directory: .
         run: node scripts/smoke.mjs
+
+      - name: Install root (Playwright)
+        working-directory: .
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: .
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E smoke (Playwright)
+        working-directory: .
+        run: npx playwright test
+        env:
+          CI: 'true'

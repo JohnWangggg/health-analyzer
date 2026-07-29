@@ -45,7 +45,14 @@ python3 -m http.server 8000
 
 # 3. 浏览器打开 http://localhost:8000
 
-# 4. 部署：推送 main 后 GitHub Actions 先跑测试再部署 Pages
+# 4. 仓库根目录：静态 smoke + Playwright E2E
+cd ../..
+npm install
+npx playwright install chromium   # 首次
+npm run smoke                     # i18n / 静态资源 / lib.js 语言
+npm run test:e2e                  # 页面加载、语言切换、最小 XML 解析
+
+# 5. 部署：推送 main 后 GitHub Actions 先跑测试再部署 Pages
 ```
 
 ## 核心特性
@@ -115,7 +122,7 @@ health-analyzer/
 
 ## 部署到 GitHub Pages
 
-推送到 `main` 即可：CI 会先 `npm test` + `npm run build`，再部署 `web-ui/public/`。
+推送到 `main` 即可：CI 会先 `lib` 单测与构建、静态 smoke、Playwright E2E，再部署 `web-ui/public/`。
 
 ```bash
 cd health-analyzer
@@ -170,6 +177,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.33 | Playwright E2E 冒烟（页面/语言/最小 XML 解析） |
 | v1.32 | 扩展繁体词库覆盖洞察/门诊残缺短语、smoke 抽检 |
 | v1.31 | zh-TW 分析文案繁体化（createL 词库）、CI smoke |
 | v1.30 | 上传区/CSV 合并说明/洞察引导 i18n |
