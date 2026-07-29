@@ -11,8 +11,9 @@ export type LocaleOptions = { locale?: AppLocale | string };
  * - else → zh-CN
  *
  * Analysis bilingual copy (createL / pickLocale): zh-TW currently shares
- * the same Simplified Chinese medical/analysis strings as zh-CN; only UI
- * chrome has a full Traditional Chinese pack in web-ui/public/i18n.js.
+ * the same Simplified Chinese medical/analysis body as zh-CN; short section
+ * headers / insight titles may be traditionalized via zh-tw-map.ts.
+ * Full UI chrome uses Traditional Chinese in web-ui/public/i18n.js.
  */
 export function normalizeLocale(v?: string | null): AppLocale {
   if (v == null || v === '') return 'zh-CN';

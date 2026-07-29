@@ -1028,7 +1028,82 @@
     $('step-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
-  /** 绑定恢复权重滑块（renderSummary 后调用） */
+  function getRecoveryWeightPresets() {
+    const lib =
+      window.HealthAnalyzer && window.HealthAnalyzer.RECOVERY_WEIGHT_PRESETS;
+    if (lib && typeof lib === 'object') return lib;
+    // 离线兜底（与 lib types 一致）
+    return {
+      balanced: getDefaultRecoveryWeights(),
+      recoveryFirst: {
+        hrv: 1.4, sleep: 1.4, nightHr: 1.2, spo2Night: 1.1,
+        exercise: 0.8, workout: 0.7, steps: 0.8,
+      },
+      training: {
+        hrv: 0.9, sleep: 1.0, nightHr: 0.9, spo2Night: 0.8,
+        exercise: 1.3, workout: 1.4, steps: 1.2,
+      },
+      weightLoss: {
+        hrv: 1.0, sleep: 1.2, nightHr: 1.0, spo2Night: 1.0,
+        exercise: 1.2, workout: 1.0, steps: 1.3,
+      },
+    };
+  }
+
+  function weightsRoughlyEqual(a, b) {
+    if (!a || !b) return false;
+    const keys = ['hrv', 'sleep', 'nightHr', 'spo2Night', 'exercise', 'workout', 'steps'];
+    for (const k of keys) {
+      if (Math.abs(Number(a[k] || 1) - Number(b[k] || 1)) > 0.05) return false;
+    }
+    return true;
+  }
+
+  function matchRecoveryPresetId(weights) {
+    const w = normalizeRecoveryWeightsLocal(weights);
+    const presets = getRecoveryWeightPresets();
+    for (const id of ['balanced', 'recoveryFirst', 'training', 'weightLoss']) {
+      if (presets[id] && weightsRoughlyEqual(w, normalizeRecoveryWeightsLocal(presets[id]))) {
+        return id;
+      }
+    }
+    return null;
+  }
+
+  function markActiveRecoveryPreset(activeId) {
+    document.querySelectorAll('[data-rw-preset]').forEach((btn) => {
+      const id = btn.getAttribute('data-rw-preset');
+      btn.classList.toggle('is-active', id === activeId);
+    });
+  }
+
+  function applyRecoveryWeightPreset(presetId) {
+    const presets = getRecoveryWeightPresets();
+    const raw = presets[presetId];
+    if (!raw) return false;
+    const w = normalizeRecoveryWeightsLocal(raw);
+    fillRecoveryWeightsForm(w);
+    const ok = recomputeRecoveryWithWeights(w);
+    markActiveRecoveryPreset(presetId);
+    const st = $('rw-weights-status');
+    const label = t(`rw.preset.${presetId}`) || presetId;
+    if (st) {
+      st.textContent = ok
+        ? t('rw.preset.applied', { name: label }) || `✓ ${label}`
+        : t('export.err.needAnalysis') || '请先完成分析';
+      st.classList.add('show');
+      setTimeout(() => st.classList.remove('show'), 2200);
+    }
+    if (ok) {
+      showToast(
+        t('rw.preset.toast', { name: label }) || `已应用预设：${label}`,
+        { ok: true, ms: 2200 }
+      );
+    }
+    return ok;
+  }
+
+  /** 绑定恢复权重滑块与预设 chips（renderSummary 后调用） */
   function bindRecoveryWeightsUi() {
     const panel = $('rw-weights-panel');
     if (!panel || panel.dataset.bound === '1') {
@@ -1041,16 +1116,27 @@
       el.oninput = () => {
         const lab = $(`rw-weight-${k}-val`);
         if (lab) lab.textContent = Number(el.value).toFixed(1);
+        // 手动改滑块后取消预设高亮
+        markActiveRecoveryPreset(null);
       };
     }
+    document.querySelectorAll('[data-rw-preset]').forEach((btn) => {
+      btn.onclick = () => {
+        const id = btn.getAttribute('data-rw-preset');
+        if (id) applyRecoveryWeightPreset(id);
+      };
+    });
+    markActiveRecoveryPreset(matchRecoveryPresetId(recoveryWeights));
+
     const resetBtn = $('btn-rw-weights-reset');
     if (resetBtn) {
       resetBtn.onclick = () => {
         const def = getDefaultRecoveryWeights();
         fillRecoveryWeightsForm(def);
+        markActiveRecoveryPreset('balanced');
         const st = $('rw-weights-status');
         if (st) {
-          st.textContent = '已填入默认，点应用生效';
+          st.textContent = t('rw.weights.resetHint') || '已填入默认，点应用生效';
           st.classList.add('show');
         }
       };
@@ -1060,13 +1146,21 @@
       applyBtn.onclick = () => {
         const w = readRecoveryWeightsFromForm();
         const ok = recomputeRecoveryWithWeights(w);
+        markActiveRecoveryPreset(matchRecoveryPresetId(w));
         const st = $('rw-weights-status');
         if (st) {
-          st.textContent = ok ? '✓ 已按新权重重算' : '请先完成分析';
+          st.textContent = ok
+            ? (t('rw.weights.applied') || '✓ 已按新权重重算')
+            : (t('export.err.needAnalysis') || '请先完成分析');
           st.classList.add('show');
           setTimeout(() => st.classList.remove('show'), 2200);
         }
-        if (ok) showToast('恢复评分已按个人权重重算', { ok: true, ms: 2200 });
+        if (ok) {
+          showToast(
+            t('rw.weights.toast') || '恢复评分已按个人权重重算',
+            { ok: true, ms: 2200 }
+          );
+        }
       };
     }
   }
@@ -1099,6 +1193,7 @@
       'charts-spo2': { section: 'step-charts', chart: 'spo2' },
       'charts-exercise': { section: 'step-charts', chart: 'exercise' },
       'charts-workout': { section: 'step-charts', chart: 'workout' },
+      'charts-recovery': { section: 'step-charts', chart: 'recovery' },
       prompt: { section: 'step-prompt' },
     };
     const target = map[anchor] || map.summary;
@@ -1117,6 +1212,22 @@
           if (el !== acc) el.open = false;
         });
       }
+    }
+
+    // 跳图表：保持当前 range chip（默认不改）；若图表区尚未渲染则补一次
+    if (goChart && target.chart && currentAnalysis) {
+      const chartSec = $('step-charts');
+      const host = $('charts-content');
+      const hasBlock = host && host.querySelector(`[data-chart="${target.chart}"]`);
+      if (host && (!hasBlock || !host.querySelector('.chart-block'))) {
+        try { renderCharts(currentAnalysis); } catch (e) { /* ignore */ }
+      }
+      // 同步 chips 激活态（range 仍用 chartRangeDays，不强制切换）
+      document.querySelectorAll('#chart-range-chips .chip').forEach((btn) => {
+        const d = Number(btn.getAttribute('data-days'));
+        btn.classList.toggle('is-active', d === chartRangeDays);
+      });
+      if (chartSec) chartSec.classList.remove('hidden');
     }
 
     section.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1234,23 +1345,29 @@
     const chartKeyFromAnchor = (a) => {
       if (!a) return '';
       if (a.includes('cgm')) return 'cgm';
-      if (a.includes('weight') || a.includes('bodyfat')) return 'weight';
+      if (a.includes('bodyfat')) return 'bodyfat';
+      if (a.includes('weight')) return 'weight';
       if (a.includes('bp') || a.includes('血压')) return 'bp';
       if (a.includes('hrv')) return 'hrv';
       if (a.includes('workout')) return 'workout';
       if (a.includes('recovery') || a.includes('恢复') || a.includes('负荷')) return 'recovery';
-      if (a.includes('watch') || a.includes('spo2') || a.includes('exercise')) return 'spo2';
+      if (a.includes('exercise')) return 'exercise';
+      if (a.includes('watch') || a.includes('spo2')) return 'spo2';
       return '';
     };
 
     list.innerHTML = bullets.map((b, idx) => {
       const anchor = b.anchor || 'summary';
       const chartKey = chartKeyFromAnchor(anchor);
-      const hasChart = chartKey && document.querySelector(`#charts-content [data-chart="${chartKey}"]`);
-      // 图表可能尚未渲染完：根据分析数据预判
+      // 图表可能尚未渲染完：根据分析数据预判；canChart 为 false 时不显示「看曲线」
       const canChart =
         chartKey === 'cgm' ? !!(analysis.cgmStats) :
         chartKey === 'weight' ? !!(analysis.weightStats || (analysis.data && analysis.data.weight && analysis.data.weight.length)) :
+        chartKey === 'bodyfat' ? !!(
+          analysis.weightStats &&
+          analysis.weightStats.trendSeries &&
+          analysis.weightStats.trendSeries.some((w) => w.bodyFat != null && Number.isFinite(w.bodyFat))
+        ) :
         chartKey === 'bp' ? !!(analysis.bpStats) :
         chartKey === 'hrv' ? !!(analysis.hrvByDate && Object.keys(analysis.hrvByDate).length) :
         chartKey === 'spo2' || chartKey === 'exercise' ? !!(analysis.watchStats && analysis.watchStats.dayCount) :
@@ -1972,9 +2089,10 @@
       window.HealthCharts.renderAnalysisCharts(container, analysis, {
         // 0 = 全部；chips 默认 30
         days: days === 0 ? 0 : (days || 30),
+        locale: getAnalysisLocale(),
       });
     } else {
-      container.innerHTML = '<p class="hint">图表模块未加载。</p>';
+      container.innerHTML = `<p class="hint chart-empty">${escapeHtml(t('charts.title'))} — module not loaded</p>`;
     }
     // 同步 chips 激活态
     document.querySelectorAll('#chart-range-chips .chip').forEach((btn) => {
@@ -2594,26 +2712,32 @@
           </table>
           ${miniTable}
           <details class="rw-weights-panel" id="rw-weights-panel">
-            <summary>个人恢复评分权重</summary>
-            <p class="hint" style="margin:8px 0;">相对权重，仅影响本机评分；默认全 1.0 与历史等权一致。调后点「应用并重算恢复」。</p>
+            <summary>${escapeHtml(t('rw.weights.summary') || '个人恢复评分权重')}</summary>
+            <p class="hint" style="margin:8px 0;">${escapeHtml(t('rw.weights.hint') || '相对权重，仅影响本机评分；默认全 1.0 与历史等权一致。调后点「应用并重算恢复」。')}</p>
+            <div class="rw-presets chart-range-chips" role="group" aria-label="${escapeHtml(t('rw.presets.aria') || '恢复权重预设')}">
+              <button type="button" class="chip" data-rw-preset="recoveryFirst">${escapeHtml(t('rw.preset.recoveryFirst') || '恢复优先')}</button>
+              <button type="button" class="chip" data-rw-preset="training">${escapeHtml(t('rw.preset.training') || '训练期')}</button>
+              <button type="button" class="chip" data-rw-preset="weightLoss">${escapeHtml(t('rw.preset.weightLoss') || '减脂')}</button>
+              <button type="button" class="chip" data-rw-preset="balanced">${escapeHtml(t('rw.preset.balanced') || '均衡')}</button>
+            </div>
             <div class="rw-weights-grid">
               <div class="rw-weights-col">
-                <div class="rw-weights-side">恢复侧</div>
+                <div class="rw-weights-side">${escapeHtml(t('rw.weights.sideRecovery') || '恢复侧')}</div>
                 ${weightSlider('hrv', 'HRV', 'recovery')}
-                ${weightSlider('sleep', '睡眠', 'recovery')}
-                ${weightSlider('nightHr', '夜心率', 'recovery')}
-                ${weightSlider('spo2Night', '夜血氧', 'recovery')}
+                ${weightSlider('sleep', t('rw.weights.sleep') || '睡眠', 'recovery')}
+                ${weightSlider('nightHr', t('rw.weights.nightHr') || '夜心率', 'recovery')}
+                ${weightSlider('spo2Night', t('rw.weights.spo2Night') || '夜血氧', 'recovery')}
               </div>
               <div class="rw-weights-col">
-                <div class="rw-weights-side">负荷侧</div>
-                ${weightSlider('exercise', '锻炼', 'load')}
+                <div class="rw-weights-side">${escapeHtml(t('rw.weights.sideLoad') || '负荷侧')}</div>
+                ${weightSlider('exercise', t('rw.weights.exercise') || '锻炼', 'load')}
                 ${weightSlider('workout', 'Workout', 'load')}
-                ${weightSlider('steps', '步数', 'load')}
+                ${weightSlider('steps', t('rw.weights.steps') || '步数', 'load')}
               </div>
             </div>
             <div class="rw-weights-actions">
-              <button type="button" class="btn-ghost btn-sm" id="btn-rw-weights-reset">重置默认</button>
-              <button type="button" class="btn-secondary btn-sm" id="btn-rw-weights-apply">应用并重算恢复</button>
+              <button type="button" class="btn-ghost btn-sm" id="btn-rw-weights-reset">${escapeHtml(t('rw.weights.reset') || '重置默认')}</button>
+              <button type="button" class="btn-secondary btn-sm" id="btn-rw-weights-apply">${escapeHtml(t('rw.weights.apply') || '应用并重算恢复')}</button>
               <span class="copy-status" id="rw-weights-status" aria-live="polite"></span>
             </div>
           </details>
@@ -2975,6 +3099,7 @@
     }
     if (!currentAnalysis) return;
     try {
+      renderCharts(currentAnalysis);
       renderInsights(currentAnalysis);
       renderSignals(currentAnalysis);
       renderAvailability(currentAnalysis);
@@ -3009,13 +3134,101 @@
   })();
 
   // ============================================================
-  // Service Worker 注册
+  // Service Worker 注册 + 版本更新横幅
   // ============================================================
+
+  const UPDATE_DISMISS_KEY = 'health-analyzer-update-dismiss';
+
+  function showAppUpdateBanner() {
+    const banner = $('app-update-banner');
+    if (!banner) return;
+    try {
+      if (sessionStorage.getItem(UPDATE_DISMISS_KEY) === '1') return;
+    } catch (_) { /* ignore */ }
+    banner.classList.remove('hidden');
+  }
+
+  function hideAppUpdateBanner() {
+    const banner = $('app-update-banner');
+    if (banner) banner.classList.add('hidden');
+  }
+
+  function wireAppUpdateBanner(reg) {
+    const btnUpdate = $('btn-app-update');
+    const btnDismiss = $('btn-app-update-dismiss');
+
+    if (btnUpdate && !btnUpdate.dataset.wired) {
+      btnUpdate.dataset.wired = '1';
+      btnUpdate.addEventListener('click', () => {
+        try {
+          sessionStorage.removeItem(UPDATE_DISMISS_KEY);
+        } catch (_) { /* ignore */ }
+        // Prefer skipWaiting on waiting worker, then reload
+        const waiting = reg && reg.waiting;
+        if (waiting) {
+          try {
+            waiting.postMessage({ type: 'SKIP_WAITING' });
+          } catch (_) { /* ignore */ }
+        }
+        window.location.reload();
+      });
+    }
+
+    if (btnDismiss && !btnDismiss.dataset.wired) {
+      btnDismiss.dataset.wired = '1';
+      btnDismiss.addEventListener('click', () => {
+        try {
+          sessionStorage.setItem(UPDATE_DISMISS_KEY, '1');
+        } catch (_) { /* ignore */ }
+        hideAppUpdateBanner();
+      });
+    }
+
+    if (!reg) return;
+
+    const onInstalledWorker = (worker) => {
+      if (!worker) return;
+      worker.addEventListener('statechange', () => {
+        // New SW installed while page already controlled → offer refresh
+        if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+          showAppUpdateBanner();
+        }
+      });
+    };
+
+    reg.addEventListener('updatefound', () => {
+      onInstalledWorker(reg.installing);
+    });
+
+    // Already waiting from a previous update cycle
+    if (reg.waiting && navigator.serviceWorker.controller) {
+      showAppUpdateBanner();
+    }
+  }
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js').catch(err => {
-        console.log('SW 注册失败（可忽略）:', err);
+      navigator.serviceWorker
+        .register('./sw.js')
+        .then((reg) => {
+          wireAppUpdateBanner(reg);
+          // Periodic check when tab is visible (lightweight)
+          try {
+            reg.update();
+          } catch (_) { /* ignore */ }
+        })
+        .catch((err) => {
+          console.log('SW 注册失败（可忽略）:', err);
+        });
+
+      // controllerchange after an *update* (not first install) → offer refresh
+      let hadControllerAtLoad = !!navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!hadControllerAtLoad) {
+          hadControllerAtLoad = true;
+          return;
+        }
+        showAppUpdateBanner();
       });
     });
   }

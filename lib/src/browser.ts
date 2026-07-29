@@ -39,8 +39,8 @@ export {
   attachRecoveryBaseline,
 } from './stats';
 
-export { DEFAULT_RECOVERY_WEIGHTS } from './types';
-export type { RecoveryWeights } from './types';
+export { DEFAULT_RECOVERY_WEIGHTS, RECOVERY_WEIGHT_PRESETS } from './types';
+export type { RecoveryWeights, RecoveryWeightPresetId } from './types';
 
 export {
   processWorkoutBlock,
@@ -73,6 +73,11 @@ export {
   createL,
 } from './locale';
 export type { AppLocale, LFn, LocaleOptions } from './locale';
+
+export {
+  toTraditionalTitle,
+  traditionalizeMarkdownHeadings,
+} from './zh-tw-map';
 
 export {
   detectCrossSignals,

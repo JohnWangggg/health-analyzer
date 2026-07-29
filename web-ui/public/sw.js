@@ -1,7 +1,7 @@
 /* Apple Health 数据分析 PWA Service Worker */
 /* network-first（HTML/JS/CSS）+ 缓存回退，保持离线可用并减少陈旧资源 */
 
-const CACHE_NAME = 'health-analyzer-v25';
+const CACHE_NAME = 'health-analyzer-v26';
 const ASSETS = [
   './',
   './index.html',
@@ -22,7 +22,14 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
   );
+  // Activate promptly; UI may still prompt a reload for already-open tabs
   self.skipWaiting();
+});
+
+self.addEventListener('message', (event) => {
+  if (event && event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('activate', (event) => {

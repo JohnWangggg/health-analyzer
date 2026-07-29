@@ -6,6 +6,7 @@
 import { FullAnalysis, UserContext } from '../types';
 import { detectCrossSignals, formatCrossSignalsForLLM } from '../signals';
 import { buildInsightBullets, formatInsightsForLLM } from '../insights';
+import { traditionalizeMarkdownHeadings } from '../zh-tw-map';
 import { createL, normalizeLocale, LocaleOptions } from '../locale';
 
 /** 主提示词：引导 LLM 按指定格式输出深度分析报告（中文） */
@@ -1266,7 +1267,12 @@ export function formatAnalysisForLLM(
     sections.push(``);
   }
 
-  return sections.join('\n');
+  let md = sections.join('\n');
+  // zh-TW: traditionalize ##/### section headers only (long medical body stays zh-CN)
+  if (normalizeLocale(options?.locale) === 'zh-TW') {
+    md = traditionalizeMarkdownHeadings(md);
+  }
+  return md;
 }
 
 function combineContextAndData(

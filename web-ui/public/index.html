@@ -58,6 +58,12 @@
       <button type="button" id="install-dismiss" class="install-dismiss" data-i18n-aria="install.dismiss" aria-label="关闭提示">×</button>
     </aside>
 
+    <div id="app-update-banner" class="app-update-banner hidden" role="status">
+      <span class="app-update-text" data-i18n="update.banner">发现新版本，刷新可获取最新界面。</span>
+      <button type="button" id="btn-app-update" class="btn-primary" data-i18n="update.refresh">刷新</button>
+      <button type="button" id="btn-app-update-dismiss" class="btn-ghost" data-i18n="update.later">稍后</button>
+    </div>
+
     <div class="layout-main">
     <!-- 步骤 1：上传 -->
     <section id="step-source" class="card">
@@ -201,6 +207,27 @@
           <li data-i18n="help.export.3">存储到「文件」App，再在本页选择该 ZIP</li>
           <li data-i18n="help.export.4">体积很大时（数百 MB），建议在电脑浏览器打开本页再上传</li>
         </ol>
+      </details>
+
+      <details class="card help-box" id="metrics-glossary">
+        <summary data-i18n="glossary.title">指标说明</summary>
+        <div class="glossary-body">
+          <p data-i18n="glossary.lead">以下为常用监测指标的简短说明，帮助解读概览与明细（非诊断）。</p>
+          <dl class="glossary-list">
+            <dt data-i18n="glossary.cgm.term">CGM TIR（血糖在目标范围时间占比）</dt>
+            <dd data-i18n="glossary.cgm.desc">连续血糖监测中，读数落在约 3.9–10.0 mmol/L 的时间比例。稳定期（排除传感器首日）通常比含首日的整体更可靠；低值需结合指尖血与症状。</dd>
+            <dt data-i18n="glossary.weight.term">晨起体重</dt>
+            <dd data-i18n="glossary.weight.desc">每日 12:00 前最早一条体重（若无则取全日最早），用于趋势以减少晚间进食与衣物波动干扰。体脂百分比若有则一并参考。</dd>
+            <dt data-i18n="glossary.recovery.term">恢复 / 负荷评分</dt>
+            <dd data-i18n="glossary.recovery.desc">结合近 7 日 HRV、静息心率、活动与训练等规则合成的相对状态，用于自身趋势对照，不是医学诊断或训练处方。</dd>
+            <dt data-i18n="glossary.spo2.term">夜段 SpO₂（血氧）</dt>
+            <dd data-i18n="glossary.spo2.desc">手表估算的夜间血氧均值/最低值。偶发低读数常见；持续偏低或伴白天嗜睡、打鼾等症状时更宜关注，仍不能单独诊断睡眠呼吸暂停。</dd>
+            <dt data-i18n="glossary.vo2.term">VO₂ max（心肺适能估算）</dt>
+            <dd data-i18n="glossary.vo2.desc">Apple 基于步行/跑步等估算的最大摄氧量趋势，单位 mL/kg/min。适合看长期变化，单次波动不必过度解读。</dd>
+            <dt data-i18n="glossary.workout.term">Workout 训练会话</dt>
+            <dd data-i18n="glossary.workout.desc">健康 App / Watch 记录的运动场次、时长与类型汇总。可与活动卡路里、心率对照，反映训练频率与负荷，而非运动能力评级。</dd>
+          </dl>
+        </div>
       </details>
     </section>
 

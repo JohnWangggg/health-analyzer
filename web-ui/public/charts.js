@@ -1,9 +1,137 @@
 /**
  * 轻量 Canvas 折线图（无第三方依赖）
  * 暴露 window.HealthCharts；颜色跟随 CSS 变量（支持暗色模式）
+ * 文案：options.locale 或 window.I18n.getLocale()；zh* → 中文，否则 en
  */
 (function (global) {
   'use strict';
+
+  /** 图表自包含文案（zh-TW 等 zh* 回退中文） */
+  var STRINGS = {
+    zh: {
+      emptyNoData: '暂无图表数据',
+      emptyInsufficient:
+        '当前数据维度不足以绘制趋势图。上传含 CGM / 体重 / HRV / 血压 / Watch / Workout 的导出后再试。',
+      rangeAll: '全部',
+      rangeDays: '近 {n} 天',
+      latest: '最新',
+      range: '范围',
+      min: '最低',
+      max: '最高',
+      points: '点',
+      ariaInteractive: '，可按住查看读数',
+      titleCgm: 'CGM（{range}）',
+      titleWeightTrend: '体重趋势（晨起优先，{range}）',
+      titleBodyFat: '体脂趋势（{range}）',
+      titleWeight: '体重（{range}）',
+      titleHrv: 'HRV 全天均值（{range}）',
+      titleBp: '收缩压（{range}）',
+      titleSpo2: '血氧 SpO₂ 日均（{range}）',
+      titleExercise: 'Watch 锻炼分钟（{range}）',
+      titleVo2: 'VO₂ max 估算（{range}）',
+      titleSpo2Night: '夜段血氧 SpO₂（0–8h，{range}）',
+      titleBreathing: '睡眠呼吸紊乱（{range}）',
+      titleWorkout: 'Workout 日总时长（{range}）',
+      titleRecovery: '周恢复分（近 {n} 周）',
+      titleLoad: '周负荷分（近 {n} 周）',
+      legendGlucose: '血糖',
+      legendThr39: '3.9 阈值',
+      legendThr78: '7.8 阈值',
+      legendWeightTrend: '趋势体重',
+      legendBodyFat: '体脂%',
+      legendWeight: '体重',
+      legendHrv: 'HRV',
+      legendSys: '收缩压',
+      legendSpo2: 'SpO₂ 日均',
+      legendExercise: '锻炼 min',
+      legendVo2: 'VO₂ max',
+      legendSpo2Night: '夜段 SpO₂',
+      legendBreathing: '睡眠呼吸紊乱',
+      legendWorkout: '训练 min',
+      legendRecovery: '恢复分',
+      legendLoad: '负荷分',
+      unitScore: '分',
+    },
+    en: {
+      emptyNoData: 'No chart data',
+      emptyInsufficient:
+        'Not enough dimensions to draw trends. Upload an export with CGM / weight / HRV / BP / Watch / Workout and try again.',
+      rangeAll: 'All',
+      rangeDays: 'Last {n} days',
+      latest: 'Latest',
+      range: 'range',
+      min: 'min',
+      max: 'max',
+      points: 'pts',
+      ariaInteractive: ', hold to read values',
+      titleCgm: 'CGM ({range})',
+      titleWeightTrend: 'Weight trend (morning preferred, {range})',
+      titleBodyFat: 'Body fat trend ({range})',
+      titleWeight: 'Weight ({range})',
+      titleHrv: 'HRV daily mean ({range})',
+      titleBp: 'Systolic BP ({range})',
+      titleSpo2: 'SpO₂ daily mean ({range})',
+      titleExercise: 'Watch exercise minutes ({range})',
+      titleVo2: 'VO₂ max estimate ({range})',
+      titleSpo2Night: 'Night SpO₂ (0–8h, {range})',
+      titleBreathing: 'Sleep breathing disturbance ({range})',
+      titleWorkout: 'Workout daily duration ({range})',
+      titleRecovery: 'Weekly recovery score (last {n} weeks)',
+      titleLoad: 'Weekly load score (last {n} weeks)',
+      legendGlucose: 'Glucose',
+      legendThr39: '3.9 threshold',
+      legendThr78: '7.8 threshold',
+      legendWeightTrend: 'Trend weight',
+      legendBodyFat: 'Body fat %',
+      legendWeight: 'Weight',
+      legendHrv: 'HRV',
+      legendSys: 'Systolic',
+      legendSpo2: 'SpO₂ daily',
+      legendExercise: 'Exercise min',
+      legendVo2: 'VO₂ max',
+      legendSpo2Night: 'Night SpO₂',
+      legendBreathing: 'Breathing disturbance',
+      legendWorkout: 'Workout min',
+      legendRecovery: 'Recovery',
+      legendLoad: 'Load',
+      unitScore: 'pts',
+    },
+  };
+
+  function resolveLocale(options) {
+    var loc = '';
+    if (options && options.locale) loc = String(options.locale);
+    else {
+      try {
+        if (global.I18n && typeof global.I18n.getLocale === 'function') {
+          loc = String(global.I18n.getLocale() || '');
+        }
+      } catch (e) { /* ignore */ }
+    }
+    if (!loc) {
+      try {
+        loc = (global.document && global.document.documentElement &&
+          (global.document.documentElement.getAttribute('data-locale') ||
+            global.document.documentElement.lang)) || '';
+      } catch (e2) { /* ignore */ }
+    }
+    // zh*（含 zh-CN / zh-TW）用中文；其余 en
+    if (/^zh/i.test(loc)) return 'zh';
+    if (/^en/i.test(loc)) return 'en';
+    // 无 locale 信息时默认中文（与 app 默认一致）
+    return loc ? 'en' : 'zh';
+  }
+
+  function getStrings(localeKey) {
+    return STRINGS[localeKey] || STRINGS.zh;
+  }
+
+  function fmt(template, vars) {
+    if (!template) return '';
+    return String(template).replace(/\{(\w+)\}/g, function (_, k) {
+      return vars && vars[k] != null ? String(vars[k]) : '';
+    });
+  }
 
   function downsample(points, maxPoints) {
     if (!points || points.length <= maxPoints) return points || [];
@@ -37,7 +165,7 @@
   /**
    * @param {HTMLCanvasElement} canvas
    * @param {{ label: string, x: number|string, y: number }[]} points
-   * @param {{ color?: string, yLabel?: string, fill?: boolean, thresholds?: {y:number,color:string,label?:string}[], onHover?: function }} options
+   * @param {{ color?: string, yLabel?: string, fill?: boolean, thresholds?: {y:number,color:string,label?:string}[], onHover?: function, unit?: string, strings?: object }} options
    */
   function drawLineChart(canvas, points, options) {
     options = options || {};
@@ -47,6 +175,7 @@
     }
 
     const theme = themeColors();
+    const S = options.strings || getStrings(resolveLocale(options));
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const cssW = canvas.clientWidth || canvas.width || 320;
     const cssH = canvas.clientHeight || 180;
@@ -233,7 +362,8 @@
           const last = points[n - 1];
           const min = Math.min(...ys);
           const max = Math.max(...ys);
-          readoutEl.textContent = `最新 ${Number(last.y).toFixed(last.y >= 100 ? 0 : 2)}  ·  范围 ${min.toFixed(min >= 100 ? 0 : 1)}–${max.toFixed(max >= 100 ? 0 : 1)}`;
+          readoutEl.textContent =
+            `${S.latest} ${Number(last.y).toFixed(last.y >= 100 ? 0 : 2)}  ·  ${S.range} ${min.toFixed(min >= 100 ? 0 : 1)}–${max.toFixed(max >= 100 ? 0 : 1)}`;
         }
       };
       canvas.addEventListener('pointermove', (e) => onMove(e.clientX));
@@ -270,14 +400,15 @@
     return `rgba(${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)},${alpha})`;
   }
 
-  function statsLine(points, unit) {
+  function statsLine(points, unit, S) {
+    S = S || STRINGS.zh;
     const ys = points.map((p) => p.y).filter(Number.isFinite);
     if (!ys.length) return '';
     const last = ys[ys.length - 1];
     const min = Math.min(...ys);
     const max = Math.max(...ys);
     const u = unit ? ' ' + unit : '';
-    return `最新 ${last.toFixed(last >= 100 ? 0 : 2)}${u}  ·  最低 ${min.toFixed(min >= 100 ? 0 : 1)}${u}  ·  最高 ${max.toFixed(max >= 100 ? 0 : 1)}${u}  ·  ${points.length} 点`;
+    return `${S.latest} ${last.toFixed(last >= 100 ? 0 : 2)}${u}  ·  ${S.min} ${min.toFixed(min >= 100 ? 0 : 1)}${u}  ·  ${S.max} ${max.toFixed(max >= 100 ? 0 : 1)}${u}  ·  ${points.length} ${S.points}`;
   }
 
   function sliceByDays(points, days) {
@@ -292,24 +423,27 @@
     return points.filter((p) => String(p.x).slice(0, 10) >= cut);
   }
 
-  function rangeLabel(days) {
-    if (!days || days <= 0) return '全部';
-    return `近 ${days} 天`;
+  function rangeLabel(days, S) {
+    S = S || STRINGS.zh;
+    if (!days || days <= 0) return S.rangeAll;
+    return fmt(S.rangeDays, { n: days });
   }
 
   /**
    * 从 FullAnalysis 渲染可用图表
    * @param {HTMLElement} container
    * @param {object} analysis
-   * @param {{ days?: number }} options days: 7|30|90|0(全部)；CGM 默认 7，体重/HRV/BP 默认 90
+   * @param {{ days?: number, locale?: string }} options days: 7|30|90|0(全部)；CGM 默认 7，体重/HRV/BP 默认 90
    */
   function renderAnalysisCharts(container, analysis, options) {
     options = options || {};
     const daysOpt = options.days;
+    const localeKey = resolveLocale(options);
+    const S = getStrings(localeKey);
     if (!container) return;
     container.innerHTML = '';
     if (!analysis || !analysis.data) {
-      container.innerHTML = '<div class="chart-empty">暂无图表数据</div>';
+      container.innerHTML = `<div class="chart-empty">${S.emptyNoData}</div>`;
       return;
     }
 
@@ -327,7 +461,7 @@
       pts = downsample(pts, 400);
       blocks.push({
         key: 'cgm',
-        title: `CGM（${rangeLabel(cgmDays)}）`,
+        title: fmt(S.titleCgm, { range: rangeLabel(cgmDays, S) }),
         color: '#e74c3c',
         yLabel: 'mmol/L',
         unit: 'mmol/L',
@@ -337,9 +471,9 @@
           { y: 7.8, color: '#9b59b6', label: '7.8' },
         ],
         legend: [
-          { color: '#e74c3c', label: '血糖', dashed: false },
-          { color: '#e67e22', label: '3.9 阈值', dashed: true },
-          { color: '#9b59b6', label: '7.8 阈值', dashed: true },
+          { color: '#e74c3c', label: S.legendGlucose, dashed: false },
+          { color: '#e67e22', label: S.legendThr39, dashed: true },
+          { color: '#9b59b6', label: S.legendThr78, dashed: true },
         ],
       });
     }
@@ -350,23 +484,23 @@
       recent = sliceByDays(recent, seriesDays);
       blocks.push({
         key: 'weight',
-        title: `体重趋势（晨起优先，${rangeLabel(seriesDays)}）`,
+        title: fmt(S.titleWeightTrend, { range: rangeLabel(seriesDays, S) }),
         color: '#1abc9c',
         yLabel: 'kg',
         unit: 'kg',
         points: recent.map((w) => ({ x: w.x, y: w.y })),
-        legend: [{ color: '#1abc9c', label: '趋势体重', dashed: false }],
+        legend: [{ color: '#1abc9c', label: S.legendWeightTrend, dashed: false }],
       });
       const fatPts = recent.filter((w) => w.bodyFat != null && Number.isFinite(w.bodyFat));
       if (fatPts.length >= 2) {
         blocks.push({
           key: 'bodyfat',
-          title: `体脂趋势（${rangeLabel(seriesDays)}）`,
+          title: fmt(S.titleBodyFat, { range: rangeLabel(seriesDays, S) }),
           color: '#9b59b6',
           yLabel: '%',
           unit: '%',
           points: fatPts.map((w) => ({ x: w.x, y: w.bodyFat })),
-          legend: [{ color: '#9b59b6', label: '体脂%', dashed: false }],
+          legend: [{ color: '#9b59b6', label: S.legendBodyFat, dashed: false }],
         });
       }
     } else if (data.weight && data.weight.length > 0) {
@@ -375,12 +509,12 @@
       recent = sliceByDays(recent, seriesDays);
       blocks.push({
         key: 'weight',
-        title: `体重（${rangeLabel(seriesDays)}）`,
+        title: fmt(S.titleWeight, { range: rangeLabel(seriesDays, S) }),
         color: '#1abc9c',
         yLabel: 'kg',
         unit: 'kg',
         points: recent,
-        legend: [{ color: '#1abc9c', label: '体重', dashed: false }],
+        legend: [{ color: '#1abc9c', label: S.legendWeight, dashed: false }],
       });
     }
 
@@ -392,12 +526,12 @@
       pts = sliceByDays(pts, hrvDays);
       blocks.push({
         key: 'hrv',
-        title: `HRV 全天均值（${rangeLabel(hrvDays)}）`,
+        title: fmt(S.titleHrv, { range: rangeLabel(hrvDays, S) }),
         color: theme.primary,
         yLabel: 'ms',
         unit: 'ms',
         points: pts,
-        legend: [{ color: theme.primary, label: 'HRV', dashed: false }],
+        legend: [{ color: theme.primary, label: S.legendHrv, dashed: false }],
       });
     }
 
@@ -409,7 +543,7 @@
       if (pts.length > 120) pts = downsample(pts, 120);
       blocks.push({
         key: 'bp',
-        title: `收缩压（${rangeLabel(bpDays)}）`,
+        title: fmt(S.titleBp, { range: rangeLabel(bpDays, S) }),
         color: '#e74c3c',
         yLabel: 'mmHg',
         unit: 'mmHg',
@@ -419,7 +553,7 @@
           { y: 140, color: '#c0392b', label: '140' },
         ],
         legend: [
-          { color: '#e74c3c', label: '收缩压', dashed: false },
+          { color: '#e74c3c', label: S.legendSys, dashed: false },
           { color: '#e67e22', label: '90', dashed: true },
           { color: '#c0392b', label: '140', dashed: true },
         ],
@@ -436,7 +570,7 @@
       if (spo2Pts.length >= 2) {
         blocks.push({
           key: 'spo2',
-          title: `血氧 SpO₂ 日均（${rangeLabel(watchDays)}）`,
+          title: fmt(S.titleSpo2, { range: rangeLabel(watchDays, S) }),
           color: '#3498db',
           yLabel: '%',
           unit: '%',
@@ -446,7 +580,7 @@
             { y: 92, color: '#c0392b', label: '92' },
           ],
           legend: [
-            { color: '#3498db', label: 'SpO₂ 日均', dashed: false },
+            { color: '#3498db', label: S.legendSpo2, dashed: false },
             { color: '#e67e22', label: '95%', dashed: true },
             { color: '#c0392b', label: '92%', dashed: true },
           ],
@@ -460,12 +594,12 @@
       if (exPts.length >= 2 && exPts.some((p) => p.y > 0)) {
         blocks.push({
           key: 'exercise',
-          title: `Watch 锻炼分钟（${rangeLabel(watchDays)}）`,
+          title: fmt(S.titleExercise, { range: rangeLabel(watchDays, S) }),
           color: '#27ae60',
           yLabel: 'min',
           unit: 'min',
           points: exPts,
-          legend: [{ color: '#27ae60', label: '锻炼 min', dashed: false }],
+          legend: [{ color: '#27ae60', label: S.legendExercise, dashed: false }],
         });
       }
       let vo2Pts = wdays
@@ -475,12 +609,14 @@
       if (vo2Pts.length >= 2) {
         blocks.push({
           key: 'vo2',
-          title: `VO₂ max 估算（${rangeLabel(watchDays === 0 ? 0 : Math.max(watchDays, 90))}）`,
+          title: fmt(S.titleVo2, {
+            range: rangeLabel(watchDays === 0 ? 0 : Math.max(watchDays, 90), S),
+          }),
           color: '#8e44ad',
           yLabel: 'mL/kg/min',
           unit: 'mL/kg/min',
           points: vo2Pts,
-          legend: [{ color: '#8e44ad', label: 'VO₂ max', dashed: false }],
+          legend: [{ color: '#8e44ad', label: S.legendVo2, dashed: false }],
         });
       }
       let nightSpo2 = wdays
@@ -490,7 +626,7 @@
       if (nightSpo2.length >= 2) {
         blocks.push({
           key: 'spo2-night',
-          title: `夜段血氧 SpO₂（0–8h，${rangeLabel(watchDays)}）`,
+          title: fmt(S.titleSpo2Night, { range: rangeLabel(watchDays, S) }),
           color: '#2980b9',
           yLabel: '%',
           unit: '%',
@@ -500,7 +636,7 @@
             { y: 92, color: '#c0392b', label: '92' },
           ],
           legend: [
-            { color: '#2980b9', label: '夜段 SpO₂', dashed: false },
+            { color: '#2980b9', label: S.legendSpo2Night, dashed: false },
             { color: '#e67e22', label: '95%', dashed: true },
             { color: '#c0392b', label: '92%', dashed: true },
           ],
@@ -513,12 +649,14 @@
       if (bdPts.length >= 2) {
         blocks.push({
           key: 'breathing',
-          title: `睡眠呼吸紊乱（${rangeLabel(watchDays === 0 ? 0 : Math.max(watchDays, 30))}）`,
+          title: fmt(S.titleBreathing, {
+            range: rangeLabel(watchDays === 0 ? 0 : Math.max(watchDays, 30), S),
+          }),
           color: '#16a085',
           yLabel: 'BD',
           unit: '',
           points: bdPts,
-          legend: [{ color: '#16a085', label: '睡眠呼吸紊乱', dashed: false }],
+          legend: [{ color: '#16a085', label: S.legendBreathing, dashed: false }],
         });
       }
     }
@@ -539,12 +677,12 @@
       if (wPts.length >= 2 && wPts.some((p) => p.y > 0)) {
         blocks.push({
           key: 'workout',
-          title: `Workout 日总时长（${rangeLabel(workoutDays)}）`,
+          title: fmt(S.titleWorkout, { range: rangeLabel(workoutDays, S) }),
           color: '#d35400',
           yLabel: 'min',
           unit: 'min',
           points: wPts,
-          legend: [{ color: '#d35400', label: '训练 min', dashed: false }],
+          legend: [{ color: '#d35400', label: S.legendWorkout, dashed: false }],
         });
       }
     }
@@ -558,12 +696,12 @@
       if (recPts.length >= 2) {
         blocks.push({
           key: 'recovery',
-          title: `周恢复分（近 ${rWeeks.length} 周）`,
+          title: fmt(S.titleRecovery, { n: rWeeks.length }),
           color: '#16a085',
-          yLabel: '分',
-          unit: '分',
+          yLabel: S.unitScore,
+          unit: S.unitScore,
           points: recPts,
-          legend: [{ color: '#16a085', label: '恢复分', dashed: false }],
+          legend: [{ color: '#16a085', label: S.legendRecovery, dashed: false }],
         });
       }
       const loadPts = rWeeks
@@ -572,18 +710,18 @@
       if (loadPts.length >= 2) {
         blocks.push({
           key: 'load',
-          title: `周负荷分（近 ${rWeeks.length} 周）`,
+          title: fmt(S.titleLoad, { n: rWeeks.length }),
           color: '#e67e22',
-          yLabel: '分',
-          unit: '分',
+          yLabel: S.unitScore,
+          unit: S.unitScore,
           points: loadPts,
-          legend: [{ color: '#e67e22', label: '负荷分', dashed: false }],
+          legend: [{ color: '#e67e22', label: S.legendLoad, dashed: false }],
         });
       }
     }
 
     if (blocks.length === 0) {
-      container.innerHTML = '<div class="chart-empty">当前数据维度不足以绘制趋势图。上传含 CGM / 体重 / HRV / 血压 / Watch / Workout 的导出后再试。</div>';
+      container.innerHTML = `<div class="chart-empty">${S.emptyInsufficient}</div>`;
       return;
     }
 
@@ -601,7 +739,7 @@
       const canvas = document.createElement('canvas');
       canvas.className = 'chart-canvas';
       canvas.setAttribute('role', 'img');
-      canvas.setAttribute('aria-label', b.title + '，可按住查看读数');
+      canvas.setAttribute('aria-label', b.title + S.ariaInteractive);
       wrap.appendChild(canvas);
 
       if (b.legend && b.legend.length) {
@@ -618,7 +756,7 @@
 
       const readout = document.createElement('div');
       readout.className = 'chart-readout';
-      readout.textContent = statsLine(b.points, b.unit);
+      readout.textContent = statsLine(b.points, b.unit, S);
       wrap.appendChild(readout);
 
       container.appendChild(wrap);
@@ -628,6 +766,8 @@
           yLabel: b.yLabel,
           thresholds: b.thresholds,
           unit: b.unit,
+          strings: S,
+          locale: options.locale,
         });
         if (api && api.bindHover) api.bindHover(readout);
       });

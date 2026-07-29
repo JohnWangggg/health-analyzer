@@ -9,6 +9,7 @@ export * from './stats';
 export * from './prompts/llm-prompt';
 export * from './snapshot';
 export * from './locale';
+export * from './zh-tw-map';
 export * from './signals';
 export * from './export';
 export * from './insights';

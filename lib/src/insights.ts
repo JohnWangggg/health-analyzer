@@ -5,6 +5,7 @@
 import { FullAnalysis } from './types';
 import { detectCrossSignals } from './signals';
 import { AppLocale, createL, LocaleOptions, normalizeLocale } from './locale';
+import { toTraditionalTitle } from './zh-tw-map';
 
 export type InsightTone = 'positive' | 'neutral' | 'watch' | 'alert';
 
@@ -44,6 +45,148 @@ function toneFromSeverity(sev: string): InsightTone {
   return 'neutral';
 }
 
+function meanOf(values: number[]): number | null {
+  if (!values.length) return null;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+function medianOf(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 1) return sorted[mid];
+  return (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * 个人基线对比：近 7 日均值 vs 此前约 3–4 周中位数（有足够历史且 |delta| 有意义时出 bullet）
+ */
+function pushPersonalBaselineBullets(
+  analysis: FullAnalysis,
+  L: ReturnType<typeof createL>,
+  bullets: InsightBullet[]
+): void {
+  // —— HRV：日序列优先；否则用 recoveryWeeks 周均 ——
+  let hrvRecent: number | null = null;
+  let hrvBaseline: number | null = null;
+  const hrvByDate = analysis.hrvByDate || {};
+  const hrvDates = Object.keys(hrvByDate).sort();
+  if (hrvDates.length >= 21) {
+    const recentVals = hrvDates
+      .slice(-7)
+      .map((d) => hrvByDate[d]?.allMean)
+      .filter((v): v is number => v != null && Number.isFinite(v));
+    // 排除近 7 日，取此前最多 28 天（约 4 周）
+    const priorVals = hrvDates
+      .slice(0, -7)
+      .slice(-28)
+      .map((d) => hrvByDate[d]?.allMean)
+      .filter((v): v is number => v != null && Number.isFinite(v));
+    if (recentVals.length >= 4 && priorVals.length >= 14) {
+      hrvRecent = meanOf(recentVals);
+      hrvBaseline = medianOf(priorVals);
+    }
+  }
+  if (hrvRecent == null || hrvBaseline == null) {
+    const weeks = (analysis.recoveryWeeks || []).filter(
+      (w) => w.hrvMean7d != null && Number.isFinite(w.hrvMean7d)
+    );
+    if (weeks.length >= 5) {
+      const last = weeks[weeks.length - 1];
+      const prior = weeks.slice(-5, -1); // 此前最多 4 周
+      hrvRecent = last.hrvMean7d;
+      hrvBaseline = medianOf(prior.map((w) => w.hrvMean7d as number));
+    }
+  }
+  if (hrvRecent != null && hrvBaseline != null && hrvBaseline > 0) {
+    const delta = hrvRecent - hrvBaseline;
+    const rel = Math.abs(delta) / hrvBaseline;
+    // 有意义：绝对差 ≥5 ms 或相对 ≥10%
+    if (Math.abs(delta) >= 5 || rel >= 0.1) {
+      const up = delta > 0;
+      bullets.push({
+        tone: up ? 'positive' : 'watch',
+        title: L('HRV 相对个人基线', 'HRV vs personal baseline'),
+        detail: L(
+          `近 7 日 HRV 日均约 ${hrvRecent.toFixed(1)} ms，相对此前约 3–4 周中位 ${hrvBaseline.toFixed(1)} ms ${up ? '升高' : '下降'}约 ${Math.abs(delta).toFixed(1)} ms（${up ? '+' : ''}${((delta / hrvBaseline) * 100).toFixed(0)}%）。${up ? '恢复能力相对个人习惯偏积极' : '恢复能力相对个人习惯偏紧'}；结合睡眠与训练负荷解读，非诊断。`,
+          `Last 7 days HRV day-mean ~${hrvRecent.toFixed(1)} ms, vs prior ~3–4 week median ${hrvBaseline.toFixed(1)} ms: ${up ? 'up' : 'down'} ~${Math.abs(delta).toFixed(1)} ms (${up ? '+' : ''}${((delta / hrvBaseline) * 100).toFixed(0)}%). ${up ? 'Recovery looks relatively favorable vs your own habit' : 'Recovery looks relatively tighter vs your own habit'}; interpret with sleep and training load—not a diagnosis.`
+        ),
+        anchor: 'summary-hrv',
+      });
+    }
+  }
+
+  // —— 夜间心率：Watch 日序列优先；否则 recoveryWeeks ——
+  let nightRecent: number | null = null;
+  let nightBaseline: number | null = null;
+  const watchDays = analysis.watchStats?.days || [];
+  const nightDays = watchDays
+    .filter((d) => d.nightHrMean != null && Number.isFinite(d.nightHrMean))
+    .map((d) => ({ date: d.date, v: d.nightHrMean as number }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (nightDays.length >= 21) {
+    const recentVals = nightDays.slice(-7).map((d) => d.v);
+    const priorVals = nightDays.slice(0, -7).slice(-28).map((d) => d.v);
+    if (recentVals.length >= 4 && priorVals.length >= 14) {
+      nightRecent = meanOf(recentVals);
+      nightBaseline = medianOf(priorVals);
+    }
+  }
+  if (nightRecent == null || nightBaseline == null) {
+    const weeks = (analysis.recoveryWeeks || []).filter(
+      (w) => w.nightHrMean7d != null && Number.isFinite(w.nightHrMean7d)
+    );
+    if (weeks.length >= 5) {
+      const last = weeks[weeks.length - 1];
+      const prior = weeks.slice(-5, -1);
+      nightRecent = last.nightHrMean7d;
+      nightBaseline = medianOf(prior.map((w) => w.nightHrMean7d as number));
+    }
+  }
+  if (nightRecent != null && nightBaseline != null && nightBaseline > 0) {
+    const delta = nightRecent - nightBaseline;
+    // 有意义：|Δ| ≥ 4 bpm
+    if (Math.abs(delta) >= 4) {
+      const up = delta > 0;
+      bullets.push({
+        // 夜 HR 升高通常偏紧；下降偏积极
+        tone: up ? 'watch' : 'positive',
+        title: L('夜间心率相对个人基线', 'Night HR vs personal baseline'),
+        detail: L(
+          `近 7 日夜间心率均约 ${nightRecent.toFixed(0)} bpm，相对此前约 3–4 周中位 ${nightBaseline.toFixed(0)} bpm ${up ? '升高' : '下降'}约 ${Math.abs(delta).toFixed(0)} bpm。${up ? '可与睡眠、训练负荷或身体不适对照' : '相对个人习惯偏放松'}；单周波动不必过度解读。`,
+          `Last 7 days night HR mean ~${nightRecent.toFixed(0)} bpm, vs prior ~3–4 week median ${nightBaseline.toFixed(0)} bpm: ${up ? 'up' : 'down'} ~${Math.abs(delta).toFixed(0)} bpm. ${up ? 'Cross-check sleep, training load, or how you feel' : 'Relatively more relaxed vs your habit'}; avoid over-reading a single week.`
+        ),
+        anchor: 'summary-watch',
+      });
+    }
+  }
+
+  // —— 体重：近 7 日晨起趋势均 vs 前 7 日（可选补充，已有长期趋势 bullet）——
+  const series = analysis.weightStats?.trendSeries || [];
+  if (series.length >= 14) {
+    const recent = series.slice(-7).map((p) => p.weight).filter(Number.isFinite);
+    const prior = series.slice(-14, -7).map((p) => p.weight).filter(Number.isFinite);
+    const rMean = meanOf(recent);
+    const pMean = meanOf(prior);
+    if (rMean != null && pMean != null && recent.length >= 4 && prior.length >= 4) {
+      const delta = rMean - pMean;
+      // 有意义：|Δ| ≥ 0.5 kg
+      if (Math.abs(delta) >= 0.5) {
+        const up = delta > 0;
+        bullets.push({
+          tone: Math.abs(delta) >= 1.5 ? 'watch' : 'neutral',
+          title: L('体重近周相对前一周', 'Weight: last 7d vs prior week'),
+          detail: L(
+            `近 7 日晨起趋势均约 ${rMean.toFixed(1)} kg，相对此前 7 日均 ${pMean.toFixed(1)} kg ${up ? '上升' : '下降'}约 ${Math.abs(delta).toFixed(1)} kg。短期波动受钠盐、训练与月经周期等影响；结合长期晨起趋势解读。`,
+            `Last 7 days morning-trend mean ~${rMean.toFixed(1)} kg, vs prior 7-day mean ${pMean.toFixed(1)} kg: ${up ? 'up' : 'down'} ~${Math.abs(delta).toFixed(1)} kg. Short-term swings reflect sodium, training, cycle, etc.; read with the longer morning trend.`
+          ),
+          anchor: 'summary-weight',
+        });
+      }
+    }
+  }
+}
+
 /**
  * 基于当前分析生成有优先级的监测摘要
  */
@@ -51,7 +194,8 @@ export function buildInsightBullets(
   analysis: FullAnalysis,
   options?: LocaleOptions
 ): InsightBullet[] {
-  const L = createL(normalizeLocale(options?.locale));
+  const locale = normalizeLocale(options?.locale);
+  const L = createL(locale);
   const bullets: InsightBullet[] = [];
   const data = analysis.data;
   const range = analysis.dateRange;
@@ -195,6 +339,9 @@ export function buildInsightBullets(
       });
     }
   }
+
+  // 个人基线：近 7 日 vs 此前 3–4 周（HRV / 夜 HR / 晨重）
+  pushPersonalBaselineBullets(analysis, L, bullets);
 
   // Watch 活动 / 血氧 / VO2
   const wsWatch = analysis.watchStats;
@@ -600,7 +747,14 @@ export function buildInsightBullets(
   const rest = unique
     .filter((b) => b.title !== coverageTitle)
     .sort((a, b) => rank[a.tone] - rank[b.tone]);
-  return [...head, ...rest].slice(0, 7);
+  const result = [...head, ...rest].slice(0, 7);
+  // zh-TW: traditionalize short titles only (body text stays shared zh-CN medical copy)
+  if (locale === 'zh-TW') {
+    for (const b of result) {
+      b.title = toTraditionalTitle(b.title);
+    }
+  }
+  return result;
 }
 
 export function formatInsightsForLLM(
@@ -608,7 +762,8 @@ export function formatInsightsForLLM(
   options?: LocaleOptions
 ): string {
   if (!bullets.length) return '';
-  const L = createL(normalizeLocale(options?.locale));
+  const locale = normalizeLocale(options?.locale);
+  const L = createL(locale);
   const lines = [
     L('## 自动监测摘要（程序生成，非诊断）', '## Automated monitoring summary (program-generated, not a diagnosis)'),
     '',
@@ -622,7 +777,8 @@ export function formatInsightsForLLM(
           : b.tone === 'positive'
             ? L('积极', 'Positive')
             : L('提示', 'Note');
-    lines.push(`${i + 1}. **[${tag}] ${b.title}**：${b.detail}`);
+    const title = locale === 'zh-TW' ? toTraditionalTitle(b.title) : b.title;
+    lines.push(`${i + 1}. **[${tag}] ${title}**：${b.detail}`);
   });
   lines.push('');
   lines.push(
@@ -632,7 +788,15 @@ export function formatInsightsForLLM(
     )
   );
   lines.push('');
-  return lines.join('\n');
+  let out = lines.join('\n');
+  if (locale === 'zh-TW') {
+    // Heading line only (body remains shared zh-CN)
+    out = out.replace(
+      /^## 自动监测摘要（程序生成，非诊断）/m,
+      '## ' + toTraditionalTitle('自动监测摘要（程序生成，非诊断）')
+    );
+  }
+  return out;
 }
 
 /**

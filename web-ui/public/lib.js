@@ -29,6 +29,7 @@ var HealthAnalyzer = (() => {
     DEFAULT_RECOVERY_WEIGHTS: () => DEFAULT_RECOVERY_WEIGHTS,
     MAIN_PROMPT_TEMPLATE: () => MAIN_PROMPT_TEMPLATE,
     MAIN_PROMPT_TEMPLATE_EN: () => MAIN_PROMPT_TEMPLATE_EN,
+    RECOVERY_WEIGHT_PRESETS: () => RECOVERY_WEIGHT_PRESETS,
     SHORT_SYSTEM_PROMPT: () => SHORT_SYSTEM_PROMPT,
     SHORT_SYSTEM_PROMPT_EN: () => SHORT_SYSTEM_PROMPT_EN,
     analyzeAll: () => analyzeAll,
@@ -86,6 +87,8 @@ var HealthAnalyzer = (() => {
     recomputeRecovery: () => recomputeRecovery,
     shortWorkoutType: () => shortWorkoutType,
     summarizeHrvByDay: () => summarizeHrvByDay,
+    toTraditionalTitle: () => toTraditionalTitle,
+    traditionalizeMarkdownHeadings: () => traditionalizeMarkdownHeadings,
     workoutTypeLabel: () => workoutTypeLabel,
     xmlAttr: () => xmlAttr
   });
@@ -879,6 +882,47 @@ var HealthAnalyzer = (() => {
     exercise: 1,
     workout: 1,
     steps: 1
+  };
+  var RECOVERY_WEIGHT_PRESETS = {
+    balanced: {
+      hrv: 1,
+      sleep: 1,
+      nightHr: 1,
+      spo2Night: 1,
+      exercise: 1,
+      workout: 1,
+      steps: 1
+    },
+    /** 恢复优先：抬高 HRV/睡眠/夜心率/夜血氧，略降负荷侧 */
+    recoveryFirst: {
+      hrv: 1.4,
+      sleep: 1.4,
+      nightHr: 1.2,
+      spo2Night: 1.1,
+      exercise: 0.8,
+      workout: 0.7,
+      steps: 0.8
+    },
+    /** 训练期：抬高锻炼/Workout/步数，略降部分恢复侧 */
+    training: {
+      hrv: 0.9,
+      sleep: 1,
+      nightHr: 0.9,
+      spo2Night: 0.8,
+      exercise: 1.3,
+      workout: 1.4,
+      steps: 1.2
+    },
+    /** 减脂：抬高步数/锻炼与睡眠 */
+    weightLoss: {
+      hrv: 1,
+      sleep: 1.2,
+      nightHr: 1,
+      spo2Night: 1,
+      exercise: 1.2,
+      workout: 1,
+      steps: 1.3
+    }
   };
 
   // src/stats.ts
@@ -2363,14 +2407,223 @@ var HealthAnalyzer = (() => {
     return lines.join("\n");
   }
 
+  // src/zh-tw-map.ts
+  var TITLE_PHRASES_RAW = [
+    ["\u6570\u636E\u8D28\u91CF\u63D0\u793A\uFF08\u672A\u6765\u65E5\u671F\u5DF2\u6392\u9664\uFF09", "\u8CC7\u6599\u54C1\u8CEA\u63D0\u793A\uFF08\u672A\u4F86\u65E5\u671F\u5DF2\u6392\u9664\uFF09"],
+    ["\u4E2A\u4EBA\u80CC\u666F\uFF08\u7528\u6237\u81EA\u8FF0\uFF0C\u4EC5\u4F9B\u5BF9\u7167\uFF0C\u975E\u533B\u7597\u6863\u6848\uFF09", "\u500B\u4EBA\u80CC\u666F\uFF08\u7528\u6236\u81EA\u8FF0\uFF0C\u50C5\u4F9B\u5C0D\u7167\uFF0C\u975E\u91AB\u7642\u6A94\u6848\uFF09"],
+    ["Apple Watch\uFF08\u6D3B\u52A8 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6E29 / \u547C\u5438\u7D0A\u4E71\uFF09", "Apple Watch\uFF08\u6D3B\u52D5 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6EAB / \u547C\u5438\u7D0A\u4E82\uFF09"],
+    ["Apple Watch\uFF08\u6D3B\u52A8 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6E29\uFF09", "Apple Watch\uFF08\u6D3B\u52D5 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6EAB\uFF09"],
+    ["\u6062\u590D\uFF08HRV / \u9759\u606F\u5FC3\u7387\uFF09", "\u6062\u5FA9\uFF08HRV / \u975C\u606F\u5FC3\u7387\uFF09"],
+    ["HRV \u76F8\u5BF9\u4E2A\u4EBA\u57FA\u7EBF", "HRV \u76F8\u5C0D\u500B\u4EBA\u57FA\u7DDA"],
+    ["\u591C\u95F4\u5FC3\u7387\u76F8\u5BF9\u4E2A\u4EBA\u57FA\u7EBF", "\u591C\u9593\u5FC3\u7387\u76F8\u5C0D\u500B\u4EBA\u57FA\u7DDA"],
+    ["\u4F53\u91CD\u8FD1\u5468\u76F8\u5BF9\u524D\u4E00\u5468", "\u9AD4\u91CD\u8FD1\u9031\u76F8\u5C0D\u524D\u4E00\u9031"],
+    ["\u547C\u5438\u7D0A\u4E71\u4E0E\u591C\u6BB5\u8840\u6C27", "\u547C\u5438\u7D0A\u4E82\u8207\u591C\u6BB5\u8840\u6C27"],
+    ["\u8FD1 7 \u65E5\u8D1F\u8377\u4E0E\u6062\u590D", "\u8FD1 7 \u65E5\u8CA0\u8377\u8207\u6062\u5FA9"],
+    ["\u8FD1 7 \u65E5\u8D1F\u8377/\u6062\u590D", "\u8FD1 7 \u65E5\u8CA0\u8377/\u6062\u5FA9"],
+    ["\u591A\u5468\u6062\u590D/\u8D1F\u8377\u8D8B\u52BF", "\u591A\u9031\u6062\u5FA9/\u8CA0\u8377\u8DA8\u52E2"],
+    ["\u4F53\u91CD\u8D8B\u52BF\uFF08\u6668\u8D77\uFF09", "\u9AD4\u91CD\u8DA8\u52E2\uFF08\u6668\u8D77\uFF09"],
+    ["Workout \u8BAD\u7EC3\u4F1A\u8BDD", "Workout \u8A13\u7DF4\u6703\u8A71"],
+    ["Workout \u8BAD\u7EC3", "Workout \u8A13\u7DF4"],
+    ["CGM \u52A8\u6001\u8840\u7CD6", "CGM \u52D5\u614B\u8840\u7CD6"],
+    ["HRV \u5FC3\u7387\u53D8\u5F02\u6027", "HRV \u5FC3\u7387\u8B8A\u7570\u6027"],
+    ["\u7761\u7720\u547C\u5438\u7D0A\u4E71", "\u7761\u7720\u547C\u5438\u7D0A\u4E82"],
+    ["\u6570\u636E\u53EF\u7528\u6027", "\u8CC7\u6599\u53EF\u7528\u6027"],
+    ["\u6570\u636E\u8986\u76D6", "\u8CC7\u6599\u8986\u84CB"],
+    ["\u6570\u636E\u6982\u89C8", "\u8CC7\u6599\u6982\u89BD"],
+    ["\u6570\u636E\u8D28\u91CF\u63D0\u793A", "\u8CC7\u6599\u54C1\u8CEA\u63D0\u793A"],
+    ["\u672A\u6765\u65E5\u671F\u5DF2\u6392\u9664", "\u672A\u4F86\u65E5\u671F\u5DF2\u6392\u9664"],
+    ["\u4F53\u91CD\u4E0E\u4F53\u8102", "\u9AD4\u91CD\u8207\u9AD4\u8102"],
+    ["\u5FC3\u80BA\u9002\u80FD VO\u2082 max", "\u5FC3\u80BA\u9069\u80FD VO\u2082 max"],
+    ["\u5FC3\u80BA\u9002\u80FD", "\u5FC3\u80BA\u9069\u80FD"],
+    ["Watch \u6D3B\u52A8", "Watch \u6D3B\u52D5"],
+    ["\u8840\u6C27\uFF08Watch\uFF09", "\u8840\u6C27\uFF08Watch\uFF09"],
+    ["\u8840\u7CD6\uFF08CGM\uFF09", "\u8840\u7CD6\uFF08CGM\uFF09"],
+    ["\u547C\u5438\u9891\u7387", "\u547C\u5438\u983B\u7387"],
+    ["\u7761\u7720\u8155\u6E29", "\u7761\u7720\u8155\u6EAB"],
+    ["\u591C\u95F4\u5FC3\u7387", "\u591C\u9593\u5FC3\u7387"],
+    ["\u9759\u606F\u5FC3\u7387", "\u975C\u606F\u5FC3\u7387"],
+    ["\u6B65\u6570\u4E0E\u7761\u7720", "\u6B65\u6578\u8207\u7761\u7720"],
+    ["\u8BAD\u7EC3\u4F1A\u8BDD", "\u8A13\u7DF4\u6703\u8A71"],
+    ["\u52A8\u6001\u8840\u7CD6", "\u52D5\u614B\u8840\u7CD6"],
+    ["\u5FC3\u7387\u53D8\u5F02\u6027", "\u5FC3\u7387\u8B8A\u7570\u6027"],
+    ["ECG \u5FC3\u7535\u56FE", "ECG \u5FC3\u96FB\u5716"],
+    ["\u5FC3\u7535\u56FE", "\u5FC3\u96FB\u5716"],
+    ["\u4E2A\u4EBA\u80CC\u666F", "\u500B\u4EBA\u80CC\u666F"],
+    ["\u7528\u6237\u81EA\u8FF0", "\u7528\u6236\u81EA\u8FF0"],
+    ["\u81EA\u52A8\u76D1\u6D4B\u6458\u8981\uFF08\u7A0B\u5E8F\u751F\u6210\uFF0C\u975E\u8BCA\u65AD\uFF09", "\u81EA\u52D5\u76E3\u6E2C\u6458\u8981\uFF08\u7A0B\u5E8F\u751F\u6210\uFF0C\u975E\u8A3A\u65B7\uFF09"],
+    ["\u81EA\u52A8\u76D1\u6D4B\u6458\u8981", "\u81EA\u52D5\u76E3\u6E2C\u6458\u8981"],
+    ["\u8DE8\u7EF4\u5EA6\u63D0\u793A", "\u8DE8\u7DAD\u5EA6\u63D0\u793A"],
+    ["\u975E\u8BCA\u65AD", "\u975E\u8A3A\u65B7"],
+    ["\u76D1\u6D4B\u4EEA\u8868\u76D8", "\u76E3\u6E2C\u5100\u8868\u76E4"],
+    ["\u9700\u8981\u590D\u67E5\u6216\u5347\u7EA7\u5904\u7406\u7684\u4FE1\u53F7", "\u9700\u8981\u8907\u67E5\u6216\u5347\u7D1A\u8655\u7406\u7684\u8A0A\u865F"],
+    ["\u5F53\u524D\u5DE5\u4F5C\u5047\u8BBE", "\u76EE\u524D\u5DE5\u4F5C\u5047\u8A2D"],
+    ["\u53C2\u8003\u4F9D\u636E", "\u53C3\u8003\u4F9D\u64DA"],
+    ["\u603B\u7ED3\u5224\u65AD", "\u7E3D\u7D50\u5224\u65B7"],
+    ["\u662F\u5426\u5B58\u5728", "\u662F\u5426\u5B58\u5728"],
+    ["\u6570\u636E\u91CF", "\u8CC7\u6599\u91CF"],
+    ["\u7EF4\u5EA6", "\u7DAD\u5EA6"],
+    ["\u660E\u7EC6", "\u660E\u7D30"],
+    ["\u8840\u538B", "\u8840\u58D3"],
+    ["\u4F53\u91CD", "\u9AD4\u91CD"],
+    ["\u4F53\u8102", "\u9AD4\u8102"],
+    ["\u8D1F\u8377", "\u8CA0\u8377"],
+    ["\u6062\u590D", "\u6062\u5FA9"],
+    ["\u6D3B\u52A8", "\u6D3B\u52D5"],
+    ["\u8D8B\u52BF", "\u8DA8\u52E2"],
+    ["\u7D0A\u4E71", "\u7D0A\u4E82"],
+    ["\u8155\u6E29", "\u8155\u6EAB"],
+    ["\u9891\u7387", "\u983B\u7387"],
+    ["\u9002\u80FD", "\u9069\u80FD"],
+    ["\u53D8\u5F02", "\u8B8A\u7570"],
+    ["\u6570\u636E", "\u8CC7\u6599"],
+    ["\u8BAD\u7EC3", "\u8A13\u7DF4"],
+    ["\u76D1\u6D4B", "\u76E3\u6E2C"],
+    ["\u4FE1\u53F7", "\u8A0A\u865F"]
+  ];
+  var TITLE_PHRASES = TITLE_PHRASES_RAW.slice().sort(
+    (a, b) => b[0].length - a[0].length
+  );
+  function toTraditionalTitle(s) {
+    if (!s) return s;
+    let out = s;
+    for (const [from, to] of TITLE_PHRASES) {
+      if (out.includes(from)) {
+        out = out.split(from).join(to);
+      }
+    }
+    return out;
+  }
+  function traditionalizeMarkdownHeadings(md) {
+    if (!md) return md;
+    return md.split("\n").map((line) => {
+      const m = /^(#{1,6}\s+)(.*)$/.exec(line);
+      if (!m) return line;
+      return m[1] + toTraditionalTitle(m[2]);
+    }).join("\n");
+  }
+
   // src/insights.ts
   function toneFromSeverity(sev) {
     if (sev === "alert") return "alert";
     if (sev === "watch") return "watch";
     return "neutral";
   }
+  function meanOf(values) {
+    if (!values.length) return null;
+    return values.reduce((a, b) => a + b, 0) / values.length;
+  }
+  function medianOf(values) {
+    if (!values.length) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 === 1) return sorted[mid];
+    return (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+  function pushPersonalBaselineBullets(analysis, L, bullets) {
+    let hrvRecent = null;
+    let hrvBaseline = null;
+    const hrvByDate = analysis.hrvByDate || {};
+    const hrvDates = Object.keys(hrvByDate).sort();
+    if (hrvDates.length >= 21) {
+      const recentVals = hrvDates.slice(-7).map((d) => hrvByDate[d]?.allMean).filter((v) => v != null && Number.isFinite(v));
+      const priorVals = hrvDates.slice(0, -7).slice(-28).map((d) => hrvByDate[d]?.allMean).filter((v) => v != null && Number.isFinite(v));
+      if (recentVals.length >= 4 && priorVals.length >= 14) {
+        hrvRecent = meanOf(recentVals);
+        hrvBaseline = medianOf(priorVals);
+      }
+    }
+    if (hrvRecent == null || hrvBaseline == null) {
+      const weeks = (analysis.recoveryWeeks || []).filter(
+        (w) => w.hrvMean7d != null && Number.isFinite(w.hrvMean7d)
+      );
+      if (weeks.length >= 5) {
+        const last = weeks[weeks.length - 1];
+        const prior = weeks.slice(-5, -1);
+        hrvRecent = last.hrvMean7d;
+        hrvBaseline = medianOf(prior.map((w) => w.hrvMean7d));
+      }
+    }
+    if (hrvRecent != null && hrvBaseline != null && hrvBaseline > 0) {
+      const delta = hrvRecent - hrvBaseline;
+      const rel = Math.abs(delta) / hrvBaseline;
+      if (Math.abs(delta) >= 5 || rel >= 0.1) {
+        const up = delta > 0;
+        bullets.push({
+          tone: up ? "positive" : "watch",
+          title: L("HRV \u76F8\u5BF9\u4E2A\u4EBA\u57FA\u7EBF", "HRV vs personal baseline"),
+          detail: L(
+            `\u8FD1 7 \u65E5 HRV \u65E5\u5747\u7EA6 ${hrvRecent.toFixed(1)} ms\uFF0C\u76F8\u5BF9\u6B64\u524D\u7EA6 3\u20134 \u5468\u4E2D\u4F4D ${hrvBaseline.toFixed(1)} ms ${up ? "\u5347\u9AD8" : "\u4E0B\u964D"}\u7EA6 ${Math.abs(delta).toFixed(1)} ms\uFF08${up ? "+" : ""}${(delta / hrvBaseline * 100).toFixed(0)}%\uFF09\u3002${up ? "\u6062\u590D\u80FD\u529B\u76F8\u5BF9\u4E2A\u4EBA\u4E60\u60EF\u504F\u79EF\u6781" : "\u6062\u590D\u80FD\u529B\u76F8\u5BF9\u4E2A\u4EBA\u4E60\u60EF\u504F\u7D27"}\uFF1B\u7ED3\u5408\u7761\u7720\u4E0E\u8BAD\u7EC3\u8D1F\u8377\u89E3\u8BFB\uFF0C\u975E\u8BCA\u65AD\u3002`,
+            `Last 7 days HRV day-mean ~${hrvRecent.toFixed(1)} ms, vs prior ~3\u20134 week median ${hrvBaseline.toFixed(1)} ms: ${up ? "up" : "down"} ~${Math.abs(delta).toFixed(1)} ms (${up ? "+" : ""}${(delta / hrvBaseline * 100).toFixed(0)}%). ${up ? "Recovery looks relatively favorable vs your own habit" : "Recovery looks relatively tighter vs your own habit"}; interpret with sleep and training load\u2014not a diagnosis.`
+          ),
+          anchor: "summary-hrv"
+        });
+      }
+    }
+    let nightRecent = null;
+    let nightBaseline = null;
+    const watchDays = analysis.watchStats?.days || [];
+    const nightDays = watchDays.filter((d) => d.nightHrMean != null && Number.isFinite(d.nightHrMean)).map((d) => ({ date: d.date, v: d.nightHrMean })).sort((a, b) => a.date.localeCompare(b.date));
+    if (nightDays.length >= 21) {
+      const recentVals = nightDays.slice(-7).map((d) => d.v);
+      const priorVals = nightDays.slice(0, -7).slice(-28).map((d) => d.v);
+      if (recentVals.length >= 4 && priorVals.length >= 14) {
+        nightRecent = meanOf(recentVals);
+        nightBaseline = medianOf(priorVals);
+      }
+    }
+    if (nightRecent == null || nightBaseline == null) {
+      const weeks = (analysis.recoveryWeeks || []).filter(
+        (w) => w.nightHrMean7d != null && Number.isFinite(w.nightHrMean7d)
+      );
+      if (weeks.length >= 5) {
+        const last = weeks[weeks.length - 1];
+        const prior = weeks.slice(-5, -1);
+        nightRecent = last.nightHrMean7d;
+        nightBaseline = medianOf(prior.map((w) => w.nightHrMean7d));
+      }
+    }
+    if (nightRecent != null && nightBaseline != null && nightBaseline > 0) {
+      const delta = nightRecent - nightBaseline;
+      if (Math.abs(delta) >= 4) {
+        const up = delta > 0;
+        bullets.push({
+          // 夜 HR 升高通常偏紧；下降偏积极
+          tone: up ? "watch" : "positive",
+          title: L("\u591C\u95F4\u5FC3\u7387\u76F8\u5BF9\u4E2A\u4EBA\u57FA\u7EBF", "Night HR vs personal baseline"),
+          detail: L(
+            `\u8FD1 7 \u65E5\u591C\u95F4\u5FC3\u7387\u5747\u7EA6 ${nightRecent.toFixed(0)} bpm\uFF0C\u76F8\u5BF9\u6B64\u524D\u7EA6 3\u20134 \u5468\u4E2D\u4F4D ${nightBaseline.toFixed(0)} bpm ${up ? "\u5347\u9AD8" : "\u4E0B\u964D"}\u7EA6 ${Math.abs(delta).toFixed(0)} bpm\u3002${up ? "\u53EF\u4E0E\u7761\u7720\u3001\u8BAD\u7EC3\u8D1F\u8377\u6216\u8EAB\u4F53\u4E0D\u9002\u5BF9\u7167" : "\u76F8\u5BF9\u4E2A\u4EBA\u4E60\u60EF\u504F\u653E\u677E"}\uFF1B\u5355\u5468\u6CE2\u52A8\u4E0D\u5FC5\u8FC7\u5EA6\u89E3\u8BFB\u3002`,
+            `Last 7 days night HR mean ~${nightRecent.toFixed(0)} bpm, vs prior ~3\u20134 week median ${nightBaseline.toFixed(0)} bpm: ${up ? "up" : "down"} ~${Math.abs(delta).toFixed(0)} bpm. ${up ? "Cross-check sleep, training load, or how you feel" : "Relatively more relaxed vs your habit"}; avoid over-reading a single week.`
+          ),
+          anchor: "summary-watch"
+        });
+      }
+    }
+    const series = analysis.weightStats?.trendSeries || [];
+    if (series.length >= 14) {
+      const recent = series.slice(-7).map((p) => p.weight).filter(Number.isFinite);
+      const prior = series.slice(-14, -7).map((p) => p.weight).filter(Number.isFinite);
+      const rMean = meanOf(recent);
+      const pMean = meanOf(prior);
+      if (rMean != null && pMean != null && recent.length >= 4 && prior.length >= 4) {
+        const delta = rMean - pMean;
+        if (Math.abs(delta) >= 0.5) {
+          const up = delta > 0;
+          bullets.push({
+            tone: Math.abs(delta) >= 1.5 ? "watch" : "neutral",
+            title: L("\u4F53\u91CD\u8FD1\u5468\u76F8\u5BF9\u524D\u4E00\u5468", "Weight: last 7d vs prior week"),
+            detail: L(
+              `\u8FD1 7 \u65E5\u6668\u8D77\u8D8B\u52BF\u5747\u7EA6 ${rMean.toFixed(1)} kg\uFF0C\u76F8\u5BF9\u6B64\u524D 7 \u65E5\u5747 ${pMean.toFixed(1)} kg ${up ? "\u4E0A\u5347" : "\u4E0B\u964D"}\u7EA6 ${Math.abs(delta).toFixed(1)} kg\u3002\u77ED\u671F\u6CE2\u52A8\u53D7\u94A0\u76D0\u3001\u8BAD\u7EC3\u4E0E\u6708\u7ECF\u5468\u671F\u7B49\u5F71\u54CD\uFF1B\u7ED3\u5408\u957F\u671F\u6668\u8D77\u8D8B\u52BF\u89E3\u8BFB\u3002`,
+              `Last 7 days morning-trend mean ~${rMean.toFixed(1)} kg, vs prior 7-day mean ${pMean.toFixed(1)} kg: ${up ? "up" : "down"} ~${Math.abs(delta).toFixed(1)} kg. Short-term swings reflect sodium, training, cycle, etc.; read with the longer morning trend.`
+            ),
+            anchor: "summary-weight"
+          });
+        }
+      }
+    }
+  }
   function buildInsightBullets(analysis, options) {
-    const L = createL(normalizeLocale(options?.locale));
+    const locale = normalizeLocale(options?.locale);
+    const L = createL(locale);
     const bullets = [];
     const data = analysis.data;
     const range = analysis.dateRange;
@@ -2486,6 +2739,7 @@ var HealthAnalyzer = (() => {
         });
       }
     }
+    pushPersonalBaselineBullets(analysis, L, bullets);
     const wsWatch = analysis.watchStats;
     if (wsWatch && wsWatch.dayCount > 0) {
       if (wsWatch.exerciseMinMean7d != null || wsWatch.activeKcalMean7d != null) {
@@ -2750,18 +3004,26 @@ var HealthAnalyzer = (() => {
     };
     const head = unique.filter((b) => b.title === coverageTitle);
     const rest = unique.filter((b) => b.title !== coverageTitle).sort((a, b) => rank[a.tone] - rank[b.tone]);
-    return [...head, ...rest].slice(0, 7);
+    const result = [...head, ...rest].slice(0, 7);
+    if (locale === "zh-TW") {
+      for (const b of result) {
+        b.title = toTraditionalTitle(b.title);
+      }
+    }
+    return result;
   }
   function formatInsightsForLLM(bullets, options) {
     if (!bullets.length) return "";
-    const L = createL(normalizeLocale(options?.locale));
+    const locale = normalizeLocale(options?.locale);
+    const L = createL(locale);
     const lines = [
       L("## \u81EA\u52A8\u76D1\u6D4B\u6458\u8981\uFF08\u7A0B\u5E8F\u751F\u6210\uFF0C\u975E\u8BCA\u65AD\uFF09", "## Automated monitoring summary (program-generated, not a diagnosis)"),
       ""
     ];
     bullets.forEach((b, i) => {
       const tag = b.tone === "alert" ? L("\u9700\u5173\u6CE8", "Attention") : b.tone === "watch" ? L("\u89C2\u5BDF", "Watch") : b.tone === "positive" ? L("\u79EF\u6781", "Positive") : L("\u63D0\u793A", "Note");
-      lines.push(`${i + 1}. **[${tag}] ${b.title}**\uFF1A${b.detail}`);
+      const title = locale === "zh-TW" ? toTraditionalTitle(b.title) : b.title;
+      lines.push(`${i + 1}. **[${tag}] ${title}**\uFF1A${b.detail}`);
     });
     lines.push("");
     lines.push(
@@ -2771,7 +3033,14 @@ var HealthAnalyzer = (() => {
       )
     );
     lines.push("");
-    return lines.join("\n");
+    let out = lines.join("\n");
+    if (locale === "zh-TW") {
+      out = out.replace(
+        /^## 自动监测摘要（程序生成，非诊断）/m,
+        "## " + toTraditionalTitle("\u81EA\u52A8\u76D1\u6D4B\u6458\u8981\uFF08\u7A0B\u5E8F\u751F\u6210\uFF0C\u975E\u8BCA\u65AD\uFF09")
+      );
+    }
+    return out;
   }
   function generateInsightsOnlyPrompt(analysis, options = {}) {
     const locale = normalizeLocale(options.locale);
@@ -3902,7 +4171,11 @@ List 5\u20137 working hypotheses that best fit the available data
       );
       sections.push(``);
     }
-    return sections.join("\n");
+    let md = sections.join("\n");
+    if (normalizeLocale(options?.locale) === "zh-TW") {
+      md = traditionalizeMarkdownHeadings(md);
+    }
+    return md;
   }
   function combineContextAndData(analysis, userContext, options) {
     const localeOpts = { locale: normalizeLocale(options?.locale) };
@@ -3934,7 +4207,7 @@ List 5\u20137 working hypotheses that best fit the available data
   var SHORT_SYSTEM_PROMPT_EN = `You are a rigorous health data analyst. Based on the user's Apple Health statistics, produce an English Markdown report; only analyze data that actually exists, organized as: Executive summary, data dimensions, Monitoring dashboard, Signals needing recheck or escalation, Working hypotheses, References. Do not diagnose; CGM <3.9 must recommend fingerstick recheck; CGM alone cannot diagnose; retest single outliers and weigh symptoms; all medication changes require a clinician.`;
 
   // src/snapshot.ts
-  function meanOf(values) {
+  function meanOf2(values) {
     const vals = values.filter(Number.isFinite);
     if (vals.length === 0) return null;
     return vals.reduce((a, b) => a + b, 0) / vals.length;
@@ -3943,7 +4216,7 @@ List 5\u20137 working hypotheses that best fit the available data
     const dates = Object.keys(map).sort();
     if (dates.length === 0) return null;
     const recent = dates.slice(-n).map((d) => map[d]).filter(Number.isFinite);
-    return meanOf(recent);
+    return meanOf2(recent);
   }
   function makeId() {
     return `snap_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
