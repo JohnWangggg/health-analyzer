@@ -3676,12 +3676,15 @@ var HealthAnalyzer = (() => {
       }
     }
     const series = analysis.weightStats?.trendSeries || [];
-    if (series.length >= 14) {
-      const recent = series.slice(-7).map((p) => p.weight).filter(Number.isFinite);
-      const prior = series.slice(-14, -7).map((p) => p.weight).filter(Number.isFinite);
+    if (series.length >= 4) {
+      const end = analysis.dateRange && analysis.dateRange.end || series[series.length - 1].date;
+      const recentWin = calendarWindowEndInclusive(end, 7);
+      const priorWin = calendarWindowEndInclusive(addDaysIso(recentWin.start, -1), 7);
+      const recent = series.filter((p) => p.date >= recentWin.start && p.date <= recentWin.end).map((p) => p.weight).filter(Number.isFinite);
+      const prior = series.filter((p) => p.date >= priorWin.start && p.date <= priorWin.end).map((p) => p.weight).filter(Number.isFinite);
       const rMean = meanOf(recent);
       const pMean = meanOf(prior);
-      if (rMean != null && pMean != null && recent.length >= 4 && prior.length >= 4) {
+      if (rMean != null && pMean != null && recent.length >= 2 && prior.length >= 2) {
         const delta = rMean - pMean;
         if (Math.abs(delta) >= 0.5) {
           const up = delta > 0;
@@ -3689,8 +3692,8 @@ var HealthAnalyzer = (() => {
             tone: Math.abs(delta) >= 1.5 ? "watch" : "neutral",
             title: L("\u4F53\u91CD\u8FD1\u5468\u76F8\u5BF9\u524D\u4E00\u5468", "Weight: last 7d vs prior week"),
             detail: L(
-              `\u8FD1 7 \u65E5\u6668\u8D77\u8D8B\u52BF\u5747\u7EA6 ${rMean.toFixed(1)} kg\uFF0C\u76F8\u5BF9\u6B64\u524D 7 \u65E5\u5747 ${pMean.toFixed(1)} kg ${up ? "\u4E0A\u5347" : "\u4E0B\u964D"}\u7EA6 ${Math.abs(delta).toFixed(1)} kg\u3002\u77ED\u671F\u6CE2\u52A8\u53D7\u94A0\u76D0\u3001\u8BAD\u7EC3\u4E0E\u6708\u7ECF\u5468\u671F\u7B49\u5F71\u54CD\uFF1B\u7ED3\u5408\u957F\u671F\u6668\u8D77\u8D8B\u52BF\u89E3\u8BFB\u3002`,
-              `Last 7 days morning-trend mean ~${rMean.toFixed(1)} kg, vs prior 7-day mean ${pMean.toFixed(1)} kg: ${up ? "up" : "down"} ~${Math.abs(delta).toFixed(1)} kg. Short-term swings reflect sodium, training, cycle, etc.; read with the longer morning trend.`
+              `\u8FD1 7 \u81EA\u7136\u65E5\u6668\u8D77\u8D8B\u52BF\u5747\u7EA6 ${rMean.toFixed(1)} kg\uFF08${recent.length}/7 \u5929\u6709\u6570\u636E\uFF09\uFF0C\u76F8\u5BF9\u6B64\u524D 7 \u81EA\u7136\u65E5\u5747 ${pMean.toFixed(1)} kg\uFF08${prior.length}/7 \u5929\uFF09${up ? "\u4E0A\u5347" : "\u4E0B\u964D"}\u7EA6 ${Math.abs(delta).toFixed(1)} kg\u3002\u77ED\u671F\u6CE2\u52A8\u53D7\u94A0\u76D0\u3001\u8BAD\u7EC3\u4E0E\u6708\u7ECF\u5468\u671F\u7B49\u5F71\u54CD\uFF1B\u7ED3\u5408\u957F\u671F\u6668\u8D77\u8D8B\u52BF\u89E3\u8BFB\u3002`,
+              `Last 7 calendar days morning-trend mean ~${rMean.toFixed(1)} kg (${recent.length}/7 days with data), vs prior 7 calendar days mean ${pMean.toFixed(1)} kg (${prior.length}/7 days): ${up ? "up" : "down"} ~${Math.abs(delta).toFixed(1)} kg. Short-term swings reflect sodium, training, cycle, etc.; read with the longer morning trend.`
             ),
             anchor: "summary-weight"
           });

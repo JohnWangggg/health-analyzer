@@ -6,7 +6,7 @@ import { FullAnalysis } from './types';
 import { detectCrossSignals } from './signals';
 import { AppLocale, createL, LocaleOptions, normalizeLocale } from './locale';
 import { toTraditionalTitle } from './zh-tw-map';
-import { calendarWindowEndInclusive } from './window';
+import { addDaysIso, calendarWindowEndInclusive } from './window';
 
 export type InsightTone = 'positive' | 'neutral' | 'watch' | 'alert';
 
@@ -169,14 +169,26 @@ function pushPersonalBaselineBullets(
     }
   }
 
-  // —— 体重：近 7 日晨起趋势均 vs 前 7 日（可选补充，已有长期趋势 bullet）——
+  // —— 体重：近 7 自然日晨起趋势均 vs 此前 7 自然日 ——
   const series = analysis.weightStats?.trendSeries || [];
-  if (series.length >= 14) {
-    const recent = series.slice(-7).map((p) => p.weight).filter(Number.isFinite);
-    const prior = series.slice(-14, -7).map((p) => p.weight).filter(Number.isFinite);
+  if (series.length >= 4) {
+    const end =
+      (analysis.dateRange && analysis.dateRange.end) ||
+      series[series.length - 1].date;
+    const recentWin = calendarWindowEndInclusive(end, 7);
+    const priorWin = calendarWindowEndInclusive(addDaysIso(recentWin.start, -1), 7);
+    const recent = series
+      .filter((p) => p.date >= recentWin.start && p.date <= recentWin.end)
+      .map((p) => p.weight)
+      .filter(Number.isFinite);
+    const prior = series
+      .filter((p) => p.date >= priorWin.start && p.date <= priorWin.end)
+      .map((p) => p.weight)
+      .filter(Number.isFinite);
     const rMean = meanOf(recent);
     const pMean = meanOf(prior);
-    if (rMean != null && pMean != null && recent.length >= 4 && prior.length >= 4) {
+    // 各窗至少 2 个有数据日才比较（稀疏时不硬凑「近 7 有数据日」）
+    if (rMean != null && pMean != null && recent.length >= 2 && prior.length >= 2) {
       const delta = rMean - pMean;
       // 有意义：|Δ| ≥ 0.5 kg
       if (Math.abs(delta) >= 0.5) {
@@ -185,8 +197,8 @@ function pushPersonalBaselineBullets(
           tone: Math.abs(delta) >= 1.5 ? 'watch' : 'neutral',
           title: L('体重近周相对前一周', 'Weight: last 7d vs prior week'),
           detail: L(
-            `近 7 日晨起趋势均约 ${rMean.toFixed(1)} kg，相对此前 7 日均 ${pMean.toFixed(1)} kg ${up ? '上升' : '下降'}约 ${Math.abs(delta).toFixed(1)} kg。短期波动受钠盐、训练与月经周期等影响；结合长期晨起趋势解读。`,
-            `Last 7 days morning-trend mean ~${rMean.toFixed(1)} kg, vs prior 7-day mean ${pMean.toFixed(1)} kg: ${up ? 'up' : 'down'} ~${Math.abs(delta).toFixed(1)} kg. Short-term swings reflect sodium, training, cycle, etc.; read with the longer morning trend.`
+            `近 7 自然日晨起趋势均约 ${rMean.toFixed(1)} kg（${recent.length}/7 天有数据），相对此前 7 自然日均 ${pMean.toFixed(1)} kg（${prior.length}/7 天）${up ? '上升' : '下降'}约 ${Math.abs(delta).toFixed(1)} kg。短期波动受钠盐、训练与月经周期等影响；结合长期晨起趋势解读。`,
+            `Last 7 calendar days morning-trend mean ~${rMean.toFixed(1)} kg (${recent.length}/7 days with data), vs prior 7 calendar days mean ${pMean.toFixed(1)} kg (${prior.length}/7 days): ${up ? 'up' : 'down'} ~${Math.abs(delta).toFixed(1)} kg. Short-term swings reflect sodium, training, cycle, etc.; read with the longer morning trend.`
           ),
           anchor: 'summary-weight',
         });

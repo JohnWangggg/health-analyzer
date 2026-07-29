@@ -2103,16 +2103,10 @@
     }
     const hrvDates = Object.keys(analysis.hrvByDate || {}).sort();
     if (hrvDates.length) {
-      const end = hrvDates[hrvDates.length - 1];
-      let recent = hrvDates.slice(-7);
-      // 近 7 自然日（含末日），与 lib window 语义一致
-      if (
-        window.HealthAnalyzer &&
-        typeof window.HealthAnalyzer.calendarWindowEndInclusive === 'function'
-      ) {
-        const win = window.HealthAnalyzer.calendarWindowEndInclusive(end, 7);
-        recent = hrvDates.filter((d) => d >= win.start && d <= win.end);
-      }
+      const end =
+        (analysis.dateRange && analysis.dateRange.end) ||
+        hrvDates[hrvDates.length - 1];
+      const recent = calendarDatesInLastN(hrvDates, 7, end);
       const vals = recent.map((d) => analysis.hrvByDate[d].allMean).filter(Number.isFinite);
       const avg = meanOf(vals);
       items.push({
@@ -3370,10 +3364,33 @@
     }
   }
 
+  /**
+   * 近 n 自然日（含 anchorEnd）内、dates 中有数据的日期列表。
+   * 与 lib calendarWindowEndInclusive 语义一致；无 lib 时回退 slice(-n)。
+   */
+  function calendarDatesInLastN(dates, n, anchorEnd) {
+    const sorted = [...(dates || [])].filter(Boolean).sort();
+    if (!sorted.length) return [];
+    const end =
+      anchorEnd && /^\d{4}-\d{2}-\d{2}$/.test(anchorEnd)
+        ? anchorEnd
+        : sorted[sorted.length - 1];
+    if (
+      window.HealthAnalyzer &&
+      typeof window.HealthAnalyzer.calendarWindowEndInclusive === 'function'
+    ) {
+      const win = window.HealthAnalyzer.calendarWindowEndInclusive(end, n);
+      return sorted.filter((d) => d >= win.start && d <= win.end);
+    }
+    return sorted.slice(-n);
+  }
+
   function renderSummary(analysis) {
     const container = $('summary-content');
     const blocks = [];
     const data = analysis.data;
+    const summaryAnchorEnd =
+      (analysis.dateRange && analysis.dateRange.end) || '';
 
     if (analysis.cgmStats) {
       const o = analysis.cgmStats.overall;
@@ -3447,7 +3464,20 @@
       const ws = analysis.weightStats;
       const lt = ws.latestTrend;
       const et = ws.earliestTrend;
-      const recent = ws.daily.slice(-7).reverse().map((d) => {
+      const wEnd =
+        summaryAnchorEnd ||
+        (ws.daily.length ? ws.daily[ws.daily.length - 1].date : '');
+      const wDates = calendarDatesInLastN(
+        ws.daily.map((d) => d.date),
+        7,
+        wEnd
+      );
+      const wDateSet = new Set(wDates);
+      const recent = ws.daily
+        .filter((d) => wDateSet.has(d.date))
+        .slice()
+        .reverse()
+        .map((d) => {
         const fat = d.trend.bodyFat != null ? d.trend.bodyFat.toFixed(1) + '%' : '—';
         const morn = d.morning ? d.morning.value.toFixed(1) : '—';
         const eve = d.evening ? d.evening.value.toFixed(1) : '—';
@@ -3491,7 +3521,7 @@
 
     if (Object.keys(analysis.hrvByDate).length > 0) {
       const dates = Object.keys(analysis.hrvByDate).sort();
-      const recent = dates.slice(-7);
+      const recent = calendarDatesInLastN(dates, 7, summaryAnchorEnd || dates[dates.length - 1]);
       const recentMeans = recent.map(d => analysis.hrvByDate[d].allMean);
       const avg7 = meanOf(recentMeans);
       const rows = recent.map(d => {
@@ -3504,6 +3534,7 @@
           <table class="summary-table">
             <tr><th>${escapeHtml(t('summary.th.metric'))}</th><th>${escapeHtml(t('summary.th.value'))}</th></tr>
             <tr><td>${escapeHtml(t('summary.hrv.meanN', { n: recent.length }))}</td><td class="num">${formatMean(avg7, 1)} ms</td></tr>
+            <tr><td>${escapeHtml(t('kpi.daysInWindow', { n: recent.length, days: 7 }))}</td><td class="num">${recent.length}/7</td></tr>
             <tr><td>${escapeHtml(t('summary.common.dataDays'))}</td><td class="num">${dates.length}</td></tr>
           </table>
           <table class="summary-table">
@@ -3520,7 +3551,11 @@
     const hrDates = new Set([...Object.keys(restingMap), ...Object.keys(walkingMap)]);
     if (hrDates.size > 0) {
       const sorted = Array.from(hrDates).sort();
-      const recent = sorted.slice(-7);
+      const recent = calendarDatesInLastN(
+        sorted,
+        7,
+        summaryAnchorEnd || sorted[sorted.length - 1]
+      );
       const restVals = recent.map(d => restingMap[d]).filter(v => v != null && Number.isFinite(v));
       const walkVals = recent.map(d => walkingMap[d]).filter(v => v != null && Number.isFinite(v));
       const rows = recent.map(d => {
@@ -3556,7 +3591,11 @@
         return data.steps[d] && data.steps[d].max != null ? data.steps[d].max : null;
       };
       const sorted = stepsKeys.sort();
-      const recent = sorted.slice(-7);
+      const recent = calendarDatesInLastN(
+        sorted,
+        7,
+        summaryAnchorEnd || sorted[sorted.length - 1]
+      );
       const vals = recent.map(getSteps).filter(v => v != null && Number.isFinite(v));
       const rows = recent.map(d => {
         const v = getSteps(d);
@@ -3582,7 +3621,11 @@
     const sleepMap = analysis.sleepByDate || data.sleep || {};
     if (Object.keys(sleepMap).length > 0) {
       const sorted = Object.keys(sleepMap).sort();
-      const recent = sorted.slice(-7);
+      const recent = calendarDatesInLastN(
+        sorted,
+        7,
+        summaryAnchorEnd || sorted[sorted.length - 1]
+      );
       const totals = recent.map(d => sleepMap[d] && sleepMap[d].total).filter(v => v != null && Number.isFinite(v));
       const deeps = recent.map(d => sleepMap[d] && sleepMap[d].deep).filter(v => v != null && Number.isFinite(v));
       const rems = recent.map(d => sleepMap[d] && sleepMap[d].rem).filter(v => v != null && Number.isFinite(v));
@@ -3611,7 +3654,16 @@
     // Watch 活动 / 血氧 / VO2 / 呼吸紊乱
     if (analysis.watchStats && analysis.watchStats.dayCount > 0) {
       const ws = analysis.watchStats;
-      const recent = ws.days.slice(-7).reverse();
+      const wEnd =
+        summaryAnchorEnd ||
+        (ws.days.length ? ws.days[ws.days.length - 1].date : '');
+      const wRecentDates = calendarDatesInLastN(
+        ws.days.map((d) => d.date),
+        7,
+        wEnd
+      );
+      const wSet = new Set(wRecentDates);
+      const recent = ws.days.filter((d) => wSet.has(d.date)).slice().reverse();
       const showBd = (ws.breathingDisturbanceDayCount || 0) > 0;
       const rows = recent.map((d) => {
         const spo2 = d.spo2Mean != null ? d.spo2Mean.toFixed(1) : '—';
