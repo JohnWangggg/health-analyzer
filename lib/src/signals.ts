@@ -108,44 +108,66 @@ export function detectCrossSignals(
     });
   }
 
-  // CGM 低值占比
+  // CGM 低值占比（单位不可靠时不发阈值警报，改为单位警告）
   if (analysis.cgmStats) {
-    const o = analysis.cgmStats.overall;
-    if (o.pctBelow30 > 0) {
+    const unitOk = analysis.cgmStats.unitReliable !== false;
+    const unitMeta = analysis.data?.dataQuality?.cgmUnit;
+    if (!unitOk) {
+      const units = (unitMeta?.rawUnits || []).join(', ') || L('未知', 'unknown');
       signals.push({
         severity: 'alert',
-        title: L('CGM 出现 <3.0 mmol/L 读数', 'CGM readings <3.0 mmol/L present'),
+        title: L('CGM 单位无法可靠识别', 'CGM units could not be reliably identified'),
         detail: L(
-          `整体 <3.0 占比 ${o.pctBelow30.toFixed(1)}%，最低 ${o.min.toFixed(1)} mmol/L。须指尖血复核；不能仅凭 CGM 判定低血糖。`,
-          `Overall <3.0 share ${o.pctBelow30.toFixed(1)}%, min ${o.min.toFixed(1)} mmol/L. Confirm with finger-stick glucose; do not judge hypoglycemia from CGM alone.`
+          `导出 unit 字段见：${units}。内部目标为 mmol/L；在单位确认前，勿将阈值告警视为可信。请在「健康」导出或设备设置中核对血糖单位。`,
+          `Export unit field(s): ${units}. Canonical unit is mmol/L; until confirmed, do not trust threshold alerts. Check glucose units in the Health export or device settings.`
         ),
         dimensions: ['CGM'],
       });
-    } else if (o.pctBelow39 >= 5) {
-      signals.push({
-        severity: 'watch',
-        title: L('CGM <3.9 mmol/L 占比较高', 'Elevated share of CGM <3.9 mmol/L'),
-        detail: L(
-          `整体 <3.9 占比 ${o.pctBelow39.toFixed(1)}%。注意区分传感器伪影与真实低值，异常时指尖血复核。`,
-          `Overall <3.9 share ${o.pctBelow39.toFixed(1)}%. Separate sensor artifact from true lows; confirm unusual periods with finger-stick glucose.`
-        ),
-        dimensions: ['CGM'],
-      });
-    }
-
-    // 分日：单日大量低值
-    for (const [date, day] of Object.entries(analysis.cgmStats.daily)) {
-      if (day.pctBelow39 >= 20 && day.count >= 12) {
+    } else {
+      const o = analysis.cgmStats.overall;
+      const methodNote =
+        o.tirMethod === 'sample_share'
+          ? L(
+              '（当前为采样点占比，非完整时间加权 TIR）',
+              ' (sample-share %, not full time-weighted TIR)'
+            )
+          : '';
+      if (o.pctBelow30 > 0) {
         signals.push({
-          severity: 'watch',
-          date,
-          title: L(`CGM 单日低值偏多（${date}）`, `Many CGM lows on a single day (${date})`),
+          severity: 'alert',
+          title: L('CGM 出现 <3.0 mmol/L 读数', 'CGM readings <3.0 mmol/L present'),
           detail: L(
-            `${date}：<3.9 占比 ${day.pctBelow39.toFixed(1)}%（${day.count} 条），最低 ${day.min.toFixed(1)}。优先排查压迫低值/传感器首日偏差，并指尖血复核可疑时段。`,
-            `${date}: <3.9 share ${day.pctBelow39.toFixed(1)}% (${day.count} points), min ${day.min.toFixed(1)}. Check compression lows / first-day sensor bias and confirm suspect periods with finger-stick glucose.`
+            `整体 <3.0 占比 ${o.pctBelow30.toFixed(1)}%${methodNote}，最低 ${o.min.toFixed(1)} mmol/L。须指尖血复核；不能仅凭 CGM 判定低血糖。`,
+            `Overall <3.0 share ${o.pctBelow30.toFixed(1)}%${methodNote}, min ${o.min.toFixed(1)} mmol/L. Confirm with finger-stick glucose; do not judge hypoglycemia from CGM alone.`
           ),
           dimensions: ['CGM'],
         });
+      } else if (o.pctBelow39 >= 5) {
+        signals.push({
+          severity: 'watch',
+          title: L('CGM <3.9 mmol/L 占比较高', 'Elevated share of CGM <3.9 mmol/L'),
+          detail: L(
+            `整体 <3.9 占比 ${o.pctBelow39.toFixed(1)}%${methodNote}。注意区分传感器伪影与真实低值，异常时指尖血复核。`,
+            `Overall <3.9 share ${o.pctBelow39.toFixed(1)}%${methodNote}. Separate sensor artifact from true lows; confirm unusual periods with finger-stick glucose.`
+          ),
+          dimensions: ['CGM'],
+        });
+      }
+
+      // 分日：单日大量低值
+      for (const [date, day] of Object.entries(analysis.cgmStats.daily)) {
+        if (day.pctBelow39 >= 20 && day.count >= 12) {
+          signals.push({
+            severity: 'watch',
+            date,
+            title: L(`CGM 单日低值偏多（${date}）`, `Many CGM lows on a single day (${date})`),
+            detail: L(
+              `${date}：<3.9 占比 ${day.pctBelow39.toFixed(1)}%（${day.count} 条），最低 ${day.min.toFixed(1)}。优先排查压迫低值/传感器首日偏差，并指尖血复核可疑时段。`,
+              `${date}: <3.9 share ${day.pctBelow39.toFixed(1)}% (${day.count} points), min ${day.min.toFixed(1)}. Check compression lows / first-day sensor bias and confirm suspect periods with finger-stick glucose.`
+            ),
+            dimensions: ['CGM'],
+          });
+        }
       }
     }
   }

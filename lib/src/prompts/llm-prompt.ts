@@ -288,6 +288,8 @@ export function formatAnalysisForLLM(
     count: number; timeRange: string; mean: number; std: number; cv: number;
     min: number; max: number; pctInRange: number; pctBelow39: number;
     pctBelow30: number; pctAbove78: number; pctAbove100: number;
+    tirMethod?: string;
+    samplePctInRange?: number;
   }) => {
     sections.push(
       L(
@@ -303,7 +305,24 @@ export function formatAnalysisForLLM(
     sections.push(L(`| CV 变异系数 | ${o.cv.toFixed(1)}% |`, `| CV | ${o.cv.toFixed(1)}% |`));
     sections.push(L(`| 最低 | ${o.min.toFixed(1)} mmol/L |`, `| Min | ${o.min.toFixed(1)} mmol/L |`));
     sections.push(L(`| 最高 | ${o.max.toFixed(1)} mmol/L |`, `| Max | ${o.max.toFixed(1)} mmol/L |`));
-    sections.push(`| TIR (3.9-10.0 mmol/L) | ${o.pctInRange.toFixed(1)}% |`);
+    const method =
+      o.tirMethod === 'sample_share'
+        ? L('采样点占比', 'sample-share')
+        : o.tirMethod === 'time_weighted'
+          ? L('时间加权', 'time-weighted')
+          : '';
+    const tirLabel = method
+      ? `TIR (3.9-10.0 mmol/L, ${method})`
+      : 'TIR (3.9-10.0 mmol/L)';
+    sections.push(`| ${tirLabel} | ${o.pctInRange.toFixed(1)}% |`);
+    if (o.samplePctInRange != null && o.tirMethod === 'time_weighted') {
+      sections.push(
+        L(
+          `| TIR 采样点对照 | ${o.samplePctInRange.toFixed(1)}% |`,
+          `| TIR sample-share (ref) | ${o.samplePctInRange.toFixed(1)}% |`
+        )
+      );
+    }
     sections.push(`| <3.9 mmol/L | ${o.pctBelow39.toFixed(1)}% |`);
     sections.push(`| <3.0 mmol/L | ${o.pctBelow30.toFixed(1)}% |`);
     sections.push(`| >7.8 mmol/L | ${o.pctAbove78.toFixed(1)}% |`);
@@ -484,6 +503,44 @@ export function formatAnalysisForLLM(
   // CGM
   if (cgmStats) {
     sections.push(L(`## CGM 动态血糖`, `## CGM continuous glucose`));
+    sections.push(``);
+    sections.push(
+      L(
+        `> 内部规范单位：**mmol/L**（mg/dL 已按 ÷18.0182 转换）。`,
+        `> Canonical unit: **mmol/L** (mg/dL converted with ÷18.0182).`
+      )
+    );
+    const unitMeta = data.dataQuality?.cgmUnit;
+    if (unitMeta) {
+      const units = (unitMeta.rawUnits || []).join(', ') || L('（缺失）', '(missing)');
+      sections.push(
+        L(
+          `> 导出 unit：${units}；mmol 源 ${unitMeta.mmolCount} 条，mg/dL 转换 ${unitMeta.convertedMgDlCount} 条，未知 unit ${unitMeta.unknownUnitCount} 条${unitMeta.inferredFromValues ? '（含数值推断）' : ''}；单位可靠：${unitMeta.reliable ? '是' : '**否**'}。`,
+          `> Export unit(s): ${units}; native mmol ${unitMeta.mmolCount}, mg/dL converted ${unitMeta.convertedMgDlCount}, unknown unit ${unitMeta.unknownUnitCount}${unitMeta.inferredFromValues ? ' (incl. value inference)' : ''}; unit reliable: ${unitMeta.reliable ? 'yes' : '**no**'}.`
+        )
+      );
+      if (!unitMeta.reliable || cgmStats.unitReliable === false) {
+        sections.push(
+          L(
+            `> ⚠️ **单位不可靠：请勿将 mmol/L 阈值告警当作确诊依据**，先核对设备与导出单位。`,
+            `> ⚠️ **Units unreliable: do not treat mmol/L threshold alerts as confirmed**; verify device/export units first.`
+          )
+        );
+      }
+    }
+    if (cgmStats.coverage) {
+      const cov = cgmStats.coverage;
+      const method =
+        cov.tirMethod === 'time_weighted'
+          ? L('时间加权（间隔上限内）', 'time-weighted (capped gaps)')
+          : L('采样点占比（非完整 TIR）', 'sample-share % (not full TIR)');
+      sections.push(
+        L(
+          `> 覆盖：跨度 ${cov.spanHours} h · 有效佩戴 ${cov.wearHours} h · 覆盖率 ${cov.coveragePct ?? '—'}% · 中位间隔 ${cov.medianIntervalMin ?? '—'} min · 缺口 ${cov.gapCount} · TIR 方法：**${method}**。`,
+          `> Coverage: span ${cov.spanHours} h · wear ${cov.wearHours} h · coverage ${cov.coveragePct ?? '—'}% · median interval ${cov.medianIntervalMin ?? '—'} min · gaps ${cov.gapCount} · TIR method: **${method}**.`
+        )
+      );
+    }
     sections.push(``);
     if (cgmStats.firstDayDate) {
       sections.push(

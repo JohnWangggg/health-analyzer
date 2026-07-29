@@ -14,6 +14,7 @@ export {
   createEmptyData,
   processRecord,
   finalizeData,
+  finalizeCgmUnits,
   getDate,
   getHour,
   parseRecordLine,
@@ -21,6 +22,13 @@ export {
   getLocalToday,
   isFutureDate,
 } from './parser';
+
+export {
+  classifyGlucoseUnit,
+  toMmolL,
+  inferGlucoseUnitFromValues,
+  MGDL_PER_MMOL,
+} from './glucose';
 
 export {
   analyzeAll,

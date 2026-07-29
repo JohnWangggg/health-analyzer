@@ -29,6 +29,7 @@ var HealthAnalyzer = (() => {
     DEFAULT_RECOVERY_WEIGHTS: () => DEFAULT_RECOVERY_WEIGHTS,
     MAIN_PROMPT_TEMPLATE: () => MAIN_PROMPT_TEMPLATE,
     MAIN_PROMPT_TEMPLATE_EN: () => MAIN_PROMPT_TEMPLATE_EN,
+    MGDL_PER_MMOL: () => MGDL_PER_MMOL,
     RECOVERY_WEIGHT_PRESETS: () => RECOVERY_WEIGHT_PRESETS,
     SHORT_SYSTEM_PROMPT: () => SHORT_SYSTEM_PROMPT,
     SHORT_SYSTEM_PROMPT_EN: () => SHORT_SYSTEM_PROMPT_EN,
@@ -46,12 +47,14 @@ var HealthAnalyzer = (() => {
     calcWatchStats: () => calcWatchStats,
     calcWeightStats: () => calcWeightStats,
     calcWorkoutStats: () => calcWorkoutStats,
+    classifyGlucoseUnit: () => classifyGlucoseUnit,
     compareSnapshots: () => compareSnapshots,
     createEmptyData: () => createEmptyData,
     createL: () => createL,
     detectCrossSignals: () => detectCrossSignals,
     enrichEcgWithContext: () => enrichEcgWithContext,
     extractXmlFromZip: () => extractXmlFromZip,
+    finalizeCgmUnits: () => finalizeCgmUnits,
     finalizeData: () => finalizeData,
     formatAnalysisForLLM: () => formatAnalysisForLLM,
     formatCrossSignalsForLLM: () => formatCrossSignalsForLLM,
@@ -65,6 +68,7 @@ var HealthAnalyzer = (() => {
     getDate: () => getDate,
     getHour: () => getHour,
     getLocalToday: () => getLocalToday,
+    inferGlucoseUnitFromValues: () => inferGlucoseUnitFromValues,
     isFutureDate: () => isFutureDate,
     joinCsvBundle: () => joinCsvBundle,
     mergeEcgEntries: () => mergeEcgEntries,
@@ -87,6 +91,7 @@ var HealthAnalyzer = (() => {
     recomputeRecovery: () => recomputeRecovery,
     shortWorkoutType: () => shortWorkoutType,
     summarizeHrvByDay: () => summarizeHrvByDay,
+    toMmolL: () => toMmolL,
     toTraditionalText: () => toTraditionalText,
     toTraditionalTitle: () => toTraditionalTitle,
     traditionalizeAnalysisCopy: () => traditionalizeAnalysisCopy,
@@ -94,6 +99,50 @@ var HealthAnalyzer = (() => {
     workoutTypeLabel: () => workoutTypeLabel,
     xmlAttr: () => xmlAttr
   });
+
+  // src/glucose.ts
+  var MGDL_PER_MMOL = 18.0182;
+  function classifyGlucoseUnit(unit) {
+    if (unit == null || !String(unit).trim()) return "unknown";
+    const u = String(unit).toLowerCase().replace(/\s+/g, "");
+    if (u.includes("mmol") || u === "mmoll" || u === "mmol" || u === "mm" || u === "m/m") {
+      return "mmol/L";
+    }
+    if (u.includes("mg") && (u.includes("dl") || u.includes("d/l")) || u === "mgdl" || u === "mg/dl") {
+      return "mg/dL";
+    }
+    return "unknown";
+  }
+  function toMmolL(value, kind) {
+    if (!Number.isFinite(value)) return value;
+    if (kind === "mg/dL") return value / MGDL_PER_MMOL;
+    return value;
+  }
+  function inferGlucoseUnitFromValues(values) {
+    const v = values.filter((x) => Number.isFinite(x));
+    if (!v.length) return "unknown";
+    const sorted = [...v].sort((a, b) => a - b);
+    const med = sorted[Math.floor(sorted.length / 2)];
+    if (med >= 40) return "mg/dL";
+    if (med <= 25) return "mmol/L";
+    return "unknown";
+  }
+  function emptyCgmUnitInfo() {
+    return {
+      rawUnits: [],
+      mmolCount: 0,
+      convertedMgDlCount: 0,
+      unknownUnitCount: 0,
+      inferredFromValues: false,
+      reliable: true,
+      canonicalUnit: "mmol/L"
+    };
+  }
+  function noteRawUnit(info, unit) {
+    const u = unit == null ? "" : String(unit).trim();
+    const label = u || "(missing)";
+    if (!info.rawUnits.includes(label)) info.rawUnits.push(label);
+  }
 
   // src/parser.ts
   function getDate(dt) {
@@ -202,7 +251,8 @@ var HealthAnalyzer = (() => {
       source: xmlAttr(line, "sourceName") ?? "",
       startDate,
       endDate: xmlAttr(line, "endDate"),
-      value: xmlAttr(line, "value") ?? ""
+      value: xmlAttr(line, "value") ?? "",
+      unit: xmlAttr(line, "unit")
     };
   }
   var bpMaps = /* @__PURE__ */ new WeakMap();
@@ -296,7 +346,38 @@ var HealthAnalyzer = (() => {
     if (rec.type === "HKQuantityTypeIdentifierBloodGlucose") {
       const sourceLower = rec.source.toLowerCase();
       if (rec.source.includes("\u6B27\u6001") || sourceLower.includes("cgm") || sourceLower.includes("libre") || sourceLower.includes("glucose")) {
-        data.cgm.push({ datetime: rdate, value: numericValue });
+        if (!data.dataQuality.cgmUnit) {
+          data.dataQuality.cgmUnit = emptyCgmUnitInfo();
+        }
+        const meta = data.dataQuality.cgmUnit;
+        noteRawUnit(meta, rec.unit);
+        const kind = classifyGlucoseUnit(rec.unit);
+        if (kind === "mmol/L") {
+          data.cgm.push({
+            datetime: rdate,
+            value: numericValue,
+            originalUnit: rec.unit,
+            originalValue: numericValue
+          });
+          meta.mmolCount += 1;
+        } else if (kind === "mg/dL") {
+          data.cgm.push({
+            datetime: rdate,
+            value: toMmolL(numericValue, "mg/dL"),
+            originalUnit: rec.unit,
+            originalValue: numericValue
+          });
+          meta.convertedMgDlCount += 1;
+        } else {
+          data.cgm.push({
+            datetime: rdate,
+            value: numericValue,
+            originalUnit: rec.unit || "",
+            originalValue: numericValue,
+            unitPending: true
+          });
+          meta.unknownUnitCount += 1;
+        }
         data.dataAvailability.hasCgm = true;
       }
     } else if (rec.type === "HKQuantityTypeIdentifierBloodPressureSystolic") {
@@ -551,6 +632,52 @@ var HealthAnalyzer = (() => {
       state.workoutBuf = null;
     }
   }
+  function finalizeCgmUnits(data) {
+    if (!data.cgm?.length) {
+      if (data.dataQuality) data.dataQuality.cgmUnit = data.dataQuality.cgmUnit || null;
+      return;
+    }
+    if (!data.dataQuality.cgmUnit) {
+      data.dataQuality.cgmUnit = emptyCgmUnitInfo();
+    }
+    const meta = data.dataQuality.cgmUnit;
+    const pending = data.cgm.filter((p) => p.unitPending);
+    if (pending.length) {
+      const raws = pending.map((p) => p.originalValue != null ? p.originalValue : p.value);
+      const inferred = inferGlucoseUnitFromValues(raws);
+      if (inferred === "mg/dL") {
+        for (const p of pending) {
+          const raw = p.originalValue != null ? p.originalValue : p.value;
+          p.value = toMmolL(raw, "mg/dL");
+          p.unitPending = false;
+        }
+        meta.inferredFromValues = true;
+        meta.convertedMgDlCount += pending.length;
+        meta.unknownUnitCount = Math.max(0, meta.unknownUnitCount - pending.length);
+      } else if (inferred === "mmol/L") {
+        for (const p of pending) {
+          if (p.originalValue != null) p.value = p.originalValue;
+          p.unitPending = false;
+        }
+        meta.inferredFromValues = true;
+        meta.mmolCount += pending.length;
+        meta.unknownUnitCount = Math.max(0, meta.unknownUnitCount - pending.length);
+      } else {
+        meta.reliable = false;
+      }
+    }
+    if (data.cgm.some((p) => p.unitPending) || meta.unknownUnitCount > 0) {
+      meta.reliable = false;
+    }
+    const vals = data.cgm.map((p) => p.value).filter(Number.isFinite);
+    if (vals.length) {
+      const sorted = [...vals].sort((a, b) => a - b);
+      const med = sorted[Math.floor(sorted.length / 2)];
+      if (med > 35) {
+        meta.reliable = false;
+      }
+    }
+  }
   function mergeBodyFatIntoWeight(data) {
     if (!data.bodyFat?.length || !data.weight?.length) return;
     const fatByDate = {};
@@ -605,6 +732,7 @@ var HealthAnalyzer = (() => {
     }
     data.bloodPressure.sort((a, b) => a.datetime.localeCompare(b.datetime));
     data.cgm.sort((a, b) => a.datetime.localeCompare(b.datetime));
+    finalizeCgmUnits(data);
     data.weight.sort((a, b) => a.datetime.localeCompare(b.datetime));
     if (data.bodyFat) {
       data.bodyFat.sort((a, b) => a.datetime.localeCompare(b.datetime));
@@ -1547,15 +1675,11 @@ var HealthAnalyzer = (() => {
       count: n
     };
   }
-  function cgmSegment(points) {
-    if (!points.length) return null;
-    const sorted = [...points].sort((a, b) => a.datetime.localeCompare(b.datetime));
-    const values = sorted.map((p) => p.value);
-    const total = values.length;
-    const overall = calcStats(values);
+  var CGM_MAX_GAP_MS = 15 * 60 * 1e3;
+  var CGM_LAST_SAMPLE_MS = 5 * 60 * 1e3;
+  function sampleSharePcts(values) {
+    const total = values.length || 1;
     return {
-      ...overall,
-      timeRange: `${sorted[0].datetime} \u81F3 ${sorted[sorted.length - 1].datetime}`,
       pctBelow39: values.filter((v) => v < 3.9).length / total * 100,
       pctBelow30: values.filter((v) => v < 3).length / total * 100,
       pctInRange: values.filter((v) => v >= 3.9 && v <= 10).length / total * 100,
@@ -1563,15 +1687,112 @@ var HealthAnalyzer = (() => {
       pctAbove100: values.filter((v) => v > 10).length / total * 100
     };
   }
-  function calcCgmStats(cgm) {
+  function timeWeightedPcts(sorted, maxGapMs = CGM_MAX_GAP_MS) {
+    let wearMs = 0;
+    let gapCount = 0;
+    let below39 = 0;
+    let below30 = 0;
+    let inRange = 0;
+    let above78 = 0;
+    let above100 = 0;
+    const intervalsMin = [];
+    const add = (v, ms) => {
+      if (ms <= 0) return;
+      wearMs += ms;
+      if (v < 3.9) below39 += ms;
+      if (v < 3) below30 += ms;
+      if (v >= 3.9 && v <= 10) inRange += ms;
+      if (v > 7.8) above78 += ms;
+      if (v > 10) above100 += ms;
+    };
+    for (let i = 0; i < sorted.length; i++) {
+      const t0 = parseAppleDate(sorted[i].datetime);
+      let dt;
+      if (i + 1 < sorted.length) {
+        const t1 = parseAppleDate(sorted[i + 1].datetime);
+        dt = Math.max(0, t1 - t0);
+        if (dt > 0) intervalsMin.push(dt / 6e4);
+        if (dt > maxGapMs) {
+          gapCount += 1;
+          dt = maxGapMs;
+        }
+      } else {
+        dt = CGM_LAST_SAMPLE_MS;
+      }
+      add(sorted[i].value, dt);
+    }
+    const den = wearMs || 1;
+    return {
+      pctBelow39: below39 / den * 100,
+      pctBelow30: below30 / den * 100,
+      pctInRange: inRange / den * 100,
+      pctAbove78: above78 / den * 100,
+      pctAbove100: above100 / den * 100,
+      wearMs,
+      gapCount,
+      intervalsMin
+    };
+  }
+  function medianOf(nums) {
+    if (!nums.length) return null;
+    const s = [...nums].sort((a, b) => a - b);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+  function cgmSegment(points, preferTimeWeighted) {
+    if (!points.length) return null;
+    const sorted = [...points].sort((a, b) => a.datetime.localeCompare(b.datetime));
+    const values = sorted.map((p) => p.value);
+    const overall = calcStats(values);
+    const sample = sampleSharePcts(values);
+    const tw = timeWeightedPcts(sorted);
+    const useTw = preferTimeWeighted && tw.wearMs > 0;
+    const pick = useTw ? tw : sample;
+    return {
+      ...overall,
+      timeRange: `${sorted[0].datetime} \u81F3 ${sorted[sorted.length - 1].datetime}`,
+      pctBelow39: pick.pctBelow39,
+      pctBelow30: pick.pctBelow30,
+      pctInRange: pick.pctInRange,
+      pctAbove78: pick.pctAbove78,
+      pctAbove100: pick.pctAbove100,
+      tirMethod: useTw ? "time_weighted" : "sample_share",
+      samplePctInRange: sample.pctInRange
+    };
+  }
+  function buildCgmCoverage(sorted) {
+    const tw = timeWeightedPcts(sorted);
+    const t0 = parseAppleDate(sorted[0].datetime);
+    const t1 = parseAppleDate(sorted[sorted.length - 1].datetime);
+    const spanMs = Math.max(0, t1 - t0);
+    const spanHours = spanMs / 36e5;
+    const wearHours = tw.wearMs / 36e5;
+    const coveragePct = spanHours >= 1 ? Math.min(100, wearHours / spanHours * 100) : null;
+    const medianIntervalMin = medianOf(tw.intervalsMin);
+    const reliableTir = sorted.length >= 12 && spanHours >= 6 && coveragePct != null && coveragePct >= 50 && medianIntervalMin != null && medianIntervalMin <= 12;
+    return {
+      pointCount: sorted.length,
+      spanHours: Math.round(spanHours * 10) / 10,
+      wearHours: Math.round(wearHours * 10) / 10,
+      coveragePct: coveragePct == null ? null : Math.round(coveragePct * 10) / 10,
+      medianIntervalMin: medianIntervalMin == null ? null : Math.round(medianIntervalMin * 10) / 10,
+      gapCount: tw.gapCount,
+      maxGapMin: CGM_MAX_GAP_MS / 6e4,
+      tirMethod: reliableTir ? "time_weighted" : "sample_share",
+      reliableTir
+    };
+  }
+  function calcCgmStats(cgm, options) {
     if (cgm.length === 0) return null;
     const sorted = [...cgm].sort((a, b) => a.datetime.localeCompare(b.datetime));
-    const overall = cgmSegment(sorted);
+    const coverage = buildCgmCoverage(sorted);
+    const preferTw = coverage.reliableTir;
+    const overall = cgmSegment(sorted, preferTw);
     const firstDayDate = getDate(sorted[0].datetime);
     const firstDayPoints = sorted.filter((p) => getDate(p.datetime) === firstDayDate);
     const stablePoints = sorted.filter((p) => getDate(p.datetime) !== firstDayDate);
-    const firstDay = cgmSegment(firstDayPoints);
-    const stable = stablePoints.length ? cgmSegment(stablePoints) : null;
+    const firstDay = cgmSegment(firstDayPoints, preferTw);
+    const stable = stablePoints.length ? cgmSegment(stablePoints, preferTw) : null;
     const byDay = {};
     for (const p of sorted) {
       const d = getDate(p.datetime);
@@ -1582,11 +1803,12 @@ var HealthAnalyzer = (() => {
     for (const date of Object.keys(byDay).sort()) {
       const vals = byDay[date];
       const s = calcStats(vals);
+      const share = sampleSharePcts(vals);
       daily[date] = {
         ...s,
-        pctBelow39: vals.filter((v) => v < 3.9).length / vals.length * 100,
-        pctAbove78: vals.filter((v) => v > 7.8).length / vals.length * 100,
-        pctAbove100: vals.filter((v) => v > 10).length / vals.length * 100
+        pctBelow39: share.pctBelow39,
+        pctAbove78: share.pctAbove78,
+        pctAbove100: share.pctAbove100
       };
     }
     const maxRises = {
@@ -1628,7 +1850,9 @@ var HealthAnalyzer = (() => {
       firstDay,
       stable,
       daily,
-      maxRises
+      maxRises,
+      coverage,
+      unitReliable: options?.unitReliable !== false
     };
   }
   function meanBp(records) {
@@ -2363,7 +2587,9 @@ var HealthAnalyzer = (() => {
     });
     return {
       data,
-      cgmStats: calcCgmStats(data.cgm),
+      cgmStats: calcCgmStats(data.cgm, {
+        unitReliable: data.dataQuality?.cgmUnit?.reliable !== false
+      }),
       bpStats: calcBloodPressureStats(data.bloodPressure),
       weightStats: calcWeightStats(data.weight),
       watchStats,
@@ -2454,40 +2680,59 @@ var HealthAnalyzer = (() => {
       });
     }
     if (analysis.cgmStats) {
-      const o = analysis.cgmStats.overall;
-      if (o.pctBelow30 > 0) {
+      const unitOk = analysis.cgmStats.unitReliable !== false;
+      const unitMeta = analysis.data?.dataQuality?.cgmUnit;
+      if (!unitOk) {
+        const units = (unitMeta?.rawUnits || []).join(", ") || L("\u672A\u77E5", "unknown");
         signals.push({
           severity: "alert",
-          title: L("CGM \u51FA\u73B0 <3.0 mmol/L \u8BFB\u6570", "CGM readings <3.0 mmol/L present"),
+          title: L("CGM \u5355\u4F4D\u65E0\u6CD5\u53EF\u9760\u8BC6\u522B", "CGM units could not be reliably identified"),
           detail: L(
-            `\u6574\u4F53 <3.0 \u5360\u6BD4 ${o.pctBelow30.toFixed(1)}%\uFF0C\u6700\u4F4E ${o.min.toFixed(1)} mmol/L\u3002\u987B\u6307\u5C16\u8840\u590D\u6838\uFF1B\u4E0D\u80FD\u4EC5\u51ED CGM \u5224\u5B9A\u4F4E\u8840\u7CD6\u3002`,
-            `Overall <3.0 share ${o.pctBelow30.toFixed(1)}%, min ${o.min.toFixed(1)} mmol/L. Confirm with finger-stick glucose; do not judge hypoglycemia from CGM alone.`
+            `\u5BFC\u51FA unit \u5B57\u6BB5\u89C1\uFF1A${units}\u3002\u5185\u90E8\u76EE\u6807\u4E3A mmol/L\uFF1B\u5728\u5355\u4F4D\u786E\u8BA4\u524D\uFF0C\u52FF\u5C06\u9608\u503C\u544A\u8B66\u89C6\u4E3A\u53EF\u4FE1\u3002\u8BF7\u5728\u300C\u5065\u5EB7\u300D\u5BFC\u51FA\u6216\u8BBE\u5907\u8BBE\u7F6E\u4E2D\u6838\u5BF9\u8840\u7CD6\u5355\u4F4D\u3002`,
+            `Export unit field(s): ${units}. Canonical unit is mmol/L; until confirmed, do not trust threshold alerts. Check glucose units in the Health export or device settings.`
           ),
           dimensions: ["CGM"]
         });
-      } else if (o.pctBelow39 >= 5) {
-        signals.push({
-          severity: "watch",
-          title: L("CGM <3.9 mmol/L \u5360\u6BD4\u8F83\u9AD8", "Elevated share of CGM <3.9 mmol/L"),
-          detail: L(
-            `\u6574\u4F53 <3.9 \u5360\u6BD4 ${o.pctBelow39.toFixed(1)}%\u3002\u6CE8\u610F\u533A\u5206\u4F20\u611F\u5668\u4F2A\u5F71\u4E0E\u771F\u5B9E\u4F4E\u503C\uFF0C\u5F02\u5E38\u65F6\u6307\u5C16\u8840\u590D\u6838\u3002`,
-            `Overall <3.9 share ${o.pctBelow39.toFixed(1)}%. Separate sensor artifact from true lows; confirm unusual periods with finger-stick glucose.`
-          ),
-          dimensions: ["CGM"]
-        });
-      }
-      for (const [date, day] of Object.entries(analysis.cgmStats.daily)) {
-        if (day.pctBelow39 >= 20 && day.count >= 12) {
+      } else {
+        const o = analysis.cgmStats.overall;
+        const methodNote = o.tirMethod === "sample_share" ? L(
+          "\uFF08\u5F53\u524D\u4E3A\u91C7\u6837\u70B9\u5360\u6BD4\uFF0C\u975E\u5B8C\u6574\u65F6\u95F4\u52A0\u6743 TIR\uFF09",
+          " (sample-share %, not full time-weighted TIR)"
+        ) : "";
+        if (o.pctBelow30 > 0) {
           signals.push({
-            severity: "watch",
-            date,
-            title: L(`CGM \u5355\u65E5\u4F4E\u503C\u504F\u591A\uFF08${date}\uFF09`, `Many CGM lows on a single day (${date})`),
+            severity: "alert",
+            title: L("CGM \u51FA\u73B0 <3.0 mmol/L \u8BFB\u6570", "CGM readings <3.0 mmol/L present"),
             detail: L(
-              `${date}\uFF1A<3.9 \u5360\u6BD4 ${day.pctBelow39.toFixed(1)}%\uFF08${day.count} \u6761\uFF09\uFF0C\u6700\u4F4E ${day.min.toFixed(1)}\u3002\u4F18\u5148\u6392\u67E5\u538B\u8FEB\u4F4E\u503C/\u4F20\u611F\u5668\u9996\u65E5\u504F\u5DEE\uFF0C\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`,
-              `${date}: <3.9 share ${day.pctBelow39.toFixed(1)}% (${day.count} points), min ${day.min.toFixed(1)}. Check compression lows / first-day sensor bias and confirm suspect periods with finger-stick glucose.`
+              `\u6574\u4F53 <3.0 \u5360\u6BD4 ${o.pctBelow30.toFixed(1)}%${methodNote}\uFF0C\u6700\u4F4E ${o.min.toFixed(1)} mmol/L\u3002\u987B\u6307\u5C16\u8840\u590D\u6838\uFF1B\u4E0D\u80FD\u4EC5\u51ED CGM \u5224\u5B9A\u4F4E\u8840\u7CD6\u3002`,
+              `Overall <3.0 share ${o.pctBelow30.toFixed(1)}%${methodNote}, min ${o.min.toFixed(1)} mmol/L. Confirm with finger-stick glucose; do not judge hypoglycemia from CGM alone.`
             ),
             dimensions: ["CGM"]
           });
+        } else if (o.pctBelow39 >= 5) {
+          signals.push({
+            severity: "watch",
+            title: L("CGM <3.9 mmol/L \u5360\u6BD4\u8F83\u9AD8", "Elevated share of CGM <3.9 mmol/L"),
+            detail: L(
+              `\u6574\u4F53 <3.9 \u5360\u6BD4 ${o.pctBelow39.toFixed(1)}%${methodNote}\u3002\u6CE8\u610F\u533A\u5206\u4F20\u611F\u5668\u4F2A\u5F71\u4E0E\u771F\u5B9E\u4F4E\u503C\uFF0C\u5F02\u5E38\u65F6\u6307\u5C16\u8840\u590D\u6838\u3002`,
+              `Overall <3.9 share ${o.pctBelow39.toFixed(1)}%${methodNote}. Separate sensor artifact from true lows; confirm unusual periods with finger-stick glucose.`
+            ),
+            dimensions: ["CGM"]
+          });
+        }
+        for (const [date, day] of Object.entries(analysis.cgmStats.daily)) {
+          if (day.pctBelow39 >= 20 && day.count >= 12) {
+            signals.push({
+              severity: "watch",
+              date,
+              title: L(`CGM \u5355\u65E5\u4F4E\u503C\u504F\u591A\uFF08${date}\uFF09`, `Many CGM lows on a single day (${date})`),
+              detail: L(
+                `${date}\uFF1A<3.9 \u5360\u6BD4 ${day.pctBelow39.toFixed(1)}%\uFF08${day.count} \u6761\uFF09\uFF0C\u6700\u4F4E ${day.min.toFixed(1)}\u3002\u4F18\u5148\u6392\u67E5\u538B\u8FEB\u4F4E\u503C/\u4F20\u611F\u5668\u9996\u65E5\u504F\u5DEE\uFF0C\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`,
+                `${date}: <3.9 share ${day.pctBelow39.toFixed(1)}% (${day.count} points), min ${day.min.toFixed(1)}. Check compression lows / first-day sensor bias and confirm suspect periods with finger-stick glucose.`
+              ),
+              dimensions: ["CGM"]
+            });
+          }
         }
       }
     }
@@ -3064,7 +3309,7 @@ var HealthAnalyzer = (() => {
     if (!values.length) return null;
     return values.reduce((a, b) => a + b, 0) / values.length;
   }
-  function medianOf(values) {
+  function medianOf2(values) {
     if (!values.length) return null;
     const sorted = [...values].sort((a, b) => a - b);
     const mid = Math.floor(sorted.length / 2);
@@ -3081,7 +3326,7 @@ var HealthAnalyzer = (() => {
       const priorVals = hrvDates.slice(0, -7).slice(-28).map((d) => hrvByDate[d]?.allMean).filter((v) => v != null && Number.isFinite(v));
       if (recentVals.length >= 4 && priorVals.length >= 14) {
         hrvRecent = meanOf(recentVals);
-        hrvBaseline = medianOf(priorVals);
+        hrvBaseline = medianOf2(priorVals);
       }
     }
     if (hrvRecent == null || hrvBaseline == null) {
@@ -3092,7 +3337,7 @@ var HealthAnalyzer = (() => {
         const last = weeks[weeks.length - 1];
         const prior = weeks.slice(-5, -1);
         hrvRecent = last.hrvMean7d;
-        hrvBaseline = medianOf(prior.map((w) => w.hrvMean7d));
+        hrvBaseline = medianOf2(prior.map((w) => w.hrvMean7d));
       }
     }
     if (hrvRecent != null && hrvBaseline != null && hrvBaseline > 0) {
@@ -3120,7 +3365,7 @@ var HealthAnalyzer = (() => {
       const priorVals = nightDays.slice(0, -7).slice(-28).map((d) => d.v);
       if (recentVals.length >= 4 && priorVals.length >= 14) {
         nightRecent = meanOf(recentVals);
-        nightBaseline = medianOf(priorVals);
+        nightBaseline = medianOf2(priorVals);
       }
     }
     if (nightRecent == null || nightBaseline == null) {
@@ -3131,7 +3376,7 @@ var HealthAnalyzer = (() => {
         const last = weeks[weeks.length - 1];
         const prior = weeks.slice(-5, -1);
         nightRecent = last.nightHrMean7d;
-        nightBaseline = medianOf(prior.map((w) => w.nightHrMean7d));
+        nightBaseline = medianOf2(prior.map((w) => w.nightHrMean7d));
       }
     }
     if (nightRecent != null && nightBaseline != null && nightBaseline > 0) {
@@ -3903,7 +4148,17 @@ List 5\u20137 working hypotheses that best fit the available data
       sections.push(L(`| CV \u53D8\u5F02\u7CFB\u6570 | ${o.cv.toFixed(1)}% |`, `| CV | ${o.cv.toFixed(1)}% |`));
       sections.push(L(`| \u6700\u4F4E | ${o.min.toFixed(1)} mmol/L |`, `| Min | ${o.min.toFixed(1)} mmol/L |`));
       sections.push(L(`| \u6700\u9AD8 | ${o.max.toFixed(1)} mmol/L |`, `| Max | ${o.max.toFixed(1)} mmol/L |`));
-      sections.push(`| TIR (3.9-10.0 mmol/L) | ${o.pctInRange.toFixed(1)}% |`);
+      const method = o.tirMethod === "sample_share" ? L("\u91C7\u6837\u70B9\u5360\u6BD4", "sample-share") : o.tirMethod === "time_weighted" ? L("\u65F6\u95F4\u52A0\u6743", "time-weighted") : "";
+      const tirLabel = method ? `TIR (3.9-10.0 mmol/L, ${method})` : "TIR (3.9-10.0 mmol/L)";
+      sections.push(`| ${tirLabel} | ${o.pctInRange.toFixed(1)}% |`);
+      if (o.samplePctInRange != null && o.tirMethod === "time_weighted") {
+        sections.push(
+          L(
+            `| TIR \u91C7\u6837\u70B9\u5BF9\u7167 | ${o.samplePctInRange.toFixed(1)}% |`,
+            `| TIR sample-share (ref) | ${o.samplePctInRange.toFixed(1)}% |`
+          )
+        );
+      }
       sections.push(`| <3.9 mmol/L | ${o.pctBelow39.toFixed(1)}% |`);
       sections.push(`| <3.0 mmol/L | ${o.pctBelow30.toFixed(1)}% |`);
       sections.push(`| >7.8 mmol/L | ${o.pctAbove78.toFixed(1)}% |`);
@@ -4076,6 +4331,41 @@ List 5\u20137 working hypotheses that best fit the available data
     sections.push(``);
     if (cgmStats) {
       sections.push(L(`## CGM \u52A8\u6001\u8840\u7CD6`, `## CGM continuous glucose`));
+      sections.push(``);
+      sections.push(
+        L(
+          `> \u5185\u90E8\u89C4\u8303\u5355\u4F4D\uFF1A**mmol/L**\uFF08mg/dL \u5DF2\u6309 \xF718.0182 \u8F6C\u6362\uFF09\u3002`,
+          `> Canonical unit: **mmol/L** (mg/dL converted with \xF718.0182).`
+        )
+      );
+      const unitMeta = data.dataQuality?.cgmUnit;
+      if (unitMeta) {
+        const units = (unitMeta.rawUnits || []).join(", ") || L("\uFF08\u7F3A\u5931\uFF09", "(missing)");
+        sections.push(
+          L(
+            `> \u5BFC\u51FA unit\uFF1A${units}\uFF1Bmmol \u6E90 ${unitMeta.mmolCount} \u6761\uFF0Cmg/dL \u8F6C\u6362 ${unitMeta.convertedMgDlCount} \u6761\uFF0C\u672A\u77E5 unit ${unitMeta.unknownUnitCount} \u6761${unitMeta.inferredFromValues ? "\uFF08\u542B\u6570\u503C\u63A8\u65AD\uFF09" : ""}\uFF1B\u5355\u4F4D\u53EF\u9760\uFF1A${unitMeta.reliable ? "\u662F" : "**\u5426**"}\u3002`,
+            `> Export unit(s): ${units}; native mmol ${unitMeta.mmolCount}, mg/dL converted ${unitMeta.convertedMgDlCount}, unknown unit ${unitMeta.unknownUnitCount}${unitMeta.inferredFromValues ? " (incl. value inference)" : ""}; unit reliable: ${unitMeta.reliable ? "yes" : "**no**"}.`
+          )
+        );
+        if (!unitMeta.reliable || cgmStats.unitReliable === false) {
+          sections.push(
+            L(
+              `> \u26A0\uFE0F **\u5355\u4F4D\u4E0D\u53EF\u9760\uFF1A\u8BF7\u52FF\u5C06 mmol/L \u9608\u503C\u544A\u8B66\u5F53\u4F5C\u786E\u8BCA\u4F9D\u636E**\uFF0C\u5148\u6838\u5BF9\u8BBE\u5907\u4E0E\u5BFC\u51FA\u5355\u4F4D\u3002`,
+              `> \u26A0\uFE0F **Units unreliable: do not treat mmol/L threshold alerts as confirmed**; verify device/export units first.`
+            )
+          );
+        }
+      }
+      if (cgmStats.coverage) {
+        const cov = cgmStats.coverage;
+        const method = cov.tirMethod === "time_weighted" ? L("\u65F6\u95F4\u52A0\u6743\uFF08\u95F4\u9694\u4E0A\u9650\u5185\uFF09", "time-weighted (capped gaps)") : L("\u91C7\u6837\u70B9\u5360\u6BD4\uFF08\u975E\u5B8C\u6574 TIR\uFF09", "sample-share % (not full TIR)");
+        sections.push(
+          L(
+            `> \u8986\u76D6\uFF1A\u8DE8\u5EA6 ${cov.spanHours} h \xB7 \u6709\u6548\u4F69\u6234 ${cov.wearHours} h \xB7 \u8986\u76D6\u7387 ${cov.coveragePct ?? "\u2014"}% \xB7 \u4E2D\u4F4D\u95F4\u9694 ${cov.medianIntervalMin ?? "\u2014"} min \xB7 \u7F3A\u53E3 ${cov.gapCount} \xB7 TIR \u65B9\u6CD5\uFF1A**${method}**\u3002`,
+            `> Coverage: span ${cov.spanHours} h \xB7 wear ${cov.wearHours} h \xB7 coverage ${cov.coveragePct ?? "\u2014"}% \xB7 median interval ${cov.medianIntervalMin ?? "\u2014"} min \xB7 gaps ${cov.gapCount} \xB7 TIR method: **${method}**.`
+          )
+        );
+      }
       sections.push(``);
       if (cgmStats.firstDayDate) {
         sections.push(

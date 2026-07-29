@@ -10,7 +10,15 @@ import {
   ERecordSummary,
   WatchDaySummary,
   WorkoutSession,
+  CgmUnitInfo,
 } from './types';
+import {
+  classifyGlucoseUnit,
+  emptyCgmUnitInfo,
+  inferGlucoseUnitFromValues,
+  noteRawUnit,
+  toMmolL,
+} from './glucose';
 
 /** 从 datetime 字符串提取日期部分 */
 export function getDate(dt: string): string {
@@ -144,6 +152,7 @@ export function parseRecordLine(line: string): RawRecord | null {
     startDate,
     endDate: xmlAttr(line, 'endDate'),
     value: xmlAttr(line, 'value') ?? '',
+    unit: xmlAttr(line, 'unit'),
   };
 }
 
@@ -281,7 +290,39 @@ export function processRecord(
       sourceLower.includes('libre') ||
       sourceLower.includes('glucose')
     ) {
-      data.cgm.push({ datetime: rdate, value: numericValue });
+      if (!data.dataQuality.cgmUnit) {
+        data.dataQuality.cgmUnit = emptyCgmUnitInfo();
+      }
+      const meta = data.dataQuality.cgmUnit;
+      noteRawUnit(meta, rec.unit);
+      const kind = classifyGlucoseUnit(rec.unit);
+      if (kind === 'mmol/L') {
+        data.cgm.push({
+          datetime: rdate,
+          value: numericValue,
+          originalUnit: rec.unit,
+          originalValue: numericValue,
+        });
+        meta.mmolCount += 1;
+      } else if (kind === 'mg/dL') {
+        data.cgm.push({
+          datetime: rdate,
+          value: toMmolL(numericValue, 'mg/dL'),
+          originalUnit: rec.unit,
+          originalValue: numericValue,
+        });
+        meta.convertedMgDlCount += 1;
+      } else {
+        // unit 缺失/未知：暂存原始值，finalize 时推断或标不可靠
+        data.cgm.push({
+          datetime: rdate,
+          value: numericValue,
+          originalUnit: rec.unit || '',
+          originalValue: numericValue,
+          unitPending: true,
+        });
+        meta.unknownUnitCount += 1;
+      }
       data.dataAvailability.hasCgm = true;
     }
   } else if (rec.type === 'HKQuantityTypeIdentifierBloodPressureSystolic') {
@@ -580,6 +621,62 @@ export function flushParseLineState(
 }
 
 /**
+ * 对 unit 缺失/未知的 CGM 点做数值推断转换，并更新 dataQuality.cgmUnit.reliable
+ */
+export function finalizeCgmUnits(data: HealthData): void {
+  if (!data.cgm?.length) {
+    if (data.dataQuality) data.dataQuality.cgmUnit = data.dataQuality.cgmUnit || null;
+    return;
+  }
+  if (!data.dataQuality.cgmUnit) {
+    data.dataQuality.cgmUnit = emptyCgmUnitInfo();
+  }
+  const meta: CgmUnitInfo = data.dataQuality.cgmUnit;
+
+  const pending = data.cgm.filter((p) => p.unitPending);
+  if (pending.length) {
+    const raws = pending.map((p) => (p.originalValue != null ? p.originalValue : p.value));
+    const inferred = inferGlucoseUnitFromValues(raws);
+    if (inferred === 'mg/dL') {
+      for (const p of pending) {
+        const raw = p.originalValue != null ? p.originalValue : p.value;
+        p.value = toMmolL(raw, 'mg/dL');
+        p.unitPending = false;
+      }
+      meta.inferredFromValues = true;
+      meta.convertedMgDlCount += pending.length;
+      meta.unknownUnitCount = Math.max(0, meta.unknownUnitCount - pending.length);
+    } else if (inferred === 'mmol/L') {
+      for (const p of pending) {
+        if (p.originalValue != null) p.value = p.originalValue;
+        p.unitPending = false;
+      }
+      meta.inferredFromValues = true;
+      meta.mmolCount += pending.length;
+      meta.unknownUnitCount = Math.max(0, meta.unknownUnitCount - pending.length);
+    } else {
+      // 无法推断：保留数值但标记不可靠
+      meta.reliable = false;
+    }
+  }
+
+  // 仍有 pending 或 unknown 残留 → 不可靠
+  if (data.cgm.some((p) => p.unitPending) || meta.unknownUnitCount > 0) {
+    meta.reliable = false;
+  }
+
+  // 生理合理粗检：转换后中位仍 > 35 可能单位错误（mmol 极少超过此值中位）
+  const vals = data.cgm.map((p) => p.value).filter(Number.isFinite);
+  if (vals.length) {
+    const sorted = [...vals].sort((a, b) => a - b);
+    const med = sorted[Math.floor(sorted.length / 2)];
+    if (med > 35) {
+      meta.reliable = false;
+    }
+  }
+}
+
+/**
  * 将体脂点合并到同日体重记录：优先同一天时间最近的一条
  */
 function mergeBodyFatIntoWeight(data: HealthData): void {
@@ -643,6 +740,7 @@ export function finalizeData(data: HealthData): void {
   }
   data.bloodPressure.sort((a, b) => a.datetime.localeCompare(b.datetime));
   data.cgm.sort((a, b) => a.datetime.localeCompare(b.datetime));
+  finalizeCgmUnits(data);
   data.weight.sort((a, b) => a.datetime.localeCompare(b.datetime));
   if (data.bodyFat) {
     data.bodyFat.sort((a, b) => a.datetime.localeCompare(b.datetime));

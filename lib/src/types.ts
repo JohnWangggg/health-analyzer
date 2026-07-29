@@ -13,6 +13,8 @@ export interface RawRecord {
   startDate: string;
   endDate?: string;
   value: string;
+  /** Apple Health Record unit 属性，如 mmol/L、mg/dL */
+  unit?: string;
 }
 
 // ============================================================
@@ -21,7 +23,14 @@ export interface RawRecord {
 
 export interface CgmPoint {
   datetime: string;
-  value: number; // mmol/L
+  /** 规范单位 mmol/L（解析时已转换） */
+  value: number;
+  /** 原始 unit 字符串（若有） */
+  originalUnit?: string;
+  /** 转换前的原始数值 */
+  originalValue?: number;
+  /** unit 缺失/未知，待 finalize 推断 */
+  unitPending?: boolean;
 }
 
 export interface BloodPressureRecord {
@@ -48,6 +57,53 @@ export interface BodyFatPoint {
   source?: string;
 }
 
+/** CGM 血糖单位识别与转换摘要 */
+export interface CgmUnitInfo {
+  /** 导出中见过的原始 unit 字符串（去重） */
+  rawUnits: string[];
+  /** 明确为 mmol/L 的条数 */
+  mmolCount: number;
+  /** 由 mg/dL 转换的条数 */
+  convertedMgDlCount: number;
+  /** unit 缺失或无法识别的条数 */
+  unknownUnitCount: number;
+  /** 是否对缺失 unit 用数值分布推断 */
+  inferredFromValues: boolean;
+  /**
+   * 单位是否可靠：全部可转为 mmol/L。
+   * false 时不应将 CGM 阈值结论视为可信（UI/提示词会降级）。
+   */
+  reliable: boolean;
+  /** 内部规范单位 */
+  canonicalUnit: 'mmol/L';
+}
+
+/** CGM 采样覆盖与 TIR 方法 */
+export type CgmTirMethod = 'time_weighted' | 'sample_share';
+
+export interface CgmCoverage {
+  pointCount: number;
+  /** 首末点时间跨度（小时） */
+  spanHours: number;
+  /** 计入统计的有效佩戴时长（小时，间隔上限内） */
+  wearHours: number;
+  /** wearHours / spanHours * 100；span 过短时为 null */
+  coveragePct: number | null;
+  /** 相邻采样间隔中位数（分钟） */
+  medianIntervalMin: number | null;
+  /** 超过 maxGap 的间隔数 */
+  gapCount: number;
+  /** 允许计入的最大间隔（分钟） */
+  maxGapMin: number;
+  /** 主展示 TIR 所用方法 */
+  tirMethod: CgmTirMethod;
+  /**
+   * 时间加权 TIR 是否足够可靠：
+   * 覆盖率与采样间隔大致符合 CGM 连续监测假设
+   */
+  reliableTir: boolean;
+}
+
 /** 解析期数据质量提示（如误录的未来日期） */
 export interface DataQualityInfo {
   /** 用于判定「未来」的参考日 YYYY-MM-DD（通常为本地今天） */
@@ -56,6 +112,8 @@ export interface DataQualityInfo {
   skippedFutureCount: number;
   /** 见到的未来日期样本（去重，最多若干条，便于提示） */
   futureSampleDates: string[];
+  /** CGM 单位识别/转换；无 CGM 时为 null/undefined */
+  cgmUnit?: CgmUnitInfo | null;
 }
 
 /**
@@ -225,6 +283,10 @@ export type CgmSegmentStats = Stats & {
   pctInRange: number;
   pctAbove78: number;
   pctAbove100: number;
+  /** 主展示占比的计算方法 */
+  tirMethod?: CgmTirMethod;
+  /** 对照：纯采样点占比 TIR（3.9–10.0） */
+  samplePctInRange?: number;
 };
 
 export interface CgmStats {
@@ -244,6 +306,13 @@ export interface CgmStats {
     '60min': { rise: number; time: string };
     '120min': { rise: number; time: string };
   };
+  /** 全程采样覆盖与 TIR 方法说明 */
+  coverage: CgmCoverage;
+  /**
+   * 单位是否可靠（来自 dataQuality.cgmUnit）。
+   * false 时阈值结论应降级展示。
+   */
+  unitReliable: boolean;
 }
 
 export interface BpPeriodMean {

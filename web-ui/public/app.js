@@ -1573,16 +1573,29 @@
     if (analysis.cgmStats) {
       const o = analysis.cgmStats.stable || analysis.cgmStats.overall;
       const label = analysis.cgmStats.stable ? t('kpi.cgmStable') : t('kpi.cgmMean');
+      const unitOk = analysis.cgmStats.unitReliable !== false;
+      const cov = analysis.cgmStats.coverage;
       let tone = 'neutral';
-      if (o.pctBelow30 > 0) tone = 'alert';
+      if (!unitOk) tone = 'alert';
+      else if (o.pctBelow30 > 0) tone = 'alert';
       else if (o.pctBelow39 >= 5) tone = 'watch';
       else if (o.pctInRange >= 90) tone = 'good';
+      const tirTag =
+        o.tirMethod === 'sample_share'
+          ? t('kpi.cgmTirSample')
+          : t('kpi.cgmTirTime');
+      let sub =
+        `TIR ${o.pctInRange.toFixed(0)}% (${tirTag}) · n=${o.count}` +
+        (analysis.cgmStats.firstDayDate ? ` · ${t('kpi.excludedFirstDay')}` : '');
+      if (cov && cov.coveragePct != null) {
+        sub += ` · ${t('kpi.cgmCoverage', { pct: cov.coveragePct.toFixed(0) })}`;
+      }
+      if (!unitOk) sub = t('kpi.cgmUnitUnreliable') + ' · ' + sub;
       items.push({
         label,
         value: o.mean.toFixed(2),
         unit: 'mmol/L',
-        sub: `TIR ${o.pctInRange.toFixed(0)}% · n=${o.count}` +
-          (analysis.cgmStats.firstDayDate ? ` · ${t('kpi.excludedFirstDay')}` : ''),
+        sub,
         tone,
       });
     }
@@ -2419,6 +2432,45 @@
         </div>
       `);
     }
+    const cgmUnit = dq && dq.cgmUnit;
+    const cgmStats = analysis && analysis.cgmStats;
+    if (cgmUnit && (analysis.data && analysis.data.cgm && analysis.data.cgm.length)) {
+      const units = (cgmUnit.rawUnits || []).join(getAnalysisLocale() === 'en' ? ', ' : '、') || t('quality.noSample');
+      const reliable = cgmUnit.reliable !== false && (!cgmStats || cgmStats.unitReliable !== false);
+      parts.push(`
+        <div class="quality-banner ${reliable ? 'quality-banner-info' : ''}" role="status">
+          <strong>${escapeHtml(reliable ? t('quality.cgmUnitTitle') : t('quality.cgmUnitUnreliableTitle'))}</strong>
+          <p>
+            ${escapeHtml(t('quality.cgmUnitBody', {
+              units,
+              mmol: cgmUnit.mmolCount || 0,
+              mgdl: cgmUnit.convertedMgDlCount || 0,
+              unknown: cgmUnit.unknownUnitCount || 0,
+              inferred: cgmUnit.inferredFromValues ? t('quality.cgmInferredYes') : t('quality.cgmInferredNo'),
+            }))}
+            ${
+              cgmStats && cgmStats.coverage
+                ? ' ' +
+                  escapeHtml(
+                    t('quality.cgmCoverageBody', {
+                      method:
+                        cgmStats.coverage.tirMethod === 'time_weighted'
+                          ? t('kpi.cgmTirTime')
+                          : t('kpi.cgmTirSample'),
+                      wear: String(cgmStats.coverage.wearHours),
+                      span: String(cgmStats.coverage.spanHours),
+                      cov:
+                        cgmStats.coverage.coveragePct != null
+                          ? String(cgmStats.coverage.coveragePct)
+                          : '—',
+                    })
+                  )
+                : ''
+            }
+          </p>
+        </div>
+      `);
+    }
     if (!parts.length) {
       host.innerHTML = '';
       host.classList.add('hidden');
@@ -2690,6 +2742,22 @@
             ${fd ? `<tr><td>${escapeHtml(t('summary.cgm.firstDay', { date: analysis.cgmStats.firstDayDate || '' }))}</td><td class="num">${fd.mean.toFixed(2)}</td><td class="num">${fd.pctInRange.toFixed(1)}%</td><td class="num">${fd.pctBelow39.toFixed(1)}%</td><td class="num">${fd.count}</td></tr>` : ''}
             ${st ? `<tr><td><strong>${escapeHtml(t('summary.cgm.stable'))}</strong></td><td class="num">${st.mean.toFixed(2)}</td><td class="num">${st.pctInRange.toFixed(1)}%</td><td class="num">${st.pctBelow39.toFixed(1)}%</td><td class="num">${st.count}</td></tr>` : ''}
             <tr><td colspan="5" class="hint" style="background:transparent;padding:8px 0 0;margin:0;">${escapeHtml(t('summary.cgm.minMax', { min: o.min.toFixed(1), max: o.max.toFixed(1) }))}</td></tr>
+            ${
+              analysis.cgmStats.coverage
+                ? `<tr><td colspan="5" class="hint" style="background:transparent;padding:4px 0 0;margin:0;">${escapeHtml(
+                    t('summary.cgm.tirNote', {
+                      method:
+                        o.tirMethod === 'time_weighted'
+                          ? t('kpi.cgmTirTime')
+                          : t('kpi.cgmTirSample'),
+                      sample:
+                        o.samplePctInRange != null
+                          ? o.samplePctInRange.toFixed(1)
+                          : o.pctInRange.toFixed(1),
+                    })
+                  )}</td></tr>`
+                : ''
+            }
           </table>
         </div>
       `);

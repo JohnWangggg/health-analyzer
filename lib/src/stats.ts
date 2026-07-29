@@ -83,17 +83,16 @@ function calcStats(values: number[]): Stats {
   };
 }
 
-function cgmSegment(
-  points: { datetime: string; value: number }[]
-): CgmSegmentStats | null {
-  if (!points.length) return null;
-  const sorted = [...points].sort((a, b) => a.datetime.localeCompare(b.datetime));
-  const values = sorted.map((p) => p.value);
-  const total = values.length;
-  const overall = calcStats(values);
+/** CGM 相邻采样计入 TIR 的最大间隔（毫秒）；默认 15 分钟 */
+const CGM_MAX_GAP_MS = 15 * 60 * 1000;
+/** 末点默认代表时长（毫秒） */
+const CGM_LAST_SAMPLE_MS = 5 * 60 * 1000;
+
+type CgmLike = { datetime: string; value: number };
+
+function sampleSharePcts(values: number[]) {
+  const total = values.length || 1;
   return {
-    ...overall,
-    timeRange: `${sorted[0].datetime} 至 ${sorted[sorted.length - 1].datetime}`,
     pctBelow39: (values.filter((v) => v < 3.9).length / total) * 100,
     pctBelow30: (values.filter((v) => v < 3.0).length / total) * 100,
     pctInRange: (values.filter((v) => v >= 3.9 && v <= 10.0).length / total) * 100,
@@ -102,19 +101,154 @@ function cgmSegment(
   };
 }
 
-/** CGM 完整统计：总体 + 首日 + 稳定期 */
-export function calcCgmStats(cgm: { datetime: string; value: number }[]): CgmStats | null {
+/**
+ * 时间加权占比：每个采样点代表「到下一点的间隔」（上限 maxGap）；
+ * 末点贡献 LAST_SAMPLE。超 maxGap 的部分记为缺口，不计入 wear。
+ */
+function timeWeightedPcts(
+  sorted: CgmLike[],
+  maxGapMs = CGM_MAX_GAP_MS
+): {
+  pctBelow39: number;
+  pctBelow30: number;
+  pctInRange: number;
+  pctAbove78: number;
+  pctAbove100: number;
+  wearMs: number;
+  gapCount: number;
+  intervalsMin: number[];
+} {
+  let wearMs = 0;
+  let gapCount = 0;
+  let below39 = 0;
+  let below30 = 0;
+  let inRange = 0;
+  let above78 = 0;
+  let above100 = 0;
+  const intervalsMin: number[] = [];
+
+  const add = (v: number, ms: number) => {
+    if (ms <= 0) return;
+    wearMs += ms;
+    if (v < 3.9) below39 += ms;
+    if (v < 3.0) below30 += ms;
+    if (v >= 3.9 && v <= 10.0) inRange += ms;
+    if (v > 7.8) above78 += ms;
+    if (v > 10.0) above100 += ms;
+  };
+
+  for (let i = 0; i < sorted.length; i++) {
+    const t0 = parseAppleDate(sorted[i].datetime);
+    let dt: number;
+    if (i + 1 < sorted.length) {
+      const t1 = parseAppleDate(sorted[i + 1].datetime);
+      dt = Math.max(0, t1 - t0);
+      if (dt > 0) intervalsMin.push(dt / 60000);
+      if (dt > maxGapMs) {
+        gapCount += 1;
+        dt = maxGapMs;
+      }
+    } else {
+      dt = CGM_LAST_SAMPLE_MS;
+    }
+    add(sorted[i].value, dt);
+  }
+
+  const den = wearMs || 1;
+  return {
+    pctBelow39: (below39 / den) * 100,
+    pctBelow30: (below30 / den) * 100,
+    pctInRange: (inRange / den) * 100,
+    pctAbove78: (above78 / den) * 100,
+    pctAbove100: (above100 / den) * 100,
+    wearMs,
+    gapCount,
+    intervalsMin,
+  };
+}
+
+function medianOf(nums: number[]): number | null {
+  if (!nums.length) return null;
+  const s = [...nums].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function cgmSegment(
+  points: CgmLike[],
+  preferTimeWeighted: boolean
+): CgmSegmentStats | null {
+  if (!points.length) return null;
+  const sorted = [...points].sort((a, b) => a.datetime.localeCompare(b.datetime));
+  const values = sorted.map((p) => p.value);
+  const overall = calcStats(values);
+  const sample = sampleSharePcts(values);
+  const tw = timeWeightedPcts(sorted);
+  const useTw = preferTimeWeighted && tw.wearMs > 0;
+  const pick = useTw ? tw : sample;
+  return {
+    ...overall,
+    timeRange: `${sorted[0].datetime} 至 ${sorted[sorted.length - 1].datetime}`,
+    pctBelow39: pick.pctBelow39,
+    pctBelow30: pick.pctBelow30,
+    pctInRange: pick.pctInRange,
+    pctAbove78: pick.pctAbove78,
+    pctAbove100: pick.pctAbove100,
+    tirMethod: useTw ? 'time_weighted' : 'sample_share',
+    samplePctInRange: sample.pctInRange,
+  };
+}
+
+function buildCgmCoverage(sorted: CgmLike[]): import('./types').CgmCoverage {
+  const tw = timeWeightedPcts(sorted);
+  const t0 = parseAppleDate(sorted[0].datetime);
+  const t1 = parseAppleDate(sorted[sorted.length - 1].datetime);
+  const spanMs = Math.max(0, t1 - t0);
+  const spanHours = spanMs / 3600000;
+  const wearHours = tw.wearMs / 3600000;
+  const coveragePct =
+    spanHours >= 1 ? Math.min(100, (wearHours / spanHours) * 100) : null;
+  const medianIntervalMin = medianOf(tw.intervalsMin);
+  // 可靠时间加权：跨度≥6h、覆盖≥50%、中位间隔≤12 分钟
+  const reliableTir =
+    sorted.length >= 12 &&
+    spanHours >= 6 &&
+    coveragePct != null &&
+    coveragePct >= 50 &&
+    medianIntervalMin != null &&
+    medianIntervalMin <= 12;
+  return {
+    pointCount: sorted.length,
+    spanHours: Math.round(spanHours * 10) / 10,
+    wearHours: Math.round(wearHours * 10) / 10,
+    coveragePct: coveragePct == null ? null : Math.round(coveragePct * 10) / 10,
+    medianIntervalMin:
+      medianIntervalMin == null ? null : Math.round(medianIntervalMin * 10) / 10,
+    gapCount: tw.gapCount,
+    maxGapMin: CGM_MAX_GAP_MS / 60000,
+    tirMethod: reliableTir ? 'time_weighted' : 'sample_share',
+    reliableTir,
+  };
+}
+
+/** CGM 完整统计：总体 + 首日 + 稳定期 + 覆盖/时间加权 TIR */
+export function calcCgmStats(
+  cgm: CgmLike[],
+  options?: { unitReliable?: boolean }
+): CgmStats | null {
   if (cgm.length === 0) return null;
 
   const sorted = [...cgm].sort((a, b) => a.datetime.localeCompare(b.datetime));
-  const overall = cgmSegment(sorted)!;
+  const coverage = buildCgmCoverage(sorted);
+  const preferTw = coverage.reliableTir;
+  const overall = cgmSegment(sorted, preferTw)!;
   const firstDayDate = getDate(sorted[0].datetime);
   const firstDayPoints = sorted.filter((p) => getDate(p.datetime) === firstDayDate);
   const stablePoints = sorted.filter((p) => getDate(p.datetime) !== firstDayDate);
-  const firstDay = cgmSegment(firstDayPoints);
-  const stable = stablePoints.length ? cgmSegment(stablePoints) : null;
+  const firstDay = cgmSegment(firstDayPoints, preferTw);
+  const stable = stablePoints.length ? cgmSegment(stablePoints, preferTw) : null;
 
-  // 分日统计
+  // 分日统计（日粒度仍用采样点占比，间隔短时与时间加权接近）
   const byDay: Record<string, number[]> = {};
   for (const p of sorted) {
     const d = getDate(p.datetime);
@@ -126,11 +260,12 @@ export function calcCgmStats(cgm: { datetime: string; value: number }[]): CgmSta
   for (const date of Object.keys(byDay).sort()) {
     const vals = byDay[date];
     const s = calcStats(vals);
+    const share = sampleSharePcts(vals);
     daily[date] = {
       ...s,
-      pctBelow39: (vals.filter((v) => v < 3.9).length / vals.length) * 100,
-      pctAbove78: (vals.filter((v) => v > 7.8).length / vals.length) * 100,
-      pctAbove100: (vals.filter((v) => v > 10.0).length / vals.length) * 100,
+      pctBelow39: share.pctBelow39,
+      pctAbove78: share.pctAbove78,
+      pctAbove100: share.pctAbove100,
     };
   }
 
@@ -178,6 +313,8 @@ export function calcCgmStats(cgm: { datetime: string; value: number }[]): CgmSta
     stable,
     daily,
     maxRises,
+    coverage,
+    unitReliable: options?.unitReliable !== false,
   };
 }
 
@@ -1200,7 +1337,9 @@ export function analyzeAll(
 
   return {
     data,
-    cgmStats: calcCgmStats(data.cgm),
+    cgmStats: calcCgmStats(data.cgm, {
+      unitReliable: data.dataQuality?.cgmUnit?.reliable !== false,
+    }),
     bpStats: calcBloodPressureStats(data.bloodPressure),
     weightStats: calcWeightStats(data.weight),
     watchStats,

@@ -177,6 +177,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.34 | CGM 单位 mmol/L 规范化、时间加权 TIR 与覆盖降级 |
 | v1.33 | Playwright E2E 冒烟（页面/语言/最小 XML 解析） |
 | v1.32 | 扩展繁体词库覆盖洞察/门诊残缺短语、smoke 抽检 |
 | v1.31 | zh-TW 分析文案繁体化（createL 词库）、CI smoke |
