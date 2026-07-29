@@ -2151,9 +2151,15 @@ body.has-results .app-footer {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto !important;
+  }
   *, *::before, *::after {
     transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
     animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
   }
 }
@@ -2372,8 +2378,24 @@ body.has-results .app-footer {
 
   .result-sticky-nav {
     grid-column: 1 / -1;
-    justify-content: flex-start;
+    justify-content: stretch;
+    align-items: stretch;
     max-width: none;
+    gap: 8px;
+    padding: 10px 6px 12px;
+    margin: 0 0 16px;
+    top: 0;
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+  }
+
+  .result-sticky-nav .result-nav-link {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    padding: 8px 12px;
+    font-size: 13px;
+    white-space: nowrap;
   }
 
   .hero-actions {

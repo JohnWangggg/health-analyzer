@@ -1063,6 +1063,19 @@
     return 'other';
   }
 
+  function getAnalysisLocale() {
+    try {
+      if (window.I18n && typeof window.I18n.getLocale === 'function') {
+        return window.I18n.getLocale() || 'zh-CN';
+      }
+    } catch (_) { /* ignore */ }
+    return 'zh-CN';
+  }
+
+  function analysisLocaleOpts() {
+    return { locale: getAnalysisLocale() };
+  }
+
   function renderInsights(analysis) {
     const list = $('insight-list');
     if (!list) return;
@@ -1070,7 +1083,7 @@
       list.innerHTML = '<li class="insight-item tone-neutral"><div class="insight-title">摘要模块未加载</div></li>';
       return;
     }
-    const bullets = window.HealthAnalyzer.buildInsightBullets(analysis) || [];
+    const bullets = window.HealthAnalyzer.buildInsightBullets(analysis, analysisLocaleOpts()) || [];
     if (!bullets.length) {
       list.innerHTML = '<li class="insight-item tone-neutral"><div class="insight-title">暂无足够数据生成摘要</div><p class="insight-detail">请确认导出包含体重、血压、CGM 或心率等记录。</p></li>';
       return;
@@ -1367,9 +1380,9 @@
   }
 
   function severityLabel(sev) {
-    if (sev === 'alert') return '需关注';
-    if (sev === 'watch') return '观察';
-    return '提示';
+    if (sev === 'alert') return t('tone.alert');
+    if (sev === 'watch') return t('tone.watch');
+    return t('tone.neutral');
   }
 
   function renderSignals(analysis) {
@@ -1379,9 +1392,9 @@
       container.innerHTML = '<p class="hint">信号模块未加载。</p>';
       return;
     }
-    const signals = window.HealthAnalyzer.detectCrossSignals(analysis);
+    const signals = window.HealthAnalyzer.detectCrossSignals(analysis, analysisLocaleOpts());
     if (!signals.length) {
-      container.innerHTML = '<p class="hint">当前规则未触发明显组合信号。数据仍建议人工复核关键边界值。</p>';
+      container.innerHTML = `<p class="hint">${t('signals.empty')}</p>`;
       return;
     }
     container.innerHTML = `<div class="signals-list">${signals.map((s) => `
@@ -1430,7 +1443,7 @@
       const bundle = getExportBundle();
       const day = new Date().toISOString().slice(0, 10);
       downloadText(`health-analysis-${day}.json`, bundle.analysisJson, 'application/json');
-      showExportStatus('✓ JSON 已下载');
+      showExportStatus(t('export.ok.json'));
     } catch (e) {
       alert(e.message || String(e));
     }
@@ -1447,11 +1460,11 @@
         }
         const zipped = window.fflate.zipSync(files);
         downloadBlob(`health-analysis-csv-${day}.zip`, new Blob([zipped], { type: 'application/zip' }));
-        showExportStatus('✓ CSV ZIP 已下载');
+        showExportStatus(t('export.ok.csvZip'));
       } else {
         const joined = window.HealthAnalyzer.joinCsvBundle(bundle.csvFiles);
         downloadText(`health-analysis-csv-${day}.txt`, joined, 'text/plain');
-        showExportStatus('✓ CSV 文本已下载');
+        showExportStatus(t('export.ok.csvText'));
       }
     } catch (e) {
       alert(e.message || String(e));
@@ -1463,7 +1476,7 @@
       const bundle = getExportBundle();
       const day = new Date().toISOString().slice(0, 10);
       downloadText(`health-snapshot-${day}.json`, bundle.snapshotJson, 'application/json');
-      showExportStatus('✓ 摘要快照已下载');
+      showExportStatus(t('export.ok.snapshot'));
     } catch (e) {
       alert(e.message || String(e));
     }
@@ -1478,7 +1491,11 @@
       throw new Error('周报导出功能未加载，请刷新页面后重试');
     }
     const ctx = typeof getUserContextFromForm === 'function' ? getUserContextFromForm() : null;
-    return window.HealthAnalyzer.generateWeeklyReportMarkdown(currentAnalysis, ctx);
+    return window.HealthAnalyzer.generateWeeklyReportMarkdown(
+      currentAnalysis,
+      ctx,
+      analysisLocaleOpts()
+    );
   }
 
   function exportWeeklyReport() {
@@ -1488,7 +1505,7 @@
         (currentAnalysis.dateRange && currentAnalysis.dateRange.end) ||
         new Date().toISOString().slice(0, 10);
       downloadText(`weekly-report-${end}.md`, md, 'text/markdown');
-      showExportStatus('✓ 本周报告已下载');
+      showExportStatus(t('export.ok.weekly'));
       // 提示可保存到本机历史
       const saveBtn = $('btn-weekly-save');
       if (saveBtn) {
@@ -2764,6 +2781,7 @@
     if (!currentAnalysis) return;
     try {
       renderInsights(currentAnalysis);
+      renderSignals(currentAnalysis);
       renderAvailability(currentAnalysis);
       renderKpis(currentAnalysis);
     } catch (e) {

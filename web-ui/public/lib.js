@@ -45,6 +45,7 @@ var HealthAnalyzer = (() => {
     calcWorkoutStats: () => calcWorkoutStats,
     compareSnapshots: () => compareSnapshots,
     createEmptyData: () => createEmptyData,
+    createL: () => createL,
     detectCrossSignals: () => detectCrossSignals,
     enrichEcgWithContext: () => enrichEcgWithContext,
     extractXmlFromZip: () => extractXmlFromZip,
@@ -64,6 +65,7 @@ var HealthAnalyzer = (() => {
     joinCsvBundle: () => joinCsvBundle,
     mergeEcgEntries: () => mergeEcgEntries,
     mergeExternalCsvIntoData: () => mergeExternalCsvIntoData,
+    normalizeLocale: () => normalizeLocale,
     normalizeRecoveryWeights: () => normalizeRecoveryWeights,
     parseAppleDate: () => parseAppleDate,
     parseBloodPressureCsv: () => parseBloodPressureCsv,
@@ -74,6 +76,7 @@ var HealthAnalyzer = (() => {
     parseRecordLine: () => parseRecordLine,
     parseWeightScaleCsv: () => parseWeightScaleCsv,
     parseXmlStream: () => parseXmlStream,
+    pickLocale: () => pickLocale,
     processRecord: () => processRecord,
     processWorkoutBlock: () => processWorkoutBlock,
     processXmlLine: () => processXmlLine,
@@ -1674,6 +1677,23 @@ var HealthAnalyzer = (() => {
     };
   }
 
+  // src/locale.ts
+  function normalizeLocale(v) {
+    if (v === "en" || v && v.toLowerCase().startsWith("en")) return "en";
+    return "zh-CN";
+  }
+  function pickLocale(locale, zh, en) {
+    return locale === "en" ? en : zh;
+  }
+  function createL(localeInput = "zh-CN") {
+    const locale = normalizeLocale(localeInput);
+    const pick = (zh, en) => pickLocale(locale, zh, en);
+    const fn = ((zh, en) => pick(zh, en));
+    fn.t = pick;
+    fn.locale = locale;
+    return fn;
+  }
+
   // src/signals.ts
   function mean(values) {
     const v = values.filter(Number.isFinite);
@@ -1683,7 +1703,8 @@ var HealthAnalyzer = (() => {
   function recentDates(keys, n) {
     return [...keys].sort().slice(-n);
   }
-  function detectCrossSignals(analysis) {
+  function detectCrossSignals(analysis, options) {
+    const L = createL(normalizeLocale(options?.locale));
     const signals = [];
     const data = analysis.data;
     const hrvByDate = analysis.hrvByDate || {};
@@ -1704,9 +1725,12 @@ var HealthAnalyzer = (() => {
         signals.push({
           severity: "watch",
           date: d,
-          title: "\u6062\u590D\u538B\u529B\u65E5\uFF08HRV\u2193 + \u9759\u606F\u5FC3\u7387\u2191\uFF09",
-          detail: `${d}\uFF1AHRV \u5168\u5929\u5747\u503C ${h.toFixed(1)} ms\uFF08\u8FD1 7 \u65E5\u5747 ${hrvBase.toFixed(1)}\uFF09\uFF0C\u9759\u606F\u5FC3\u7387 ${r} bpm\uFF08\u8FD1 7 \u65E5\u5747 ${restBase.toFixed(1)}\uFF09\u3002\u53EF\u80FD\u4E0E\u75B2\u52B3\u3001\u7761\u7720\u4E0D\u8DB3\u3001\u75BE\u75C5\u6216\u8BAD\u7EC3\u8D1F\u8377\u6709\u5173\uFF0C\u5EFA\u8BAE\u7ED3\u5408\u75C7\u72B6\u89C2\u5BDF 1-2 \u5929\u3002`,
-          dimensions: ["HRV", "\u9759\u606F\u5FC3\u7387"]
+          title: L("\u6062\u590D\u538B\u529B\u65E5\uFF08HRV\u2193 + \u9759\u606F\u5FC3\u7387\u2191\uFF09", "Recovery stress day (HRV\u2193 + resting HR\u2191)"),
+          detail: L(
+            `${d}\uFF1AHRV \u5168\u5929\u5747\u503C ${h.toFixed(1)} ms\uFF08\u8FD1 7 \u65E5\u5747 ${hrvBase.toFixed(1)}\uFF09\uFF0C\u9759\u606F\u5FC3\u7387 ${r} bpm\uFF08\u8FD1 7 \u65E5\u5747 ${restBase.toFixed(1)}\uFF09\u3002\u53EF\u80FD\u4E0E\u75B2\u52B3\u3001\u7761\u7720\u4E0D\u8DB3\u3001\u75BE\u75C5\u6216\u8BAD\u7EC3\u8D1F\u8377\u6709\u5173\uFF0C\u5EFA\u8BAE\u7ED3\u5408\u75C7\u72B6\u89C2\u5BDF 1-2 \u5929\u3002`,
+            `${d}: all-day HRV mean ${h.toFixed(1)} ms (7-day mean ${hrvBase.toFixed(1)}), resting HR ${r} bpm (7-day mean ${restBase.toFixed(1)}). May relate to fatigue, short sleep, illness, or training load; observe with symptoms for 1\u20132 days.`
+          ),
+          dimensions: ["HRV", L("\u9759\u606F\u5FC3\u7387", "Resting HR")]
         });
       }
     }
@@ -1718,9 +1742,12 @@ var HealthAnalyzer = (() => {
         signals.push({
           severity: "info",
           date: d,
-          title: "\u4F4E\u7761\u7720\u4E14\u6D3B\u52A8\u91CF\u504F\u4F4E",
-          detail: `${d}\uFF1A\u603B\u7761\u7720 ${sleepH.toFixed(2)} h\uFF0C\u6B65\u6570 ${Math.round(steps)}\u3002\u82E5\u6301\u7EED\u591A\u65E5\uFF0C\u53EF\u4F18\u5148\u4FDD\u8BC1\u7761\u7720\u4E0E\u57FA\u7840\u6D3B\u52A8\uFF0C\u907F\u514D\u8FC7\u5EA6\u89E3\u8BFB\u5355\u65E5\u6307\u6807\u3002`,
-          dimensions: ["\u7761\u7720", "\u6B65\u6570"]
+          title: L("\u4F4E\u7761\u7720\u4E14\u6D3B\u52A8\u91CF\u504F\u4F4E", "Short sleep and low activity"),
+          detail: L(
+            `${d}\uFF1A\u603B\u7761\u7720 ${sleepH.toFixed(2)} h\uFF0C\u6B65\u6570 ${Math.round(steps)}\u3002\u82E5\u6301\u7EED\u591A\u65E5\uFF0C\u53EF\u4F18\u5148\u4FDD\u8BC1\u7761\u7720\u4E0E\u57FA\u7840\u6D3B\u52A8\uFF0C\u907F\u514D\u8FC7\u5EA6\u89E3\u8BFB\u5355\u65E5\u6307\u6807\u3002`,
+            `${d}: total sleep ${sleepH.toFixed(2)} h, steps ${Math.round(steps)}. If this persists for several days, prioritize sleep and baseline activity; avoid over-reading a single day.`
+          ),
+          dimensions: [L("\u7761\u7720", "Sleep"), L("\u6B65\u6570", "Steps")]
         });
       }
     }
@@ -1728,9 +1755,12 @@ var HealthAnalyzer = (() => {
       const m = analysis.bpStats.mean7d;
       signals.push({
         severity: m.lowCount >= 3 ? "watch" : "info",
-        title: "\u8FD1 7 \u5929\u51FA\u73B0\u504F\u4F4E\u8840\u538B\u8BFB\u6570",
-        detail: `\u8FD1 7 \u5929\u5747\u503C ${m.systolic.toFixed(1)}/${m.diastolic.toFixed(1)} mmHg\uFF0C\u5176\u4E2D ${m.lowCount} \u6761 <90/60\u3002\u7ED3\u5408\u5934\u6655\u3001\u4E4F\u529B\u7B49\u75C7\u72B6\u5224\u65AD\uFF1B\u7528\u836F\u8C03\u6574\u8BF7\u9075\u533B\u5631\u3002`,
-        dimensions: ["\u8840\u538B"]
+        title: L("\u8FD1 7 \u5929\u51FA\u73B0\u504F\u4F4E\u8840\u538B\u8BFB\u6570", "Low blood pressure readings in last 7 days"),
+        detail: L(
+          `\u8FD1 7 \u5929\u5747\u503C ${m.systolic.toFixed(1)}/${m.diastolic.toFixed(1)} mmHg\uFF0C\u5176\u4E2D ${m.lowCount} \u6761 <90/60\u3002\u7ED3\u5408\u5934\u6655\u3001\u4E4F\u529B\u7B49\u75C7\u72B6\u5224\u65AD\uFF1B\u7528\u836F\u8C03\u6574\u8BF7\u9075\u533B\u5631\u3002`,
+          `Last 7 days mean ${m.systolic.toFixed(1)}/${m.diastolic.toFixed(1)} mmHg, including ${m.lowCount} readings <90/60. Interpret with symptoms such as dizziness or fatigue; medication changes only with clinical advice.`
+        ),
+        dimensions: [L("\u8840\u538B", "Blood pressure")]
       });
     }
     if (analysis.cgmStats) {
@@ -1738,15 +1768,21 @@ var HealthAnalyzer = (() => {
       if (o.pctBelow30 > 0) {
         signals.push({
           severity: "alert",
-          title: "CGM \u51FA\u73B0 <3.0 mmol/L \u8BFB\u6570",
-          detail: `\u6574\u4F53 <3.0 \u5360\u6BD4 ${o.pctBelow30.toFixed(1)}%\uFF0C\u6700\u4F4E ${o.min.toFixed(1)} mmol/L\u3002\u987B\u6307\u5C16\u8840\u590D\u6838\uFF1B\u4E0D\u80FD\u4EC5\u51ED CGM \u5224\u5B9A\u4F4E\u8840\u7CD6\u3002`,
+          title: L("CGM \u51FA\u73B0 <3.0 mmol/L \u8BFB\u6570", "CGM readings <3.0 mmol/L present"),
+          detail: L(
+            `\u6574\u4F53 <3.0 \u5360\u6BD4 ${o.pctBelow30.toFixed(1)}%\uFF0C\u6700\u4F4E ${o.min.toFixed(1)} mmol/L\u3002\u987B\u6307\u5C16\u8840\u590D\u6838\uFF1B\u4E0D\u80FD\u4EC5\u51ED CGM \u5224\u5B9A\u4F4E\u8840\u7CD6\u3002`,
+            `Overall <3.0 share ${o.pctBelow30.toFixed(1)}%, min ${o.min.toFixed(1)} mmol/L. Confirm with finger-stick glucose; do not judge hypoglycemia from CGM alone.`
+          ),
           dimensions: ["CGM"]
         });
       } else if (o.pctBelow39 >= 5) {
         signals.push({
           severity: "watch",
-          title: "CGM <3.9 mmol/L \u5360\u6BD4\u8F83\u9AD8",
-          detail: `\u6574\u4F53 <3.9 \u5360\u6BD4 ${o.pctBelow39.toFixed(1)}%\u3002\u6CE8\u610F\u533A\u5206\u4F20\u611F\u5668\u4F2A\u5F71\u4E0E\u771F\u5B9E\u4F4E\u503C\uFF0C\u5F02\u5E38\u65F6\u6307\u5C16\u8840\u590D\u6838\u3002`,
+          title: L("CGM <3.9 mmol/L \u5360\u6BD4\u8F83\u9AD8", "Elevated share of CGM <3.9 mmol/L"),
+          detail: L(
+            `\u6574\u4F53 <3.9 \u5360\u6BD4 ${o.pctBelow39.toFixed(1)}%\u3002\u6CE8\u610F\u533A\u5206\u4F20\u611F\u5668\u4F2A\u5F71\u4E0E\u771F\u5B9E\u4F4E\u503C\uFF0C\u5F02\u5E38\u65F6\u6307\u5C16\u8840\u590D\u6838\u3002`,
+            `Overall <3.9 share ${o.pctBelow39.toFixed(1)}%. Separate sensor artifact from true lows; confirm unusual periods with finger-stick glucose.`
+          ),
           dimensions: ["CGM"]
         });
       }
@@ -1755,8 +1791,11 @@ var HealthAnalyzer = (() => {
           signals.push({
             severity: "watch",
             date,
-            title: `CGM \u5355\u65E5\u4F4E\u503C\u504F\u591A\uFF08${date}\uFF09`,
-            detail: `${date}\uFF1A<3.9 \u5360\u6BD4 ${day.pctBelow39.toFixed(1)}%\uFF08${day.count} \u6761\uFF09\uFF0C\u6700\u4F4E ${day.min.toFixed(1)}\u3002\u4F18\u5148\u6392\u67E5\u538B\u8FEB\u4F4E\u503C/\u4F20\u611F\u5668\u9996\u65E5\u504F\u5DEE\uFF0C\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`,
+            title: L(`CGM \u5355\u65E5\u4F4E\u503C\u504F\u591A\uFF08${date}\uFF09`, `Many CGM lows on a single day (${date})`),
+            detail: L(
+              `${date}\uFF1A<3.9 \u5360\u6BD4 ${day.pctBelow39.toFixed(1)}%\uFF08${day.count} \u6761\uFF09\uFF0C\u6700\u4F4E ${day.min.toFixed(1)}\u3002\u4F18\u5148\u6392\u67E5\u538B\u8FEB\u4F4E\u503C/\u4F20\u611F\u5668\u9996\u65E5\u504F\u5DEE\uFF0C\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`,
+              `${date}: <3.9 share ${day.pctBelow39.toFixed(1)}% (${day.count} points), min ${day.min.toFixed(1)}. Check compression lows / first-day sensor bias and confirm suspect periods with finger-stick glucose.`
+            ),
             dimensions: ["CGM"]
           });
         }
@@ -1772,9 +1811,12 @@ var HealthAnalyzer = (() => {
         signals.push({
           severity: drop >= 2.5 ? "watch" : "info",
           date: last.date,
-          title: "\u4F53\u91CD\u77ED\u671F\u4E0B\u964D\u504F\u5FEB\uFF08\u6668\u8D77\u8D8B\u52BF\uFF09",
-          detail: `\u76F8\u5BF9\u7EA6\u4E00\u5468\u524D\u8D8B\u52BF\u4F53\u91CD ${ref.weight.toFixed(1)} kg\uFF08${ref.date}\uFF09\uFF0C\u6700\u65B0 ${last.weight.toFixed(1)} kg\uFF08${last.date}\uFF09\uFF0C\u7EA6\u4E0B\u964D ${drop.toFixed(1)} kg\u3002\u82E5\u4F34\u968F\u4E4F\u529B\u3001HRV \u4E0B\u964D\u6216\u8840\u538B\u504F\u4F4E\uFF0C\u5EFA\u8BAE\u7EFC\u5408\u5173\u6CE8\u80FD\u91CF\u6444\u5165\u4E0E\u6062\u590D\u3002`,
-          dimensions: ["\u4F53\u91CD"]
+          title: L("\u4F53\u91CD\u77ED\u671F\u4E0B\u964D\u504F\u5FEB\uFF08\u6668\u8D77\u8D8B\u52BF\uFF09", "Relatively fast short-term weight drop (morning trend)"),
+          detail: L(
+            `\u76F8\u5BF9\u7EA6\u4E00\u5468\u524D\u8D8B\u52BF\u4F53\u91CD ${ref.weight.toFixed(1)} kg\uFF08${ref.date}\uFF09\uFF0C\u6700\u65B0 ${last.weight.toFixed(1)} kg\uFF08${last.date}\uFF09\uFF0C\u7EA6\u4E0B\u964D ${drop.toFixed(1)} kg\u3002\u82E5\u4F34\u968F\u4E4F\u529B\u3001HRV \u4E0B\u964D\u6216\u8840\u538B\u504F\u4F4E\uFF0C\u5EFA\u8BAE\u7EFC\u5408\u5173\u6CE8\u80FD\u91CF\u6444\u5165\u4E0E\u6062\u590D\u3002`,
+            `Vs trend weight about a week earlier ${ref.weight.toFixed(1)} kg (${ref.date}), latest ${last.weight.toFixed(1)} kg (${last.date}), drop ~${drop.toFixed(1)} kg. If fatigue, lower HRV, or low BP appear together, also review energy intake and recovery.`
+          ),
+          dimensions: [L("\u4F53\u91CD", "Weight")]
         });
       }
     }
@@ -1785,8 +1827,11 @@ var HealthAnalyzer = (() => {
         signals.push({
           severity: "info",
           date: analysis.cgmStats.firstDayDate || void 0,
-          title: "CGM \u4F4E\u503C\u4E3B\u8981\u96C6\u4E2D\u5728\u4F20\u611F\u5668\u9996\u65E5",
-          detail: `\u9996\u65E5 <3.9 \u5360\u6BD4 ${fd.pctBelow39.toFixed(1)}%\uFF0C\u7A33\u5B9A\u671F\u4EC5 ${st.pctBelow39.toFixed(1)}% \u4E14\u65E0 <3.0\u3002\u89E3\u8BFB\u65F6\u8BF7\u4EE5\u7A33\u5B9A\u671F\u4E3A\u51C6\uFF0C\u9996\u65E5\u4F4E\u503C\u4F18\u5148\u8003\u8651\u538B\u8FEB/\u6821\u51C6\u4F2A\u5F71\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`,
+          title: L("CGM \u4F4E\u503C\u4E3B\u8981\u96C6\u4E2D\u5728\u4F20\u611F\u5668\u9996\u65E5", "CGM lows mainly on sensor first day"),
+          detail: L(
+            `\u9996\u65E5 <3.9 \u5360\u6BD4 ${fd.pctBelow39.toFixed(1)}%\uFF0C\u7A33\u5B9A\u671F\u4EC5 ${st.pctBelow39.toFixed(1)}% \u4E14\u65E0 <3.0\u3002\u89E3\u8BFB\u65F6\u8BF7\u4EE5\u7A33\u5B9A\u671F\u4E3A\u51C6\uFF0C\u9996\u65E5\u4F4E\u503C\u4F18\u5148\u8003\u8651\u538B\u8FEB/\u6821\u51C6\u4F2A\u5F71\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`,
+            `First day <3.9 share ${fd.pctBelow39.toFixed(1)}%; stable segment only ${st.pctBelow39.toFixed(1)}% with no <3.0. Prefer the stable segment; first-day lows often reflect compression/calibration artifact\u2014confirm suspect periods with finger-stick glucose.`
+          ),
           dimensions: ["CGM"]
         });
       }
@@ -1807,9 +1852,12 @@ var HealthAnalyzer = (() => {
           signals.push({
             severity: "watch",
             date: d,
-            title: "\u7761\u7720\u504F\u77ED\u4E14 CGM \u4F4E\u503C\u504F\u591A",
-            detail: `${d}\uFF1A\u603B\u7761\u7720 ${sleepH.toFixed(2)} h\uFF0CCGM <3.9 \u5360\u6BD4 ${day.pctBelow39.toFixed(1)}%\uFF08${day.count} \u6761\uFF09\uFF0C\u6700\u4F4E ${day.min.toFixed(1)}\u3002\u7761\u7720\u4E0D\u8DB3\u53EF\u4E0E\u4F4E\u8840\u7CD6\u8BFB\u6570\u540C\u65E5\u51FA\u73B0\uFF0C\u4F18\u5148\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u4F4E\u503C\u5E76\u4FDD\u8BC1\u7761\u7720\uFF1B\u52FF\u4EC5\u51ED CGM \u5B9A\u8BBA\u3002`,
-            dimensions: ["CGM", "\u7761\u7720"]
+            title: L("\u7761\u7720\u504F\u77ED\u4E14 CGM \u4F4E\u503C\u504F\u591A", "Short sleep with many CGM lows"),
+            detail: L(
+              `${d}\uFF1A\u603B\u7761\u7720 ${sleepH.toFixed(2)} h\uFF0CCGM <3.9 \u5360\u6BD4 ${day.pctBelow39.toFixed(1)}%\uFF08${day.count} \u6761\uFF09\uFF0C\u6700\u4F4E ${day.min.toFixed(1)}\u3002\u7761\u7720\u4E0D\u8DB3\u53EF\u4E0E\u4F4E\u8840\u7CD6\u8BFB\u6570\u540C\u65E5\u51FA\u73B0\uFF0C\u4F18\u5148\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u4F4E\u503C\u5E76\u4FDD\u8BC1\u7761\u7720\uFF1B\u52FF\u4EC5\u51ED CGM \u5B9A\u8BBA\u3002`,
+              `${d}: total sleep ${sleepH.toFixed(2)} h, CGM <3.9 share ${day.pctBelow39.toFixed(1)}% (${day.count} points), min ${day.min.toFixed(1)}. Short sleep and low CGM readings can co-occur; confirm suspect lows with finger-stick glucose and prioritize sleep\u2014do not conclude from CGM alone.`
+            ),
+            dimensions: ["CGM", L("\u7761\u7720", "Sleep")]
           });
         }
       }
@@ -1822,9 +1870,12 @@ var HealthAnalyzer = (() => {
         signals.push({
           severity: "info",
           date: d,
-          title: "\u9AD8\u8840\u7CD6\u8BFB\u6570\u65E5\u6D3B\u52A8\u504F\u4F4E",
-          detail: `${d}\uFF1ACGM \u5747\u503C ${day.mean.toFixed(2)} mmol/L` + (day.pctAbove78 > 0 ? `\uFF0C>7.8 \u5360\u6BD4 ${day.pctAbove78.toFixed(1)}%` : "") + `\uFF08${day.count} \u6761\uFF09\uFF1B\u6B65\u6570\u7EA6 ${Math.round(steps)}\u3002\u9AD8\u8BFB\u6570\u65E5\u6D3B\u52A8\u504F\u5C11\u4EC5\u4F9B\u81EA\u6211\u5BF9\u7167\uFF08\u9910\u540E\u8D70\u52A8\u7B49\uFF09\uFF0C\u4E0D\u80FD\u66FF\u4EE3\u8BCA\u7597\uFF1B\u5F02\u5E38\u9AD8\u503C\u5EFA\u8BAE\u590D\u6D4B\u5E76\u9075\u533B\u5631\u3002`,
-          dimensions: ["CGM", "\u6B65\u6570"]
+          title: L("\u9AD8\u8840\u7CD6\u8BFB\u6570\u65E5\u6D3B\u52A8\u504F\u4F4E", "High glucose readings with low activity"),
+          detail: L(
+            `${d}\uFF1ACGM \u5747\u503C ${day.mean.toFixed(2)} mmol/L` + (day.pctAbove78 > 0 ? `\uFF0C>7.8 \u5360\u6BD4 ${day.pctAbove78.toFixed(1)}%` : "") + `\uFF08${day.count} \u6761\uFF09\uFF1B\u6B65\u6570\u7EA6 ${Math.round(steps)}\u3002\u9AD8\u8BFB\u6570\u65E5\u6D3B\u52A8\u504F\u5C11\u4EC5\u4F9B\u81EA\u6211\u5BF9\u7167\uFF08\u9910\u540E\u8D70\u52A8\u7B49\uFF09\uFF0C\u4E0D\u80FD\u66FF\u4EE3\u8BCA\u7597\uFF1B\u5F02\u5E38\u9AD8\u503C\u5EFA\u8BAE\u590D\u6D4B\u5E76\u9075\u533B\u5631\u3002`,
+            `${d}: CGM mean ${day.mean.toFixed(2)} mmol/L` + (day.pctAbove78 > 0 ? `, >7.8 share ${day.pctAbove78.toFixed(1)}%` : "") + ` (${day.count} points); steps ~${Math.round(steps)}. Low activity on high-reading days is for self-comparison only (e.g. post-meal walks), not clinical care; recheck unusual highs and follow medical advice.`
+          ),
+          dimensions: ["CGM", L("\u6B65\u6570", "Steps")]
         });
       }
       if ((data.cgm || []).length && Object.keys(nightHrByDate).length) {
@@ -1849,9 +1900,12 @@ var HealthAnalyzer = (() => {
           signals.push({
             severity: "info",
             date: d,
-            title: "\u591C\u6BB5 CGM \u504F\u4F4E\u4E14\u591C\u95F4\u5FC3\u7387\u504F\u9AD8",
-            detail: `${d}\uFF1A0\u20136 \u70B9 CGM \u5747\u7EA6 ${nightMean.toFixed(2)} mmol/L\uFF08${nightVals.length} \u70B9\uFF09\uFF0C\u5168\u65E5 <3.9 \u5360\u6BD4 ${day.pctBelow39.toFixed(1)}%\uFF1B\u591C\u95F4\u5FC3\u7387\u7EA6 ${nightHr.toFixed(0)} bpm` + (restBase != null ? `\uFF08\u8FD1 7 \u65E5\u9759\u606F\u7EA6 ${restBase.toFixed(0)}\uFF09` : "") + "\u3002\u591C\u6BB5\u4F4E\u503C\u9700\u6392\u9664\u538B\u8FEB\u4F2A\u5F71\u5E76\u7528\u6307\u5C16\u8840\u590D\u6838\uFF1B\u5FC3\u7387\u504F\u9AD8\u53EF\u7ED3\u5408\u7761\u7720\u8D28\u91CF\u89C2\u5BDF\u3002\u975E\u8BCA\u65AD\u3002",
-            dimensions: ["CGM", "\u591C\u95F4\u5FC3\u7387", "\u7761\u7720"]
+            title: L("\u591C\u6BB5 CGM \u504F\u4F4E\u4E14\u591C\u95F4\u5FC3\u7387\u504F\u9AD8", "Low night CGM with elevated night HR"),
+            detail: L(
+              `${d}\uFF1A0\u20136 \u70B9 CGM \u5747\u7EA6 ${nightMean.toFixed(2)} mmol/L\uFF08${nightVals.length} \u70B9\uFF09\uFF0C\u5168\u65E5 <3.9 \u5360\u6BD4 ${day.pctBelow39.toFixed(1)}%\uFF1B\u591C\u95F4\u5FC3\u7387\u7EA6 ${nightHr.toFixed(0)} bpm` + (restBase != null ? `\uFF08\u8FD1 7 \u65E5\u9759\u606F\u7EA6 ${restBase.toFixed(0)}\uFF09` : "") + "\u3002\u591C\u6BB5\u4F4E\u503C\u9700\u6392\u9664\u538B\u8FEB\u4F2A\u5F71\u5E76\u7528\u6307\u5C16\u8840\u590D\u6838\uFF1B\u5FC3\u7387\u504F\u9AD8\u53EF\u7ED3\u5408\u7761\u7720\u8D28\u91CF\u89C2\u5BDF\u3002\u975E\u8BCA\u65AD\u3002",
+              `${d}: 0\u20136h CGM mean ~${nightMean.toFixed(2)} mmol/L (${nightVals.length} points), all-day <3.9 share ${day.pctBelow39.toFixed(1)}%; night HR ~${nightHr.toFixed(0)} bpm` + (restBase != null ? ` (7-day resting ~${restBase.toFixed(0)})` : "") + ". Rule out compression artifact for night lows and confirm with finger-stick glucose; elevated HR can be viewed with sleep quality. Not a diagnosis."
+            ),
+            dimensions: ["CGM", L("\u591C\u95F4\u5FC3\u7387", "Night HR"), L("\u7761\u7720", "Sleep")]
           });
         }
       }
@@ -1863,9 +1917,15 @@ var HealthAnalyzer = (() => {
       if (st && st.pctBelow39 >= 5 && st.count >= 24 && sleepMean7d != null && sleepMean7d < 6 && sleep7.length >= 3) {
         signals.push({
           severity: "info",
-          title: "\u7A33\u5B9A\u671F CGM \u4F4E\u503C\u504F\u591A\u4E14\u8FD1 7 \u65E5\u7761\u7720\u504F\u77ED",
-          detail: `\u7A33\u5B9A\u671F/\u53EF\u7528\u6BB5 <3.9 \u5360\u6BD4 ${st.pctBelow39.toFixed(1)}%\uFF08n=${st.count}\uFF09\uFF0C\u8FD1 7 \u65E5\u7761\u7720\u65E5\u5747\u7EA6 ${sleepMean7d.toFixed(1)} h\u3002\u6062\u590D\u4E0E\u8840\u7CD6\u8BFB\u6570\u53EF\u540C\u5411\u504F\u501A\uFF1B\u4F18\u5148\u4FDD\u8BC1\u7761\u7720\u3001\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u4F4E\u503C\uFF0C\u5E76\u907F\u514D\u5728\u7761\u7720\u503A\u65E5\u8FC7\u5EA6\u89E3\u8BFB\u5355\u6B21 CGM\u3002`,
-          dimensions: ["CGM", "\u7761\u7720"]
+          title: L(
+            "\u7A33\u5B9A\u671F CGM \u4F4E\u503C\u504F\u591A\u4E14\u8FD1 7 \u65E5\u7761\u7720\u504F\u77ED",
+            "Stable-segment CGM lows with short sleep over last 7 days"
+          ),
+          detail: L(
+            `\u7A33\u5B9A\u671F/\u53EF\u7528\u6BB5 <3.9 \u5360\u6BD4 ${st.pctBelow39.toFixed(1)}%\uFF08n=${st.count}\uFF09\uFF0C\u8FD1 7 \u65E5\u7761\u7720\u65E5\u5747\u7EA6 ${sleepMean7d.toFixed(1)} h\u3002\u6062\u590D\u4E0E\u8840\u7CD6\u8BFB\u6570\u53EF\u540C\u5411\u504F\u501A\uFF1B\u4F18\u5148\u4FDD\u8BC1\u7761\u7720\u3001\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u4F4E\u503C\uFF0C\u5E76\u907F\u514D\u5728\u7761\u7720\u503A\u65E5\u8FC7\u5EA6\u89E3\u8BFB\u5355\u6B21 CGM\u3002`,
+            `Stable/usable segment <3.9 share ${st.pctBelow39.toFixed(1)}% (n=${st.count}), last 7 days mean sleep ~${sleepMean7d.toFixed(1)} h. Recovery and glucose readings can lean the same way; prioritize sleep, confirm suspect lows with finger-stick glucose, and avoid over-reading single CGM points on sleep-debt days.`
+          ),
+          dimensions: ["CGM", L("\u7761\u7720", "Sleep")]
         });
       }
     }
@@ -1875,9 +1935,12 @@ var HealthAnalyzer = (() => {
       if (walkBase != null && walkBase >= 120 && hrvBase < 25) {
         signals.push({
           severity: "info",
-          title: "\u8FD1 7 \u65E5\u6B65\u884C\u5FC3\u7387\u504F\u9AD8\u4E14 HRV \u504F\u4F4E",
-          detail: `\u6B65\u884C\u5FC3\u7387\u8FD1 7 \u65E5\u5747\u7EA6 ${walkBase.toFixed(0)} bpm\uFF0CHRV \u8FD1 7 \u65E5\u5747\u7EA6 ${hrvBase.toFixed(1)} ms\u3002\u53EF\u80FD\u53CD\u6620\u6709\u6C27\u80FD\u529B/\u6062\u590D\u72B6\u6001\u504F\u7D27\uFF0C\u5EFA\u8BAE\u7ED3\u5408\u7761\u7720\u4E0E\u4E3B\u89C2\u75B2\u52B3\u5224\u65AD\u3002`,
-          dimensions: ["\u6B65\u884C\u5FC3\u7387", "HRV"]
+          title: L("\u8FD1 7 \u65E5\u6B65\u884C\u5FC3\u7387\u504F\u9AD8\u4E14 HRV \u504F\u4F4E", "Elevated walking HR and low HRV over last 7 days"),
+          detail: L(
+            `\u6B65\u884C\u5FC3\u7387\u8FD1 7 \u65E5\u5747\u7EA6 ${walkBase.toFixed(0)} bpm\uFF0CHRV \u8FD1 7 \u65E5\u5747\u7EA6 ${hrvBase.toFixed(1)} ms\u3002\u53EF\u80FD\u53CD\u6620\u6709\u6C27\u80FD\u529B/\u6062\u590D\u72B6\u6001\u504F\u7D27\uFF0C\u5EFA\u8BAE\u7ED3\u5408\u7761\u7720\u4E0E\u4E3B\u89C2\u75B2\u52B3\u5224\u65AD\u3002`,
+            `Walking HR 7-day mean ~${walkBase.toFixed(0)} bpm, HRV 7-day mean ~${hrvBase.toFixed(1)} ms. May reflect tighter aerobic capacity/recovery; interpret with sleep and subjective fatigue.`
+          ),
+          dimensions: [L("\u6B65\u884C\u5FC3\u7387", "Walking HR"), "HRV"]
         });
       }
     }
@@ -1886,16 +1949,22 @@ var HealthAnalyzer = (() => {
       if (ws.spo2Min7d != null && ws.spo2Min7d < 92) {
         signals.push({
           severity: "watch",
-          title: "\u8FD1 7 \u65E5\u51FA\u73B0\u8F83\u4F4E\u8840\u6C27\u8BFB\u6570",
-          detail: `\u8840\u6C27\u8FD1 7 \u65E5\u5747\u503C\u7EA6 ${ws.spo2Mean7d != null ? ws.spo2Mean7d.toFixed(1) : "\u2014"}%\uFF0C\u671F\u95F4\u6700\u4F4E\u7EA6 ${ws.spo2Min7d.toFixed(1)}%\uFF08${ws.spo2DayCount} \u5929\u6709\u6837\u672C\uFF09\u3002Apple Watch \u8840\u6C27\u6613\u53D7\u8FD0\u52A8/\u59FF\u52BF/\u4F69\u6234\u5F71\u54CD\uFF1B\u82E5\u4F34\u968F\u80F8\u95F7\u3001\u6C14\u77ED\u6216\u53CD\u590D\u504F\u4F4E\uFF0C\u5EFA\u8BAE\u590D\u6D4B\u5E76\u5FC5\u8981\u65F6\u5C31\u533B\u8BC4\u4F30\u3002`,
-          dimensions: ["\u8840\u6C27"]
+          title: L("\u8FD1 7 \u65E5\u51FA\u73B0\u8F83\u4F4E\u8840\u6C27\u8BFB\u6570", "Lower SpO\u2082 readings in last 7 days"),
+          detail: L(
+            `\u8840\u6C27\u8FD1 7 \u65E5\u5747\u503C\u7EA6 ${ws.spo2Mean7d != null ? ws.spo2Mean7d.toFixed(1) : "\u2014"}%\uFF0C\u671F\u95F4\u6700\u4F4E\u7EA6 ${ws.spo2Min7d.toFixed(1)}%\uFF08${ws.spo2DayCount} \u5929\u6709\u6837\u672C\uFF09\u3002Apple Watch \u8840\u6C27\u6613\u53D7\u8FD0\u52A8/\u59FF\u52BF/\u4F69\u6234\u5F71\u54CD\uFF1B\u82E5\u4F34\u968F\u80F8\u95F7\u3001\u6C14\u77ED\u6216\u53CD\u590D\u504F\u4F4E\uFF0C\u5EFA\u8BAE\u590D\u6D4B\u5E76\u5FC5\u8981\u65F6\u5C31\u533B\u8BC4\u4F30\u3002`,
+            `SpO\u2082 7-day mean ~${ws.spo2Mean7d != null ? ws.spo2Mean7d.toFixed(1) : "\u2014"}%, period min ~${ws.spo2Min7d.toFixed(1)}% (${ws.spo2DayCount} days with samples). Watch SpO\u2082 is sensitive to motion/posture/fit; if chest tightness, shortness of breath, or repeated lows appear, recheck and seek care if needed.`
+          ),
+          dimensions: [L("\u8840\u6C27", "SpO\u2082")]
         });
       } else if (ws.spo2Mean7d != null && ws.spo2Mean7d < 95) {
         signals.push({
           severity: "info",
-          title: "\u8FD1 7 \u65E5\u8840\u6C27\u5747\u503C\u7565\u504F\u4F4E",
-          detail: `\u8840\u6C27\u8FD1 7 \u65E5\u5747\u503C\u7EA6 ${ws.spo2Mean7d.toFixed(1)}%\u3002\u65E0\u75C7\u72B6\u65F6\u4F18\u5148\u89C2\u5BDF\u8D8B\u52BF\u4E0E\u590D\u6D4B\uFF1B\u52FF\u5355\u6B21\u8BFB\u6570\u5B9A\u8BBA\u3002`,
-          dimensions: ["\u8840\u6C27"]
+          title: L("\u8FD1 7 \u65E5\u8840\u6C27\u5747\u503C\u7565\u504F\u4F4E", "Slightly low SpO\u2082 mean over last 7 days"),
+          detail: L(
+            `\u8840\u6C27\u8FD1 7 \u65E5\u5747\u503C\u7EA6 ${ws.spo2Mean7d.toFixed(1)}%\u3002\u65E0\u75C7\u72B6\u65F6\u4F18\u5148\u89C2\u5BDF\u8D8B\u52BF\u4E0E\u590D\u6D4B\uFF1B\u52FF\u5355\u6B21\u8BFB\u6570\u5B9A\u8BBA\u3002`,
+            `SpO\u2082 7-day mean ~${ws.spo2Mean7d.toFixed(1)}%. If asymptomatic, prefer trend and rechecks; do not conclude from a single reading.`
+          ),
+          dimensions: [L("\u8840\u6C27", "SpO\u2082")]
         });
       }
       if (ws.exerciseMinMean7d != null && ws.exerciseMinMean7d < 5 && ws.dayCount >= 5) {
@@ -1903,41 +1972,71 @@ var HealthAnalyzer = (() => {
         if (lowActDays.length >= 4) {
           signals.push({
             severity: "info",
-            title: "\u8FD1 7 \u65E5 Watch \u6D3B\u52A8\u91CF\u504F\u4F4E",
-            detail: `\u65E5\u5747\u953B\u70BC\u7EA6 ${ws.exerciseMinMean7d.toFixed(0)} \u5206\u949F` + (ws.activeKcalMean7d != null ? `\uFF0C\u6D3B\u52A8\u6D88\u8017\u7EA6 ${ws.activeKcalMean7d.toFixed(0)} kcal` : "") + `\u3002\u53EF\u4E0E\u6B65\u6570/\u7761\u7720\u5BF9\u7167\uFF1B\u4E45\u5750\u65E5\u53EF\u7A7F\u63D2\u77ED\u65F6\u8D70\u52A8\uFF0C\u907F\u514D\u4EC5\u51ED\u6212\u6307\u7C7B\u73AF\u8FBE\u6807\u7126\u8651\u3002`,
-            dimensions: ["Watch\u6D3B\u52A8", "\u6B65\u6570"]
+            title: L("\u8FD1 7 \u65E5 Watch \u6D3B\u52A8\u91CF\u504F\u4F4E", "Low Watch activity over last 7 days"),
+            detail: L(
+              `\u65E5\u5747\u953B\u70BC\u7EA6 ${ws.exerciseMinMean7d.toFixed(0)} \u5206\u949F`,
+              `Mean exercise ~${ws.exerciseMinMean7d.toFixed(0)} min/day`
+            ) + (ws.activeKcalMean7d != null ? L(
+              `\uFF0C\u6D3B\u52A8\u6D88\u8017\u7EA6 ${ws.activeKcalMean7d.toFixed(0)} kcal`,
+              `, active energy ~${ws.activeKcalMean7d.toFixed(0)} kcal`
+            ) : "") + L(
+              `\u3002\u53EF\u4E0E\u6B65\u6570/\u7761\u7720\u5BF9\u7167\uFF1B\u4E45\u5750\u65E5\u53EF\u7A7F\u63D2\u77ED\u65F6\u8D70\u52A8\uFF0C\u907F\u514D\u4EC5\u51ED\u6212\u6307\u7C7B\u73AF\u8FBE\u6807\u7126\u8651\u3002`,
+              `. Cross-check steps/sleep; on sedentary days, short walks help\u2014avoid ring/goal anxiety alone.`
+            ),
+            dimensions: [L("Watch\u6D3B\u52A8", "Watch activity"), L("\u6B65\u6570", "Steps")]
           });
         }
       }
       if (ws.exerciseMinMean7d != null && ws.exerciseMinMean7d < 10 && hrvBase != null && hrvBase < 25) {
         signals.push({
           severity: "info",
-          title: "\u4F4E\u6D3B\u52A8\u4E14 HRV \u504F\u4F4E",
-          detail: `\u8FD1 7 \u65E5\u65E5\u5747\u953B\u70BC\u7EA6 ${ws.exerciseMinMean7d.toFixed(0)} \u5206\u949F\uFF0CHRV \u7EA6 ${hrvBase.toFixed(1)} ms\u3002\u53EF\u80FD\u5904\u4E8E\u6062\u590D\u4E0D\u8DB3\u6216\u6D3B\u52A8\u8FC7\u5C11\u72B6\u6001\uFF0C\u5EFA\u8BAE\u4F18\u5148\u7761\u7720\u4E0E\u8F7B\u5EA6\u65E5\u5E38\u6D3B\u52A8\uFF0C\u52FF\u5728\u4F4E\u6062\u590D\u65E5\u5F3A\u4E0A\u9AD8\u5F3A\u5EA6\u8BAD\u7EC3\u3002`,
-          dimensions: ["Watch\u6D3B\u52A8", "HRV"]
+          title: L("\u4F4E\u6D3B\u52A8\u4E14 HRV \u504F\u4F4E", "Low activity with low HRV"),
+          detail: L(
+            `\u8FD1 7 \u65E5\u65E5\u5747\u953B\u70BC\u7EA6 ${ws.exerciseMinMean7d.toFixed(0)} \u5206\u949F\uFF0CHRV \u7EA6 ${hrvBase.toFixed(1)} ms\u3002\u53EF\u80FD\u5904\u4E8E\u6062\u590D\u4E0D\u8DB3\u6216\u6D3B\u52A8\u8FC7\u5C11\u72B6\u6001\uFF0C\u5EFA\u8BAE\u4F18\u5148\u7761\u7720\u4E0E\u8F7B\u5EA6\u65E5\u5E38\u6D3B\u52A8\uFF0C\u52FF\u5728\u4F4E\u6062\u590D\u65E5\u5F3A\u4E0A\u9AD8\u5F3A\u5EA6\u8BAD\u7EC3\u3002`,
+            `Last 7 days mean exercise ~${ws.exerciseMinMean7d.toFixed(0)} min/day, HRV ~${hrvBase.toFixed(1)} ms. May reflect under-recovery or very low activity; prioritize sleep and light daily movement\u2014avoid hard sessions on low-recovery days.`
+          ),
+          dimensions: [L("Watch\u6D3B\u52A8", "Watch activity"), "HRV"]
         });
       }
       if (ws.nightHrMean7d != null && restBase != null && ws.nightHrMean7d > restBase + 10) {
         signals.push({
           severity: "info",
-          title: "\u591C\u95F4\u5FC3\u7387\u9AD8\u4E8E\u65E5\u95F4\u9759\u606F",
-          detail: `\u8FD1 7 \u65E5 0\u20136 \u70B9\u5FC3\u7387\u5747\u503C\u7EA6 ${ws.nightHrMean7d.toFixed(0)} bpm\uFF0C\u65E5\u95F4\u9759\u606F\u7EA6 ${restBase.toFixed(0)} bpm\u3002\u53EF\u7ED3\u5408\u7761\u7720\u8D28\u91CF\u3001\u996E\u9152\u3001\u75BE\u75C5\u6216\u5BA4\u6E29\u89E3\u8BFB\uFF1B\u6301\u7EED\u504F\u9AD8\u53EF\u89C2\u5BDF\u662F\u5426\u4F34\u968F HRV \u4E0B\u964D\u3002`,
-          dimensions: ["\u591C\u95F4\u5FC3\u7387", "\u9759\u606F\u5FC3\u7387"]
+          title: L("\u591C\u95F4\u5FC3\u7387\u9AD8\u4E8E\u65E5\u95F4\u9759\u606F", "Night HR above daytime resting"),
+          detail: L(
+            `\u8FD1 7 \u65E5 0\u20136 \u70B9\u5FC3\u7387\u5747\u503C\u7EA6 ${ws.nightHrMean7d.toFixed(0)} bpm\uFF0C\u65E5\u95F4\u9759\u606F\u7EA6 ${restBase.toFixed(0)} bpm\u3002\u53EF\u7ED3\u5408\u7761\u7720\u8D28\u91CF\u3001\u996E\u9152\u3001\u75BE\u75C5\u6216\u5BA4\u6E29\u89E3\u8BFB\uFF1B\u6301\u7EED\u504F\u9AD8\u53EF\u89C2\u5BDF\u662F\u5426\u4F34\u968F HRV \u4E0B\u964D\u3002`,
+            `Last 7 days 0\u20136h HR mean ~${ws.nightHrMean7d.toFixed(0)} bpm, daytime resting ~${restBase.toFixed(0)} bpm. Interpret with sleep quality, alcohol, illness, or room temperature; if persistently high, note whether HRV also falls.`
+          ),
+          dimensions: [L("\u591C\u95F4\u5FC3\u7387", "Night HR"), L("\u9759\u606F\u5FC3\u7387", "Resting HR")]
         });
       }
       if (ws.spo2NightMin7d != null && ws.spo2NightMin7d < 92) {
         signals.push({
           severity: "watch",
-          title: "\u8FD1 7 \u65E5\u591C\u6BB5\u8840\u6C27\u51FA\u73B0\u4F4E\u503C",
-          detail: `\u591C\u6BB5(0\u20138\u70B9)\u6700\u4F4E\u7EA6 ${ws.spo2NightMin7d.toFixed(1)}%` + (ws.spo2NightMean7d != null ? `\uFF0C\u591C\u6BB5\u5747\u503C\u7EA6 ${ws.spo2NightMean7d.toFixed(1)}%` : "") + (ws.spo2DayMean7d != null ? `\uFF1B\u65E5\u6BB5\u5747\u503C\u7EA6 ${ws.spo2DayMean7d.toFixed(1)}%` : "") + "\u3002\u591C\u6BB5\u504F\u4F4E\u66F4\u9700\u7ED3\u5408\u7761\u7720\u59FF\u52BF\u3001\u547C\u5438\u4E0E\u75C7\u72B6\uFF1B\u65E0\u75C7\u72B6\u65F6\u4F18\u5148\u590D\u6D4B\u4E0E\u8D8B\u52BF\u89C2\u5BDF\u3002",
-          dimensions: ["\u8840\u6C27", "\u7761\u7720"]
+          title: L("\u8FD1 7 \u65E5\u591C\u6BB5\u8840\u6C27\u51FA\u73B0\u4F4E\u503C", "Low night SpO\u2082 in last 7 days"),
+          detail: L(
+            `\u591C\u6BB5(0\u20138\u70B9)\u6700\u4F4E\u7EA6 ${ws.spo2NightMin7d.toFixed(1)}%`,
+            `Night (0\u20138h) min ~${ws.spo2NightMin7d.toFixed(1)}%`
+          ) + (ws.spo2NightMean7d != null ? L(
+            `\uFF0C\u591C\u6BB5\u5747\u503C\u7EA6 ${ws.spo2NightMean7d.toFixed(1)}%`,
+            `, night mean ~${ws.spo2NightMean7d.toFixed(1)}%`
+          ) : "") + (ws.spo2DayMean7d != null ? L(
+            `\uFF1B\u65E5\u6BB5\u5747\u503C\u7EA6 ${ws.spo2DayMean7d.toFixed(1)}%`,
+            `; day mean ~${ws.spo2DayMean7d.toFixed(1)}%`
+          ) : "") + L(
+            "\u3002\u591C\u6BB5\u504F\u4F4E\u66F4\u9700\u7ED3\u5408\u7761\u7720\u59FF\u52BF\u3001\u547C\u5438\u4E0E\u75C7\u72B6\uFF1B\u65E0\u75C7\u72B6\u65F6\u4F18\u5148\u590D\u6D4B\u4E0E\u8D8B\u52BF\u89C2\u5BDF\u3002",
+            ". Night lows warrant sleep posture, breathing, and symptom context; if asymptomatic, recheck and watch the trend first."
+          ),
+          dimensions: [L("\u8840\u6C27", "SpO\u2082"), L("\u7761\u7720", "Sleep")]
         });
       } else if (ws.spo2NightMean7d != null && ws.spo2DayMean7d != null && ws.spo2NightMean7d <= ws.spo2DayMean7d - 1.5) {
         signals.push({
           severity: "info",
-          title: "\u591C\u6BB5\u8840\u6C27\u5747\u503C\u4F4E\u4E8E\u65E5\u6BB5",
-          detail: `\u8FD1 7 \u65E5\u591C\u6BB5 SpO\u2082 \u5747\u503C\u7EA6 ${ws.spo2NightMean7d.toFixed(1)}%\uFF0C\u65E5\u6BB5\u7EA6 ${ws.spo2DayMean7d.toFixed(1)}%\u3002\u5DEE\u503C\u5728 Watch \u6D4B\u91CF\u8BEF\u5DEE\u8303\u56F4\u5185\u4E5F\u53EF\u51FA\u73B0\uFF1B\u82E5\u4F34\u6253\u9F3E/\u767D\u5929\u55DC\u7761\u53EF\u8BB0\u5F55\u540E\u54A8\u8BE2\u533B\u751F\u3002`,
-          dimensions: ["\u8840\u6C27", "\u7761\u7720"]
+          title: L("\u591C\u6BB5\u8840\u6C27\u5747\u503C\u4F4E\u4E8E\u65E5\u6BB5", "Night SpO\u2082 mean below day"),
+          detail: L(
+            `\u8FD1 7 \u65E5\u591C\u6BB5 SpO\u2082 \u5747\u503C\u7EA6 ${ws.spo2NightMean7d.toFixed(1)}%\uFF0C\u65E5\u6BB5\u7EA6 ${ws.spo2DayMean7d.toFixed(1)}%\u3002\u5DEE\u503C\u5728 Watch \u6D4B\u91CF\u8BEF\u5DEE\u8303\u56F4\u5185\u4E5F\u53EF\u51FA\u73B0\uFF1B\u82E5\u4F34\u6253\u9F3E/\u767D\u5929\u55DC\u7761\u53EF\u8BB0\u5F55\u540E\u54A8\u8BE2\u533B\u751F\u3002`,
+            `Last 7 days night SpO\u2082 mean ~${ws.spo2NightMean7d.toFixed(1)}%, day ~${ws.spo2DayMean7d.toFixed(1)}%. Gaps can fall within Watch measurement noise; if snoring or daytime sleepiness appear, log and discuss with a clinician.`
+          ),
+          dimensions: [L("\u8840\u6C27", "SpO\u2082"), L("\u7761\u7720", "Sleep")]
         });
       }
       {
@@ -1957,17 +2056,32 @@ var HealthAnalyzer = (() => {
           if (trendUp || persistentHigh) {
             signals.push({
               severity: "info",
-              title: trendUp ? "\u7761\u7720\u547C\u5438\u7D0A\u4E71\u8FD1\u671F\u76F8\u5BF9\u62AC\u5347" : "\u7761\u7720\u547C\u5438\u7D0A\u4E71\u8FD1\u6BB5\u6301\u7EED\u504F\u9AD8",
-              detail: `\u6709\u6837\u672C\u5171 ${bdSeries.length} \u5929\uFF1B\u8FD1 ${recentN} \u65E5\u5747\u7EA6 ${recentMean.toFixed(2)}` + (earlierMean > 0 ? `\uFF0C\u524D\u6BB5\u7EA6 ${earlierMean.toFixed(2)}` : "") + (ws.breathingDisturbanceMean7d != null ? `\uFF0C\u8FD1 7 \u65E5\u6709\u6837\u672C\u5747\u7EA6 ${ws.breathingDisturbanceMean7d.toFixed(2)}` : "") + "\u3002Apple \u7761\u7720\u547C\u5438\u7D0A\u4E71\u4E3A\u8155\u8868\u4F30\u7B97\u8D8B\u52BF\uFF0C\u53D7\u996E\u9152\u3001\u4F53\u4F4D\u3001\u611F\u5192\u7B49\u5F71\u54CD\uFF1B\u6301\u7EED\u504F\u9AD8\u6216\u4F34\u968F\u6253\u9F3E/\u767D\u5929\u55DC\u7761\u65F6\uFF0C\u53EF\u8BB0\u5F55\u540E\u54A8\u8BE2\u533B\u751F\uFF0C\u672C\u5DE5\u5177\u4E0D\u4F5C\u7761\u7720\u547C\u5438\u6682\u505C\u8BCA\u65AD\u3002",
-              dimensions: ["\u7761\u7720\u547C\u5438\u7D0A\u4E71", "\u7761\u7720"]
+              title: trendUp ? L("\u7761\u7720\u547C\u5438\u7D0A\u4E71\u8FD1\u671F\u76F8\u5BF9\u62AC\u5347", "Sleep breathing disturbance recently elevated") : L("\u7761\u7720\u547C\u5438\u7D0A\u4E71\u8FD1\u6BB5\u6301\u7EED\u504F\u9AD8", "Sleep breathing disturbance persistently elevated"),
+              detail: L(
+                `\u6709\u6837\u672C\u5171 ${bdSeries.length} \u5929\uFF1B\u8FD1 ${recentN} \u65E5\u5747\u7EA6 ${recentMean.toFixed(2)}`,
+                `${bdSeries.length} days with samples; last ${recentN} days mean ~${recentMean.toFixed(2)}`
+              ) + (earlierMean > 0 ? L(`\uFF0C\u524D\u6BB5\u7EA6 ${earlierMean.toFixed(2)}`, `, earlier ~${earlierMean.toFixed(2)}`) : "") + (ws.breathingDisturbanceMean7d != null ? L(
+                `\uFF0C\u8FD1 7 \u65E5\u6709\u6837\u672C\u5747\u7EA6 ${ws.breathingDisturbanceMean7d.toFixed(2)}`,
+                `, last 7 days sampled mean ~${ws.breathingDisturbanceMean7d.toFixed(2)}`
+              ) : "") + L(
+                "\u3002Apple \u7761\u7720\u547C\u5438\u7D0A\u4E71\u4E3A\u8155\u8868\u4F30\u7B97\u8D8B\u52BF\uFF0C\u53D7\u996E\u9152\u3001\u4F53\u4F4D\u3001\u611F\u5192\u7B49\u5F71\u54CD\uFF1B\u6301\u7EED\u504F\u9AD8\u6216\u4F34\u968F\u6253\u9F3E/\u767D\u5929\u55DC\u7761\u65F6\uFF0C\u53EF\u8BB0\u5F55\u540E\u54A8\u8BE2\u533B\u751F\uFF0C\u672C\u5DE5\u5177\u4E0D\u4F5C\u7761\u7720\u547C\u5438\u6682\u505C\u8BCA\u65AD\u3002",
+                ". Apple sleep breathing disturbance is a watch estimate affected by alcohol, posture, colds, etc.; if persistently high or with snoring/daytime sleepiness, log and consult a clinician\u2014this tool does not diagnose sleep apnea."
+              ),
+              dimensions: [L("\u7761\u7720\u547C\u5438\u7D0A\u4E71", "Sleep breathing disturbance"), L("\u7761\u7720", "Sleep")]
             });
           }
         } else if (bdSeries.length >= 3 && ws.breathingDisturbanceMean7d != null && ws.breathingDisturbanceLatest != null && ws.breathingDisturbanceLatest >= ws.breathingDisturbanceMean7d * 1.5 && ws.breathingDisturbanceLatest - ws.breathingDisturbanceMean7d >= 0.2) {
           signals.push({
             severity: "info",
-            title: "\u6700\u65B0\u7761\u7720\u547C\u5438\u7D0A\u4E71\u9AD8\u4E8E\u8FD1\u6BB5\u5747\u503C",
-            detail: `\u6700\u65B0\u7EA6 ${ws.breathingDisturbanceLatest.toFixed(2)}\uFF0C\u8FD1 7 \u65E5\u6709\u6837\u672C\u5747\u7EA6 ${ws.breathingDisturbanceMean7d.toFixed(2)}\uFF08${bdSeries.length} \u5929\uFF09\u3002\u5355\u65E5\u6CE2\u52A8\u5E38\u89C1\uFF1B\u82E5\u8FDE\u7EED\u591A\u65E5\u504F\u9AD8\u4E14\u4F34\u75C7\u72B6\uFF0C\u5B9C\u7ED3\u5408\u8840\u6C27/\u7761\u7720\u89C2\u5BDF\u5E76\u5FC5\u8981\u65F6\u5C31\u533B\u8BC4\u4F30\u3002\u975E\u8BCA\u65AD\u7ED3\u8BBA\u3002`,
-            dimensions: ["\u7761\u7720\u547C\u5438\u7D0A\u4E71", "\u7761\u7720"]
+            title: L(
+              "\u6700\u65B0\u7761\u7720\u547C\u5438\u7D0A\u4E71\u9AD8\u4E8E\u8FD1\u6BB5\u5747\u503C",
+              "Latest sleep breathing disturbance above recent mean"
+            ),
+            detail: L(
+              `\u6700\u65B0\u7EA6 ${ws.breathingDisturbanceLatest.toFixed(2)}\uFF0C\u8FD1 7 \u65E5\u6709\u6837\u672C\u5747\u7EA6 ${ws.breathingDisturbanceMean7d.toFixed(2)}\uFF08${bdSeries.length} \u5929\uFF09\u3002\u5355\u65E5\u6CE2\u52A8\u5E38\u89C1\uFF1B\u82E5\u8FDE\u7EED\u591A\u65E5\u504F\u9AD8\u4E14\u4F34\u75C7\u72B6\uFF0C\u5B9C\u7ED3\u5408\u8840\u6C27/\u7761\u7720\u89C2\u5BDF\u5E76\u5FC5\u8981\u65F6\u5C31\u533B\u8BC4\u4F30\u3002\u975E\u8BCA\u65AD\u7ED3\u8BBA\u3002`,
+              `Latest ~${ws.breathingDisturbanceLatest.toFixed(2)}, last 7 days sampled mean ~${ws.breathingDisturbanceMean7d.toFixed(2)} (${bdSeries.length} days). Single-day swings are common; if elevated for several days with symptoms, also watch SpO\u2082/sleep and seek care if needed. Not a diagnosis.`
+            ),
+            dimensions: [L("\u7761\u7720\u547C\u5438\u7D0A\u4E71", "Sleep breathing disturbance"), L("\u7761\u7720", "Sleep")]
           });
         }
       }
@@ -1995,15 +2109,34 @@ var HealthAnalyzer = (() => {
         }
         const recentJoint = jointDays.filter((d) => d >= (days[Math.max(0, days.length - 14)]?.date || d));
         if (recentJoint.length >= 1) {
-          const sample = recentJoint.slice(-3).join("\u3001");
+          const sample = recentJoint.slice(-3).join(L("\u3001", ", "));
           const lastDate = recentJoint[recentJoint.length - 1];
           const lastDay = days.find((d) => d.date === lastDate);
           signals.push({
             severity: "watch",
             date: lastDate,
-            title: "\u547C\u5438\u7D0A\u4E71\u62AC\u5347\u4E14\u591C\u6BB5\u8840\u6C27\u504F\u4F4E",
-            detail: `\u8FD1\u6BB5\u6709 ${recentJoint.length} \u65E5\u51FA\u73B0\u7761\u7720\u547C\u5438\u7D0A\u4E71\u76F8\u5BF9\u504F\u9AD8\uFF0C\u4E14\u540C\u65E5\u6216\u90BB\u65E5\u591C\u6BB5 SpO\u2082 \u504F\u4F4E` + (lastDay?.breathingDisturbance != null ? `\uFF08\u4F8B ${lastDate} \u7D0A\u4E71\u7EA6 ${lastDay.breathingDisturbance.toFixed(2)}` : "") + (lastDay?.spo2NightMin != null ? `\uFF0C\u591C\u6BB5\u6700\u4F4E\u7EA6 ${lastDay.spo2NightMin.toFixed(1)}%` : lastDay?.spo2NightMean != null ? `\uFF0C\u591C\u6BB5\u5747\u7EA6 ${lastDay.spo2NightMean.toFixed(1)}%` : "") + (lastDay?.breathingDisturbance != null ? "\uFF09" : "") + (sample && recentJoint.length > 1 ? `\uFF1B\u6D89\u53CA ${sample}` : "") + "\u3002\u8155\u8868\u4F30\u7B97\u53D7\u4F53\u4F4D\u3001\u996E\u9152\u3001\u611F\u5192\u7B49\u5F71\u54CD\uFF1B\u82E5\u4F34\u6253\u9F3E\u3001\u767D\u5929\u55DC\u7761\u6216\u53CD\u590D\u4F4E\u503C\uFF0C\u5EFA\u8BAE\u8BB0\u5F55\u540E\u54A8\u8BE2\u533B\u751F\uFF0C\u672C\u5DE5\u5177\u4E0D\u4F5C\u7761\u7720\u547C\u5438\u6682\u505C\u8BCA\u65AD\u3002",
-            dimensions: ["\u7761\u7720\u547C\u5438\u7D0A\u4E71", "\u8840\u6C27", "\u7761\u7720"]
+            title: L("\u547C\u5438\u7D0A\u4E71\u62AC\u5347\u4E14\u591C\u6BB5\u8840\u6C27\u504F\u4F4E", "Elevated breathing disturbance with low night SpO\u2082"),
+            detail: L(
+              `\u8FD1\u6BB5\u6709 ${recentJoint.length} \u65E5\u51FA\u73B0\u7761\u7720\u547C\u5438\u7D0A\u4E71\u76F8\u5BF9\u504F\u9AD8\uFF0C\u4E14\u540C\u65E5\u6216\u90BB\u65E5\u591C\u6BB5 SpO\u2082 \u504F\u4F4E`,
+              `Recently ${recentJoint.length} day(s) showed relatively high sleep breathing disturbance with low night SpO\u2082 same day or adjacent day`
+            ) + (lastDay?.breathingDisturbance != null ? L(
+              `\uFF08\u4F8B ${lastDate} \u7D0A\u4E71\u7EA6 ${lastDay.breathingDisturbance.toFixed(2)}`,
+              ` (e.g. ${lastDate} disturbance ~${lastDay.breathingDisturbance.toFixed(2)}`
+            ) : "") + (lastDay?.spo2NightMin != null ? L(
+              `\uFF0C\u591C\u6BB5\u6700\u4F4E\u7EA6 ${lastDay.spo2NightMin.toFixed(1)}%`,
+              `, night min ~${lastDay.spo2NightMin.toFixed(1)}%`
+            ) : lastDay?.spo2NightMean != null ? L(
+              `\uFF0C\u591C\u6BB5\u5747\u7EA6 ${lastDay.spo2NightMean.toFixed(1)}%`,
+              `, night mean ~${lastDay.spo2NightMean.toFixed(1)}%`
+            ) : "") + (lastDay?.breathingDisturbance != null ? ")" : "") + (sample && recentJoint.length > 1 ? L(`\uFF1B\u6D89\u53CA ${sample}`, `; dates ${sample}`) : "") + L(
+              "\u3002\u8155\u8868\u4F30\u7B97\u53D7\u4F53\u4F4D\u3001\u996E\u9152\u3001\u611F\u5192\u7B49\u5F71\u54CD\uFF1B\u82E5\u4F34\u6253\u9F3E\u3001\u767D\u5929\u55DC\u7761\u6216\u53CD\u590D\u4F4E\u503C\uFF0C\u5EFA\u8BAE\u8BB0\u5F55\u540E\u54A8\u8BE2\u533B\u751F\uFF0C\u672C\u5DE5\u5177\u4E0D\u4F5C\u7761\u7720\u547C\u5438\u6682\u505C\u8BCA\u65AD\u3002",
+              ". Watch estimates are affected by posture, alcohol, colds, etc.; if snoring, daytime sleepiness, or repeated lows appear, log and consult a clinician\u2014this tool does not diagnose sleep apnea."
+            ),
+            dimensions: [
+              L("\u7761\u7720\u547C\u5438\u7D0A\u4E71", "Sleep breathing disturbance"),
+              L("\u8840\u6C27", "SpO\u2082"),
+              L("\u7761\u7720", "Sleep")
+            ]
           });
         }
         if (bdVals.length >= 4 && ws.breathingDisturbanceMean7d != null && (ws.spo2NightMean7d != null || ws.spo2NightMin7d != null)) {
@@ -2017,9 +2150,28 @@ var HealthAnalyzer = (() => {
           if (bd7Elevated && spo27Low) {
             signals.push({
               severity: "watch",
-              title: "\u8FD1 7 \u65E5\u547C\u5438\u7D0A\u4E71\u504F\u9AD8\u4E14\u591C\u6BB5\u8840\u6C27\u504F\u4F4E",
-              detail: `\u8FD1 7 \u65E5\u6709\u6837\u672C\u547C\u5438\u7D0A\u4E71\u5747\u7EA6 ${ws.breathingDisturbanceMean7d.toFixed(2)}` + (earlierMean != null ? `\uFF08\u524D\u6BB5\u7EA6 ${earlierMean.toFixed(2)}\uFF09` : "") + (ws.spo2NightMean7d != null ? `\uFF1B\u591C\u6BB5 SpO\u2082 \u5747\u7EA6 ${ws.spo2NightMean7d.toFixed(1)}%` : "") + (ws.spo2NightMin7d != null ? `\uFF0C\u671F\u95F4\u591C\u6BB5\u6700\u4F4E\u7EA6 ${ws.spo2NightMin7d.toFixed(1)}%` : "") + "\u3002\u4E8C\u8005\u540C\u5411\u504F\u501A\u66F4\u503C\u5F97\u5BF9\u7167\u7761\u7720\u4E0E\u75C7\u72B6\uFF1B\u4ECD\u4E3A\u8155\u8868\u8D8B\u52BF\u63D0\u793A\uFF0C\u4E0D\u80FD\u8BCA\u65AD\u7761\u7720\u547C\u5438\u6682\u505C\uFF0C\u5FC5\u8981\u65F6\u5C31\u533B\u8BC4\u4F30\u3002",
-              dimensions: ["\u7761\u7720\u547C\u5438\u7D0A\u4E71", "\u8840\u6C27", "\u7761\u7720"]
+              title: L(
+                "\u8FD1 7 \u65E5\u547C\u5438\u7D0A\u4E71\u504F\u9AD8\u4E14\u591C\u6BB5\u8840\u6C27\u504F\u4F4E",
+                "Elevated breathing disturbance and low night SpO\u2082 over last 7 days"
+              ),
+              detail: L(
+                `\u8FD1 7 \u65E5\u6709\u6837\u672C\u547C\u5438\u7D0A\u4E71\u5747\u7EA6 ${ws.breathingDisturbanceMean7d.toFixed(2)}`,
+                `Last 7 days sampled breathing disturbance mean ~${ws.breathingDisturbanceMean7d.toFixed(2)}`
+              ) + (earlierMean != null ? L(`\uFF08\u524D\u6BB5\u7EA6 ${earlierMean.toFixed(2)}\uFF09`, ` (earlier ~${earlierMean.toFixed(2)})`) : "") + (ws.spo2NightMean7d != null ? L(
+                `\uFF1B\u591C\u6BB5 SpO\u2082 \u5747\u7EA6 ${ws.spo2NightMean7d.toFixed(1)}%`,
+                `; night SpO\u2082 mean ~${ws.spo2NightMean7d.toFixed(1)}%`
+              ) : "") + (ws.spo2NightMin7d != null ? L(
+                `\uFF0C\u671F\u95F4\u591C\u6BB5\u6700\u4F4E\u7EA6 ${ws.spo2NightMin7d.toFixed(1)}%`,
+                `, period night min ~${ws.spo2NightMin7d.toFixed(1)}%`
+              ) : "") + L(
+                "\u3002\u4E8C\u8005\u540C\u5411\u504F\u501A\u66F4\u503C\u5F97\u5BF9\u7167\u7761\u7720\u4E0E\u75C7\u72B6\uFF1B\u4ECD\u4E3A\u8155\u8868\u8D8B\u52BF\u63D0\u793A\uFF0C\u4E0D\u80FD\u8BCA\u65AD\u7761\u7720\u547C\u5438\u6682\u505C\uFF0C\u5FC5\u8981\u65F6\u5C31\u533B\u8BC4\u4F30\u3002",
+                ". When both lean the same way, also review sleep and symptoms; still a watch trend, not a sleep apnea diagnosis\u2014seek care if needed."
+              ),
+              dimensions: [
+                L("\u7761\u7720\u547C\u5438\u7D0A\u4E71", "Sleep breathing disturbance"),
+                L("\u8840\u6C27", "SpO\u2082"),
+                L("\u7761\u7720", "Sleep")
+              ]
             });
           }
         }
@@ -2027,12 +2179,21 @@ var HealthAnalyzer = (() => {
       if (hrvBase != null && ws.nightHrMean7d != null && restBase != null && hrvBase < 28 && ws.nightHrMean7d >= restBase + 5) {
         const ex = ws.exerciseMinMean7d;
         const wos2 = analysis.workoutStats;
-        const trainNote = wos2 && wos2.count7d > 0 ? `\u8FD1 7 \u65E5 Workout ${wos2.count7d} \u573A\u3001\u5171\u7EA6 ${wos2.durationSum7d.toFixed(0)} \u5206\u949F` : ex != null ? `\u8FD1 7 \u65E5\u65E5\u5747\u953B\u70BC\u7EA6 ${ex.toFixed(0)} \u5206\u949F` : "\u8FD1\u671F\u6D3B\u52A8";
+        const trainNote = wos2 && wos2.count7d > 0 ? L(
+          `\u8FD1 7 \u65E5 Workout ${wos2.count7d} \u573A\u3001\u5171\u7EA6 ${wos2.durationSum7d.toFixed(0)} \u5206\u949F`,
+          `Last 7 days: ${wos2.count7d} workout(s), ~${wos2.durationSum7d.toFixed(0)} min total`
+        ) : ex != null ? L(
+          `\u8FD1 7 \u65E5\u65E5\u5747\u953B\u70BC\u7EA6 ${ex.toFixed(0)} \u5206\u949F`,
+          `Last 7 days mean exercise ~${ex.toFixed(0)} min/day`
+        ) : L("\u8FD1\u671F\u6D3B\u52A8", "Recent activity");
         signals.push({
           severity: hrvBase < 22 ? "watch" : "info",
-          title: "\u6062\u590D\u504F\u7D27\uFF08HRV\u2193 + \u591C HR\u2191\uFF09",
-          detail: `${trainNote}\uFF1BHRV \u8FD1 7 \u65E5\u5747\u7EA6 ${hrvBase.toFixed(1)} ms\uFF0C\u591C\u95F4\u5FC3\u7387\u7EA6 ${ws.nightHrMean7d.toFixed(0)} bpm\uFF08\u9759\u606F\u7EA6 ${restBase.toFixed(0)}\uFF09\u3002\u53EF\u80FD\u53CD\u6620\u7761\u7720/\u8D1F\u8377/\u75BE\u75C5\u6062\u590D\u538B\u529B\uFF0C\u5EFA\u8BAE\u4F18\u5148\u7761\u7720\u4E0E\u4F4E\u5F3A\u5EA6\u65E5\uFF0C\u907F\u514D\u8FDE\u7EED\u9AD8\u5F3A\u5EA6\u3002`,
-          dimensions: ["HRV", "\u591C\u95F4\u5FC3\u7387", "Watch\u6D3B\u52A8"]
+          title: L("\u6062\u590D\u504F\u7D27\uFF08HRV\u2193 + \u591C HR\u2191\uFF09", "Tight recovery (HRV\u2193 + night HR\u2191)"),
+          detail: L(
+            `${trainNote}\uFF1BHRV \u8FD1 7 \u65E5\u5747\u7EA6 ${hrvBase.toFixed(1)} ms\uFF0C\u591C\u95F4\u5FC3\u7387\u7EA6 ${ws.nightHrMean7d.toFixed(0)} bpm\uFF08\u9759\u606F\u7EA6 ${restBase.toFixed(0)}\uFF09\u3002\u53EF\u80FD\u53CD\u6620\u7761\u7720/\u8D1F\u8377/\u75BE\u75C5\u6062\u590D\u538B\u529B\uFF0C\u5EFA\u8BAE\u4F18\u5148\u7761\u7720\u4E0E\u4F4E\u5F3A\u5EA6\u65E5\uFF0C\u907F\u514D\u8FDE\u7EED\u9AD8\u5F3A\u5EA6\u3002`,
+            `${trainNote}; HRV 7-day mean ~${hrvBase.toFixed(1)} ms, night HR ~${ws.nightHrMean7d.toFixed(0)} bpm (resting ~${restBase.toFixed(0)}). May reflect sleep/load/illness recovery pressure; prioritize sleep and easy days, avoid back-to-back hard sessions.`
+          ),
+          dimensions: ["HRV", L("\u591C\u95F4\u5FC3\u7387", "Night HR"), L("Watch\u6D3B\u52A8", "Watch activity")]
         });
       }
     }
@@ -2042,25 +2203,34 @@ var HealthAnalyzer = (() => {
       if (sleepAvg != null && sleepAvg < 6.5) {
         signals.push({
           severity: "info",
-          title: "\u8FD1 7 \u65E5\u65E5\u7167\u504F\u5C11\u4E14\u7761\u7720\u504F\u77ED",
-          detail: `\u65E5\u7167\u65E5\u5747\u7EA6 ${ws.daylightMinMean7d.toFixed(0)} \u5206\u949F\uFF0C\u7761\u7720\u65E5\u5747\u7EA6 ${sleepAvg.toFixed(1)} h\u3002\u53EF\u5C1D\u8BD5\u767D\u5929\u6237\u5916\u8D70\u52A8\uFF1B\u7761\u7720\u4E0E\u65E5\u7167\u5173\u8054\u56E0\u4EBA\u800C\u5F02\uFF0C\u4EC5\u4F9B\u81EA\u6211\u89C2\u5BDF\u3002`,
-          dimensions: ["\u65E5\u7167", "\u7761\u7720"]
+          title: L("\u8FD1 7 \u65E5\u65E5\u7167\u504F\u5C11\u4E14\u7761\u7720\u504F\u77ED", "Low daylight and short sleep over last 7 days"),
+          detail: L(
+            `\u65E5\u7167\u65E5\u5747\u7EA6 ${ws.daylightMinMean7d.toFixed(0)} \u5206\u949F\uFF0C\u7761\u7720\u65E5\u5747\u7EA6 ${sleepAvg.toFixed(1)} h\u3002\u53EF\u5C1D\u8BD5\u767D\u5929\u6237\u5916\u8D70\u52A8\uFF1B\u7761\u7720\u4E0E\u65E5\u7167\u5173\u8054\u56E0\u4EBA\u800C\u5F02\uFF0C\u4EC5\u4F9B\u81EA\u6211\u89C2\u5BDF\u3002`,
+            `Daylight mean ~${ws.daylightMinMean7d.toFixed(0)} min/day, sleep mean ~${sleepAvg.toFixed(1)} h. Daytime outdoor walks may help; sleep\u2013daylight links vary\u2014self-observation only.`
+          ),
+          dimensions: [L("\u65E5\u7167", "Daylight"), L("\u7761\u7720", "Sleep")]
         });
       } else {
         signals.push({
           severity: "info",
-          title: "\u8FD1 7 \u65E5\u6237\u5916\u65E5\u7167\u504F\u5C11",
-          detail: `\u65E5\u7167\u65E5\u5747\u7EA6 ${ws.daylightMinMean7d.toFixed(0)} \u5206\u949F\uFF08Watch \u4F30\u7B97\uFF09\u3002\u82E5\u5BA4\u5185\u4E3A\u4E3B\u53EF\u7559\u610F\u8282\u5F8B\u4E0E\u60C5\u7EEA\uFF0C\u975E\u533B\u7597\u6307\u6807\u3002`,
-          dimensions: ["\u65E5\u7167"]
+          title: L("\u8FD1 7 \u65E5\u6237\u5916\u65E5\u7167\u504F\u5C11", "Low outdoor daylight over last 7 days"),
+          detail: L(
+            `\u65E5\u7167\u65E5\u5747\u7EA6 ${ws.daylightMinMean7d.toFixed(0)} \u5206\u949F\uFF08Watch \u4F30\u7B97\uFF09\u3002\u82E5\u5BA4\u5185\u4E3A\u4E3B\u53EF\u7559\u610F\u8282\u5F8B\u4E0E\u60C5\u7EEA\uFF0C\u975E\u533B\u7597\u6307\u6807\u3002`,
+            `Daylight mean ~${ws.daylightMinMean7d.toFixed(0)} min/day (Watch estimate). If mostly indoors, note rhythm and mood\u2014not a clinical metric.`
+          ),
+          dimensions: [L("\u65E5\u7167", "Daylight")]
         });
       }
     }
     if (ws && ws.standHoursMean7d != null && ws.standHoursMean7d < 6 && ws.dayCount >= 5) {
       signals.push({
         severity: "info",
-        title: "\u8FD1 7 \u65E5\u7AD9\u7ACB\u5C0F\u65F6\u504F\u5C11",
-        detail: `\u7AD9\u7ACB\u5C0F\u65F6\u65E5\u5747\u7EA6 ${ws.standHoursMean7d.toFixed(1)}\uFF08Apple \u7AD9\u7ACB\u73AF\uFF09\u3002\u4E45\u5750\u65E5\u53EF\u6BCF\u5C0F\u65F6\u8D77\u8EAB\u7247\u523B\uFF0C\u4E0E\u6B65\u6570/\u953B\u70BC\u4E92\u8865\u3002`,
-        dimensions: ["\u7AD9\u7ACB", "Watch\u6D3B\u52A8"]
+        title: L("\u8FD1 7 \u65E5\u7AD9\u7ACB\u5C0F\u65F6\u504F\u5C11", "Few stand hours over last 7 days"),
+        detail: L(
+          `\u7AD9\u7ACB\u5C0F\u65F6\u65E5\u5747\u7EA6 ${ws.standHoursMean7d.toFixed(1)}\uFF08Apple \u7AD9\u7ACB\u73AF\uFF09\u3002\u4E45\u5750\u65E5\u53EF\u6BCF\u5C0F\u65F6\u8D77\u8EAB\u7247\u523B\uFF0C\u4E0E\u6B65\u6570/\u953B\u70BC\u4E92\u8865\u3002`,
+          `Stand hours mean ~${ws.standHoursMean7d.toFixed(1)}/day (Apple Stand ring). On sedentary days, stand briefly each hour\u2014complements steps/exercise.`
+        ),
+        dimensions: [L("\u7AD9\u7ACB", "Stand"), L("Watch\u6D3B\u52A8", "Watch activity")]
       });
     }
     const es = analysis.ecgStats;
@@ -2073,23 +2243,32 @@ var HealthAnalyzer = (() => {
       if (near >= 2 && nearRatio >= 0.5) {
         signals.push({
           severity: "info",
-          title: "\u9AD8\u5FC3\u7387 ECG \u591A\u53D1\u751F\u5728\u8BAD\u7EC3\u65F6\u6BB5",
-          detail: `\u5171 ${hh} \u4EFD\u9AD8\u5FC3\u7387 ECG \u4E2D\u7EA6 ${near} \u4EFD\u843D\u5728 Workout \u5F00\u59CB\u524D\u540E \xB12h\uFF08${Math.round(nearRatio * 100)}%\uFF09\u3002\u8BAD\u7EC3\u4E2D/\u540E\u6D4B\u91CF\u504F\u9AD8\u8F83\u5E38\u89C1\uFF1B\u82E5\u4EC5\u89C1\u4E8E\u8FD0\u52A8\u76F8\u5173\u65F6\u6BB5\u4E14\u65E0\u4E0D\u9002\uFF0C\u901A\u5E38\u53EF\u7ED3\u5408\u6062\u590D\u89C2\u5BDF\u3002\u52FF\u81EA\u884C\u8BCA\u65AD\u3002`,
+          title: L("\u9AD8\u5FC3\u7387 ECG \u591A\u53D1\u751F\u5728\u8BAD\u7EC3\u65F6\u6BB5", "High-HR ECGs mostly around workouts"),
+          detail: L(
+            `\u5171 ${hh} \u4EFD\u9AD8\u5FC3\u7387 ECG \u4E2D\u7EA6 ${near} \u4EFD\u843D\u5728 Workout \u5F00\u59CB\u524D\u540E \xB12h\uFF08${Math.round(nearRatio * 100)}%\uFF09\u3002\u8BAD\u7EC3\u4E2D/\u540E\u6D4B\u91CF\u504F\u9AD8\u8F83\u5E38\u89C1\uFF1B\u82E5\u4EC5\u89C1\u4E8E\u8FD0\u52A8\u76F8\u5173\u65F6\u6BB5\u4E14\u65E0\u4E0D\u9002\uFF0C\u901A\u5E38\u53EF\u7ED3\u5408\u6062\u590D\u89C2\u5BDF\u3002\u52FF\u81EA\u884C\u8BCA\u65AD\u3002`,
+            `Of ${hh} high-HR ECGs, about ${near} fell within \xB12h of a workout start (${Math.round(nearRatio * 100)}%). Higher readings during/after training are common; if only exercise-related and asymptomatic, usually watch recovery. Do not self-diagnose.`
+          ),
           dimensions: ["ECG", "Workout"]
         });
       }
       if (rest >= 2 && restRatio >= 0.5) {
         signals.push({
           severity: "watch",
-          title: "\u975E\u8FD0\u52A8\u65F6\u6BB5\u9AD8\u5FC3\u7387 ECG \u504F\u591A",
-          detail: `\u5171 ${hh} \u4EFD\u9AD8\u5FC3\u7387\u4E2D\u7EA6 ${rest} \u4EFD\u843D\u5728\u591C\u95F4/\u6E05\u6668\uFF0822\u201308\uFF09\u6216\u9644\u8FD1\u65E0 Workout\uFF08\xB12h\uFF09\u3002\u82E5\u9759\u606F\u4E0B\u53CD\u590D\u51FA\u73B0\u6216\u4F34\u5FC3\u60B8\u3001\u80F8\u95F7\u3001\u5934\u6655\uFF0C\u5EFA\u8BAE\u5C31\u533B\u8BC4\u4F30\uFF0C\u52FF\u81EA\u884C\u8BCA\u65AD\u3002`,
+          title: L("\u975E\u8FD0\u52A8\u65F6\u6BB5\u9AD8\u5FC3\u7387 ECG \u504F\u591A", "Many high-HR ECGs outside exercise"),
+          detail: L(
+            `\u5171 ${hh} \u4EFD\u9AD8\u5FC3\u7387\u4E2D\u7EA6 ${rest} \u4EFD\u843D\u5728\u591C\u95F4/\u6E05\u6668\uFF0822\u201308\uFF09\u6216\u9644\u8FD1\u65E0 Workout\uFF08\xB12h\uFF09\u3002\u82E5\u9759\u606F\u4E0B\u53CD\u590D\u51FA\u73B0\u6216\u4F34\u5FC3\u60B8\u3001\u80F8\u95F7\u3001\u5934\u6655\uFF0C\u5EFA\u8BAE\u5C31\u533B\u8BC4\u4F30\uFF0C\u52FF\u81EA\u884C\u8BCA\u65AD\u3002`,
+            `Of ${hh} high-HR recordings, about ${rest} fell at night/early morning (22\u201308) or without a nearby workout (\xB12h). If repeated at rest or with palpitations, chest tightness, or dizziness, seek clinical evaluation\u2014do not self-diagnose.`
+          ),
           dimensions: ["ECG"]
         });
       } else if (!(near >= 2 && nearRatio >= 0.5)) {
         signals.push({
           severity: "watch",
-          title: "ECG \u591A\u6B21\u300C\u9AD8\u5FC3\u7387\u300D\u5206\u7C7B",
-          detail: `\u5171 ${es.count} \u4EFD ECG \u4E2D ${es.highHrCount} \u4EFD\u4E3A\u9AD8\u5FC3\u7387\u76F8\u5173\u5206\u7C7B\u3002\u8FD0\u52A8\u540E\u6D4B\u91CF\u5E38\u89C1\uFF1B\u82E5\u9759\u606F\u4E0B\u53CD\u590D\u51FA\u73B0\u6216\u4F34\u5FC3\u60B8\u3001\u80F8\u95F7\uFF0C\u5EFA\u8BAE\u5C31\u533B\u8BC4\u4F30\uFF0C\u52FF\u81EA\u884C\u8BCA\u65AD\u3002`,
+          title: L("ECG \u591A\u6B21\u300C\u9AD8\u5FC3\u7387\u300D\u5206\u7C7B", "Multiple ECG \u201Chigh heart rate\u201D classifications"),
+          detail: L(
+            `\u5171 ${es.count} \u4EFD ECG \u4E2D ${es.highHrCount} \u4EFD\u4E3A\u9AD8\u5FC3\u7387\u76F8\u5173\u5206\u7C7B\u3002\u8FD0\u52A8\u540E\u6D4B\u91CF\u5E38\u89C1\uFF1B\u82E5\u9759\u606F\u4E0B\u53CD\u590D\u51FA\u73B0\u6216\u4F34\u5FC3\u60B8\u3001\u80F8\u95F7\uFF0C\u5EFA\u8BAE\u5C31\u533B\u8BC4\u4F30\uFF0C\u52FF\u81EA\u884C\u8BCA\u65AD\u3002`,
+            `${es.highHrCount} of ${es.count} ECGs are high-HR related. Common after exercise; if repeated at rest or with palpitations/chest tightness, seek clinical evaluation\u2014do not self-diagnose.`
+          ),
           dimensions: ["ECG"]
         });
       }
@@ -2099,9 +2278,12 @@ var HealthAnalyzer = (() => {
       const high = es.highHrOnHighActivityCount ?? 0;
       signals.push({
         severity: "watch",
-        title: "\u4F4E\u6D3B\u52A8\u65E5\u4ECD\u51FA\u73B0\u9AD8\u5FC3\u7387 ECG",
-        detail: `\u7EA6 ${low} \u4EFD\u9AD8\u5FC3\u7387 ECG \u843D\u5728\u6B65\u6570\u504F\u4F4E\uFF08<3000\uFF09\u4E14\u953B\u70BC\u5F88\u5C11\u7684\u65E5\u5B50` + (high > 0 ? `\uFF1B\u53E6\u6709\u7EA6 ${high} \u4EFD\u843D\u5728\u9AD8\u6D3B\u52A8/\u8BAD\u7EC3\u90BB\u57DF\u65E5` : "") + "\u3002\u4F4E\u6D3B\u52A8\u65E5\u4ECD\u53CD\u590D\u9AD8\u5FC3\u7387\u66F4\u503C\u5F97\u5BF9\u7167\u75C7\u72B6\u4E0E\u590D\u6D4B\u60C5\u5883\uFF1B\u8FD0\u52A8\u76F8\u5173\u6D4B\u91CF\u5E38\u89C1\uFF0C\u4E0D\u80FD\u636E\u6B64\u81EA\u884C\u8BCA\u65AD\u5FC3\u5F8B\u5931\u5E38\u3002",
-        dimensions: ["ECG", "\u6B65\u6570", "Watch\u6D3B\u52A8"]
+        title: L("\u4F4E\u6D3B\u52A8\u65E5\u4ECD\u51FA\u73B0\u9AD8\u5FC3\u7387 ECG", "High-HR ECG on low-activity days"),
+        detail: L(
+          `\u7EA6 ${low} \u4EFD\u9AD8\u5FC3\u7387 ECG \u843D\u5728\u6B65\u6570\u504F\u4F4E\uFF08<3000\uFF09\u4E14\u953B\u70BC\u5F88\u5C11\u7684\u65E5\u5B50` + (high > 0 ? `\uFF1B\u53E6\u6709\u7EA6 ${high} \u4EFD\u843D\u5728\u9AD8\u6D3B\u52A8/\u8BAD\u7EC3\u90BB\u57DF\u65E5` : "") + "\u3002\u4F4E\u6D3B\u52A8\u65E5\u4ECD\u53CD\u590D\u9AD8\u5FC3\u7387\u66F4\u503C\u5F97\u5BF9\u7167\u75C7\u72B6\u4E0E\u590D\u6D4B\u60C5\u5883\uFF1B\u8FD0\u52A8\u76F8\u5173\u6D4B\u91CF\u5E38\u89C1\uFF0C\u4E0D\u80FD\u636E\u6B64\u81EA\u884C\u8BCA\u65AD\u5FC3\u5F8B\u5931\u5E38\u3002",
+          `About ${low} high-HR ECG(s) fell on low-step (<3000) low-exercise days` + (high > 0 ? `; about ${high} also fell near high-activity/workout days` : "") + ". Repeated high HR on low-activity days warrants symptom and context review; exercise-related measurements are common and do not self-diagnose arrhythmia."
+        ),
+        dimensions: ["ECG", L("\u6B65\u6570", "Steps"), L("Watch\u6D3B\u52A8", "Watch activity")]
       });
     }
     const wos = analysis.workoutStats;
@@ -2117,8 +2299,14 @@ var HealthAnalyzer = (() => {
           signals.push({
             severity: "info",
             date: nextDate,
-            title: "\u8F83\u5927\u8BAD\u7EC3\u540E\u6B21\u65E5 HRV \u504F\u4F4E",
-            detail: `${s.date} ${s.activityType} \u7EA6 ${s.durationMin.toFixed(0)} min` + (s.activeKcal != null ? ` / ${s.activeKcal.toFixed(0)} kcal` : "") + (s.hrAvg != null ? `\uFF0C\u5747 HR ${s.hrAvg.toFixed(0)}` : "") + `\uFF1B\u6B21\u65E5 ${nextDate} HRV ${hNext.allMean.toFixed(1)} ms\uFF08\u8FD1 7 \u65E5\u5747 ${hrvBase.toFixed(1)}\uFF09\u3002\u5C5E\u5E38\u89C1\u6062\u590D\u53CD\u5E94\uFF0C\u53EF\u5B89\u6392\u8F7B\u677E\u65E5\u3002`,
+            title: L("\u8F83\u5927\u8BAD\u7EC3\u540E\u6B21\u65E5 HRV \u504F\u4F4E", "Low HRV day after a larger workout"),
+            detail: L(
+              `${s.date} ${s.activityType} \u7EA6 ${s.durationMin.toFixed(0)} min`,
+              `${s.date} ${s.activityType} ~${s.durationMin.toFixed(0)} min`
+            ) + (s.activeKcal != null ? L(` / ${s.activeKcal.toFixed(0)} kcal`, ` / ${s.activeKcal.toFixed(0)} kcal`) : "") + (s.hrAvg != null ? L(`\uFF0C\u5747 HR ${s.hrAvg.toFixed(0)}`, `, mean HR ${s.hrAvg.toFixed(0)}`) : "") + L(
+              `\uFF1B\u6B21\u65E5 ${nextDate} HRV ${hNext.allMean.toFixed(1)} ms\uFF08\u8FD1 7 \u65E5\u5747 ${hrvBase.toFixed(1)}\uFF09\u3002\u5C5E\u5E38\u89C1\u6062\u590D\u53CD\u5E94\uFF0C\u53EF\u5B89\u6392\u8F7B\u677E\u65E5\u3002`,
+              `; next day ${nextDate} HRV ${hNext.allMean.toFixed(1)} ms (7-day mean ${hrvBase.toFixed(1)}). A common recovery response\u2014consider an easy day.`
+            ),
             dimensions: ["Workout", "HRV"]
           });
         }
@@ -2136,23 +2324,32 @@ var HealthAnalyzer = (() => {
     unique.sort((a, b) => rank[a.severity] - rank[b.severity] || String(b.date || "").localeCompare(String(a.date || "")));
     return unique.slice(0, 20);
   }
-  function formatCrossSignalsForLLM(signals) {
+  function formatCrossSignalsForLLM(signals, options) {
+    const L = createL(normalizeLocale(options?.locale));
     if (!signals.length) {
-      return "## \u8DE8\u7EF4\u5EA6\u63D0\u793A\n\n\uFF08\u5F53\u524D\u89C4\u5219\u672A\u89E6\u53D1\u660E\u663E\u7EC4\u5408\u4FE1\u53F7\uFF09\n";
+      return L("## \u8DE8\u7EF4\u5EA6\u63D0\u793A", "## Cross-domain signals") + "\n\n" + L("\uFF08\u5F53\u524D\u89C4\u5219\u672A\u89E6\u53D1\u660E\u663E\u7EC4\u5408\u4FE1\u53F7\uFF09", "(No clear combined signals triggered by current rules)") + "\n";
     }
     const lines = [
-      "## \u8DE8\u7EF4\u5EA6\u63D0\u793A\uFF08\u542F\u53D1\u5F0F\uFF0C\u975E\u8BCA\u65AD\uFF09",
+      L("## \u8DE8\u7EF4\u5EA6\u63D0\u793A\uFF08\u542F\u53D1\u5F0F\uFF0C\u975E\u8BCA\u65AD\uFF09", "## Cross-domain signals (heuristic, not a diagnosis)"),
       "",
-      "| \u7EA7\u522B | \u65E5\u671F | \u6807\u9898 | \u8BF4\u660E |",
+      L(
+        "| \u7EA7\u522B | \u65E5\u671F | \u6807\u9898 | \u8BF4\u660E |",
+        "| Level | Date | Title | Detail |"
+      ),
       "|---|---|---|---|"
     ];
     for (const s of signals) {
-      const level = s.severity === "alert" ? "\u9700\u5173\u6CE8" : s.severity === "watch" ? "\u89C2\u5BDF" : "\u63D0\u793A";
+      const level = s.severity === "alert" ? L("\u9700\u5173\u6CE8", "Attention") : s.severity === "watch" ? L("\u89C2\u5BDF", "Watch") : L("\u63D0\u793A", "Note");
       const detail = s.detail.replace(/\|/g, "/").replace(/\n/g, " ");
       lines.push(`| ${level} | ${s.date || "\u2014"} | ${s.title} | ${detail} |`);
     }
     lines.push("");
-    lines.push("> \u4EE5\u4E0A\u4E3A\u7A0B\u5E8F\u89C4\u5219\u751F\u6210\u7684\u7EBF\u7D22\uFF0C\u987B\u4E0E\u539F\u59CB\u6570\u636E\u4EA4\u53C9\u6838\u5BF9\uFF0C\u4E0D\u80FD\u66FF\u4EE3\u533B\u7597\u5224\u65AD\u3002");
+    lines.push(
+      L(
+        "> \u4EE5\u4E0A\u4E3A\u7A0B\u5E8F\u89C4\u5219\u751F\u6210\u7684\u7EBF\u7D22\uFF0C\u987B\u4E0E\u539F\u59CB\u6570\u636E\u4EA4\u53C9\u6838\u5BF9\uFF0C\u4E0D\u80FD\u66FF\u4EE3\u533B\u7597\u5224\u65AD\u3002",
+        "> Clues above are rule-generated; cross-check with raw data. This does not replace medical judgment."
+      )
+    );
     lines.push("");
     return lines.join("\n");
   }
@@ -2163,27 +2360,38 @@ var HealthAnalyzer = (() => {
     if (sev === "watch") return "watch";
     return "neutral";
   }
-  function buildInsightBullets(analysis) {
+  function buildInsightBullets(analysis, options) {
+    const L = createL(normalizeLocale(options?.locale));
     const bullets = [];
     const data = analysis.data;
     const range = analysis.dateRange;
+    const coverageTitle = L("\u6570\u636E\u8986\u76D6", "Data coverage");
     if (range?.start && range?.end) {
       bullets.push({
         tone: "neutral",
-        title: "\u6570\u636E\u8986\u76D6",
-        detail: `\u672C\u6B21\u53EF\u7528\u8BB0\u5F55\u7EA6 ${range.start} \u81F3 ${range.end}\u3002\u5B8C\u6574\u660E\u7EC6\u9ED8\u8BA4\u53EA\u5728\u672C\u9875\u5185\u5B58\uFF0C\u5237\u65B0\u9700\u91CD\u65B0\u4E0A\u4F20\u3002`,
+        title: coverageTitle,
+        detail: L(
+          `\u672C\u6B21\u53EF\u7528\u8BB0\u5F55\u7EA6 ${range.start} \u81F3 ${range.end}\u3002\u5B8C\u6574\u660E\u7EC6\u9ED8\u8BA4\u53EA\u5728\u672C\u9875\u5185\u5B58\uFF0C\u5237\u65B0\u9700\u91CD\u65B0\u4E0A\u4F20\u3002`,
+          `Available records roughly cover ${range.start} to ${range.end}. Full details stay in this page\u2019s memory by default; re-upload after refresh.`
+        ),
         anchor: "overview"
       });
     }
     const ws = analysis.weightStats;
     if (ws?.latestTrend && ws.earliestTrend) {
       const delta = ws.latestTrend.weight - ws.earliestTrend.weight;
-      const fat = ws.bodyFatLatest != null ? `\uFF1B\u4F53\u8102\u7EA6 ${ws.bodyFatLatest.toFixed(1)}%` : "";
+      const fat = ws.bodyFatLatest != null ? L(
+        `\uFF1B\u4F53\u8102\u7EA6 ${ws.bodyFatLatest.toFixed(1)}%`,
+        `; body fat ~${ws.bodyFatLatest.toFixed(1)}%`
+      ) : "";
       const tone = delta <= -8 ? "watch" : delta <= -2 ? "neutral" : delta >= 2 ? "watch" : "positive";
       bullets.push({
         tone,
-        title: "\u4F53\u91CD\u8D8B\u52BF\uFF08\u6668\u8D77\uFF09",
-        detail: `\u6700\u65B0\u8D8B\u52BF ${ws.latestTrend.weight.toFixed(1)} kg\uFF08${ws.latestTrend.date}\uFF09\uFF0C\u76F8\u5BF9\u6700\u65E9 ${ws.earliestTrend.weight.toFixed(1)} kg \u53D8\u5316 ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} kg${fat}\u3002\u8D8B\u52BF\u6309\u6BCF\u65E5\u6668\u8D77\u91CD\uFF0C\u907F\u514D\u665A\u95F4\u6CE2\u52A8\u5E72\u6270\u3002`,
+        title: L("\u4F53\u91CD\u8D8B\u52BF\uFF08\u6668\u8D77\uFF09", "Weight trend (morning)"),
+        detail: L(
+          `\u6700\u65B0\u8D8B\u52BF ${ws.latestTrend.weight.toFixed(1)} kg\uFF08${ws.latestTrend.date}\uFF09\uFF0C\u76F8\u5BF9\u6700\u65E9 ${ws.earliestTrend.weight.toFixed(1)} kg \u53D8\u5316 ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} kg${fat}\u3002\u8D8B\u52BF\u6309\u6BCF\u65E5\u6668\u8D77\u91CD\uFF0C\u907F\u514D\u665A\u95F4\u6CE2\u52A8\u5E72\u6270\u3002`,
+          `Latest trend ${ws.latestTrend.weight.toFixed(1)} kg (${ws.latestTrend.date}), vs earliest ${ws.earliestTrend.weight.toFixed(1)} kg, change ${delta >= 0 ? "+" : ""}${delta.toFixed(1)} kg${fat}. Trend uses daily morning weight to reduce evening noise.`
+        ),
         anchor: "summary-weight"
       });
     }
@@ -2195,12 +2403,23 @@ var HealthAnalyzer = (() => {
       else if (st.pctBelow39 >= 5) tone = "watch";
       else if (st.pctInRange >= 90 && st.pctAbove78 < 5) tone = "positive";
       else tone = "neutral";
-      let detail = `\u7A33\u5B9A\u671F/\u53EF\u7528\u6BB5\u5747\u503C ${st.mean.toFixed(2)} mmol/L\uFF0CTIR ${st.pctInRange.toFixed(1)}%\uFF0C<3.9 \u5360 ${st.pctBelow39.toFixed(1)}%\uFF08n=${st.count}\uFF09\u3002`;
+      let detail = L(
+        `\u7A33\u5B9A\u671F/\u53EF\u7528\u6BB5\u5747\u503C ${st.mean.toFixed(2)} mmol/L\uFF0CTIR ${st.pctInRange.toFixed(1)}%\uFF0C<3.9 \u5360 ${st.pctBelow39.toFixed(1)}%\uFF08n=${st.count}\uFF09\u3002`,
+        `Stable/usable segment mean ${st.mean.toFixed(2)} mmol/L, TIR ${st.pctInRange.toFixed(1)}%, <3.9 ${st.pctBelow39.toFixed(1)}% (n=${st.count}).`
+      );
       if (fd && analysis.cgmStats.firstDayDate && fd.pctBelow39 >= 10) {
-        detail += ` \u9996\u65E5 ${analysis.cgmStats.firstDayDate} \u4F4E\u503C\u504F\u591A\uFF08<3.9 ${fd.pctBelow39.toFixed(1)}%\uFF09\uFF0C\u89E3\u8BFB\u8BF7\u4EE5\u7A33\u5B9A\u671F\u4E3A\u51C6\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`;
+        detail += L(
+          ` \u9996\u65E5 ${analysis.cgmStats.firstDayDate} \u4F4E\u503C\u504F\u591A\uFF08<3.9 ${fd.pctBelow39.toFixed(1)}%\uFF09\uFF0C\u89E3\u8BFB\u8BF7\u4EE5\u7A33\u5B9A\u671F\u4E3A\u51C6\u5E76\u6307\u5C16\u8840\u590D\u6838\u53EF\u7591\u65F6\u6BB5\u3002`,
+          ` First day ${analysis.cgmStats.firstDayDate} had more lows (<3.9 ${fd.pctBelow39.toFixed(1)}%); prefer the stable segment and confirm suspect periods with finger-stick glucose.`
+        );
         if (tone === "positive") tone = "neutral";
       }
-      bullets.push({ tone, title: "\u8840\u7CD6\uFF08CGM\uFF09", detail, anchor: "summary-cgm" });
+      bullets.push({
+        tone,
+        title: L("\u8840\u7CD6\uFF08CGM\uFF09", "Glucose (CGM)"),
+        detail,
+        anchor: "summary-cgm"
+      });
     }
     if (analysis.bpStats?.mean7d) {
       const m = analysis.bpStats.mean7d;
@@ -2210,13 +2429,24 @@ var HealthAnalyzer = (() => {
       if (m.lowCount >= 3 || m.systolic < 95) tone = "watch";
       else if (m.systolic >= 130 || m.diastolic >= 85) tone = "watch";
       else if (m.systolic >= 100 && m.systolic < 120 && m.lowCount === 0) tone = "positive";
-      let detail = `\u8FD1 7 \u65E5\u5168\u5929\u5747\u503C\u7EA6 ${m.systolic.toFixed(0)}/${m.diastolic.toFixed(0)} mmHg\uFF08${m.count} \u6761`;
-      if (m.lowCount) detail += `\uFF0C\u5176\u4E2D ${m.lowCount} \u6761 <90/60`;
-      detail += "\uFF09\u3002";
-      if (morn && eve) {
-        detail += ` \u6668\u95F4\u7EA6 ${morn.systolic.toFixed(0)}/${morn.diastolic.toFixed(0)}\uFF0C\u665A\u95F4\u7EA6 ${eve.systolic.toFixed(0)}/${eve.diastolic.toFixed(0)}\u3002`;
+      let detail = L(
+        `\u8FD1 7 \u65E5\u5168\u5929\u5747\u503C\u7EA6 ${m.systolic.toFixed(0)}/${m.diastolic.toFixed(0)} mmHg\uFF08${m.count} \u6761`,
+        `Last 7 days all-day mean ~${m.systolic.toFixed(0)}/${m.diastolic.toFixed(0)} mmHg (${m.count} readings`
+      );
+      if (m.lowCount) {
+        detail += L(
+          `\uFF0C\u5176\u4E2D ${m.lowCount} \u6761 <90/60`,
+          `, including ${m.lowCount} <90/60`
+        );
       }
-      bullets.push({ tone, title: "\u8840\u538B", detail, anchor: "summary-bp" });
+      detail += L("\uFF09\u3002", ").");
+      if (morn && eve) {
+        detail += L(
+          ` \u6668\u95F4\u7EA6 ${morn.systolic.toFixed(0)}/${morn.diastolic.toFixed(0)}\uFF0C\u665A\u95F4\u7EA6 ${eve.systolic.toFixed(0)}/${eve.diastolic.toFixed(0)}\u3002`,
+          ` Morning ~${morn.systolic.toFixed(0)}/${morn.diastolic.toFixed(0)}, evening ~${eve.systolic.toFixed(0)}/${eve.diastolic.toFixed(0)}.`
+        );
+      }
+      bullets.push({ tone, title: L("\u8840\u538B", "Blood pressure"), detail, anchor: "summary-bp" });
     }
     const hrvDates = Object.keys(analysis.hrvByDate || {}).sort();
     if (hrvDates.length) {
@@ -2232,8 +2462,17 @@ var HealthAnalyzer = (() => {
         else if (hrvAvg >= 35 && (rhrAvg == null || rhrAvg < 75)) tone = "positive";
         bullets.push({
           tone,
-          title: "\u6062\u590D\uFF08HRV / \u9759\u606F\u5FC3\u7387\uFF09",
-          detail: `\u8FD1 7 \u65E5 HRV \u5168\u5929\u5747\u503C\u7EA6 ${hrvAvg.toFixed(1)} ms` + (rhrAvg != null ? `\uFF0C\u9759\u606F\u5FC3\u7387\u7EA6 ${rhrAvg.toFixed(0)} bpm` : "") + "\u3002\u6570\u503C\u53D7\u7761\u7720\u3001\u8BAD\u7EC3\u4E0E\u75BE\u75C5\u5F71\u54CD\uFF0C\u5355\u65E5\u6CE2\u52A8\u4E0D\u5FC5\u8FC7\u5EA6\u89E3\u8BFB\u3002",
+          title: L("\u6062\u590D\uFF08HRV / \u9759\u606F\u5FC3\u7387\uFF09", "Recovery (HRV / resting HR)"),
+          detail: L(
+            `\u8FD1 7 \u65E5 HRV \u5168\u5929\u5747\u503C\u7EA6 ${hrvAvg.toFixed(1)} ms`,
+            `Last 7 days all-day HRV mean ~${hrvAvg.toFixed(1)} ms`
+          ) + (rhrAvg != null ? L(
+            `\uFF0C\u9759\u606F\u5FC3\u7387\u7EA6 ${rhrAvg.toFixed(0)} bpm`,
+            `, resting HR ~${rhrAvg.toFixed(0)} bpm`
+          ) : "") + L(
+            "\u3002\u6570\u503C\u53D7\u7761\u7720\u3001\u8BAD\u7EC3\u4E0E\u75BE\u75C5\u5F71\u54CD\uFF0C\u5355\u65E5\u6CE2\u52A8\u4E0D\u5FC5\u8FC7\u5EA6\u89E3\u8BFB\u3002",
+            ". Values reflect sleep, training, and illness; avoid over-reading single-day swings."
+          ),
           anchor: "summary-hrv"
         });
       }
@@ -2248,8 +2487,17 @@ var HealthAnalyzer = (() => {
         else if (ex != null && ex < 5) tone = "watch";
         bullets.push({
           tone,
-          title: "Watch \u6D3B\u52A8",
-          detail: `\u8FD1 7 \u65E5\u65E5\u5747\u953B\u70BC\u7EA6 ${ex != null ? ex.toFixed(0) : "\u2014"} \u5206\u949F` + (kcal != null ? `\uFF0C\u6D3B\u52A8\u6D88\u8017\u7EA6 ${kcal.toFixed(0)} kcal` : "") + "\u3002\u4F4E\u6D3B\u52A8\u65E5\u53EF\u4E0E\u7761\u7720/HRV \u5BF9\u7167\uFF0C\u907F\u514D\u8FC7\u5EA6\u89E3\u8BFB\u5355\u65E5\u3002",
+          title: L("Watch \u6D3B\u52A8", "Watch activity"),
+          detail: L(
+            `\u8FD1 7 \u65E5\u65E5\u5747\u953B\u70BC\u7EA6 ${ex != null ? ex.toFixed(0) : "\u2014"} \u5206\u949F`,
+            `Last 7 days mean exercise ~${ex != null ? ex.toFixed(0) : "\u2014"} min/day`
+          ) + (kcal != null ? L(
+            `\uFF0C\u6D3B\u52A8\u6D88\u8017\u7EA6 ${kcal.toFixed(0)} kcal`,
+            `, active energy ~${kcal.toFixed(0)} kcal`
+          ) : "") + L(
+            "\u3002\u4F4E\u6D3B\u52A8\u65E5\u53EF\u4E0E\u7761\u7720/HRV \u5BF9\u7167\uFF0C\u907F\u514D\u8FC7\u5EA6\u89E3\u8BFB\u5355\u65E5\u3002",
+            ". On low-activity days, cross-check sleep/HRV; avoid over-reading a single day."
+          ),
           anchor: "summary-watch"
         });
       }
@@ -2258,12 +2506,30 @@ var HealthAnalyzer = (() => {
         if (wsWatch.spo2NightMin7d != null && wsWatch.spo2NightMin7d < 92 || wsWatch.spo2Min7d != null && wsWatch.spo2Min7d < 92) {
           tone = "watch";
         } else if (wsWatch.spo2Mean7d < 95) tone = "watch";
-        const nightBit = wsWatch.spo2NightMean7d != null ? `\uFF1B\u591C\u6BB5\u5747 ${wsWatch.spo2NightMean7d.toFixed(1)}%` + (wsWatch.spo2NightMin7d != null ? `\uFF08\u6700\u4F4E ${wsWatch.spo2NightMin7d.toFixed(1)}%\uFF09` : "") : "";
-        const dayBit = wsWatch.spo2DayMean7d != null ? `\uFF0C\u65E5\u6BB5\u5747 ${wsWatch.spo2DayMean7d.toFixed(1)}%` : "";
+        const nightBit = wsWatch.spo2NightMean7d != null ? L(
+          `\uFF1B\u591C\u6BB5\u5747 ${wsWatch.spo2NightMean7d.toFixed(1)}%`,
+          `; night mean ${wsWatch.spo2NightMean7d.toFixed(1)}%`
+        ) + (wsWatch.spo2NightMin7d != null ? L(
+          `\uFF08\u6700\u4F4E ${wsWatch.spo2NightMin7d.toFixed(1)}%\uFF09`,
+          ` (min ${wsWatch.spo2NightMin7d.toFixed(1)}%)`
+        ) : "") : "";
+        const dayBit = wsWatch.spo2DayMean7d != null ? L(
+          `\uFF0C\u65E5\u6BB5\u5747 ${wsWatch.spo2DayMean7d.toFixed(1)}%`,
+          `, day mean ${wsWatch.spo2DayMean7d.toFixed(1)}%`
+        ) : "";
         bullets.push({
           tone,
-          title: "\u8840\u6C27\uFF08Watch\uFF09",
-          detail: `\u8FD1 7 \u65E5\u8840\u6C27\u5747\u503C\u7EA6 ${wsWatch.spo2Mean7d.toFixed(1)}%` + (wsWatch.spo2Min7d != null ? `\uFF0C\u671F\u95F4\u6700\u4F4E\u7EA6 ${wsWatch.spo2Min7d.toFixed(1)}%` : "") + nightBit + dayBit + `\uFF08${wsWatch.spo2DayCount} \u5929\u6709\u6837\u672C\uFF09\u3002\u4F4E\u503C\u9700\u7ED3\u5408\u75C7\u72B6\uFF0C\u52FF\u5355\u6B21\u5B9A\u8BBA\u3002`,
+          title: L("\u8840\u6C27\uFF08Watch\uFF09", "Blood oxygen (Watch)"),
+          detail: L(
+            `\u8FD1 7 \u65E5\u8840\u6C27\u5747\u503C\u7EA6 ${wsWatch.spo2Mean7d.toFixed(1)}%`,
+            `Last 7 days SpO\u2082 mean ~${wsWatch.spo2Mean7d.toFixed(1)}%`
+          ) + (wsWatch.spo2Min7d != null ? L(
+            `\uFF0C\u671F\u95F4\u6700\u4F4E\u7EA6 ${wsWatch.spo2Min7d.toFixed(1)}%`,
+            `, period min ~${wsWatch.spo2Min7d.toFixed(1)}%`
+          ) : "") + nightBit + dayBit + L(
+            `\uFF08${wsWatch.spo2DayCount} \u5929\u6709\u6837\u672C\uFF09\u3002\u4F4E\u503C\u9700\u7ED3\u5408\u75C7\u72B6\uFF0C\u52FF\u5355\u6B21\u5B9A\u8BBA\u3002`,
+            ` (${wsWatch.spo2DayCount} days with samples). Interpret lows with symptoms; do not conclude from a single reading.`
+          ),
           anchor: "summary-watch"
         });
       }
@@ -2271,41 +2537,68 @@ var HealthAnalyzer = (() => {
         const delta = wsWatch.vo2Delta;
         bullets.push({
           tone: delta != null && delta <= -2 ? "watch" : "neutral",
-          title: "\u5FC3\u80BA\u9002\u80FD VO\u2082 max",
-          detail: `\u6700\u65B0\u7EA6 ${wsWatch.vo2Latest.toFixed(1)} mL/kg/min` + (wsWatch.vo2Earliest != null ? `\uFF08\u76F8\u5BF9\u6700\u65E9 ${wsWatch.vo2Earliest.toFixed(1)}\uFF0C\u53D8\u5316 ${delta != null && delta >= 0 ? "+" : ""}${delta?.toFixed(1)}\uFF09` : "") + `\uFF0C\u5171 ${wsWatch.vo2DayCount} \u5929\u6709\u4F30\u7B97\u3002Apple \u4F30\u7B97\u503C\u4EC5\u4F9B\u8D8B\u52BF\u53C2\u8003\u3002`,
+          title: L("\u5FC3\u80BA\u9002\u80FD VO\u2082 max", "Cardio fitness VO\u2082 max"),
+          detail: L(
+            `\u6700\u65B0\u7EA6 ${wsWatch.vo2Latest.toFixed(1)} mL/kg/min`,
+            `Latest ~${wsWatch.vo2Latest.toFixed(1)} mL/kg/min`
+          ) + (wsWatch.vo2Earliest != null ? L(
+            `\uFF08\u76F8\u5BF9\u6700\u65E9 ${wsWatch.vo2Earliest.toFixed(1)}\uFF0C\u53D8\u5316 ${delta != null && delta >= 0 ? "+" : ""}${delta?.toFixed(1)}\uFF09`,
+            ` (vs earliest ${wsWatch.vo2Earliest.toFixed(1)}, change ${delta != null && delta >= 0 ? "+" : ""}${delta?.toFixed(1)})`
+          ) : "") + L(
+            `\uFF0C\u5171 ${wsWatch.vo2DayCount} \u5929\u6709\u4F30\u7B97\u3002Apple \u4F30\u7B97\u503C\u4EC5\u4F9B\u8D8B\u52BF\u53C2\u8003\u3002`,
+            `; ${wsWatch.vo2DayCount} days with estimates. Apple estimates are for personal trend only.`
+          ),
           anchor: "summary-watch"
         });
       }
       if (wsWatch.nightHrMean7d != null) {
         bullets.push({
           tone: wsWatch.nightHrMean7d >= 80 ? "watch" : "neutral",
-          title: "\u591C\u95F4\u5FC3\u7387",
-          detail: `\u8FD1 7 \u65E5 0\u20136 \u70B9\u5FC3\u7387\u5747\u503C\u7EA6 ${wsWatch.nightHrMean7d.toFixed(0)} bpm\uFF08\u7531 Watch \u8FDE\u7EED\u5FC3\u7387\u62BD\u6837\u6C47\u603B\uFF09\u3002\u53EF\u4E0E\u9759\u606F\u5FC3\u7387\u3001\u7761\u7720\u5BF9\u7167\u3002`,
+          title: L("\u591C\u95F4\u5FC3\u7387", "Night heart rate"),
+          detail: L(
+            `\u8FD1 7 \u65E5 0\u20136 \u70B9\u5FC3\u7387\u5747\u503C\u7EA6 ${wsWatch.nightHrMean7d.toFixed(0)} bpm\uFF08\u7531 Watch \u8FDE\u7EED\u5FC3\u7387\u62BD\u6837\u6C47\u603B\uFF09\u3002\u53EF\u4E0E\u9759\u606F\u5FC3\u7387\u3001\u7761\u7720\u5BF9\u7167\u3002`,
+            `Last 7 days 0\u20136h heart rate mean ~${wsWatch.nightHrMean7d.toFixed(0)} bpm (from Watch continuous HR samples). Cross-check with resting HR and sleep.`
+          ),
           anchor: "summary-watch"
         });
       }
       if (wsWatch.rrMean7d != null) {
         bullets.push({
           tone: wsWatch.rrMean7d >= 20 || wsWatch.rrMean7d < 10 ? "watch" : "neutral",
-          title: "\u547C\u5438\u9891\u7387",
-          detail: `\u8FD1 7 \u65E5\u547C\u5438\u9891\u7387\u65E5\u5747\u7EA6 ${wsWatch.rrMean7d.toFixed(1)} \u6B21/\u5206\uFF08Watch \u7761\u7720/\u9759\u606F\u91C7\u6837\uFF09\u3002\u663E\u8457\u504F\u79BB\u4E60\u60EF\u57FA\u7EBF\u65F6\u7ED3\u5408\u75C7\u72B6\u89C2\u5BDF\u3002`,
+          title: L("\u547C\u5438\u9891\u7387", "Respiratory rate"),
+          detail: L(
+            `\u8FD1 7 \u65E5\u547C\u5438\u9891\u7387\u65E5\u5747\u7EA6 ${wsWatch.rrMean7d.toFixed(1)} \u6B21/\u5206\uFF08Watch \u7761\u7720/\u9759\u606F\u91C7\u6837\uFF09\u3002\u663E\u8457\u504F\u79BB\u4E60\u60EF\u57FA\u7EBF\u65F6\u7ED3\u5408\u75C7\u72B6\u89C2\u5BDF\u3002`,
+            `Last 7 days respiratory rate ~${wsWatch.rrMean7d.toFixed(1)} breaths/min (Watch sleep/rest samples). If clearly off your usual baseline, observe alongside symptoms.`
+          ),
           anchor: "summary-watch"
         });
       }
       if (wsWatch.wristTempMean7d != null) {
         bullets.push({
           tone: "neutral",
-          title: "\u7761\u7720\u8155\u6E29",
-          detail: `\u8FD1 7 \u65E5\u7761\u7720\u8155\u6E29\u65E5\u5747\u7EA6 ${wsWatch.wristTempMean7d.toFixed(2)} \xB0C\u3002Apple \u8155\u6E29\u591A\u4E3A\u76F8\u5BF9\u504F\u5DEE\u7528\u9014\uFF0C\u9002\u5408\u770B\u81EA\u8EAB\u8D8B\u52BF\u800C\u975E\u7EDD\u5BF9\u4F53\u6E29\u3002`,
+          title: L("\u7761\u7720\u8155\u6E29", "Sleep wrist temperature"),
+          detail: L(
+            `\u8FD1 7 \u65E5\u7761\u7720\u8155\u6E29\u65E5\u5747\u7EA6 ${wsWatch.wristTempMean7d.toFixed(2)} \xB0C\u3002Apple \u8155\u6E29\u591A\u4E3A\u76F8\u5BF9\u504F\u5DEE\u7528\u9014\uFF0C\u9002\u5408\u770B\u81EA\u8EAB\u8D8B\u52BF\u800C\u975E\u7EDD\u5BF9\u4F53\u6E29\u3002`,
+            `Last 7 days sleep wrist temperature mean ~${wsWatch.wristTempMean7d.toFixed(2)} \xB0C. Apple wrist temp is mainly for relative deviation\u2014use for your own trend, not absolute core temperature.`
+          ),
           anchor: "summary-watch"
         });
       }
       if (wsWatch.breathingDisturbanceDayCount >= 3 && wsWatch.breathingDisturbanceMean7d != null) {
-        const latestBit = wsWatch.breathingDisturbanceLatest != null ? `\uFF0C\u6700\u65B0\u7EA6 ${wsWatch.breathingDisturbanceLatest.toFixed(2)}` : "";
+        const latestBit = wsWatch.breathingDisturbanceLatest != null ? L(
+          `\uFF0C\u6700\u65B0\u7EA6 ${wsWatch.breathingDisturbanceLatest.toFixed(2)}`,
+          `, latest ~${wsWatch.breathingDisturbanceLatest.toFixed(2)}`
+        ) : "";
         bullets.push({
           tone: "neutral",
-          title: "\u7761\u7720\u547C\u5438\u7D0A\u4E71",
-          detail: `\u8FD1 7 \u65E5\u6709\u6837\u672C\u65E5\u5747\u7EA6 ${wsWatch.breathingDisturbanceMean7d.toFixed(2)}` + latestBit + `\uFF08\u5171 ${wsWatch.breathingDisturbanceDayCount} \u5929\u6709\u6570\u636E\uFF09\u3002\u6570\u503C\u6765\u81EA Apple Watch \u7761\u7720\u547C\u5438\u6270\u52A8\u4F30\u7B97\uFF0C\u8D8A\u9AD8\u8868\u793A\u6270\u52A8\u76F8\u5BF9\u8D8A\u591A\uFF1B\u4EC5\u4F9B\u81EA\u8EAB\u8D8B\u52BF\u89C2\u5BDF\uFF0C\u4E0D\u80FD\u8BCA\u65AD\u7761\u7720\u547C\u5438\u6682\u505C\u3002`,
+          title: L("\u7761\u7720\u547C\u5438\u7D0A\u4E71", "Sleep breathing disturbance"),
+          detail: L(
+            `\u8FD1 7 \u65E5\u6709\u6837\u672C\u65E5\u5747\u7EA6 ${wsWatch.breathingDisturbanceMean7d.toFixed(2)}`,
+            `Last 7 days mean on sampled days ~${wsWatch.breathingDisturbanceMean7d.toFixed(2)}`
+          ) + latestBit + L(
+            `\uFF08\u5171 ${wsWatch.breathingDisturbanceDayCount} \u5929\u6709\u6570\u636E\uFF09\u3002\u6570\u503C\u6765\u81EA Apple Watch \u7761\u7720\u547C\u5438\u6270\u52A8\u4F30\u7B97\uFF0C\u8D8A\u9AD8\u8868\u793A\u6270\u52A8\u76F8\u5BF9\u8D8A\u591A\uFF1B\u4EC5\u4F9B\u81EA\u8EAB\u8D8B\u52BF\u89C2\u5BDF\uFF0C\u4E0D\u80FD\u8BCA\u65AD\u7761\u7720\u547C\u5438\u6682\u505C\u3002`,
+            ` (${wsWatch.breathingDisturbanceDayCount} days with data). From Apple Watch sleep breathing disturbance estimates\u2014higher means relatively more disturbance; for personal trend only, not a sleep apnea diagnosis.`
+          ),
           anchor: "summary-watch"
         });
         const nightMeanLow = wsWatch.spo2NightMean7d != null && wsWatch.spo2NightMean7d < 95;
@@ -2317,8 +2610,20 @@ var HealthAnalyzer = (() => {
           if (bdElevated || nightMinLow) {
             bullets.push({
               tone: "watch",
-              title: "\u547C\u5438\u7D0A\u4E71\u4E0E\u591C\u6BB5\u8840\u6C27",
-              detail: `\u8FD1 7 \u65E5\u547C\u5438\u7D0A\u4E71\u5747\u7EA6 ${wsWatch.breathingDisturbanceMean7d.toFixed(2)}` + (wsWatch.spo2NightMean7d != null ? `\uFF0C\u591C\u6BB5 SpO\u2082 \u5747\u7EA6 ${wsWatch.spo2NightMean7d.toFixed(1)}%` : "") + (wsWatch.spo2NightMin7d != null ? `\uFF08\u6700\u4F4E\u7EA6 ${wsWatch.spo2NightMin7d.toFixed(1)}%\uFF09` : "") + "\u3002\u4E8C\u8005\u540C\u5411\u65F6\u66F4\u5B9C\u5BF9\u7167\u7761\u7720\u8D28\u91CF\u4E0E\u767D\u5929\u7CBE\u795E\uFF1B\u4ECD\u4E3A\u8155\u8868\u8D8B\u52BF\uFF0C\u975E\u8BCA\u65AD\u3002",
+              title: L("\u547C\u5438\u7D0A\u4E71\u4E0E\u591C\u6BB5\u8840\u6C27", "Breathing disturbance & night SpO\u2082"),
+              detail: L(
+                `\u8FD1 7 \u65E5\u547C\u5438\u7D0A\u4E71\u5747\u7EA6 ${wsWatch.breathingDisturbanceMean7d.toFixed(2)}`,
+                `Last 7 days breathing disturbance mean ~${wsWatch.breathingDisturbanceMean7d.toFixed(2)}`
+              ) + (wsWatch.spo2NightMean7d != null ? L(
+                `\uFF0C\u591C\u6BB5 SpO\u2082 \u5747\u7EA6 ${wsWatch.spo2NightMean7d.toFixed(1)}%`,
+                `, night SpO\u2082 mean ~${wsWatch.spo2NightMean7d.toFixed(1)}%`
+              ) : "") + (wsWatch.spo2NightMin7d != null ? L(
+                `\uFF08\u6700\u4F4E\u7EA6 ${wsWatch.spo2NightMin7d.toFixed(1)}%\uFF09`,
+                ` (min ~${wsWatch.spo2NightMin7d.toFixed(1)}%)`
+              ) : "") + L(
+                "\u3002\u4E8C\u8005\u540C\u5411\u65F6\u66F4\u5B9C\u5BF9\u7167\u7761\u7720\u8D28\u91CF\u4E0E\u767D\u5929\u7CBE\u795E\uFF1B\u4ECD\u4E3A\u8155\u8868\u8D8B\u52BF\uFF0C\u975E\u8BCA\u65AD\u3002",
+                ". When both lean the same way, also note sleep quality and daytime alertness; still a watch trend, not a diagnosis."
+              ),
               anchor: "summary-watch"
             });
           }
@@ -2327,15 +2632,24 @@ var HealthAnalyzer = (() => {
     }
     const wos = analysis.workoutStats;
     if (wos && wos.count > 0) {
-      const top = wos.byType.slice(0, 3).map((t) => `${t.activityLabel || t.activityType}\xD7${t.count}`).join("\u3001");
+      const top = wos.byType.slice(0, 3).map((t) => `${t.activityLabel || t.activityType}\xD7${t.count}`).join(L("\u3001", ", "));
       const last = wos.lastSession;
       let tone = "neutral";
       if (wos.count30d >= 8) tone = "positive";
       else if (wos.count30d === 0) tone = "watch";
       bullets.push({
         tone,
-        title: "Workout \u8BAD\u7EC3",
-        detail: `\u5171 ${wos.count} \u573A` + (wos.count30d ? `\uFF0C\u8FD1 30 \u65E5 ${wos.count30d} \u573A / \u5171 ${wos.durationSum30d.toFixed(0)} min` : "\uFF0C\u8FD1 30 \u65E5 0 \u573A") + (wos.count7d ? `\uFF0C\u8FD1 7 \u65E5 ${wos.count7d} \u573A` : "") + (top ? `\uFF1B\u7C7B\u578B ${top}` : "") + (last ? `\u3002\u6700\u8FD1\uFF1A${last.date} ${last.activityLabel || last.activityType} ${last.durationMin.toFixed(0)} min` + (last.hrAvg != null ? `\uFF0C\u5747 HR ${last.hrAvg.toFixed(0)}` : "") : "") + "\u3002",
+        title: L("Workout \u8BAD\u7EC3", "Workouts"),
+        detail: L(`\u5171 ${wos.count} \u573A`, `${wos.count} session(s) total`) + (wos.count30d ? L(
+          `\uFF0C\u8FD1 30 \u65E5 ${wos.count30d} \u573A / \u5171 ${wos.durationSum30d.toFixed(0)} min`,
+          `, last 30 days ${wos.count30d} session(s) / ${wos.durationSum30d.toFixed(0)} min total`
+        ) : L("\uFF0C\u8FD1 30 \u65E5 0 \u573A", ", last 30 days: 0 sessions")) + (wos.count7d ? L(`\uFF0C\u8FD1 7 \u65E5 ${wos.count7d} \u573A`, `, last 7 days ${wos.count7d} session(s)`) : "") + (top ? L(`\uFF1B\u7C7B\u578B ${top}`, `; types ${top}`) : "") + (last ? L(
+          `\u3002\u6700\u8FD1\uFF1A${last.date} ${last.activityLabel || last.activityType} ${last.durationMin.toFixed(0)} min`,
+          `. Latest: ${last.date} ${last.activityLabel || last.activityType} ${last.durationMin.toFixed(0)} min`
+        ) + (last.hrAvg != null ? L(
+          `\uFF0C\u5747 HR ${last.hrAvg.toFixed(0)}`,
+          `, mean HR ${last.hrAvg.toFixed(0)}`
+        ) : "") : "") + L("\u3002", "."),
         anchor: "summary-workout"
       });
     }
@@ -2343,8 +2657,14 @@ var HealthAnalyzer = (() => {
     if (rw) {
       bullets.push({
         tone: rw.statusTone,
-        title: "\u8FD1 7 \u65E5\u8D1F\u8377/\u6062\u590D",
-        detail: (rw.recoveryScore != null ? `\u6062\u590D\u5206\u7EA6 ${rw.recoveryScore}` : "\u6062\u590D\u5206 \u2014") + (rw.loadScore != null ? `\uFF0C\u8D1F\u8377\u5206\u7EA6 ${rw.loadScore}` : "") + `\u3002${rw.statusLabel}` + (rw.hrvMean7d != null ? ` HRV\u2248${rw.hrvMean7d.toFixed(0)}ms` : "") + (rw.sleepMean7d != null ? ` \u7761\u7720\u2248${rw.sleepMean7d.toFixed(1)}h` : "") + (rw.exerciseMinMean7d != null ? ` \u953B\u70BC\u2248${rw.exerciseMinMean7d.toFixed(0)}min/\u65E5` : "") + (rw.daylightMinMean7d != null ? ` \u65E5\u7167\u2248${rw.daylightMinMean7d.toFixed(0)}min` : "") + "\u3002",
+        title: L("\u8FD1 7 \u65E5\u8D1F\u8377/\u6062\u590D", "Last 7 days load / recovery"),
+        detail: (rw.recoveryScore != null ? L(`\u6062\u590D\u5206\u7EA6 ${rw.recoveryScore}`, `Recovery score ~${rw.recoveryScore}`) : L("\u6062\u590D\u5206 \u2014", "Recovery score \u2014")) + (rw.loadScore != null ? L(`\uFF0C\u8D1F\u8377\u5206\u7EA6 ${rw.loadScore}`, `, load score ~${rw.loadScore}`) : "") + L(`\u3002${rw.statusLabel}`, `. ${rw.statusLabel}`) + (rw.hrvMean7d != null ? L(` HRV\u2248${rw.hrvMean7d.toFixed(0)}ms`, ` HRV\u2248${rw.hrvMean7d.toFixed(0)}ms`) : "") + (rw.sleepMean7d != null ? L(` \u7761\u7720\u2248${rw.sleepMean7d.toFixed(1)}h`, ` sleep\u2248${rw.sleepMean7d.toFixed(1)}h`) : "") + (rw.exerciseMinMean7d != null ? L(
+          ` \u953B\u70BC\u2248${rw.exerciseMinMean7d.toFixed(0)}min/\u65E5`,
+          ` exercise\u2248${rw.exerciseMinMean7d.toFixed(0)} min/day`
+        ) : "") + (rw.daylightMinMean7d != null ? L(
+          ` \u65E5\u7167\u2248${rw.daylightMinMean7d.toFixed(0)}min`,
+          ` daylight\u2248${rw.daylightMinMean7d.toFixed(0)} min`
+        ) : "") + L("\u3002", "."),
         anchor: "summary-recovery"
       });
     }
@@ -2358,20 +2678,37 @@ var HealthAnalyzer = (() => {
       if (es.highHrCount >= 2) {
         const near = es.highHrNearWorkoutCount ?? 0;
         const rest2 = es.highHrRestingWindowCount ?? 0;
-        const topHours = (es.highHrByHour || []).map((c, h) => ({ h, c })).filter((x) => x.c > 0).sort((a, b) => b.c - a.c || a.h - b.h).slice(0, 3).map((x) => `${String(x.h).padStart(2, "0")}\u65F6\xD7${x.c}`).join("\u3001");
-        corr = `\u3002\u9AD8\u5FC3\u7387\u5173\u8054\uFF1A\u8BAD\u7EC3\xB12h ${near} \u4EFD\uFF0C\u975E\u8FD0\u52A8\u7A97\uFF0822\u201308 \u6216\u65E0\u9644\u8FD1\u8BAD\u7EC3\uFF09${rest2} \u4EFD` + (topHours ? `\uFF1B\u9AD8\u53D1\u5C0F\u65F6 ${topHours}` : "");
+        const topHours = (es.highHrByHour || []).map((c, h) => ({ h, c })).filter((x) => x.c > 0).sort((a, b) => b.c - a.c || a.h - b.h).slice(0, 3).map(
+          (x) => L(
+            `${String(x.h).padStart(2, "0")}\u65F6\xD7${x.c}`,
+            `${String(x.h).padStart(2, "0")}h\xD7${x.c}`
+          )
+        ).join(L("\u3001", ", "));
+        corr = L(
+          `\u3002\u9AD8\u5FC3\u7387\u5173\u8054\uFF1A\u8BAD\u7EC3\xB12h ${near} \u4EFD`,
+          `. High-HR context: workout \xB12h ${near}`
+        ) + L(
+          `\uFF0C\u975E\u8FD0\u52A8\u7A97\uFF0822\u201308 \u6216\u65E0\u9644\u8FD1\u8BAD\u7EC3\uFF09${rest2} \u4EFD`,
+          `, non-exercise window (22\u201308 or no nearby workout) ${rest2}`
+        ) + (topHours ? L(`\uFF1B\u9AD8\u53D1\u5C0F\u65F6 ${topHours}`, `; peak hours ${topHours}`) : "");
         if (rest2 >= 2 && rest2 >= near) tone = "watch";
         else if (near >= 2 && near > rest2) tone = "neutral";
       }
       bullets.push({
         tone,
-        title: "ECG \u5FC3\u7535\u56FE",
-        detail: `\u5171 ${es.count} \u4EFD` + (es.sinusCount ? `\uFF0C\u7AA6\u6027 ${es.sinusCount}` : "") + (es.highHrCount ? `\uFF0C\u9AD8\u5FC3\u7387 ${es.highHrCount}` : "") + (es.inconclusiveCount ? `\uFF0C\u7ED3\u679C\u4E0D\u4F73 ${es.inconclusiveCount}` : "") + (es.otherCount ? `\uFF0C\u5176\u4ED6 ${es.otherCount}` : "") + (latest ? `\u3002\u6700\u8FD1 ${String(latest.datetime).slice(0, 16)}\uFF1A${latest.classification}` : "") + corr + "\u3002\u5355\u6B21\u5F02\u5E38\u9700\u7ED3\u5408\u75C7\u72B6\u4E0E\u590D\u6D4B\uFF0C\u4E0D\u80FD\u66FF\u4EE3\u95E8\u8BCA\u3002",
+        title: L("ECG \u5FC3\u7535\u56FE", "ECG"),
+        detail: L(`\u5171 ${es.count} \u4EFD`, `${es.count} recording(s) total`) + (es.sinusCount ? L(`\uFF0C\u7AA6\u6027 ${es.sinusCount}`, `, sinus ${es.sinusCount}`) : "") + (es.highHrCount ? L(`\uFF0C\u9AD8\u5FC3\u7387 ${es.highHrCount}`, `, high heart rate ${es.highHrCount}`) : "") + (es.inconclusiveCount ? L(`\uFF0C\u7ED3\u679C\u4E0D\u4F73 ${es.inconclusiveCount}`, `, inconclusive ${es.inconclusiveCount}`) : "") + (es.otherCount ? L(`\uFF0C\u5176\u4ED6 ${es.otherCount}`, `, other ${es.otherCount}`) : "") + (latest ? L(
+          `\u3002\u6700\u8FD1 ${String(latest.datetime).slice(0, 16)}\uFF1A${latest.classification}`,
+          `. Latest ${String(latest.datetime).slice(0, 16)}: ${latest.classification}`
+        ) : "") + corr + L(
+          "\u3002\u5355\u6B21\u5F02\u5E38\u9700\u7ED3\u5408\u75C7\u72B6\u4E0E\u590D\u6D4B\uFF0C\u4E0D\u80FD\u66FF\u4EE3\u95E8\u8BCA\u3002",
+          ". A single abnormal reading needs symptoms and repeat context; this does not replace clinical care."
+        ),
         anchor: "summary-ecg"
       });
     }
-    const signals = detectCrossSignals(analysis);
-    const isCgmSleepOrActivity = (dims) => dims.includes("CGM") && (dims.includes("\u7761\u7720") || dims.includes("\u6B65\u6570"));
+    const signals = detectCrossSignals(analysis, options);
+    const isCgmSleepOrActivity = (dims) => dims.includes("CGM") && (dims.includes("\u7761\u7720") || dims.includes("\u6B65\u6570") || dims.includes("Sleep") || dims.includes("Steps"));
     let cgmSleepActAdded = false;
     let signalsAdded = 0;
     for (const s of signals) {
@@ -2402,42 +2739,69 @@ var HealthAnalyzer = (() => {
       positive: 3,
       neutral: 2
     };
-    const head = unique.filter((b) => b.title === "\u6570\u636E\u8986\u76D6");
-    const rest = unique.filter((b) => b.title !== "\u6570\u636E\u8986\u76D6").sort((a, b) => rank[a.tone] - rank[b.tone]);
+    const head = unique.filter((b) => b.title === coverageTitle);
+    const rest = unique.filter((b) => b.title !== coverageTitle).sort((a, b) => rank[a.tone] - rank[b.tone]);
     return [...head, ...rest].slice(0, 7);
   }
-  function formatInsightsForLLM(bullets) {
+  function formatInsightsForLLM(bullets, options) {
     if (!bullets.length) return "";
+    const L = createL(normalizeLocale(options?.locale));
     const lines = [
-      "## \u81EA\u52A8\u76D1\u6D4B\u6458\u8981\uFF08\u7A0B\u5E8F\u751F\u6210\uFF0C\u975E\u8BCA\u65AD\uFF09",
+      L("## \u81EA\u52A8\u76D1\u6D4B\u6458\u8981\uFF08\u7A0B\u5E8F\u751F\u6210\uFF0C\u975E\u8BCA\u65AD\uFF09", "## Automated monitoring summary (program-generated, not a diagnosis)"),
       ""
     ];
     bullets.forEach((b, i) => {
-      const tag = b.tone === "alert" ? "\u9700\u5173\u6CE8" : b.tone === "watch" ? "\u89C2\u5BDF" : b.tone === "positive" ? "\u79EF\u6781" : "\u63D0\u793A";
+      const tag = b.tone === "alert" ? L("\u9700\u5173\u6CE8", "Attention") : b.tone === "watch" ? L("\u89C2\u5BDF", "Watch") : b.tone === "positive" ? L("\u79EF\u6781", "Positive") : L("\u63D0\u793A", "Note");
       lines.push(`${i + 1}. **[${tag}] ${b.title}**\uFF1A${b.detail}`);
     });
     lines.push("");
-    lines.push("> \u4EE5\u4E0B\u4E3A\u5206\u7EF4\u5EA6\u539F\u59CB\u7EDF\u8BA1\u4E0E\u660E\u7EC6\uFF0C\u8BF7\u4E0E\u6458\u8981\u4EA4\u53C9\u6838\u5BF9\u3002");
+    lines.push(
+      L(
+        "> \u4EE5\u4E0B\u4E3A\u5206\u7EF4\u5EA6\u539F\u59CB\u7EDF\u8BA1\u4E0E\u660E\u7EC6\uFF0C\u8BF7\u4E0E\u6458\u8981\u4EA4\u53C9\u6838\u5BF9\u3002",
+        "> The following are raw per-domain stats and details; cross-check against the summary."
+      )
+    );
     lines.push("");
     return lines.join("\n");
   }
   function generateInsightsOnlyPrompt(analysis, options = {}) {
-    const bullets = buildInsightBullets(analysis);
-    const body = formatInsightsForLLM(bullets).replace("> \u4EE5\u4E0B\u4E3A\u5206\u7EF4\u5EA6\u539F\u59CB\u7EDF\u8BA1\u4E0E\u660E\u7EC6\uFF0C\u8BF7\u4E0E\u6458\u8981\u4EA4\u53C9\u6838\u5BF9\u3002\n\n", "").trim();
+    const locale = normalizeLocale(options.locale);
+    const L = createL(locale);
+    const bullets = buildInsightBullets(analysis, { locale });
+    const footerZh = "> \u4EE5\u4E0B\u4E3A\u5206\u7EF4\u5EA6\u539F\u59CB\u7EDF\u8BA1\u4E0E\u660E\u7EC6\uFF0C\u8BF7\u4E0E\u6458\u8981\u4EA4\u53C9\u6838\u5BF9\u3002\n\n";
+    const footerEn = "> The following are raw per-domain stats and details; cross-check against the summary.\n\n";
+    const body = formatInsightsForLLM(bullets, { locale }).replace(footerZh, "").replace(footerEn, "").trim();
     const lines = [
-      "\u8BF7\u57FA\u4E8E\u4EE5\u4E0B\u300C\u4E2A\u4EBA\u5065\u5EB7\u81EA\u6211\u76D1\u6D4B\u6458\u8981\u300D\u7ED9\u51FA\u7B80\u6D01\u4E2D\u6587\u5EFA\u8BAE\uFF08Markdown\uFF09\uFF1A",
-      "- \u4E0D\u4E0B\u8BCA\u65AD\u3001\u4E0D\u5F00\u836F\u3001\u4E0D\u66FF\u4EE3\u95E8\u8BCA",
-      "- \u6307\u51FA\u6700\u503C\u5F97\u4F18\u5148\u5173\u6CE8\u7684 3 \u70B9\uFF0C\u5E76\u7ED9\u51FA\u53EF\u64CD\u4F5C\u7684\u81EA\u6211\u76D1\u6D4B\u5EFA\u8BAE",
-      "- \u5F02\u5E38\u9700\u63D0\u793A\u590D\u6838\uFF08\u5982 CGM \u6307\u5C16\u8840\u3001\u8840\u538B\u590D\u6D4B\uFF09",
+      L(
+        "\u8BF7\u57FA\u4E8E\u4EE5\u4E0B\u300C\u4E2A\u4EBA\u5065\u5EB7\u81EA\u6211\u76D1\u6D4B\u6458\u8981\u300D\u7ED9\u51FA\u7B80\u6D01\u4E2D\u6587\u5EFA\u8BAE\uFF08Markdown\uFF09\uFF1A",
+        "Based on the personal health self-monitoring summary below, provide concise English advice (Markdown):"
+      ),
+      L(
+        "- \u4E0D\u4E0B\u8BCA\u65AD\u3001\u4E0D\u5F00\u836F\u3001\u4E0D\u66FF\u4EE3\u95E8\u8BCA",
+        "- Do not diagnose, prescribe, or replace clinical care"
+      ),
+      L(
+        "- \u6307\u51FA\u6700\u503C\u5F97\u4F18\u5148\u5173\u6CE8\u7684 3 \u70B9\uFF0C\u5E76\u7ED9\u51FA\u53EF\u64CD\u4F5C\u7684\u81EA\u6211\u76D1\u6D4B\u5EFA\u8BAE",
+        "- Highlight the top 3 priorities and give actionable self-monitoring suggestions"
+      ),
+      L(
+        "- \u5F02\u5E38\u9700\u63D0\u793A\u590D\u6838\uFF08\u5982 CGM \u6307\u5C16\u8840\u3001\u8840\u538B\u590D\u6D4B\uFF09",
+        "- Flag anomalies for confirmation (e.g. CGM finger-stick, blood pressure recheck)"
+      ),
       ""
     ];
     if (options.prefix && options.prefix.trim()) {
       lines.push(options.prefix.trim());
       lines.push("");
     }
-    lines.push(body || "\uFF08\u6682\u65E0\u6458\u8981\uFF09");
+    lines.push(body || L("\uFF08\u6682\u65E0\u6458\u8981\uFF09", "(No summary yet)"));
     lines.push("");
-    lines.push("\uFF08\u672C\u6BB5\u4EC5\u4E3A\u7A0B\u5E8F\u6458\u8981\uFF0C\u975E\u5B8C\u6574\u539F\u59CB\u6570\u636E\u3002\u9700\u8981\u5B8C\u6574\u7EDF\u8BA1\u8BF7\u4F7F\u7528\u5B8C\u6574\u63D0\u793A\u8BCD\u3002\uFF09");
+    lines.push(
+      L(
+        "\uFF08\u672C\u6BB5\u4EC5\u4E3A\u7A0B\u5E8F\u6458\u8981\uFF0C\u975E\u5B8C\u6574\u539F\u59CB\u6570\u636E\u3002\u9700\u8981\u5B8C\u6574\u7EDF\u8BA1\u8BF7\u4F7F\u7528\u5B8C\u6574\u63D0\u793A\u8BCD\u3002\uFF09",
+        "(This is a program summary only, not full raw data. Use the full prompt for complete stats.)"
+      )
+    );
     return lines.join("\n");
   }
 
@@ -3181,17 +3545,6 @@ var HealthAnalyzer = (() => {
     if (n == null || !Number.isFinite(n)) return "\u2014";
     return n.toFixed(digits);
   }
-  function toneLabel(tone) {
-    if (tone === "alert") return "\u9700\u5173\u6CE8";
-    if (tone === "watch") return "\u7559\u610F";
-    if (tone === "positive") return "\u504F\u79EF\u6781";
-    return "\u4E2D\u6027";
-  }
-  function severityLabel(sev) {
-    if (sev === "alert") return "\u8B66\u62A5";
-    if (sev === "watch") return "\u7559\u610F";
-    return "\u4FE1\u606F";
-  }
   function weekStartFromEnd(end) {
     return addDaysIso2(end, -6);
   }
@@ -3200,24 +3553,54 @@ var HealthAnalyzer = (() => {
     const start = weekStartFromEnd(end);
     return sessions.filter((s) => s.date >= start && s.date <= end).sort((a, b) => a.startDate < b.startDate ? -1 : a.startDate > b.startDate ? 1 : 0);
   }
-  function generateWeeklyReportMarkdown(analysis, userContext) {
+  function generateWeeklyReportMarkdown(analysis, userContext, options) {
+    const locale = normalizeLocale(options?.locale);
+    const L = createL(locale);
     const end = analysis.dateRange?.end || "";
     const start = end ? weekStartFromEnd(end) : analysis.dateRange?.start || "";
     const lines = [];
-    lines.push(`# \u672C\u5468\u5065\u5EB7\u76D1\u6D4B\u5468\u62A5`);
+    const toneLabel = (tone) => {
+      if (tone === "alert") return L("\u9700\u5173\u6CE8", "Attention");
+      if (tone === "watch") return L("\u7559\u610F", "Watch");
+      if (tone === "positive") return L("\u504F\u79EF\u6781", "Positive");
+      return L("\u4E2D\u6027", "Neutral");
+    };
+    const severityLabel = (sev) => {
+      if (sev === "alert") return L("\u8B66\u62A5", "Alert");
+      if (sev === "watch") return L("\u7559\u610F", "Watch");
+      return L("\u4FE1\u606F", "Info");
+    };
+    lines.push(L("# \u672C\u5468\u5065\u5EB7\u76D1\u6D4B\u5468\u62A5", "# Weekly Health Monitoring Report"));
     lines.push(``);
     lines.push(
-      end ? `**\u62A5\u544A\u7A97\u53E3**\uFF1A${start} ~ ${end}\uFF08\u8FD1 7 \u65E5\uFF0C\u622A\u6B62\u6570\u636E\u672B\u65E5\uFF09` : `**\u62A5\u544A\u7A97\u53E3**\uFF1A\u6570\u636E\u65E5\u671F\u8303\u56F4\u4E0D\u8DB3`
+      end ? L(
+        `**\u62A5\u544A\u7A97\u53E3**\uFF1A${start} ~ ${end}\uFF08\u8FD1 7 \u65E5\uFF0C\u622A\u6B62\u6570\u636E\u672B\u65E5\uFF09`,
+        `**Report window**: ${start} ~ ${end} (last 7 days, through data end date)`
+      ) : L(`**\u62A5\u544A\u7A97\u53E3**\uFF1A\u6570\u636E\u65E5\u671F\u8303\u56F4\u4E0D\u8DB3`, `**Report window**: insufficient date range`)
     );
-    lines.push(`**\u751F\u6210\u65F6\u95F4**\uFF1A${analysis.generatedAt || (/* @__PURE__ */ new Date()).toISOString()}`);
+    lines.push(
+      L(
+        `**\u751F\u6210\u65F6\u95F4**\uFF1A${analysis.generatedAt || (/* @__PURE__ */ new Date()).toISOString()}`,
+        `**Generated at**: ${analysis.generatedAt || (/* @__PURE__ */ new Date()).toISOString()}`
+      )
+    );
     if (analysis.dateRange?.start && analysis.dateRange?.end) {
       lines.push(
-        `**\u5168\u91CF\u6570\u636E\u8986\u76D6**\uFF1A${analysis.dateRange.start} ~ ${analysis.dateRange.end}`
+        L(
+          `**\u5168\u91CF\u6570\u636E\u8986\u76D6**\uFF1A${analysis.dateRange.start} ~ ${analysis.dateRange.end}`,
+          `**Full data coverage**: ${analysis.dateRange.start} ~ ${analysis.dateRange.end}`
+        )
       );
     }
     lines.push(``);
     const hasEcg = !!(analysis.ecgStats && analysis.ecgStats.count > 0);
-    lines.push(`> **\u76EE\u5F55** \xB7 \u{1F9ED} \u8D1F\u8377\u4E0E\u6062\u590D \xB7 \u{1F4CB} \u76D1\u6D4B\u6458\u8981 \xB7 \u{1F517} \u5173\u952E\u8DE8\u7EF4\u5EA6\u4FE1\u53F7 \xB7 \u{1F4CA} \u672C\u5468\u6570\u636E\u901F\u89C8 \xB7 \u{1F3C3} Workout \u672C\u5468\u573A\u6B21${hasEcg ? " \xB7 \u{1F4C8} ECG" : ""} \xB7 \u26A0\uFE0F \u8FB9\u754C\u58F0\u660E`);
+    const tocEcg = hasEcg ? " \xB7 \u{1F4C8} ECG" : "";
+    lines.push(
+      L(
+        `> **\u76EE\u5F55** \xB7 \u{1F9ED} \u8D1F\u8377\u4E0E\u6062\u590D \xB7 \u{1F4CB} \u76D1\u6D4B\u6458\u8981 \xB7 \u{1F517} \u5173\u952E\u8DE8\u7EF4\u5EA6\u4FE1\u53F7 \xB7 \u{1F4CA} \u672C\u5468\u6570\u636E\u901F\u89C8 \xB7 \u{1F3C3} Workout \u672C\u5468\u573A\u6B21${tocEcg} \xB7 \u26A0\uFE0F \u8FB9\u754C\u58F0\u660E`,
+        `> **Contents** \xB7 \u{1F9ED} Load & Recovery \xB7 \u{1F4CB} Monitoring summary \xB7 \u{1F517} Key cross-signals \xB7 \u{1F4CA} Week snapshot \xB7 \u{1F3C3} Workouts this week${tocEcg} \xB7 \u26A0\uFE0F Boundary / Disclaimer`
+      )
+    );
     lines.push(``);
     lines.push(`---`);
     lines.push(``);
@@ -3226,48 +3609,96 @@ var HealthAnalyzer = (() => {
       lines.push(ctx.trimEnd());
       lines.push(``);
     }
-    lines.push(`## \u{1F9ED} \u8D1F\u8377\u4E0E\u6062\u590D`);
+    lines.push(L(`## \u{1F9ED} \u8D1F\u8377\u4E0E\u6062\u590D`, `## \u{1F9ED} Load & Recovery`));
     lines.push(``);
     const rw = analysis.recoveryWeek;
     if (rw) {
-      lines.push(`> \u542F\u53D1\u5F0F\u8BC4\u5206\uFF0C\u975E\u8BCA\u65AD\uFF1B\u622A\u6B62 **${rw.weekEnd}**\u3002`);
+      lines.push(
+        L(
+          `> \u542F\u53D1\u5F0F\u8BC4\u5206\uFF0C\u975E\u8BCA\u65AD\uFF1B\u622A\u6B62 **${rw.weekEnd}**\u3002`,
+          `> Heuristic score, not a diagnosis; through **${rw.weekEnd}**.`
+        )
+      );
       lines.push(``);
-      lines.push(`| \u9879\u76EE | \u503C |`);
+      lines.push(L(`| \u9879\u76EE | \u503C |`, `| Item | Value |`));
       lines.push(`|---|---|`);
-      if (rw.recoveryScore != null) lines.push(`| \u6062\u590D\u5206 | **${rw.recoveryScore}** / 100 |`);
-      if (rw.loadScore != null) lines.push(`| \u8D1F\u8377\u5206 | **${rw.loadScore}** / 100 |`);
-      lines.push(`| \u72B6\u6001 | ${rw.statusLabel}\uFF08${toneLabel(rw.statusTone)}\uFF09 |`);
+      if (rw.recoveryScore != null) {
+        lines.push(
+          L(
+            `| \u6062\u590D\u5206 | **${rw.recoveryScore}** / 100 |`,
+            `| Recovery score | **${rw.recoveryScore}** / 100 |`
+          )
+        );
+      }
+      if (rw.loadScore != null) {
+        lines.push(
+          L(
+            `| \u8D1F\u8377\u5206 | **${rw.loadScore}** / 100 |`,
+            `| Load score | **${rw.loadScore}** / 100 |`
+          )
+        );
+      }
+      lines.push(
+        L(
+          `| \u72B6\u6001 | ${rw.statusLabel}\uFF08${toneLabel(rw.statusTone)}\uFF09 |`,
+          `| Status | ${rw.statusLabel} (${toneLabel(rw.statusTone)}) |`
+        )
+      );
       if (rw.baselineRecoveryMedian != null) {
-        lines.push(`| \u8FD1\u51E0\u5468\u6062\u590D\u5206\u4E2D\u4F4D | ${rw.baselineRecoveryMedian} |`);
+        lines.push(
+          L(
+            `| \u8FD1\u51E0\u5468\u6062\u590D\u5206\u4E2D\u4F4D | ${rw.baselineRecoveryMedian} |`,
+            `| Recent weeks recovery median | ${rw.baselineRecoveryMedian} |`
+          )
+        );
       }
       if (rw.vsBaselineDelta != null) {
         const sign = rw.vsBaselineDelta > 0 ? "+" : "";
-        lines.push(`| \u76F8\u5BF9\u4E2D\u4F4D | ${sign}${rw.vsBaselineDelta} |`);
+        lines.push(
+          L(
+            `| \u76F8\u5BF9\u4E2D\u4F4D | ${sign}${rw.vsBaselineDelta} |`,
+            `| vs median | ${sign}${rw.vsBaselineDelta} |`
+          )
+        );
       }
       lines.push(``);
     } else {
-      lines.push(`\u672C\u5468\u8D1F\u8377/\u6062\u590D\u6570\u636E\u4E0D\u8DB3\uFF0C\u6682\u65E0\u6CD5\u8BC4\u5206\u3002`);
+      lines.push(
+        L(
+          `\u672C\u5468\u8D1F\u8377/\u6062\u590D\u6570\u636E\u4E0D\u8DB3\uFF0C\u6682\u65E0\u6CD5\u8BC4\u5206\u3002`,
+          `Insufficient load/recovery data this week to score.`
+        )
+      );
       lines.push(``);
     }
     lines.push(`---`);
     lines.push(``);
-    lines.push(`## \u{1F4CB} \u76D1\u6D4B\u6458\u8981`);
+    lines.push(L(`## \u{1F4CB} \u76D1\u6D4B\u6458\u8981`, `## \u{1F4CB} Monitoring summary`));
     lines.push(``);
-    const bullets = buildInsightBullets(analysis);
-    const topBullets = bullets.filter((b) => b.title !== "\u6570\u636E\u8986\u76D6").slice(0, 6);
+    const bullets = buildInsightBullets(analysis, { locale });
+    const coverageZh = "\u6570\u636E\u8986\u76D6";
+    const coverageEn = "Data coverage";
+    const topBullets = bullets.filter(
+      (b) => b.anchor !== "overview" && b.title !== coverageZh && b.title !== coverageEn
+    ).slice(0, 6);
     if (topBullets.length) {
       for (const b of topBullets) {
         lines.push(`- **[${toneLabel(b.tone)}] ${b.title}**\uFF1A${b.detail}`);
       }
     } else {
-      lines.push(`- \u6682\u65E0\u8DB3\u591F\u6570\u636E\u751F\u6210\u6458\u8981\u8981\u70B9\u3002`);
+      lines.push(
+        L(
+          `- \u6682\u65E0\u8DB3\u591F\u6570\u636E\u751F\u6210\u6458\u8981\u8981\u70B9\u3002`,
+          `- Not enough data to generate summary bullets.`
+        )
+      );
     }
     lines.push(``);
     lines.push(`---`);
     lines.push(``);
-    lines.push(`## \u{1F517} \u5173\u952E\u8DE8\u7EF4\u5EA6\u4FE1\u53F7`);
+    lines.push(L(`## \u{1F517} \u5173\u952E\u8DE8\u7EF4\u5EA6\u4FE1\u53F7`, `## \u{1F517} Key cross-dimensional signals`));
     lines.push(``);
-    const signals = detectCrossSignals(analysis).slice(0, 5);
+    const signals = detectCrossSignals(analysis, { locale }).slice(0, 5);
     if (signals.length) {
       for (const s of signals) {
         const datePart = s.date ? `\uFF08${s.date}\uFF09` : "";
@@ -3276,14 +3707,19 @@ var HealthAnalyzer = (() => {
         );
       }
     } else {
-      lines.push(`- \u8FD1\u7A97\u5185\u672A\u89E6\u53D1\u8DE8\u7EF4\u5EA6\u542F\u53D1\u5F0F\u89C4\u5219\uFF08\u4E0D\u4EE3\u8868\u65E0\u5065\u5EB7\u98CE\u9669\uFF09\u3002`);
+      lines.push(
+        L(
+          `- \u8FD1\u7A97\u5185\u672A\u89E6\u53D1\u8DE8\u7EF4\u5EA6\u542F\u53D1\u5F0F\u89C4\u5219\uFF08\u4E0D\u4EE3\u8868\u65E0\u5065\u5EB7\u98CE\u9669\uFF09\u3002`,
+          `- No cross-dimensional heuristic rules fired in the recent window (does not mean no health risk).`
+        )
+      );
     }
     lines.push(``);
     lines.push(`---`);
     lines.push(``);
-    lines.push(`## \u{1F4CA} \u672C\u5468\u6570\u636E\u901F\u89C8`);
+    lines.push(L(`## \u{1F4CA} \u672C\u5468\u6570\u636E\u901F\u89C8`, `## \u{1F4CA} Week data snapshot`));
     lines.push(``);
-    lines.push(`| \u6307\u6807 | \u8FD1 7 \u65E5 |`);
+    lines.push(L(`| \u6307\u6807 | \u8FD1 7 \u65E5 |`, `| Metric | Last 7 days |`));
     lines.push(`|---|---|`);
     const hrv = rw?.hrvMean7d ?? null;
     const nightHr = rw?.nightHrMean7d ?? null;
@@ -3291,47 +3727,95 @@ var HealthAnalyzer = (() => {
     const sleep = rw?.sleepMean7d ?? null;
     const steps = rw?.stepsMean7d ?? null;
     const spo2Night = rw?.spo2NightMean7d ?? null;
-    lines.push(`| HRV \u65E5\u5747 | ${hrv != null ? `${fmt(hrv, 1)} ms` : "\u2014"} |`);
-    lines.push(`| \u591C HR | ${nightHr != null ? `${fmt(nightHr, 0)} bpm` : "\u2014"} |`);
-    lines.push(`| \u953B\u70BC\u65E5\u5747 | ${exercise != null ? `${fmt(exercise, 0)} min` : "\u2014"} |`);
+    lines.push(
+      L(
+        `| HRV \u65E5\u5747 | ${hrv != null ? `${fmt(hrv, 1)} ms` : "\u2014"} |`,
+        `| HRV daily avg | ${hrv != null ? `${fmt(hrv, 1)} ms` : "\u2014"} |`
+      )
+    );
+    lines.push(
+      L(
+        `| \u591C HR | ${nightHr != null ? `${fmt(nightHr, 0)} bpm` : "\u2014"} |`,
+        `| Night HR | ${nightHr != null ? `${fmt(nightHr, 0)} bpm` : "\u2014"} |`
+      )
+    );
+    lines.push(
+      L(
+        `| \u953B\u70BC\u65E5\u5747 | ${exercise != null ? `${fmt(exercise, 0)} min` : "\u2014"} |`,
+        `| Exercise daily avg | ${exercise != null ? `${fmt(exercise, 0)} min` : "\u2014"} |`
+      )
+    );
     if (rw) {
       lines.push(
-        `| Workout | ${rw.workoutCount7d} \u573A / ${fmt(rw.workoutDuration7d, 0)} min |`
+        L(
+          `| Workout | ${rw.workoutCount7d} \u573A / ${fmt(rw.workoutDuration7d, 0)} min |`,
+          `| Workout | ${rw.workoutCount7d} sessions / ${fmt(rw.workoutDuration7d, 0)} min |`
+        )
       );
     } else {
       const wos = analysis.workoutStats;
       lines.push(
-        `| Workout | ${wos ? `${wos.count7d} \u573A / ${fmt(wos.durationSum7d, 0)} min` : "\u2014"} |`
+        L(
+          `| Workout | ${wos ? `${wos.count7d} \u573A / ${fmt(wos.durationSum7d, 0)} min` : "\u2014"} |`,
+          `| Workout | ${wos ? `${wos.count7d} sessions / ${fmt(wos.durationSum7d, 0)} min` : "\u2014"} |`
+        )
       );
     }
-    lines.push(`| \u7761\u7720\u65E5\u5747 | ${sleep != null ? `${fmt(sleep, 2)} h` : "\u2014"} |`);
-    lines.push(`| \u6B65\u6570\u65E5\u5747 | ${steps != null ? String(Math.round(steps)) : "\u2014"} |`);
-    lines.push(`| \u8840\u6C27\uFF08\u591C\uFF09 | ${spo2Night != null ? `${fmt(spo2Night, 1)}%` : "\u2014"} |`);
+    lines.push(
+      L(
+        `| \u7761\u7720\u65E5\u5747 | ${sleep != null ? `${fmt(sleep, 2)} h` : "\u2014"} |`,
+        `| Sleep daily avg | ${sleep != null ? `${fmt(sleep, 2)} h` : "\u2014"} |`
+      )
+    );
+    lines.push(
+      L(
+        `| \u6B65\u6570\u65E5\u5747 | ${steps != null ? String(Math.round(steps)) : "\u2014"} |`,
+        `| Steps daily avg | ${steps != null ? String(Math.round(steps)) : "\u2014"} |`
+      )
+    );
+    lines.push(
+      L(
+        `| \u8840\u6C27\uFF08\u591C\uFF09 | ${spo2Night != null ? `${fmt(spo2Night, 1)}%` : "\u2014"} |`,
+        `| SpO\u2082 (night) | ${spo2Night != null ? `${fmt(spo2Night, 1)}%` : "\u2014"} |`
+      )
+    );
     const ws = analysis.watchStats;
     if (ws?.breathingDisturbanceMean7d != null || ws?.breathingDisturbanceLatest != null) {
       const mean2 = ws.breathingDisturbanceMean7d != null ? fmt(ws.breathingDisturbanceMean7d, 2) : "\u2014";
       const latest = ws.breathingDisturbanceLatest != null ? fmt(ws.breathingDisturbanceLatest, 2) : "\u2014";
-      lines.push(`| \u547C\u5438\u7D0A\u4E71 | \u8FD1 7 \u65E5\u5747 ${mean2} / \u6700\u65B0 ${latest} |`);
+      lines.push(
+        L(
+          `| \u547C\u5438\u7D0A\u4E71 | \u8FD1 7 \u65E5\u5747 ${mean2} / \u6700\u65B0 ${latest} |`,
+          `| Breathing disturbance | 7d mean ${mean2} / latest ${latest} |`
+        )
+      );
     } else {
-      lines.push(`| \u547C\u5438\u7D0A\u4E71 | \u2014 |`);
+      lines.push(L(`| \u547C\u5438\u7D0A\u4E71 | \u2014 |`, `| Breathing disturbance | \u2014 |`));
     }
     const weightStats = analysis.weightStats;
     if (weightStats?.latestTrend) {
       const lt = weightStats.latestTrend;
       let w = `${fmt(lt.weight, 1)} kg\uFF08${lt.date}\uFF09`;
+      let wEn = `${fmt(lt.weight, 1)} kg (${lt.date})`;
       if (weightStats.bodyFatLatest != null) {
         w += `\uFF1B\u4F53\u8102 ${fmt(weightStats.bodyFatLatest, 1)}%`;
+        wEn += `; body fat ${fmt(weightStats.bodyFatLatest, 1)}%`;
       }
-      lines.push(`| \u4F53\u91CD\uFF08\u8D8B\u52BF\uFF09 | ${w} |`);
+      lines.push(L(`| \u4F53\u91CD\uFF08\u8D8B\u52BF\uFF09 | ${w} |`, `| Weight (trend) | ${wEn} |`));
     }
     lines.push(``);
     lines.push(`---`);
     lines.push(``);
-    lines.push(`## \u{1F3C3} Workout \u672C\u5468\u573A\u6B21`);
+    lines.push(L(`## \u{1F3C3} Workout \u672C\u5468\u573A\u6B21`, `## \u{1F3C3} Workouts this week`));
     lines.push(``);
     const weekSessions = sessionsInWeek(analysis.workoutStats?.sessions, end);
     if (weekSessions.length) {
-      lines.push(`| \u65F6\u95F4 | \u7C7B\u578B | \u65F6\u957F min | \u6D3B\u52A8 kcal | \u8DDD\u79BB km | \u5747 HR |`);
+      lines.push(
+        L(
+          `| \u65F6\u95F4 | \u7C7B\u578B | \u65F6\u957F min | \u6D3B\u52A8 kcal | \u8DDD\u79BB km | \u5747 HR |`,
+          `| Time | Type | Duration min | Active kcal | Distance km | Avg HR |`
+        )
+      );
       lines.push(`|---|---|---:|---:|---:|---:|`);
       for (const s of weekSessions) {
         const label = s.activityLabel || s.activityType || "\u2014";
@@ -3340,7 +3824,7 @@ var HealthAnalyzer = (() => {
         );
       }
     } else {
-      lines.push(`\u672C\u5468\u65E0 Workout \u573A\u6B21\u8BB0\u5F55\u3002`);
+      lines.push(L(`\u672C\u5468\u65E0 Workout \u573A\u6B21\u8BB0\u5F55\u3002`, `No Workout sessions recorded this week.`));
     }
     lines.push(``);
     const es = analysis.ecgStats;
@@ -3350,36 +3834,59 @@ var HealthAnalyzer = (() => {
       lines.push(`## \u{1F4C8} ECG`);
       lines.push(``);
       lines.push(
-        `\u5171 **${es.count}** \u4EFD\uFF08\u7AA6\u6027 ${es.sinusCount} \xB7 \u9AD8\u5FC3\u7387 ${es.highHrCount} \xB7 \u7ED3\u679C\u4E0D\u4F73 ${es.inconclusiveCount} \xB7 \u5176\u4ED6 ${es.otherCount}\uFF09\u3002`
+        L(
+          `\u5171 **${es.count}** \u4EFD\uFF08\u7AA6\u6027 ${es.sinusCount} \xB7 \u9AD8\u5FC3\u7387 ${es.highHrCount} \xB7 \u7ED3\u679C\u4E0D\u4F73 ${es.inconclusiveCount} \xB7 \u5176\u4ED6 ${es.otherCount}\uFF09\u3002`,
+          `Total **${es.count}** (sinus ${es.sinusCount} \xB7 high HR ${es.highHrCount} \xB7 inconclusive ${es.inconclusiveCount} \xB7 other ${es.otherCount}).`
+        )
       );
       if (es.latest) {
         lines.push(
-          `\u6700\u8FD1\uFF1A${es.latest.datetime} \u2014 **${es.latest.classification}**` + (es.latest.device ? `\uFF08${es.latest.device}\uFF09` : "") + "\u3002"
+          L(
+            `\u6700\u8FD1\uFF1A${es.latest.datetime} \u2014 **${es.latest.classification}**` + (es.latest.device ? `\uFF08${es.latest.device}\uFF09` : "") + "\u3002",
+            `Latest: ${es.latest.datetime} \u2014 **${es.latest.classification}**` + (es.latest.device ? ` (${es.latest.device})` : "") + "."
+          )
         );
       }
       if (es.highHrCount > 0) {
         const near = es.highHrNearWorkoutCount ?? 0;
         const rest = es.highHrRestingWindowCount ?? 0;
         lines.push(
-          `\u9AD8\u5FC3\u7387\u5173\u8054\uFF08\u542F\u53D1\u5F0F\uFF09\uFF1A\u8BAD\u7EC3\xB12h ${near}/${es.highHrCount} \xB7 \u975E\u8FD0\u52A8\u7A97 ${rest}/${es.highHrCount}\u3002`
+          L(
+            `\u9AD8\u5FC3\u7387\u5173\u8054\uFF08\u542F\u53D1\u5F0F\uFF09\uFF1A\u8BAD\u7EC3\xB12h ${near}/${es.highHrCount} \xB7 \u975E\u8FD0\u52A8\u7A97 ${rest}/${es.highHrCount}\u3002`,
+            `High-HR correlation (heuristic): workout \xB12h ${near}/${es.highHrCount} \xB7 non-exercise window ${rest}/${es.highHrCount}.`
+          )
         );
       }
       lines.push(``);
     }
     lines.push(`---`);
     lines.push(``);
-    lines.push(`## \u26A0\uFE0F \u8FB9\u754C\u58F0\u660E`);
+    lines.push(L(`## \u26A0\uFE0F \u8FB9\u754C\u58F0\u660E`, `## \u26A0\uFE0F Boundary / Disclaimer`));
     lines.push(``);
     lines.push(
-      `- \u672C\u5468\u62A5\u7531\u7A0B\u5E8F\u81EA\u52A8\u6C47\u603B Apple Health \u7B49\u672C\u5730\u6570\u636E\uFF0C**\u975E\u533B\u7597\u8BCA\u65AD**\uFF0C\u4E0D\u66FF\u4EE3\u533B\u751F\u95E8\u8BCA\u3002`
+      L(
+        `- \u672C\u5468\u62A5\u7531\u7A0B\u5E8F\u81EA\u52A8\u6C47\u603B Apple Health \u7B49\u672C\u5730\u6570\u636E\uFF0C**\u975E\u533B\u7597\u8BCA\u65AD**\uFF0C\u4E0D\u66FF\u4EE3\u533B\u751F\u95E8\u8BCA\u3002`,
+        `- This weekly report is auto-aggregated from local Apple Health (and similar) data. It is **not a medical diagnosis** and does not replace clinical care.`
+      )
     );
     lines.push(
-      `- \u8D1F\u8377/\u6062\u590D\u5206\u4E3A\u542F\u53D1\u5F0F\u8BC4\u5206\uFF1B\u4E2A\u4EBA\u57FA\u7EBF\u5BF9\u7167\u4EC5\u5728\u6837\u672C\u5468\u6570\u8DB3\u591F\u65F6\u51FA\u73B0\uFF0C\u6CE2\u52A8\u53EF\u80FD\u6765\u81EA\u7761\u7720\u3001\u8BAD\u7EC3\u3001\u75BE\u75C5\u6216\u6D4B\u91CF\u8BEF\u5DEE\u3002`
+      L(
+        `- \u8D1F\u8377/\u6062\u590D\u5206\u4E3A\u542F\u53D1\u5F0F\u8BC4\u5206\uFF1B\u4E2A\u4EBA\u57FA\u7EBF\u5BF9\u7167\u4EC5\u5728\u6837\u672C\u5468\u6570\u8DB3\u591F\u65F6\u51FA\u73B0\uFF0C\u6CE2\u52A8\u53EF\u80FD\u6765\u81EA\u7761\u7720\u3001\u8BAD\u7EC3\u3001\u75BE\u75C5\u6216\u6D4B\u91CF\u8BEF\u5DEE\u3002`,
+        `- Load/recovery scores are heuristic. Personal baseline comparison appears only when enough sample weeks exist; swings may reflect sleep, training, illness, or measurement noise.`
+      )
     );
     lines.push(
-      `- CGM \u4E3A\u7EC4\u7EC7\u95F4\u6DB2\u8461\u8404\u7CD6\uFF0C\u5F02\u5E38\u4F4E\u503C\u987B\u6307\u5C16\u8840\u590D\u6838\uFF1B\u8840\u6C27 / VO\u2082 \u7B49\u4E3A\u8BBE\u5907\u4F30\u7B97\uFF0C\u5355\u6B21\u5F02\u5E38\u4F18\u5148\u590D\u6D4B\u5E76\u7ED3\u5408\u75C7\u72B6\u3002`
+      L(
+        `- CGM \u4E3A\u7EC4\u7EC7\u95F4\u6DB2\u8461\u8404\u7CD6\uFF0C\u5F02\u5E38\u4F4E\u503C\u987B\u6307\u5C16\u8840\u590D\u6838\uFF1B\u8840\u6C27 / VO\u2082 \u7B49\u4E3A\u8BBE\u5907\u4F30\u7B97\uFF0C\u5355\u6B21\u5F02\u5E38\u4F18\u5148\u590D\u6D4B\u5E76\u7ED3\u5408\u75C7\u72B6\u3002`,
+        `- CGM measures interstitial glucose \u2014 recheck abnormal lows with fingerstick. SpO\u2082 / VO\u2082 and similar are device estimates; retest single outliers and consider symptoms.`
+      )
     );
-    lines.push(`- \u6240\u6709\u7528\u836F\u4E0E\u6CBB\u7597\u8C03\u6574\u8BF7\u9075\u533B\u5631\u3002`);
+    lines.push(
+      L(
+        `- \u6240\u6709\u7528\u836F\u4E0E\u6CBB\u7597\u8C03\u6574\u8BF7\u9075\u533B\u5631\u3002`,
+        `- Any medication or treatment changes must follow clinical advice.`
+      )
+    );
     lines.push(``);
     return lines.join("\n");
   }

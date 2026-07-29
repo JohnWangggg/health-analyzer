@@ -82,6 +82,7 @@ python3 -m http.server 8000
 - ✅ **CGM×睡眠/活动**联合信号（短睡+低值、高读数+低步数等）  
 - ✅ **响应式自适应 UI**（移动端优先、安全区、吸底 CTA、窄屏布局）  
 - ✅ **界面与文档 i18n**（中英双语文档 `docs/` / `docs/en/`；UI：`web-ui/public/i18n.js`）  
+- ✅ **分析内容双语**（监测摘要 / 跨维度信号 / 周报 Markdown 随 `locale` 中英输出）  
 
 ## 项目结构
 
@@ -134,6 +135,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.19 | 分析内容双语（insights / signals / weekly）、周报 EN、宽屏结果导航与 reduced-motion 打磨 |
 | v1.18 | 响应式自适应 UI、界面/文档 i18n 与中英双语文档（`docs/en/*`） |
 | v1.17 | 可调恢复权重、周报 IndexedDB 历史、CGM×睡眠/活动联合信号 |
 | v1.16 | 周报 MD 导出、恢复基线、BD×夜血氧、ECG×活动日关联 |

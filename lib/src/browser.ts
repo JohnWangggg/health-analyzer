@@ -66,6 +66,13 @@ export {
 } from './snapshot';
 
 export {
+  normalizeLocale,
+  pickLocale,
+  createL,
+} from './locale';
+export type { AppLocale, LFn, LocaleOptions } from './locale';
+
+export {
   detectCrossSignals,
   formatCrossSignalsForLLM,
 } from './signals';
