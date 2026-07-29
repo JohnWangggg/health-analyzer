@@ -1417,6 +1417,28 @@
     return { locale: getAnalysisLocale() };
   }
 
+  /**
+   * KPI 副文案用：截断恢复状态句。
+   * 英文取破折号前主句；中文/长句按字符上限并加省略号。
+   */
+  function shortRecoveryStatus(label) {
+    const s = String(label || '').trim();
+    if (!s) return '';
+    // 先去掉基线附加段（括号 / 英文 ~N pts）
+    let main = s
+      .replace(/（[^）]*中位[^）]*）/g, '')
+      .replace(/\s*\(~?\d+\s*pts?\s+(above|below)[^)]*\)/i, '')
+      .trim();
+    // 英文主句通常在 em/en dash 前
+    const dash = main.search(/\s[—–-]\s/);
+    if (dash > 8 && /[A-Za-z]/.test(main)) {
+      main = main.slice(0, dash).trim();
+    }
+    const max = /[A-Za-z]/.test(main) ? 36 : 16;
+    if (main.length <= max) return main;
+    return main.slice(0, max - 1) + '…';
+  }
+
   function renderInsights(analysis) {
     const list = $('insight-list');
     if (!list) return;
@@ -1649,7 +1671,7 @@
         unit: t('kpi.scoreUnit'),
         sub:
           (rw.loadScore != null ? t('kpi.loadScore', { n: rw.loadScore }) : '') +
-          (rw.statusLabel ? ` · ${rw.statusLabel.slice(0, 18)}` : ''),
+          (rw.statusLabel ? ` · ${shortRecoveryStatus(rw.statusLabel)}` : ''),
         tone:
           rw.statusTone === 'positive' ? 'good' :
           rw.statusTone === 'watch' || rw.statusTone === 'alert' ? 'watch' : 'neutral',
@@ -1743,29 +1765,28 @@
   }
 
   function renderSignalPrefsBar(allSignals, visibleCount) {
+    const total = allSignals.length;
+    // 无信号时不展示筛选条，避免空态重复
+    if (!total) return '';
     const prefs = signalPrefs;
     const present = new Set();
     for (const s of allSignals) {
       for (const c of signalCategoriesOf(s)) present.add(c);
     }
-    // 始终展示出现过的分类；若全空仍给常用入口
+    // 展示出现过的分类；以及用户已关闭但仍需可重新打开的分类
     const ids = SIGNAL_CATEGORY_IDS.filter((id) => present.has(id) || prefs[id] === false);
     const chips = ids.map((id) => {
       const on = prefs[id] !== false;
       return `<button type="button" class="chip signal-pref-chip${on ? ' is-active' : ''}" data-signal-cat="${escapeHtml(id)}" aria-pressed="${on ? 'true' : 'false'}">${escapeHtml(signalCategoryLabel(id))}</button>`;
     }).join('');
-    const total = allSignals.length;
-    const countLine =
-      total === 0
-        ? ''
-        : `<span class="signal-pref-count">${escapeHtml(t('signals.filterCount', { shown: visibleCount, total }))}</span>`;
+    const countLine = `<span class="signal-pref-count">${escapeHtml(t('signals.filterCount', { shown: visibleCount, total }))}</span>`;
     return `<div class="signal-prefs" role="group" aria-label="${escapeHtml(t('signals.filterAria'))}">
       <div class="signal-prefs-head">
         <span class="signal-prefs-label">${escapeHtml(t('signals.filterLabel'))}</span>
         ${countLine}
         <button type="button" class="signal-prefs-reset" id="signal-prefs-reset">${escapeHtml(t('signals.filterReset'))}</button>
       </div>
-      <div class="signal-prefs-chips">${chips || `<span class="hint">${escapeHtml(t('signals.empty'))}</span>`}</div>
+      <div class="signal-prefs-chips">${chips}</div>
     </div>`;
   }
 
@@ -2119,7 +2140,7 @@
       if (panel) panel.open = true;
       const st = $('rw-weights-status');
       if (st) {
-        st.textContent = '✓ 已按新权重重算';
+        st.textContent = t('rw.weights.applied') || '✓ 已按新权重重算';
         st.classList.add('show');
         setTimeout(() => st.classList.remove('show'), 2200);
       }
@@ -2287,15 +2308,18 @@
     const dq = analysis && analysis.data && analysis.data.dataQuality;
     const parts = [];
     if (dq && dq.skippedFutureCount) {
-      const samples = (dq.futureSampleDates || []).slice(0, 5).join('、') || '（未列出）';
+      const sep = getAnalysisLocale() === 'en' ? ', ' : '、';
+      const samples =
+        (dq.futureSampleDates || []).slice(0, 5).join(sep) || t('quality.noSample');
       parts.push(`
         <div class="quality-banner" role="status">
-          <strong>已排除未来日期数据</strong>
+          <strong>${escapeHtml(t('quality.futureTitle'))}</strong>
           <p>
-            参考日 <code>${escapeHtml(dq.referenceDate)}</code> 之后共跳过
-            <strong>${dq.skippedFutureCount}</strong> 条记录
-            （日期样本：${escapeHtml(samples)}）。
-            请到手机「健康」中删除错误条目；统计与提示词均<strong>不含</strong>这些未来记录。
+            ${escapeHtml(t('quality.futureBody', {
+              date: dq.referenceDate || '—',
+              n: dq.skippedFutureCount,
+              samples,
+            }))}
           </p>
         </div>
       `);
@@ -2303,7 +2327,7 @@
     if (lastCsvMergeNote) {
       parts.push(`
         <div class="quality-banner quality-banner-info" role="status">
-          <strong>已合并外部 CSV</strong>
+          <strong>${escapeHtml(t('quality.csvTitle'))}</strong>
           <p>${escapeHtml(lastCsvMergeNote)}</p>
         </div>
       `);
@@ -3417,6 +3441,7 @@
       recomputeRecoveryWithWeights(recoveryWeights, { quiet: true });
       renderSignals(currentAnalysis);
       renderAvailability(currentAnalysis);
+      maybeShowImportHints(currentAnalysis);
     } catch (e) {
       console.warn('locale refresh partial', e);
     }
