@@ -2872,6 +2872,7 @@
       renderSignals(currentAnalysis);
       renderAvailability(currentAnalysis);
       renderKpis(currentAnalysis);
+      renderPrompt();
     } catch (e) {
       console.warn('locale refresh partial', e);
     }
