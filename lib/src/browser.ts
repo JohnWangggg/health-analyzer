@@ -109,6 +109,13 @@ export {
   joinCsvBundle,
   generateWeeklyReportMarkdown,
   generateVisitSummaryMarkdown,
+  buildCgm14DayReport,
+  assessHomeBpProtocol,
+  ensureSignalEvidence,
+  generateClinicalReviewMarkdown,
+  generateClinicalReviewHtml,
+  CGM_REPORT_DAYS,
+  CGM_MIN_COVERAGE_PCT,
 } from './export';
 
 export {

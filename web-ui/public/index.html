@@ -367,6 +367,22 @@
         <button type="button" id="btn-export-visit" class="btn-secondary" data-i18n="export.visit">导出门诊一页纸</button>
         <span id="export-status" class="copy-status" aria-live="polite"></span>
       </div>
+      <div class="clinical-export-opts" role="group" aria-labelledby="clinical-export-opts-label">
+        <h3 class="panel-subhead" id="clinical-export-opts-label" data-i18n="export.clinical.title">规范化就诊复盘报告</h3>
+        <p class="hint compact-hint" data-i18n="export.clinical.optsHint">含 CGM 14 天质量门槛、家庭血压流程判断与信号证据。默认脱敏；导出 HTML 后可用浏览器打印为 PDF。</p>
+        <label class="check-inline">
+          <input type="checkbox" id="clinical-include-sensitive" />
+          <span data-i18n="export.clinical.includeSensitive">包含用药/病史等敏感背景</span>
+        </label>
+        <label class="check-inline">
+          <input type="checkbox" id="clinical-include-raw" />
+          <span data-i18n="export.clinical.includeRaw">包含逐条原始样本摘录</span>
+        </label>
+        <div class="export-actions clinical-export-btns">
+          <button type="button" id="btn-export-clinical-html" class="btn-secondary" data-i18n="export.clinical.html">导出 HTML（可打印）</button>
+          <button type="button" id="btn-export-clinical-md" class="btn-ghost" data-i18n="export.clinical.md">导出 Markdown</button>
+        </div>
+      </div>
       <p class="hint compact-hint export-shortcut-hint" data-i18n="export.shortcutHint">有结果时可用 ⌘/Ctrl+Shift+C 复制完整提示词。</p>
 
       <div class="privacy-wipe-panel" role="region" aria-labelledby="privacy-wipe-title">

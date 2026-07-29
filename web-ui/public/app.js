@@ -2529,6 +2529,55 @@
     }
   }
 
+  function clinicalReportOpts() {
+    const sensitive = !!($('clinical-include-sensitive') && $('clinical-include-sensitive').checked);
+    const raw = !!($('clinical-include-raw') && $('clinical-include-raw').checked);
+    return Object.assign({}, analysisLocaleOpts(), {
+      includeSensitiveContext: sensitive,
+      includeRawSamples: raw,
+    });
+  }
+
+  function exportClinicalReview(format) {
+    try {
+      if (!currentAnalysis) throw new Error(t('export.err.needAnalysis'));
+      if (!window.HealthAnalyzer) throw new Error(t('export.err.needAnalysis'));
+      const opts = clinicalReportOpts();
+      const ctx =
+        opts.includeSensitiveContext && typeof getUserContextForPrompt === 'function'
+          ? getUserContextForPrompt()
+          : null;
+      const end =
+        (currentAnalysis.dateRange && currentAnalysis.dateRange.end) ||
+        new Date().toISOString().slice(0, 10);
+      if (format === 'html') {
+        if (typeof window.HealthAnalyzer.generateClinicalReviewHtml !== 'function') {
+          throw new Error(t('export.err.needAnalysis'));
+        }
+        const html = window.HealthAnalyzer.generateClinicalReviewHtml(
+          currentAnalysis,
+          ctx,
+          opts
+        );
+        downloadText(`clinic-review-${end}.html`, html, 'text/html');
+        showExportStatus(t('export.ok.clinicalHtml'));
+      } else {
+        if (typeof window.HealthAnalyzer.generateClinicalReviewMarkdown !== 'function') {
+          throw new Error(t('export.err.needAnalysis'));
+        }
+        const md = window.HealthAnalyzer.generateClinicalReviewMarkdown(
+          currentAnalysis,
+          ctx,
+          opts
+        );
+        downloadText(`clinic-review-${end}.md`, md, 'text/markdown');
+        showExportStatus(t('export.ok.clinicalMd'));
+      }
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  }
+
   async function saveWeeklyReportToHistory() {
     if (!currentAnalysis) {
       alert(t('common.needAnalysis'));
@@ -4195,6 +4244,8 @@
   $('btn-export-snapshot')?.addEventListener('click', exportSnapshot);
   $('btn-export-weekly')?.addEventListener('click', exportWeeklyReport);
   $('btn-export-visit')?.addEventListener('click', exportVisitSummary);
+  $('btn-export-clinical-html')?.addEventListener('click', () => exportClinicalReview('html'));
+  $('btn-export-clinical-md')?.addEventListener('click', () => exportClinicalReview('md'));
 
   // 有结果时 ⌘/Ctrl+Shift+C 复制完整提示词
   window.addEventListener('keydown', (e) => {

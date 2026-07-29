@@ -26,6 +26,8 @@ var HealthAnalyzer = (() => {
   // src/browser.ts
   var browser_exports = {};
   __export(browser_exports, {
+    CGM_MIN_COVERAGE_PCT: () => CGM_MIN_COVERAGE_PCT,
+    CGM_REPORT_DAYS: () => CGM_REPORT_DAYS,
     DEFAULT_RECOVERY_WEIGHTS: () => DEFAULT_RECOVERY_WEIGHTS,
     MAIN_PROMPT_TEMPLATE: () => MAIN_PROMPT_TEMPLATE,
     MAIN_PROMPT_TEMPLATE_EN: () => MAIN_PROMPT_TEMPLATE_EN,
@@ -35,8 +37,10 @@ var HealthAnalyzer = (() => {
     SHORT_SYSTEM_PROMPT_EN: () => SHORT_SYSTEM_PROMPT_EN,
     addDaysIso: () => addDaysIso,
     analyzeAll: () => analyzeAll,
+    assessHomeBpProtocol: () => assessHomeBpProtocol,
     attachRecoveryBaseline: () => attachRecoveryBaseline,
     buildAnalysisSnapshot: () => buildAnalysisSnapshot,
+    buildCgm14DayReport: () => buildCgm14DayReport,
     buildExportBundle: () => buildExportBundle,
     buildInsightBullets: () => buildInsightBullets,
     calcBloodPressureStats: () => calcBloodPressureStats,
@@ -57,6 +61,7 @@ var HealthAnalyzer = (() => {
     daysBetween: () => daysBetween,
     detectCrossSignals: () => detectCrossSignals,
     enrichEcgWithContext: () => enrichEcgWithContext,
+    ensureSignalEvidence: () => ensureSignalEvidence,
     extractXmlFromZip: () => extractXmlFromZip,
     finalizeCgmUnits: () => finalizeCgmUnits,
     finalizeData: () => finalizeData,
@@ -64,6 +69,8 @@ var HealthAnalyzer = (() => {
     formatCrossSignalsForLLM: () => formatCrossSignalsForLLM,
     formatInsightsForLLM: () => formatInsightsForLLM,
     formatUserContext: () => formatUserContext,
+    generateClinicalReviewHtml: () => generateClinicalReviewHtml,
+    generateClinicalReviewMarkdown: () => generateClinicalReviewMarkdown,
     generateDataOnly: () => generateDataOnly,
     generateInsightsOnlyPrompt: () => generateInsightsOnlyPrompt,
     generateLLMPrompt: () => generateLLMPrompt,
@@ -1685,8 +1692,8 @@ var HealthAnalyzer = (() => {
     if (!values.length) {
       return { mean: null, daysWithData: 0, start, end };
     }
-    const mean2 = values.reduce((a, b) => a + b, 0) / values.length;
-    return { mean: mean2, daysWithData: values.length, start, end };
+    const mean3 = values.reduce((a, b) => a + b, 0) / values.length;
+    return { mean: mean3, daysWithData: values.length, start, end };
   }
   function priorValuesBeforeWindow(map, windowStart, maxDays) {
     if (!map) return [];
@@ -1735,12 +1742,12 @@ var HealthAnalyzer = (() => {
       return { mean: 0, std: 0, cv: 0, min: 0, max: 0, count: 0 };
     }
     const n = values.length;
-    const mean2 = values.reduce((a, b) => a + b, 0) / n;
-    const variance = values.reduce((acc, v) => acc + (v - mean2) ** 2, 0) / n;
+    const mean3 = values.reduce((a, b) => a + b, 0) / n;
+    const variance = values.reduce((acc, v) => acc + (v - mean3) ** 2, 0) / n;
     const std = Math.sqrt(variance);
-    const cv = mean2 > 0 ? std / mean2 * 100 : 0;
+    const cv = mean3 > 0 ? std / mean3 * 100 : 0;
     return {
-      mean: mean2,
+      mean: mean3,
       std,
       cv,
       min: Math.min(...values),
@@ -5740,12 +5747,12 @@ List 5\u20137 working hypotheses that best fit the available data
     );
     const ws = analysis.watchStats;
     if (ws?.breathingDisturbanceMean7d != null || ws?.breathingDisturbanceLatest != null) {
-      const mean2 = ws.breathingDisturbanceMean7d != null ? fmt(ws.breathingDisturbanceMean7d, 2) : "\u2014";
+      const mean3 = ws.breathingDisturbanceMean7d != null ? fmt(ws.breathingDisturbanceMean7d, 2) : "\u2014";
       const latest = ws.breathingDisturbanceLatest != null ? fmt(ws.breathingDisturbanceLatest, 2) : "\u2014";
       lines.push(
         L(
-          `| \u547C\u5438\u7D0A\u4E71 | \u8FD1 7 \u65E5\u5747 ${mean2} / \u6700\u65B0 ${latest} |`,
-          `| Breathing disturbance | 7d mean ${mean2} / latest ${latest} |`
+          `| \u547C\u5438\u7D0A\u4E71 | \u8FD1 7 \u65E5\u5747 ${mean3} / \u6700\u65B0 ${latest} |`,
+          `| Breathing disturbance | 7d mean ${mean3} / latest ${latest} |`
         )
       );
     } else {
@@ -6047,6 +6054,688 @@ List 5\u20137 working hypotheses that best fit the available data
     );
     lines.push(``);
     return lines.join("\n");
+  }
+
+  // src/clinical-report.ts
+  var CGM_REPORT_DAYS = 14;
+  var CGM_MIN_COVERAGE_PCT = 70;
+  var CGM_EXPECTED_HOURS_PER_DAY = 24;
+  function mean2(values) {
+    const v = values.filter(Number.isFinite);
+    if (!v.length) return null;
+    return v.reduce((a, b) => a + b, 0) / v.length;
+  }
+  var CGM_MAX_GAP_MS2 = 15 * 60 * 1e3;
+  var CGM_LAST_SAMPLE_MS2 = 5 * 60 * 1e3;
+  function timeWeightedShares(sorted) {
+    if (!sorted.length) {
+      return {
+        wearMs: 0,
+        tir: 0,
+        tbr: 0,
+        tbrVery: 0,
+        tar: 0,
+        tarMild: 0,
+        mean: null,
+        cv: null,
+        min: null,
+        max: null
+      };
+    }
+    let wearMs = 0;
+    let tirMs = 0;
+    let tbrMs = 0;
+    let tbrVeryMs = 0;
+    let tarMs = 0;
+    let tarMildMs = 0;
+    const vals = [];
+    for (let i = 0; i < sorted.length; i++) {
+      const v = sorted[i].value;
+      vals.push(v);
+      const t0 = parseAppleDate(sorted[i].datetime);
+      let dt;
+      if (i + 1 < sorted.length) {
+        dt = Math.max(0, parseAppleDate(sorted[i + 1].datetime) - t0);
+        if (dt > CGM_MAX_GAP_MS2) dt = CGM_MAX_GAP_MS2;
+      } else {
+        dt = CGM_LAST_SAMPLE_MS2;
+      }
+      if (dt <= 0) continue;
+      wearMs += dt;
+      if (v >= 3.9 && v <= 10) tirMs += dt;
+      if (v < 3.9) tbrMs += dt;
+      if (v < 3) tbrVeryMs += dt;
+      if (v > 10) tarMs += dt;
+      if (v > 7.8) tarMildMs += dt;
+    }
+    const den = wearMs || 1;
+    const m = mean2(vals);
+    let cv = null;
+    if (m != null && m > 0 && vals.length) {
+      const variance = vals.reduce((a, x) => a + (x - m) ** 2, 0) / vals.length;
+      cv = Math.sqrt(variance) / m * 100;
+    }
+    return {
+      wearMs,
+      tir: tirMs / den * 100,
+      tbr: tbrMs / den * 100,
+      tbrVery: tbrVeryMs / den * 100,
+      tar: tarMs / den * 100,
+      tarMild: tarMildMs / den * 100,
+      mean: m,
+      cv,
+      min: vals.length ? Math.min(...vals) : null,
+      max: vals.length ? Math.max(...vals) : null
+    };
+  }
+  function buildCgm14DayReport(analysis, options) {
+    const cgm = analysis.data?.cgm || [];
+    if (!cgm.length) return null;
+    const L = createL(normalizeLocale(options?.locale));
+    const end = options?.windowEnd || analysis.dateRange?.end || getDate(cgm[cgm.length - 1].datetime);
+    const { start, end: winEnd } = calendarWindowEndInclusive(end, CGM_REPORT_DAYS);
+    const inWin = cgm.filter((p) => {
+      const d = getDate(p.datetime);
+      return d >= start && d <= winEnd;
+    }).sort((a, b) => a.datetime.localeCompare(b.datetime));
+    const unitReliable = analysis.cgmStats?.unitReliable !== false;
+    const daysWithData = countDaysWithData(
+      inWin.map((p) => getDate(p.datetime)),
+      start,
+      winEnd
+    );
+    const tw = timeWeightedShares(inWin);
+    const wearHours = tw.wearMs / 36e5;
+    const expectedHours = CGM_REPORT_DAYS * CGM_EXPECTED_HOURS_PER_DAY;
+    const coveragePct = expectedHours > 0 ? Math.min(100, wearHours / expectedHours * 100) : null;
+    const insufficientReasons = [];
+    if (!unitReliable) {
+      insufficientReasons.push(
+        L("\u8840\u7CD6\u5355\u4F4D\u4E0D\u53EF\u9760", "Glucose units unreliable")
+      );
+    }
+    if (coveragePct == null || coveragePct < CGM_MIN_COVERAGE_PCT) {
+      insufficientReasons.push(
+        L(
+          `\u6709\u6548\u8986\u76D6 ${coveragePct != null ? coveragePct.toFixed(0) : "\u2014"}% < ${CGM_MIN_COVERAGE_PCT}%\uFF08\u56FD\u9645\u5171\u8BC6\u5EFA\u8BAE \u226570% / \u7EA6 14 \u5929\uFF09`,
+          `Effective coverage ${coveragePct != null ? coveragePct.toFixed(0) : "\u2014"}% < ${CGM_MIN_COVERAGE_PCT}% (consensus suggests \u226570% over ~14 days)`
+        )
+      );
+    }
+    if (inWin.length < 48) {
+      insufficientReasons.push(
+        L(`\u91C7\u6837\u70B9\u8FC7\u5C11\uFF08n=${inWin.length}\uFF09`, `Too few samples (n=${inWin.length})`)
+      );
+    }
+    const sufficient = insufficientReasons.length === 0;
+    const hourBuckets = Array.from({ length: 24 }, () => []);
+    for (const p of inWin) {
+      const h = getHour(p.datetime);
+      if (h >= 0 && h < 24 && Number.isFinite(p.value)) hourBuckets[h].push(p.value);
+    }
+    const hourlyProfile = hourBuckets.map((vals, hour) => ({
+      hour,
+      mean: mean2(vals),
+      count: vals.length
+    }));
+    const tirMethod = analysis.cgmStats?.coverage?.reliableTir || coveragePct != null && coveragePct >= 50 ? "time_weighted" : "sample_share";
+    return {
+      windowStart: start,
+      windowEnd: winEnd,
+      pointCount: inWin.length,
+      calendarDays: CGM_REPORT_DAYS,
+      daysWithData,
+      wearHours: Math.round(wearHours * 10) / 10,
+      expectedHours,
+      coveragePct: coveragePct == null ? null : Math.round(coveragePct * 10) / 10,
+      sufficient,
+      insufficientReasons,
+      unitReliable,
+      tirMethod,
+      mean: tw.mean != null ? Math.round(tw.mean * 100) / 100 : null,
+      cv: tw.cv != null ? Math.round(tw.cv * 10) / 10 : null,
+      min: tw.min,
+      max: tw.max,
+      tir: sufficient ? Math.round(tw.tir * 10) / 10 : null,
+      tbr: sufficient ? Math.round(tw.tbr * 10) / 10 : null,
+      tbrVery: sufficient ? Math.round(tw.tbrVery * 10) / 10 : null,
+      tar: sufficient ? Math.round(tw.tar * 10) / 10 : null,
+      tarMild: sufficient ? Math.round(tw.tarMild * 10) / 10 : null,
+      hourlyProfile
+    };
+  }
+  var BP_DOUBLE_GAP_MS = 3 * 60 * 1e3;
+  function sessionStats(records) {
+    if (!records.length) {
+      return { count: 0, double: false, meanSys: null, meanDia: null };
+    }
+    const sorted = [...records].sort((a, b) => a.datetime.localeCompare(b.datetime));
+    let double = false;
+    for (let i = 1; i < sorted.length; i++) {
+      const dt = parseAppleDate(sorted[i].datetime) - parseAppleDate(sorted[i - 1].datetime);
+      if (dt >= 0 && dt <= BP_DOUBLE_GAP_MS) {
+        double = true;
+        break;
+      }
+    }
+    if (!double && sorted.length >= 2) {
+      const dt = parseAppleDate(sorted[sorted.length - 1].datetime) - parseAppleDate(sorted[0].datetime);
+      if (dt >= 0 && dt <= 5 * 60 * 1e3) double = true;
+    }
+    return {
+      count: sorted.length,
+      double: double || sorted.length >= 2,
+      meanSys: mean2(sorted.map((r) => r.systolic)),
+      meanDia: mean2(sorted.map((r) => r.diastolic))
+    };
+  }
+  function assessHomeBpProtocol(analysis, options) {
+    const records = analysis.data?.bloodPressure || [];
+    if (!records.length) return null;
+    const L = createL(normalizeLocale(options?.locale));
+    const protocolDays = options?.days === 3 ? 3 : 7;
+    const end = options?.windowEnd || analysis.dateRange?.end || records[records.length - 1].date;
+    const { start, end: winEnd } = calendarWindowEndInclusive(end, protocolDays);
+    const inWin = records.filter((r) => r.date >= start && r.date <= winEnd);
+    const byDate = {};
+    for (const r of inWin) {
+      if (!byDate[r.date]) byDate[r.date] = [];
+      byDate[r.date].push(r);
+    }
+    const dayDetails = [];
+    let daysWithAm = 0;
+    let daysWithPm = 0;
+    let daysWithBoth = 0;
+    let daysWithAmDouble = 0;
+    let daysWithPmDouble = 0;
+    const dates = Object.keys(byDate).sort();
+    for (const date of dates) {
+      const dayRecs = byDate[date];
+      const am = dayRecs.filter((r) => getHour(r.datetime) < 12);
+      const pm = dayRecs.filter((r) => getHour(r.datetime) >= 18);
+      const amS = sessionStats(am);
+      const pmS = sessionStats(pm);
+      if (amS.count) daysWithAm += 1;
+      if (pmS.count) daysWithPm += 1;
+      if (amS.count && pmS.count) daysWithBoth += 1;
+      if (amS.double) daysWithAmDouble += 1;
+      if (pmS.double) daysWithPmDouble += 1;
+      dayDetails.push({
+        date,
+        amCount: amS.count,
+        pmCount: pmS.count,
+        amDouble: amS.double,
+        pmDouble: pmS.double,
+        amMeanSys: amS.meanSys,
+        amMeanDia: amS.meanDia,
+        pmMeanSys: pmS.meanSys,
+        pmMeanDia: pmS.meanDia
+      });
+    }
+    const qualifies3d = protocolDays >= 3 && (() => {
+      const w3 = calendarWindowEndInclusive(winEnd, 3);
+      let both = 0;
+      for (let i = 0; i < 3; i++) {
+        const d = addDaysIso(w3.start, i);
+        const det = dayDetails.find((x) => x.date === d);
+        if (det && det.amCount > 0 && det.pmCount > 0) both += 1;
+      }
+      return both >= 3;
+    })();
+    const qualifies7d = protocolDays >= 7 && daysWithBoth >= 5;
+    let mode = "imported_mixed";
+    if (qualifies7d || qualifies3d) mode = "home_protocol";
+    else if (daysWithBoth === 0 && inWin.length > 0) mode = "imported_mixed";
+    else if (inWin.length === 0) mode = "insufficient";
+    else if (daysWithBoth < 3) mode = "insufficient";
+    const noteZh = mode === "home_protocol" ? `\u6309\u5BB6\u5EAD\u8840\u538B\u6D41\u7A0B\u89E3\u8BFB\uFF1A\u8FD1 ${protocolDays} \u65E5\u4E2D ${daysWithBoth} \u5929\u5177\u5907\u65E9\u665A\u8BFB\u6570` + (daysWithAmDouble + daysWithPmDouble > 0 ? `\uFF1B\u5176\u4E2D\u6668\u53CC\u6B21 ${daysWithAmDouble} \u5929\u3001\u665A\u53CC\u6B21 ${daysWithPmDouble} \u5929` : "\uFF08\u53CC\u6B21\u6D4B\u91CF\u504F\u5C11\uFF0C\u5EFA\u8BAE\u6BCF\u6B21\u95F4\u9694\u7EA6 1 \u5206\u949F\u6D4B\u4E24\u6B21\uFF09") : mode === "insufficient" ? `\u6570\u636E\u4E0D\u8DB3\u4EE5\u6309\u5BB6\u5EAD\u8840\u538B\u6D41\u7A0B\u8BC4\u4F30\uFF08\u8FD1 ${protocolDays} \u65E5\u4EC5 ${daysWithBoth} \u5929\u6709\u65E9\u665A\u8BFB\u6570\uFF09\u3002\u4EE5\u4E0B\u4EC5\u4F5C\u666E\u901A\u5BFC\u5165\u6570\u636E\u5C55\u793A\u3002` : `\u5F53\u524D\u66F4\u63A5\u8FD1\u300C\u666E\u901A\u5BFC\u5165\u6570\u636E\u300D\uFF1A\u8FD1 ${protocolDays} \u65E5 ${daysWithBoth} \u5929\u6709\u65E9\u665A\u8BFB\u6570\uFF0C\u672A\u8FBE\u5C31\u8BCA\u524D\u8FDE\u7EED 3\u20137 \u5929\u5BB6\u5EAD\u6D4B\u91CF\u5EFA\u8BAE\u3002`;
+    const noteEn = mode === "home_protocol" ? `Interpret as home BP protocol: ${daysWithBoth}/${protocolDays} days have AM+PM readings` + (daysWithAmDouble + daysWithPmDouble > 0 ? `; AM doubles ${daysWithAmDouble}d, PM doubles ${daysWithPmDouble}d` : " (few double readings\u2014prefer two readings ~1 min apart)") : mode === "insufficient" ? `Insufficient for home BP protocol (only ${daysWithBoth}/${protocolDays} days with AM+PM). Shown as general imported data only.` : `Closer to general imported data: ${daysWithBoth}/${protocolDays} days with AM+PM; below typical 3\u20137 day home protocol before a visit.`;
+    return {
+      windowStart: start,
+      windowEnd: winEnd,
+      protocolDays,
+      daysWithAm,
+      daysWithPm,
+      daysWithBoth,
+      daysWithAmDouble,
+      daysWithPmDouble,
+      qualifies3d,
+      qualifies7d,
+      mode,
+      dayDetails,
+      noteZh,
+      noteEn
+    };
+  }
+  function ensureSignalEvidence(signals, analysis, locale) {
+    const L = createL(normalizeLocale(locale));
+    const end = analysis.dateRange?.end || "";
+    const unitMeta = analysis.data?.dataQuality?.cgmUnit;
+    return signals.map((s) => {
+      if (s.evidence) return s;
+      const evidence = {
+        dates: s.date ? [s.date] : void 0,
+        windowEnd: end || s.date,
+        sampleCount: void 0,
+        daysWithData: s.date ? 1 : void 0,
+        unitNote: s.dimensions?.includes("CGM") ? unitMeta ? L(
+          `\u5355\u4F4D\u53EF\u9760=${unitMeta.reliable ? "\u662F" : "\u5426"}\uFF1B\u539F\u59CB unit\uFF1A${(unitMeta.rawUnits || []).join(",") || "\u2014"}`,
+          `unitReliable=${unitMeta.reliable ? "yes" : "no"}; raw unit: ${(unitMeta.rawUnits || []).join(",") || "\u2014"}`
+        ) : L("CGM \u5355\u4F4D\u4FE1\u606F\u7F3A\u5931", "CGM unit metadata missing") : void 0,
+        sourceNote: L("\u8DE8\u7EF4\u5EA6\u542F\u53D1\u5F0F\u89C4\u5219\uFF08\u975E\u8BCA\u65AD\uFF09", "Cross-domain heuristic rule (not a diagnosis)"),
+        exclusions: [
+          L("\u672A\u58F0\u79F0\u56E0\u679C\u5173\u7CFB", "No causal claim"),
+          L("\u672A\u7ED9\u51FA\u8C03\u836F\u5EFA\u8BAE", "No medication-change advice")
+        ]
+      };
+      return { ...s, evidence };
+    });
+  }
+  function fmtPct(v) {
+    if (v == null || !Number.isFinite(v)) return "\u2014";
+    return `${v.toFixed(1)}%`;
+  }
+  function generateClinicalReviewMarkdown(analysis, userContext, options) {
+    const locale = normalizeLocale(options?.locale);
+    const L = createL(locale);
+    const includeSensitive = !!options?.includeSensitiveContext;
+    const includeRaw = !!options?.includeRawSamples;
+    const lines = [];
+    lines.push(L("# \u89C4\u8303\u5316\u5065\u5EB7\u590D\u76D8 / \u5C31\u8BCA\u62A5\u544A", "# Structured health review / clinic report"));
+    lines.push("");
+    lines.push(
+      L(
+        "> **\u975E\u8BCA\u65AD \xB7 \u975E\u8C03\u836F\u5EFA\u8BAE**\u3002\u7528\u4E8E\u6570\u636E\u590D\u76D8\u4E0E\u95E8\u8BCA\u6C9F\u901A\uFF1B\u7ED3\u8BBA\u8BF7\u4EE5\u4E34\u5E8A\u8BC4\u4F30\u4E3A\u51C6\u3002",
+        "> **Not a diagnosis \xB7 No medication advice.** For review and clinic discussion; clinical judgment prevails."
+      )
+    );
+    lines.push("");
+    lines.push(
+      L(
+        `**\u5206\u6790\u7A97\u53E3\uFF08\u5168\u5E93\uFF09**\uFF1A${analysis.dateRange?.start || "\u2014"} ~ ${analysis.dateRange?.end || "\u2014"}`,
+        `**Full data range**: ${analysis.dateRange?.start || "\u2014"} ~ ${analysis.dateRange?.end || "\u2014"}`
+      )
+    );
+    lines.push(
+      L(
+        `**\u751F\u6210**\uFF1A${analysis.generatedAt || (/* @__PURE__ */ new Date()).toISOString()}`,
+        `**Generated**: ${analysis.generatedAt || (/* @__PURE__ */ new Date()).toISOString()}`
+      )
+    );
+    lines.push("");
+    if (includeSensitive && userContext) {
+      const ctx = formatUserContext(userContext, { locale });
+      if (ctx?.trim()) {
+        lines.push(ctx.trimEnd());
+        lines.push("");
+      }
+    } else {
+      lines.push(
+        L(
+          "> \u9ED8\u8BA4**\u5DF2\u8131\u654F**\uFF1A\u672A\u9644\u5E26\u7528\u836F/\u75C5\u53F2\u660E\u7EC6\u3002\u5BFC\u51FA\u65F6\u52FE\u9009\u300C\u5305\u542B\u654F\u611F\u80CC\u666F\u300D\u53EF\u9644\u52A0\u3002",
+          "> **Redacted by default**: medications/history not attached. Opt in when exporting to include sensitive context."
+        )
+      );
+      lines.push("");
+    }
+    const cgm14 = buildCgm14DayReport(analysis, {
+      windowEnd: options?.cgmWindowEnd,
+      locale
+    });
+    lines.push(L("## CGM 14 \u5929\u62A5\u544A\u6A21\u5F0F", "## CGM 14-day report mode"));
+    lines.push("");
+    if (!cgm14) {
+      lines.push(L("\uFF08\u65E0 CGM \u6570\u636E\uFF09", "(No CGM data)"));
+      lines.push("");
+    } else {
+      lines.push(
+        L(
+          `**\u56FA\u5B9A\u7A97\u53E3**\uFF1A${cgm14.windowStart} ~ ${cgm14.windowEnd}\uFF08${cgm14.calendarDays} \u81EA\u7136\u65E5\uFF09`,
+          `**Fixed window**: ${cgm14.windowStart} ~ ${cgm14.windowEnd} (${cgm14.calendarDays} calendar days)`
+        )
+      );
+      lines.push(
+        L(
+          `**\u6709\u6548\u4F69\u6234**\uFF1A${cgm14.wearHours} h / \u671F\u671B ${cgm14.expectedHours} h \xB7 **\u8986\u76D6\u7387 ${fmtPct(cgm14.coveragePct)}** \xB7 \u6709\u6570\u636E\u65E5 ${cgm14.daysWithData}/${cgm14.calendarDays} \xB7 \u91C7\u6837 n=${cgm14.pointCount} \xB7 \u65B9\u6CD5 ${cgm14.tirMethod === "time_weighted" ? "\u65F6\u95F4\u52A0\u6743" : "\u91C7\u6837\u5360\u6BD4"}`,
+          `**Wear**: ${cgm14.wearHours} h / expected ${cgm14.expectedHours} h \xB7 **coverage ${fmtPct(cgm14.coveragePct)}** \xB7 days with data ${cgm14.daysWithData}/${cgm14.calendarDays} \xB7 samples n=${cgm14.pointCount} \xB7 method ${cgm14.tirMethod}`
+        )
+      );
+      lines.push(
+        L(
+          `**\u5355\u4F4D\u53EF\u9760**\uFF1A${cgm14.unitReliable ? "\u662F" : "**\u5426**"}\uFF08\u5185\u90E8 mmol/L\uFF09`,
+          `**Unit reliable**: ${cgm14.unitReliable ? "yes" : "**no**"} (canonical mmol/L)`
+        )
+      );
+      lines.push("");
+      if (!cgm14.sufficient) {
+        lines.push(
+          L(
+            "### \u26A0 \u6570\u636E\u4E0D\u8DB3\uFF0C\u4E0D\u4F5C\u8D8B\u52BF\u7ED3\u8BBA",
+            "### \u26A0 Insufficient data \u2014 no trend conclusions"
+          )
+        );
+        for (const r of cgm14.insufficientReasons) {
+          lines.push(`- ${r}`);
+        }
+        lines.push("");
+        lines.push(
+          L(
+            `\u53EF\u53C2\u8003\u63CF\u8FF0\u6027\u7EDF\u8BA1\uFF08**\u975E**\u6807\u51C6\u5316 14 \u5929\u7ED3\u8BBA\uFF09\uFF1A\u5747\u503C ${cgm14.mean ?? "\u2014"} mmol/L\uFF0Cn=${cgm14.pointCount}\u3002`,
+            `Descriptive only (**not** a standardized 14-day conclusion): mean ${cgm14.mean ?? "\u2014"} mmol/L, n=${cgm14.pointCount}.`
+          )
+        );
+        lines.push("");
+      } else {
+        lines.push(L("| \u6307\u6807 | \u503C |", "| Metric | Value |"));
+        lines.push("|---|---|");
+        lines.push(`| ${L("\u5747\u503C", "Mean")} | ${cgm14.mean ?? "\u2014"} mmol/L |`);
+        lines.push(`| ${L("\u53D8\u5F02\u7CFB\u6570 CV", "CV")} | ${cgm14.cv != null ? cgm14.cv.toFixed(1) + "%" : "\u2014"} |`);
+        lines.push(`| ${L("\u6700\u4F4E / \u6700\u9AD8", "Min / Max")} | ${cgm14.min ?? "\u2014"} / ${cgm14.max ?? "\u2014"} mmol/L |`);
+        lines.push(`| TIR (3.9\u201310.0) | ${fmtPct(cgm14.tir)} |`);
+        lines.push(`| TBR (<3.9) | ${fmtPct(cgm14.tbr)} |`);
+        lines.push(`| TBR very (<3.0) | ${fmtPct(cgm14.tbrVery)} |`);
+        lines.push(`| TAR (>10.0) | ${fmtPct(cgm14.tar)} |`);
+        lines.push(`| ${L(">7.8 \u5360\u6BD4", ">7.8 share")} | ${fmtPct(cgm14.tarMild)} |`);
+        lines.push("");
+        lines.push(L("### \u6309\u65F6\u6BB5\u5747\u503C\uFF080\u201323 \u65F6\uFF09", "### Mean by hour of day (0\u201323)"));
+        lines.push("");
+        lines.push(L("| \u65F6 | \u5747\u503C mmol/L | \u70B9\u6570 |", "| Hour | Mean mmol/L | n |"));
+        lines.push("|---:|---:|---:|");
+        for (const b of cgm14.hourlyProfile) {
+          if (b.count === 0) continue;
+          lines.push(
+            `| ${String(b.hour).padStart(2, "0")} | ${b.mean != null ? b.mean.toFixed(2) : "\u2014"} | ${b.count} |`
+          );
+        }
+        lines.push("");
+      }
+    }
+    const bpDays = options?.bpProtocolDays === 3 ? 3 : 7;
+    const bp = assessHomeBpProtocol(analysis, { days: bpDays, locale });
+    lines.push(L("## \u8840\u538B\u5BB6\u5EAD\u6D4B\u91CF\u6A21\u5F0F", "## Home blood pressure mode"));
+    lines.push("");
+    if (!bp) {
+      lines.push(L("\uFF08\u65E0\u8840\u538B\u6570\u636E\uFF09", "(No blood pressure data)"));
+      lines.push("");
+    } else {
+      lines.push(
+        L(
+          `**\u8BC4\u4F30\u7A97\u53E3**\uFF1A${bp.windowStart} ~ ${bp.windowEnd}\uFF08${bp.protocolDays} \u81EA\u7136\u65E5\uFF09`,
+          `**Assessment window**: ${bp.windowStart} ~ ${bp.windowEnd} (${bp.protocolDays} calendar days)`
+        )
+      );
+      const modeLabel = bp.mode === "home_protocol" ? L("\u6309\u5BB6\u5EAD\u8840\u538B\u6D41\u7A0B\u91C7\u96C6", "Home BP protocol") : bp.mode === "insufficient" ? L("\u6570\u636E\u4E0D\u8DB3\uFF08\u6D41\u7A0B\u4E0D\u5408\u683C\uFF09", "Insufficient (protocol not met)") : L("\u666E\u901A\u5BFC\u5165\u6570\u636E\uFF08\u975E\u4E25\u683C\u5BB6\u5EAD\u6D41\u7A0B\uFF09", "General imported data (not strict home protocol)");
+      lines.push(L(`**\u6A21\u5F0F**\uFF1A${modeLabel}`, `**Mode**: ${modeLabel}`));
+      lines.push(
+        L(
+          `**\u65E9\u665A\u5B8C\u6574\u5929\u6570**\uFF1A${bp.daysWithBoth} \xB7 \u6709\u6668 ${bp.daysWithAm} \xB7 \u6709\u665A ${bp.daysWithPm} \xB7 \u6668\u53CC\u6B21 ${bp.daysWithAmDouble} \xB7 \u665A\u53CC\u6B21 ${bp.daysWithPmDouble}`,
+          `**Days with AM+PM**: ${bp.daysWithBoth} \xB7 AM ${bp.daysWithAm} \xB7 PM ${bp.daysWithPm} \xB7 AM doubles ${bp.daysWithAmDouble} \xB7 PM doubles ${bp.daysWithPmDouble}`
+        )
+      );
+      lines.push(
+        L(
+          `**\u5408\u683C\uFF083 \u5929\u8FDE\u7EED\u65E9\u665A\uFF09**\uFF1A${bp.qualifies3d ? "\u662F" : "\u5426"} \xB7 **\u5408\u683C\uFF087 \u5929\u2248\u22655 \u5929\u65E9\u665A\uFF09**\uFF1A${bp.qualifies7d ? "\u662F" : "\u5426"}`,
+          `**Meets 3-day AM+PM**: ${bp.qualifies3d ? "yes" : "no"} \xB7 **Meets 7-day (~\u22655 AM+PM)**: ${bp.qualifies7d ? "yes" : "no"}`
+        )
+      );
+      lines.push("");
+      lines.push(`> ${locale === "en" ? bp.noteEn : bp.noteZh}`);
+      lines.push("");
+      if (bp.dayDetails.length) {
+        lines.push(L("| \u65E5\u671F | \u6668\u6761\u6570 | \u6668\u53CC\u6B21 | \u665A\u6761\u6570 | \u665A\u53CC\u6B21 | \u6668\u5747\u503C | \u665A\u5747\u503C |", "| Date | AM n | AM\xD72 | PM n | PM\xD72 | AM mean | PM mean |"));
+        lines.push("|---|---:|:---:|---:|:---:|---:|---:|");
+        for (const d of bp.dayDetails) {
+          const am = d.amMeanSys != null ? `${d.amMeanSys.toFixed(0)}/${d.amMeanDia?.toFixed(0)}` : "\u2014";
+          const pm = d.pmMeanSys != null ? `${d.pmMeanSys.toFixed(0)}/${d.pmMeanDia?.toFixed(0)}` : "\u2014";
+          lines.push(
+            `| ${d.date} | ${d.amCount} | ${d.amDouble ? "\u2713" : ""} | ${d.pmCount} | ${d.pmDouble ? "\u2713" : ""} | ${am} | ${pm} |`
+          );
+        }
+        lines.push("");
+      }
+    }
+    lines.push(L("## \u8DE8\u7EF4\u5EA6\u4FE1\u53F7\uFF08\u542B\u8BC1\u636E\uFF09", "## Cross-domain signals (with evidence)"));
+    lines.push("");
+    const rawSignals = detectCrossSignals(analysis, { locale });
+    const signals = ensureSignalEvidence(rawSignals, analysis, locale).slice(0, 12);
+    if (!signals.length) {
+      lines.push(L("\uFF08\u5F53\u524D\u89C4\u5219\u672A\u89E6\u53D1\u660E\u663E\u7EC4\u5408\u4FE1\u53F7\uFF09", "(No strong combined signals)"));
+      lines.push("");
+    } else {
+      signals.forEach((s, i) => {
+        lines.push(`### ${i + 1}. [${s.severity}] ${s.title}`);
+        if (s.date) lines.push(L(`- **\u65E5\u671F**\uFF1A${s.date}`, `- **Date**: ${s.date}`));
+        lines.push(L(`- **\u8BF4\u660E**\uFF1A${s.detail}`, `- **Detail**: ${s.detail}`));
+        lines.push(
+          L(
+            `- **\u7EF4\u5EA6**\uFF1A${(s.dimensions || []).join(" \xB7 ")}`,
+            `- **Domains**: ${(s.dimensions || []).join(" \xB7 ")}`
+          )
+        );
+        const ev = s.evidence;
+        if (ev) {
+          lines.push(L("- **\u4E3A\u4EC0\u4E48\u51FA\u73B0\uFF08\u53EF\u590D\u6838\uFF09**\uFF1A", "- **Why it fired (auditable)**:"));
+          if (ev.windowStart || ev.windowEnd) {
+            lines.push(
+              L(
+                `  - \u7A97\u53E3\uFF1A${ev.windowStart || "\u2014"} ~ ${ev.windowEnd || "\u2014"}`,
+                `  - Window: ${ev.windowStart || "\u2014"} ~ ${ev.windowEnd || "\u2014"}`
+              )
+            );
+          }
+          if (ev.dates?.length) {
+            lines.push(
+              L(`  - \u6D89\u53CA\u65E5\u671F\uFF1A${ev.dates.join(", ")}`, `  - Dates: ${ev.dates.join(", ")}`)
+            );
+          }
+          if (ev.sampleCount != null) {
+            lines.push(L(`  - \u6837\u672C\u6570\uFF1A${ev.sampleCount}`, `  - Samples: ${ev.sampleCount}`));
+          }
+          if (ev.daysWithData != null) {
+            lines.push(
+              L(`  - \u6709\u6570\u636E\u5929\u6570\uFF1A${ev.daysWithData}`, `  - Days with data: ${ev.daysWithData}`)
+            );
+          }
+          if (ev.unitNote) lines.push(L(`  - \u5355\u4F4D/\u6765\u6E90\uFF1A${ev.unitNote}`, `  - Unit/source: ${ev.unitNote}`));
+          if (ev.sourceNote) lines.push(L(`  - \u89C4\u5219\uFF1A${ev.sourceNote}`, `  - Rule: ${ev.sourceNote}`));
+          if (ev.exclusions?.length) {
+            lines.push(
+              L(
+                `  - \u6392\u9664/\u8FB9\u754C\uFF1A${ev.exclusions.join("\uFF1B")}`,
+                `  - Exclusions/bounds: ${ev.exclusions.join("; ")}`
+              )
+            );
+          }
+          if (ev.metricSnapshot) {
+            const bits = Object.entries(ev.metricSnapshot).map(([k, v]) => `${k}=${v}`).join(", ");
+            lines.push(L(`  - \u6307\u6807\u5FEB\u7167\uFF1A${bits}`, `  - Metric snapshot: ${bits}`));
+          }
+        }
+        lines.push("");
+      });
+    }
+    const bullets = buildInsightBullets(analysis, { locale }).slice(0, 6);
+    if (bullets.length) {
+      lines.push(L("## \u76D1\u6D4B\u6458\u8981\uFF08\u542F\u53D1\u5F0F\uFF09", "## Monitoring summary (heuristic)"));
+      lines.push("");
+      bullets.forEach((b, i) => {
+        lines.push(`${i + 1}. **[${b.tone}] ${b.title}** \u2014 ${b.detail}`);
+      });
+      lines.push("");
+    }
+    if (includeRaw) {
+      lines.push(L("## \u539F\u59CB\u6837\u672C\u6458\u5F55\uFF08\u7528\u6237\u52FE\u9009\uFF09", "## Raw samples (user opted in)"));
+      lines.push("");
+      const bpRec = (analysis.data?.bloodPressure || []).slice(-20);
+      if (bpRec.length) {
+        lines.push(L("### \u8840\u538B\u6700\u8FD1 20 \u6761", "### BP last 20"));
+        lines.push("");
+        for (const r of bpRec) {
+          lines.push(`- ${r.datetime} \xB7 ${r.systolic}/${r.diastolic}`);
+        }
+        lines.push("");
+      }
+      const cgmPts = (analysis.data?.cgm || []).slice(-30);
+      if (cgmPts.length) {
+        lines.push(L("### CGM \u6700\u8FD1 30 \u70B9", "### CGM last 30 points"));
+        lines.push("");
+        for (const p of cgmPts) {
+          lines.push(`- ${p.datetime} \xB7 ${p.value.toFixed(2)} mmol/L`);
+        }
+        lines.push("");
+      }
+    } else {
+      lines.push(
+        L(
+          "> \u672A\u9644\u5E26\u9010\u6761\u539F\u59CB\u6570\u636E\u3002\u9700\u8981\u65F6\u8BF7\u5728\u5BFC\u51FA\u9009\u9879\u4E2D\u52FE\u9009\u300C\u5305\u542B\u539F\u59CB\u6837\u672C\u300D\u3002",
+          "> Per-row raw samples omitted. Opt in to \u201Cinclude raw samples\u201D when exporting."
+        )
+      );
+      lines.push("");
+    }
+    lines.push("---");
+    lines.push(
+      L(
+        "*\u672C\u62A5\u544A\u7531\u672C\u5730 Health Analyzer \u751F\u6210\uFF0C\u6570\u636E\u672A\u4E0A\u4F20\u672C\u5DE5\u5177\u670D\u52A1\u5668\u3002*",
+        "*Generated locally by Health Analyzer; data is not uploaded to this tool\u2019s servers.*"
+      )
+    );
+    return lines.join("\n");
+  }
+  function generateClinicalReviewHtml(analysis, userContext, options) {
+    const md = generateClinicalReviewMarkdown(analysis, userContext, options);
+    const locale = normalizeLocale(options?.locale);
+    const title = locale === "en" ? "Structured health review / clinic report" : "\u89C4\u8303\u5316\u5065\u5EB7\u590D\u76D8 / \u5C31\u8BCA\u62A5\u544A";
+    const body = markdownToPrintableHtml(md);
+    return `<!DOCTYPE html>
+<html lang="${locale === "en" ? "en" : locale === "zh-TW" ? "zh-TW" : "zh-CN"}">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${escapeHtml(title)}</title>
+  <style>
+    :root { color-scheme: light; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif;
+      line-height: 1.55; color: #1e293b; max-width: 800px; margin: 0 auto; padding: 24px 20px 48px; font-size: 14px; }
+    h1 { font-size: 1.45rem; border-bottom: 2px solid #0f766e; padding-bottom: 8px; }
+    h2 { font-size: 1.15rem; margin-top: 1.6em; color: #0f766e; }
+    h3 { font-size: 1.02rem; margin-top: 1.2em; }
+    table { border-collapse: collapse; width: 100%; margin: 0.6em 0 1em; font-size: 13px; }
+    th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
+    th { background: #f1f5f9; }
+    blockquote { margin: 0.6em 0; padding: 8px 12px; background: #f8fafc; border-left: 3px solid #0f766e; color: #475569; }
+    hr { border: none; border-top: 1px solid #e2e8f0; margin: 1.5em 0; }
+    .meta { color: #64748b; font-size: 12px; margin-bottom: 1em; }
+    @media print {
+      body { padding: 0; max-width: none; font-size: 11pt; }
+      h2 { page-break-after: avoid; }
+      table { page-break-inside: avoid; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <p class="meta no-print">${locale === "en" ? "Print this page to PDF (browser Print \u2192 Save as PDF)." : "\u53EF\u7528\u6D4F\u89C8\u5668\u300C\u6253\u5370 \u2192 \u5B58\u50A8\u4E3A PDF\u300D\u5BFC\u51FA\u3002"}</p>
+  ${body}
+</body>
+</html>`;
+  }
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function markdownToPrintableHtml(md) {
+    const lines = md.split("\n");
+    const out = [];
+    let inTable = false;
+    let inList = false;
+    const flushList = () => {
+      if (inList) {
+        out.push("</ul>");
+        inList = false;
+      }
+    };
+    const flushTable = () => {
+      if (inTable) {
+        out.push("</tbody></table>");
+        inTable = false;
+      }
+    };
+    const inline = (s) => {
+      let t = escapeHtml(s);
+      t = t.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+      t = t.replace(/`([^`]+)`/g, "<code>$1</code>");
+      return t;
+    };
+    for (const raw of lines) {
+      const line = raw;
+      if (/^\|/.test(line)) {
+        flushList();
+        if (/^\|[\s\-:|]+\|$/.test(line.replace(/\s/g, "")) || /^\|[-:\s|]+\|$/.test(line)) {
+          continue;
+        }
+        const cells = line.split("|").slice(1, -1).map((c) => c.trim());
+        if (!inTable) {
+          out.push("<table><tbody>");
+          inTable = true;
+          out.push(
+            "<tr>" + cells.map((c) => `<th>${inline(c)}</th>`).join("") + "</tr>"
+          );
+        } else {
+          out.push(
+            "<tr>" + cells.map((c) => `<td>${inline(c)}</td>`).join("") + "</tr>"
+          );
+        }
+        continue;
+      }
+      flushTable();
+      if (/^#\s+/.test(line)) {
+        flushList();
+        out.push(`<h1>${inline(line.replace(/^#\s+/, ""))}</h1>`);
+        continue;
+      }
+      if (/^##\s+/.test(line)) {
+        flushList();
+        out.push(`<h2>${inline(line.replace(/^##\s+/, ""))}</h2>`);
+        continue;
+      }
+      if (/^###\s+/.test(line)) {
+        flushList();
+        out.push(`<h3>${inline(line.replace(/^###\s+/, ""))}</h3>`);
+        continue;
+      }
+      if (/^>\s?/.test(line)) {
+        flushList();
+        out.push(`<blockquote>${inline(line.replace(/^>\s?/, ""))}</blockquote>`);
+        continue;
+      }
+      if (/^---+$/.test(line.trim())) {
+        flushList();
+        out.push("<hr/>");
+        continue;
+      }
+      if (/^[-*]\s+/.test(line)) {
+        if (!inList) {
+          out.push("<ul>");
+          inList = true;
+        }
+        out.push(`<li>${inline(line.replace(/^[-*]\s+/, ""))}</li>`);
+        continue;
+      }
+      if (/^\d+\.\s+/.test(line)) {
+        flushList();
+        out.push(`<p>${inline(line)}</p>`);
+        continue;
+      }
+      if (!line.trim()) {
+        flushList();
+        continue;
+      }
+      flushList();
+      out.push(`<p>${inline(line)}</p>`);
+    }
+    flushList();
+    flushTable();
+    return out.join("\n");
   }
 
   // src/export.ts

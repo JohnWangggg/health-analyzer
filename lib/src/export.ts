@@ -8,6 +8,23 @@ import { detectCrossSignals, CrossSignal } from './signals';
 
 export { generateWeeklyReportMarkdown } from './weekly-report';
 export { generateVisitSummaryMarkdown } from './visit-summary';
+export {
+  CGM_REPORT_DAYS,
+  CGM_MIN_COVERAGE_PCT,
+  buildCgm14DayReport,
+  assessHomeBpProtocol,
+  ensureSignalEvidence,
+  generateClinicalReviewMarkdown,
+  generateClinicalReviewHtml,
+} from './clinical-report';
+export type {
+  Cgm14DayReport,
+  CgmHourlyBin,
+  HomeBpAssessment,
+  HomeBpDayDetail,
+  HomeBpMode,
+  ClinicalReportOptions,
+} from './clinical-report';
 
 function csvEscape(value: unknown): string {
   if (value == null) return '';

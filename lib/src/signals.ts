@@ -10,12 +10,34 @@ import { calendarWindowEndInclusive } from './window';
 
 export type SignalSeverity = 'info' | 'watch' | 'alert';
 
+/**
+ * 信号可复核证据（v1.39）：用户/医生可核对「为什么出现」，非诊断依据。
+ */
+export interface SignalEvidence {
+  /** 规则涉及的日期列表 */
+  dates?: string[];
+  windowStart?: string;
+  windowEnd?: string;
+  sampleCount?: number;
+  daysWithData?: number;
+  /** 单位/来源说明（如 CGM mmol/L 是否可靠） */
+  unitNote?: string;
+  /** 规则来源简述 */
+  sourceNote?: string;
+  /** 明确排除项 / 边界（如无因果、无调药） */
+  exclusions?: string[];
+  /** 关键指标快照，便于人工复核 */
+  metricSnapshot?: Record<string, string | number | boolean | null | undefined>;
+}
+
 export interface CrossSignal {
   severity: SignalSeverity;
   date?: string;
   title: string;
   detail: string;
   dimensions: string[];
+  /** 可选：为何触发（报告层会 ensure 补齐） */
+  evidence?: SignalEvidence;
 }
 
 export type { LocaleOptions };

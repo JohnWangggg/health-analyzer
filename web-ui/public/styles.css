@@ -1508,6 +1508,40 @@ body.has-results .app-toast {
   margin-bottom: 14px;
 }
 
+.clinical-export-opts {
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2, var(--surface));
+}
+
+.clinical-export-opts .panel-subhead {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.clinical-export-opts .check-inline {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.clinical-export-opts .check-inline input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.clinical-export-opts .clinical-export-btns {
+  margin-top: 10px;
+  margin-bottom: 0;
+}
+
 .history-panel {
   margin-top: 8px;
   padding-top: 12px;
