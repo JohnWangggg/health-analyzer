@@ -177,4 +177,58 @@ test.describe('risk: history clear UI', () => {
     // Still no crash after dismiss
     await expectNoWhiteScreen(page);
   });
+
+  test('clear-all local health data accept resets results and prompt', async ({ page }) => {
+    await waitAppReady(page);
+    await selectXmlOnly(page);
+    await page.locator('#file-input').setInputFiles(FIXTURE);
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+    await expect(page.locator('body')).toHaveClass(/has-results/);
+
+    // Ensure prompt area has content when visible
+    await page.locator('#step-prompt').scrollIntoViewIfNeeded().catch(() => {});
+    const wipeBtn = page.locator('#btn-clear-all-local');
+    test.skip(!(await wipeBtn.count()), 'btn-clear-all-local not in DOM');
+
+    // Export section may be below fold; force show path
+    await page.locator('#step-export').scrollIntoViewIfNeeded();
+    await expect(wipeBtn).toBeVisible({ timeout: 10_000 });
+
+    page.once('dialog', async (dialog) => {
+      expect(dialog.message()).toMatch(/清除|clear|本机|on-device|健康|health/i);
+      await dialog.accept();
+    });
+
+    await wipeBtn.click();
+
+    // Memory analysis cleared + UI reset
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(() => {
+            // app.js keeps currentAnalysis in IIFE; check DOM state
+            const body = document.body;
+            const overview = document.getElementById('step-overview');
+            const kpis = document.getElementById('kpi-grid');
+            const prompt = document.getElementById('prompt-output');
+            return {
+              hasResults: body.classList.contains('has-results'),
+              overviewHidden: !overview || overview.classList.contains('hidden'),
+              kpiEmpty: !kpis || !kpis.innerHTML.trim(),
+              promptEmpty: !prompt || !String(prompt.value || '').trim(),
+              sourceVisible: !document.getElementById('step-source')?.classList.contains('hidden'),
+            };
+          }),
+        { timeout: 10_000 }
+      )
+      .toMatchObject({
+        hasResults: false,
+        overviewHidden: true,
+        kpiEmpty: true,
+        promptEmpty: true,
+        sourceVisible: true,
+      });
+
+    await expectNoWhiteScreen(page);
+  });
 });

@@ -6,6 +6,7 @@ import { FullAnalysis } from './types';
 import { getDate, getHour } from './parser';
 import { createL, LocaleOptions, normalizeLocale } from './locale';
 import { toTraditionalTitle } from './zh-tw-map';
+import { calendarWindowEndInclusive } from './window';
 
 export type SignalSeverity = 'info' | 'watch' | 'alert';
 
@@ -25,8 +26,23 @@ function mean(values: number[]): number | null {
   return v.reduce((a, b) => a + b, 0) / v.length;
 }
 
-function recentDates(keys: string[], n: number): string[] {
-  return [...keys].sort().slice(-n);
+/**
+ * 以 anchorEnd 为末日的近 n 自然日（含 end）内、keys 中有数据的日期。
+ * 稀疏数据不会跨数周误标为「近 7 日」。
+ */
+function recentCalendarDates(
+  keys: string[],
+  n: number,
+  anchorEnd?: string | null
+): string[] {
+  const sorted = [...keys].filter(Boolean).sort();
+  if (!sorted.length) return [];
+  const end =
+    anchorEnd && /^\d{4}-\d{2}-\d{2}$/.test(anchorEnd)
+      ? anchorEnd
+      : sorted[sorted.length - 1];
+  const { start } = calendarWindowEndInclusive(end, n);
+  return sorted.filter((d) => d >= start && d <= end);
 }
 
 /**
@@ -45,15 +61,30 @@ export function detectCrossSignals(
   const stepsMap = analysis.stepsByDate || {};
   const sleepMap = analysis.sleepByDate || data.sleep || {};
 
+  const anchorEnd =
+    (analysis.dateRange && analysis.dateRange.end) ||
+    [
+      ...Object.keys(hrvByDate),
+      ...Object.keys(restMap),
+      ...Object.keys(walkMap),
+      ...Object.keys(stepsMap),
+      ...Object.keys(sleepMap),
+      ...(analysis.watchStats?.days || []).map((d) => d.date),
+    ]
+      .filter(Boolean)
+      .sort()
+      .slice(-1)[0] ||
+    '';
+
   const hrvDates = Object.keys(hrvByDate).sort();
-  const hrv7 = recentDates(hrvDates, 7);
+  const hrv7 = recentCalendarDates(hrvDates, 7, anchorEnd);
   const hrvBase = mean(hrv7.map((d) => hrvByDate[d].allMean));
-  const rest7 = recentDates(Object.keys(restMap), 7);
+  const rest7 = recentCalendarDates(Object.keys(restMap), 7, anchorEnd);
   const restBase = mean(rest7.map((d) => restMap[d]));
 
-  // 同日：HRV 明显偏低 + 静息心率偏高
+  // 同日：HRV 明显偏低 + 静息心率偏高（近 14 自然日）
   const commonDays = hrvDates.filter((d) => restMap[d] != null);
-  for (const d of commonDays.slice(-14)) {
+  for (const d of recentCalendarDates(commonDays, 14, anchorEnd)) {
     const h = hrvByDate[d].allMean;
     const r = restMap[d];
     if (
@@ -75,9 +106,9 @@ export function detectCrossSignals(
     }
   }
 
-  // 低睡眠 + 低步数（活动与恢复双低）
+  // 低睡眠 + 低步数（活动与恢复双低；近 10 自然日）
   const sleepDays = Object.keys(sleepMap).sort();
-  for (const d of sleepDays.slice(-10)) {
+  for (const d of recentCalendarDates(sleepDays, 10, anchorEnd)) {
     const sleepH = sleepMap[d]?.total;
     const steps = stepsMap[d];
     if (sleepH != null && sleepH < 6 && steps != null && steps < 3000) {
@@ -227,7 +258,7 @@ export function detectCrossSignals(
     }
 
     // 同日：CGM 低值偏多 + 睡眠偏短
-    for (const d of cgmDayDates.slice(-14)) {
+    for (const d of recentCalendarDates(cgmDayDates, 14, anchorEnd)) {
       const day = daily[d];
       const sleepH = sleepMap[d]?.total;
       if (
@@ -253,7 +284,7 @@ export function detectCrossSignals(
     }
 
     // 同日：高血糖读数 + 步数很低
-    for (const d of cgmDayDates.slice(-14)) {
+    for (const d of recentCalendarDates(cgmDayDates, 14, anchorEnd)) {
       const day = daily[d];
       const steps = stepsMap[d];
       if (!day || day.count < 12 || steps == null || steps >= 3000) continue;
@@ -288,7 +319,7 @@ export function detectCrossSignals(
         if (!nightValsByDate[date]) nightValsByDate[date] = [];
         nightValsByDate[date].push(p.value);
       }
-      for (const d of Object.keys(nightValsByDate).sort().slice(-14)) {
+      for (const d of recentCalendarDates(Object.keys(nightValsByDate), 14, anchorEnd)) {
         const day = daily[d];
         const nightVals = nightValsByDate[d];
         const nightHr = nightHrByDate[d];
@@ -322,7 +353,7 @@ export function detectCrossSignals(
   // 多日：稳定期 CGM 低值偏多 + 近 7 日睡眠偏短
   {
     const st = analysis.cgmStats?.stable || analysis.cgmStats?.overall;
-    const sleep7 = recentDates(Object.keys(sleepMap), 7);
+    const sleep7 = recentCalendarDates(Object.keys(sleepMap), 7, anchorEnd);
     const sleepMean7d =
       analysis.recoveryWeek?.sleepMean7d ??
       mean(sleep7.map((d) => sleepMap[d]?.total).filter((v): v is number => v != null && Number.isFinite(v)));
@@ -353,7 +384,7 @@ export function detectCrossSignals(
 
   // 步行心率偏高 + HRV 偏低（近 7 日）
   if (hrvBase != null && restBase != null) {
-    const walk7 = recentDates(Object.keys(walkMap), 7);
+    const walk7 = recentCalendarDates(Object.keys(walkMap), 7, anchorEnd);
     const walkBase = mean(walk7.map((d) => walkMap[d]));
     if (walkBase != null && walkBase >= 120 && hrvBase < 25) {
       signals.push({
@@ -394,8 +425,9 @@ export function detectCrossSignals(
     }
 
     if (ws.exerciseMinMean7d != null && ws.exerciseMinMean7d < 5 && ws.dayCount >= 5) {
+      const win7 = calendarWindowEndInclusive(anchorEnd || ws.days[ws.days.length - 1]?.date || '', 7);
       const lowActDays = ws.days
-        .slice(-7)
+        .filter((d) => d.date >= win7.start && d.date <= win7.end)
         .filter((d) => d.exerciseMin < 5 && d.activeKcal < 150);
       if (lowActDays.length >= 4) {
         signals.push({
@@ -756,7 +788,7 @@ export function detectCrossSignals(
 
   // 日照偏低 + 睡眠偏短
   if (ws && ws.daylightMinMean7d != null && ws.daylightMinMean7d < 20) {
-    const sleep7 = recentDates(Object.keys(sleepMap), 7);
+    const sleep7 = recentCalendarDates(Object.keys(sleepMap), 7, anchorEnd);
     const sleepAvg = mean(sleep7.map((d) => sleepMap[d]?.total).filter((v): v is number => v != null));
     if (sleepAvg != null && sleepAvg < 6.5) {
       signals.push({

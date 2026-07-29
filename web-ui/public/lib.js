@@ -2879,8 +2879,12 @@ var HealthAnalyzer = (() => {
     if (!v.length) return null;
     return v.reduce((a, b) => a + b, 0) / v.length;
   }
-  function recentDates(keys, n) {
-    return [...keys].sort().slice(-n);
+  function recentCalendarDates(keys, n, anchorEnd) {
+    const sorted = [...keys].filter(Boolean).sort();
+    if (!sorted.length) return [];
+    const end = anchorEnd && /^\d{4}-\d{2}-\d{2}$/.test(anchorEnd) ? anchorEnd : sorted[sorted.length - 1];
+    const { start } = calendarWindowEndInclusive(end, n);
+    return sorted.filter((d) => d >= start && d <= end);
   }
   function detectCrossSignals(analysis, options) {
     const L = createL(normalizeLocale(options?.locale));
@@ -2891,13 +2895,21 @@ var HealthAnalyzer = (() => {
     const walkMap = analysis.walkingHrByDate || data.walkingHr || {};
     const stepsMap = analysis.stepsByDate || {};
     const sleepMap = analysis.sleepByDate || data.sleep || {};
+    const anchorEnd = analysis.dateRange && analysis.dateRange.end || [
+      ...Object.keys(hrvByDate),
+      ...Object.keys(restMap),
+      ...Object.keys(walkMap),
+      ...Object.keys(stepsMap),
+      ...Object.keys(sleepMap),
+      ...(analysis.watchStats?.days || []).map((d) => d.date)
+    ].filter(Boolean).sort().slice(-1)[0] || "";
     const hrvDates = Object.keys(hrvByDate).sort();
-    const hrv7 = recentDates(hrvDates, 7);
+    const hrv7 = recentCalendarDates(hrvDates, 7, anchorEnd);
     const hrvBase = mean(hrv7.map((d) => hrvByDate[d].allMean));
-    const rest7 = recentDates(Object.keys(restMap), 7);
+    const rest7 = recentCalendarDates(Object.keys(restMap), 7, anchorEnd);
     const restBase = mean(rest7.map((d) => restMap[d]));
     const commonDays = hrvDates.filter((d) => restMap[d] != null);
-    for (const d of commonDays.slice(-14)) {
+    for (const d of recentCalendarDates(commonDays, 14, anchorEnd)) {
       const h = hrvByDate[d].allMean;
       const r = restMap[d];
       if (hrvBase != null && restBase != null && h < hrvBase * 0.75 && r > restBase + 8) {
@@ -2914,7 +2926,7 @@ var HealthAnalyzer = (() => {
       }
     }
     const sleepDays = Object.keys(sleepMap).sort();
-    for (const d of sleepDays.slice(-10)) {
+    for (const d of recentCalendarDates(sleepDays, 10, anchorEnd)) {
       const sleepH = sleepMap[d]?.total;
       const steps = stepsMap[d];
       if (sleepH != null && sleepH < 6 && steps != null && steps < 3e3) {
@@ -3043,7 +3055,7 @@ var HealthAnalyzer = (() => {
           nightHrByDate[d.date] = d.nightHrMean;
         }
       }
-      for (const d of cgmDayDates.slice(-14)) {
+      for (const d of recentCalendarDates(cgmDayDates, 14, anchorEnd)) {
         const day = daily[d];
         const sleepH = sleepMap[d]?.total;
         if (day && day.pctBelow39 >= 15 && day.count >= 12 && sleepH != null && sleepH < 6) {
@@ -3059,7 +3071,7 @@ var HealthAnalyzer = (() => {
           });
         }
       }
-      for (const d of cgmDayDates.slice(-14)) {
+      for (const d of recentCalendarDates(cgmDayDates, 14, anchorEnd)) {
         const day = daily[d];
         const steps = stepsMap[d];
         if (!day || day.count < 12 || steps == null || steps >= 3e3) continue;
@@ -3085,7 +3097,7 @@ var HealthAnalyzer = (() => {
           if (!nightValsByDate[date]) nightValsByDate[date] = [];
           nightValsByDate[date].push(p.value);
         }
-        for (const d of Object.keys(nightValsByDate).sort().slice(-14)) {
+        for (const d of recentCalendarDates(Object.keys(nightValsByDate), 14, anchorEnd)) {
           const day = daily[d];
           const nightVals = nightValsByDate[d];
           const nightHr = nightHrByDate[d];
@@ -3110,7 +3122,7 @@ var HealthAnalyzer = (() => {
     }
     {
       const st = analysis.cgmStats?.stable || analysis.cgmStats?.overall;
-      const sleep7 = recentDates(Object.keys(sleepMap), 7);
+      const sleep7 = recentCalendarDates(Object.keys(sleepMap), 7, anchorEnd);
       const sleepMean7d = analysis.recoveryWeek?.sleepMean7d ?? mean(sleep7.map((d) => sleepMap[d]?.total).filter((v) => v != null && Number.isFinite(v)));
       if (st && st.pctBelow39 >= 5 && st.count >= 24 && sleepMean7d != null && sleepMean7d < 6 && sleep7.length >= 3) {
         signals.push({
@@ -3128,7 +3140,7 @@ var HealthAnalyzer = (() => {
       }
     }
     if (hrvBase != null && restBase != null) {
-      const walk7 = recentDates(Object.keys(walkMap), 7);
+      const walk7 = recentCalendarDates(Object.keys(walkMap), 7, anchorEnd);
       const walkBase = mean(walk7.map((d) => walkMap[d]));
       if (walkBase != null && walkBase >= 120 && hrvBase < 25) {
         signals.push({
@@ -3166,7 +3178,8 @@ var HealthAnalyzer = (() => {
         });
       }
       if (ws.exerciseMinMean7d != null && ws.exerciseMinMean7d < 5 && ws.dayCount >= 5) {
-        const lowActDays = ws.days.slice(-7).filter((d) => d.exerciseMin < 5 && d.activeKcal < 150);
+        const win7 = calendarWindowEndInclusive(anchorEnd || ws.days[ws.days.length - 1]?.date || "", 7);
+        const lowActDays = ws.days.filter((d) => d.date >= win7.start && d.date <= win7.end).filter((d) => d.exerciseMin < 5 && d.activeKcal < 150);
         if (lowActDays.length >= 4) {
           signals.push({
             severity: "info",
@@ -3396,7 +3409,7 @@ var HealthAnalyzer = (() => {
       }
     }
     if (ws && ws.daylightMinMean7d != null && ws.daylightMinMean7d < 20) {
-      const sleep7 = recentDates(Object.keys(sleepMap), 7);
+      const sleep7 = recentCalendarDates(Object.keys(sleepMap), 7, anchorEnd);
       const sleepAvg = mean(sleep7.map((d) => sleepMap[d]?.total).filter((v) => v != null));
       if (sleepAvg != null && sleepAvg < 6.5) {
         signals.push({
@@ -4692,8 +4705,8 @@ List 5\u20137 working hypotheses that best fit the available data
         )
       );
       sections.push(`|---|---:|---:|---:|---:|---:|---:|---:|---|`);
-      const recentDates2 = recentDateSet(Object.keys(cgmStats.daily));
-      for (const date of Object.keys(cgmStats.daily).filter((date2) => recentDates2.has(date2)).sort()) {
+      const recentDates = recentDateSet(Object.keys(cgmStats.daily));
+      for (const date of Object.keys(cgmStats.daily).filter((date2) => recentDates.has(date2)).sort()) {
         const d = cgmStats.daily[date];
         const tag = date === cgmStats.firstDayDate ? L("\u9996\u65E5", "First day") : "";
         sections.push(
@@ -4726,8 +4739,8 @@ List 5\u20137 working hypotheses that best fit the available data
         )
       );
       sections.push(`|---|---:|---:|---|`);
-      const recentDates2 = recentDateSet(bpStats.records.map((r) => r.date));
-      for (const r of bpStats.records.filter((r2) => recentDates2.has(r2.date))) {
+      const recentDates = recentDateSet(bpStats.records.map((r) => r.date));
+      for (const r of bpStats.records.filter((r2) => recentDates.has(r2.date))) {
         const low = r.systolic < 90 || r.diastolic < 60 ? " \u26A0\uFE0F" : "";
         sections.push(`| ${r.datetime} | ${r.systolic} | ${r.diastolic} |${low} |`);
       }
@@ -4787,8 +4800,8 @@ List 5\u20137 working hypotheses that best fit the available data
         )
       );
       sections.push(`|---|---:|---:|---:|---:|---:|`);
-      const recentDates2 = recentDateSet(weightStats.daily.map((d) => d.date));
-      for (const d of weightStats.daily.filter((x) => recentDates2.has(x.date))) {
+      const recentDates = recentDateSet(weightStats.daily.map((d) => d.date));
+      for (const d of weightStats.daily.filter((x) => recentDates.has(x.date))) {
         const morn = d.morning ? d.morning.value.toFixed(1) : "\u2014";
         const eve = d.evening ? d.evening.value.toFixed(1) : "\u2014";
         const fat = d.trend.bodyFat != null ? d.trend.bodyFat.toFixed(1) : "\u2014";
@@ -4807,8 +4820,8 @@ List 5\u20137 working hypotheses that best fit the available data
         )
       );
       sections.push(`|---|---:|---:|`);
-      const recentDates2 = recentDateSet(data.weight.map((w) => w.date));
-      for (const w of data.weight.filter((w2) => recentDates2.has(w2.date))) {
+      const recentDates = recentDateSet(data.weight.map((w) => w.date));
+      for (const w of data.weight.filter((w2) => recentDates.has(w2.date))) {
         sections.push(`| ${w.datetime} | ${w.value.toFixed(1)} | ${w.bodyFat != null ? w.bodyFat.toFixed(1) : "\u2014"} |`);
       }
       sections.push(``);
@@ -4823,8 +4836,8 @@ List 5\u20137 working hypotheses that best fit the available data
         )
       );
       sections.push(`|---|---:|---:|---:|---:|---:|`);
-      const recentDates2 = recentDateSet(Object.keys(hrvByDate));
-      for (const date of Object.keys(hrvByDate).filter((date2) => recentDates2.has(date2)).sort()) {
+      const recentDates = recentDateSet(Object.keys(hrvByDate));
+      for (const date of Object.keys(hrvByDate).filter((date2) => recentDates.has(date2)).sort()) {
         const h = hrvByDate[date];
         const night = h.overnightMean == null || !Number.isFinite(h.overnightMean) ? "\u2014" : h.overnightMean.toFixed(1);
         sections.push(
@@ -4840,8 +4853,8 @@ List 5\u20137 working hypotheses that best fit the available data
         ...Object.keys(data.restingHr),
         ...Object.keys(data.walkingHr)
       ]);
-      const recentDates2 = recentDateSet(Array.from(allDates));
-      const visibleDates = Array.from(allDates).filter((date) => recentDates2.has(date));
+      const recentDates = recentDateSet(Array.from(allDates));
+      const visibleDates = Array.from(allDates).filter((date) => recentDates.has(date));
       sections.push(
         L(
           `| \u65E5\u671F | \u9759\u606F\u5FC3\u7387 | \u6B65\u884C\u5FC3\u7387 |`,
@@ -4863,7 +4876,7 @@ List 5\u20137 working hypotheses that best fit the available data
         ...Object.keys(data.steps),
         ...Object.keys(data.sleep)
       ]);
-      const recentDates2 = recentDateSet(Array.from(allDates));
+      const recentDates = recentDateSet(Array.from(allDates));
       sections.push(
         L(
           `| \u65E5\u671F | \u6B65\u6570 | \u7761\u7720(h) | \u6DF1\u7761(h) | REM(h) |`,
@@ -4871,7 +4884,7 @@ List 5\u20137 working hypotheses that best fit the available data
         )
       );
       sections.push(`|---|---:|---:|---:|---:|`);
-      for (const date of Array.from(allDates).filter((date2) => recentDates2.has(date2)).sort()) {
+      for (const date of Array.from(allDates).filter((date2) => recentDates.has(date2)).sort()) {
         const steps = data.steps[date]?.max ?? "\u2014";
         const sleep = data.sleep[date];
         const sleepStr = sleep ? sleep.total.toFixed(2) : "\u2014";
