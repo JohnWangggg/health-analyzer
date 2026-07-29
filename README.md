@@ -125,6 +125,33 @@ git push origin main
 仓库 **Settings → Pages → Source** 选择 **GitHub Actions**。  
 访问：`https://<USER>.github.io/health-analyzer/`
 
+## 部署到 Cloudflare
+
+纯静态 PWA，可用 **Cloudflare Workers 静态资源**（`wrangler`）或 **Cloudflare Pages**。与 GitHub Pages 可并存（同一 `web-ui/public` 产物）。
+
+### wrangler（Workers 静态资源）
+
+根目录 [`wrangler.toml`](wrangler.toml) 已将 `assets.directory` 指向 `./web-ui/public`。
+
+```bash
+# 先构建浏览器包（修改 lib/ 后必做）
+cd lib && npm ci && npm test && npm run build && cd ..
+
+# 本地预览 / 部署
+npx wrangler dev
+npx wrangler deploy
+```
+
+可选：在 `wrangler.toml` 中取消注释 `not_found_handling = "single-page-application"`，使未知路径回退到 `index.html`（本应用以相对路径为主，默认可不启用）。
+
+### Cloudflare Pages
+
+- **Build command:** `cd lib && npm ci && npm test && npm run build`
+- **Build output directory:** `web-ui/public`
+- Root directory 保持仓库根（或按 Pages 项目设置指向 `health-analyzer` 子目录时，路径相应调整）
+
+也可只上传已构建的 `web-ui/public`（build 留空）。详见 [docs/DEPLOY.md](docs/DEPLOY.md)。
+
 ## 文档
 
 中文：
@@ -143,6 +170,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.25 | 弹窗/KPI/明细 i18n、恢复构成面板、图表质感、CF 文档、CI 复用 |
 | v1.24 | 结果首屏层级、恢复预设、图表 i18n、版本提示、指标说明、繁中标题 |
 | v1.23 | 视觉系统升级（teal/slate、光斑背景、KPI/卡片/暗色质感） |
 | v1.22 | 门诊一页纸导出、复制提示词快捷键、空状态文案 i18n |

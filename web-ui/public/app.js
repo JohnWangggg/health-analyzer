@@ -293,12 +293,12 @@
       window.localStorage.setItem(CTX_STORAGE_KEY, JSON.stringify(ctx));
       const status = $('ctx-status');
       if (status) {
-        status.textContent = '✓ 已保存到本机';
+        status.textContent = t('common.savedLocal');
         status.classList.add('show');
         setTimeout(() => status.classList.remove('show'), 2000);
       }
     } catch (e) {
-      alert('无法写入 localStorage：' + (e && e.message ? e.message : e));
+      alert(t('common.storageWriteFail', { msg: e && e.message ? e.message : e }));
     }
     if (currentAnalysis) renderPrompt();
   }
@@ -311,7 +311,7 @@
     try { window.localStorage.removeItem(CTX_STORAGE_KEY); } catch (e) { /* ignore */ }
     const status = $('ctx-status');
     if (status) {
-      status.textContent = '已清空';
+      status.textContent = t('common.cleared');
       status.classList.add('show');
       setTimeout(() => status.classList.remove('show'), 2000);
     }
@@ -568,7 +568,7 @@
           setProgress(0.04, '读取 XML…', { stage: 'read' });
           xmlText = await readFileAsText(xmlFile);
         } else {
-          throw new Error('请选择 .zip 包或 .xml 文件');
+          throw new Error(t('parse.err.needZipOrXml'));
         }
         // ZIP/XML 同批上传的 ECG CSV 一并收录
         if (!ecgFiles.length) {
@@ -581,14 +581,14 @@
         }
       } else if (source === 'xml_only') {
         const xmlFile = files.find(f => f.name.endsWith('.xml'));
-        if (!xmlFile) throw new Error('未选择 XML 文件');
+        if (!xmlFile) throw new Error(t('parse.err.needXml'));
         setProgress(0.04, '读取 XML…', { stage: 'read' });
         xmlText = await readFileAsText(xmlFile);
         // 同批多选的 CSV 一并尝试作为 ECG（内容校验在 ingest）
         ecgFiles = files.filter((f) => f.name.endsWith('.csv'));
       } else if (source === 'folder') {
         const xmlFile = files.find(f => /export|导出/i.test(f.name) && f.name.endsWith('.xml'));
-        if (!xmlFile) throw new Error('文件夹中未找到 export.xml 或 导出.xml');
+        if (!xmlFile) throw new Error(t('parse.err.folderNoXml'));
         setProgress(0.04, '读取文件夹…', { stage: 'read' });
         xmlText = await readFileAsText(xmlFile);
         // 收集 ECG 文件（electrocardiograms 目录或文件名含 ecg）
@@ -807,7 +807,7 @@
    */
   async function extractXmlFromZipBrowser(zipFile) {
     if (!window.fflate) {
-      throw new Error('fflate 库未加载，请检查 fflate.min.js 是否在 public 目录中');
+      throw new Error(t('parse.err.fflateMissing'));
     }
     const buf = await zipFile.arrayBuffer();
     const unzipped = window.fflate.unzipSync(new Uint8Array(buf));
@@ -837,7 +837,7 @@
 
     if (!xmlFile) {
       const fileList = Object.keys(decodedEntries).slice(0, 10).join(', ');
-      throw new Error(`ZIP 包中未找到 export.xml 或 导出.xml。前 10 个文件: ${fileList}`);
+      throw new Error(t('parse.err.zipNoXml', { files: fileList }));
     }
 
     return {
@@ -1293,18 +1293,19 @@
   }
 
   function panelKeyFromTitle(title) {
-    const t = String(title || '');
-    if (/CGM|血糖/.test(t)) return 'cgm';
-    if (/血压/.test(t)) return 'bp';
-    if (/体重|体脂/.test(t)) return 'weight';
-    if (/HRV|心率变异/.test(t)) return 'hrv';
-    if (/负荷|恢复/.test(t)) return 'recovery';
-    if (/Workout|训练会话|训练/.test(t)) return 'workout';
-    if (/Watch|血氧|VO₂|VO2|腕温|锻炼|活动|呼吸紊乱|睡眠呼吸/.test(t)) return 'watch';
-    if (/静息|步行心率|心率/.test(t)) return 'hr';
-    if (/步数/.test(t)) return 'steps';
-    if (/睡眠/.test(t)) return 'sleep';
-    if (/ECG|心电/.test(t)) return 'ecg';
+    const s = String(title || '');
+    // Match zh-CN / zh-TW / en titles from summary.*.h3
+    if (/CGM|血糖|glucose/i.test(s)) return 'cgm';
+    if (/血压|血壓|Blood pressure|\bBP\b/i.test(s)) return 'bp';
+    if (/体重|體重|体脂|體脂|Weight|body fat/i.test(s)) return 'weight';
+    if (/HRV|心率变异|心率變異/i.test(s)) return 'hrv';
+    if (/负荷|負荷|恢复|恢復|load\s*&\s*recovery|recovery/i.test(s)) return 'recovery';
+    if (/Workout|训练会话|訓練會話|训练|訓練|sessions/i.test(s)) return 'workout';
+    if (/Watch|血氧|SpO|VO₂|VO2|腕温|腕溫|锻炼|鍛鍊|活动|活動|呼吸紊乱|呼吸紊亂|睡眠呼吸|Breathing|wrist temp|activity/i.test(s)) return 'watch';
+    if (/静息|靜息|步行心率|Resting|walking\s*HR|Heart rate|\bHR\b/i.test(s)) return 'hr';
+    if (/步数|步數|Steps/i.test(s)) return 'steps';
+    if (/睡眠|Sleep/i.test(s)) return 'sleep';
+    if (/ECG|心电|心電/i.test(s)) return 'ecg';
     return 'other';
   }
 
@@ -1418,7 +1419,7 @@
 
     if (analysis.cgmStats) {
       const o = analysis.cgmStats.stable || analysis.cgmStats.overall;
-      const label = analysis.cgmStats.stable ? 'CGM 稳定期' : 'CGM 均值';
+      const label = analysis.cgmStats.stable ? t('kpi.cgmStable') : t('kpi.cgmMean');
       let tone = 'neutral';
       if (o.pctBelow30 > 0) tone = 'alert';
       else if (o.pctBelow39 >= 5) tone = 'watch';
@@ -1428,7 +1429,7 @@
         value: o.mean.toFixed(2),
         unit: 'mmol/L',
         sub: `TIR ${o.pctInRange.toFixed(0)}% · n=${o.count}` +
-          (analysis.cgmStats.firstDayDate ? ` · 已排除首日` : ''),
+          (analysis.cgmStats.firstDayDate ? ` · ${t('kpi.excludedFirstDay')}` : ''),
         tone,
       });
     }
@@ -1436,15 +1437,18 @@
       const m = analysis.bpStats.mean7d;
       const morn = analysis.bpStats.morning7d;
       const eve = analysis.bpStats.evening7d;
-      let sub = `${m.count} 条` + (m.lowCount ? ` · ${m.lowCount} 次偏低` : '');
+      let sub = t('kpi.nRecords', { n: m.count }) + (m.lowCount ? ` · ${t('kpi.nLow', { n: m.lowCount })}` : '');
       if (morn && eve) {
-        sub = `晨 ${morn.systolic.toFixed(0)} / 晚 ${eve.systolic.toFixed(0)}`;
+        sub = t('kpi.mornEveSys', {
+          morn: morn.systolic.toFixed(0),
+          eve: eve.systolic.toFixed(0),
+        });
       }
       let tone = 'neutral';
       if (m.lowCount >= 3 || m.systolic < 95) tone = 'watch';
       else if (m.systolic >= 100 && m.systolic < 125 && m.lowCount === 0) tone = 'good';
       items.push({
-        label: '血压 7 日',
+        label: t('kpi.bp7d'),
         value: `${m.systolic.toFixed(0)}/${m.diastolic.toFixed(0)}`,
         unit: 'mmHg',
         sub,
@@ -1455,9 +1459,9 @@
       const lt = analysis.weightStats.latestTrend;
       const et = analysis.weightStats.earliestTrend;
       const delta = et ? lt.weight - et.weight : 0;
-      const fat = lt.bodyFat != null ? ` · 体脂 ${lt.bodyFat.toFixed(1)}%` : '';
+      const fat = lt.bodyFat != null ? ` · ${t('kpi.bodyFatPct', { pct: lt.bodyFat.toFixed(1) })}` : '';
       items.push({
-        label: '晨起体重',
+        label: t('kpi.morningWeight'),
         value: lt.weight.toFixed(1),
         unit: 'kg',
         sub: `${lt.date.slice(5)} · ${delta >= 0 ? '+' : ''}${delta.toFixed(1)} kg${fat}`,
@@ -1466,7 +1470,7 @@
     } else if (data.weight && data.weight.length) {
       const latest = data.weight[data.weight.length - 1];
       items.push({
-        label: '最新体重',
+        label: t('kpi.latestWeight'),
         value: latest.value.toFixed(1),
         unit: 'kg',
         sub: latest.date || latest.datetime.slice(0, 10),
@@ -1479,10 +1483,10 @@
       const vals = recent.map((d) => analysis.hrvByDate[d].allMean).filter(Number.isFinite);
       const avg = meanOf(vals);
       items.push({
-        label: 'HRV 近 7 日',
+        label: t('kpi.hrv7d'),
         value: avg != null ? avg.toFixed(1) : '—',
         unit: 'ms',
-        sub: `${hrvDates.length} 天有数据`,
+        sub: t('kpi.daysWithData', { n: hrvDates.length }),
         tone: avg != null && avg < 25 ? 'watch' : avg != null && avg >= 40 ? 'good' : 'neutral',
       });
     }
@@ -1491,13 +1495,13 @@
       if (wstats.exerciseMinMean7d != null || wstats.activeKcalMean7d != null) {
         const ex = wstats.exerciseMinMean7d;
         items.push({
-          label: '锻炼 7 日',
+          label: t('kpi.exercise7d'),
           value: ex != null ? String(Math.round(ex)) : '—',
-          unit: 'min/日',
+          unit: t('kpi.minPerDay'),
           sub:
             (wstats.activeKcalMean7d != null
-              ? `活动 ~${Math.round(wstats.activeKcalMean7d)} kcal`
-              : 'Watch 活动') + ` · ${wstats.dayCount} 天`,
+              ? t('kpi.activeKcal', { n: Math.round(wstats.activeKcalMean7d) })
+              : t('kpi.watchActivity')) + ` · ${t('kpi.nDays', { n: wstats.dayCount })}`,
           tone: ex != null && ex >= 20 ? 'good' : ex != null && ex < 5 ? 'watch' : 'neutral',
         });
       }
@@ -1506,25 +1510,25 @@
         if (wstats.spo2Min7d != null && wstats.spo2Min7d < 92) tone = 'watch';
         else if (wstats.spo2Mean7d < 95) tone = 'watch';
         items.push({
-          label: '血氧 7 日',
+          label: t('kpi.spo27d'),
           value: wstats.spo2Mean7d.toFixed(1),
           unit: '%',
           sub:
-            (wstats.spo2Min7d != null ? `最低 ${wstats.spo2Min7d.toFixed(1)}% · ` : '') +
-            `${wstats.spo2DayCount} 天`,
+            (wstats.spo2Min7d != null ? `${t('kpi.minPct', { pct: wstats.spo2Min7d.toFixed(1) })} · ` : '') +
+            t('kpi.nDays', { n: wstats.spo2DayCount }),
           tone,
         });
       }
       if (wstats.vo2Latest != null) {
         const d = wstats.vo2Delta;
         items.push({
-          label: 'VO₂ max',
+          label: t('kpi.vo2max'),
           value: wstats.vo2Latest.toFixed(1),
           unit: 'mL/kg/min',
           sub:
             d != null
-              ? `Δ ${d >= 0 ? '+' : ''}${d.toFixed(1)} · ${wstats.vo2DayCount} 天`
-              : `${wstats.vo2DayCount} 天估算`,
+              ? `Δ ${d >= 0 ? '+' : ''}${d.toFixed(1)} · ${t('kpi.nDays', { n: wstats.vo2DayCount })}`
+              : t('kpi.vo2DaysEst', { n: wstats.vo2DayCount }),
           tone: d != null && d <= -2 ? 'watch' : 'neutral',
         });
       }
@@ -1532,24 +1536,24 @@
     const wos = analysis.workoutStats;
     if (wos && wos.count > 0) {
       items.push({
-        label: 'Workout 30 日',
+        label: t('kpi.workout30d'),
         value: String(wos.count30d),
-        unit: '场',
+        unit: t('kpi.sessionsUnit'),
         sub:
           `${Math.round(wos.durationSum30d)} min` +
-          (wos.hrAvgMean30d != null ? ` · 均HR ${wos.hrAvgMean30d.toFixed(0)}` : '') +
-          ` · 共 ${wos.count} 场`,
+          (wos.hrAvgMean30d != null ? ` · ${t('kpi.avgHr', { n: wos.hrAvgMean30d.toFixed(0) })}` : '') +
+          ` · ${t('kpi.totalSessions', { n: wos.count })}`,
         tone: wos.count30d >= 8 ? 'good' : wos.count30d === 0 ? 'watch' : 'neutral',
       });
     }
     const rw = analysis.recoveryWeek;
     if (rw && (rw.recoveryScore != null || rw.loadScore != null)) {
       items.push({
-        label: '周恢复',
+        label: t('kpi.recoveryWeek'),
         value: rw.recoveryScore != null ? String(rw.recoveryScore) : '—',
-        unit: '分',
+        unit: t('kpi.scoreUnit'),
         sub:
-          (rw.loadScore != null ? `负荷 ${rw.loadScore}` : '') +
+          (rw.loadScore != null ? t('kpi.loadScore', { n: rw.loadScore }) : '') +
           (rw.statusLabel ? ` · ${rw.statusLabel.slice(0, 18)}` : ''),
         tone:
           rw.statusTone === 'positive' ? 'good' :
@@ -1559,23 +1563,23 @@
     if (analysis.ecgStats && analysis.ecgStats.count > 0) {
       const es = analysis.ecgStats;
       items.push({
-        label: 'ECG',
+        label: t('kpi.ecg'),
         value: String(es.count),
-        unit: '份',
+        unit: t('kpi.copiesUnit'),
         sub:
-          (es.highHrCount ? `高心率 ${es.highHrCount} · ` : '') +
-          (es.latest ? es.latest.classification : '有记录'),
+          (es.highHrCount ? `${t('kpi.highHr', { n: es.highHrCount })} · ` : '') +
+          (es.latest ? es.latest.classification : t('kpi.hasRecord')),
         tone: es.highHrCount >= 2 ? 'watch' : 'neutral',
       });
     }
     if (!items.length) {
       items.push({
-        label: '数据维度',
+        label: t('kpi.dataDims'),
         value: String(
           Object.values(data.dataAvailability || {}).filter(Boolean).length
         ),
-        unit: '类',
-        sub: '展开下方可用性',
+        unit: t('kpi.typesUnit'),
+        sub: t('kpi.expandAvailability'),
         tone: 'neutral',
       });
     }
@@ -1591,7 +1595,7 @@
 
   async function copyFullPrompt(statusEl) {
     if (!currentAnalysis) {
-      alert('请先完成分析');
+      alert(t('common.needAnalysis'));
       return;
     }
     // 确保为完整提示词
@@ -1607,21 +1611,21 @@
       await navigator.clipboard.writeText(text);
       const els = [statusEl, $('copy-status')].filter(Boolean);
       els.forEach((status) => {
-        status.textContent = '✓ 已复制完整提示词';
+        status.textContent = t('copy.ok.fullStatus');
         status.classList.add('show');
         setTimeout(() => status.classList.remove('show'), 2200);
       });
-      showToast('已复制完整提示词，可粘贴到大模型', { ok: true, ms: 2400 });
+      showToast(t('copy.ok.full'), { ok: true, ms: 2400 });
       const sticky = $('btn-copy-sticky');
       if (sticky) {
         const prev = sticky.textContent;
-        sticky.textContent = '✓ 已复制';
+        sticky.textContent = t('common.copied');
         setTimeout(() => { sticky.textContent = prev; }, 1600);
       }
       const hero = $('btn-copy-hero');
       if (hero) {
         const prev = hero.textContent;
-        hero.textContent = '✓ 已复制';
+        hero.textContent = t('common.copied');
         setTimeout(() => { hero.textContent = prev; }, 1600);
       }
     } catch (e) {
@@ -1629,7 +1633,7 @@
         $('prompt-output').select();
         document.execCommand('copy');
       }
-      showToast('已尝试复制（若失败请长按文本手动复制）', { ms: 2800 });
+      showToast(t('copy.fallback'), { ms: 2800 });
     }
   }
 
@@ -1688,7 +1692,7 @@
   }
 
   function getExportBundle() {
-    if (!currentAnalysis) throw new Error('请先完成分析');
+    if (!currentAnalysis) throw new Error(t('common.needAnalysis'));
     return window.HealthAnalyzer.buildExportBundle(currentAnalysis);
   }
 
@@ -1737,12 +1741,12 @@
   }
 
   function buildWeeklyReportMarkdown() {
-    if (!currentAnalysis) throw new Error('请先完成分析');
+    if (!currentAnalysis) throw new Error(t('common.needAnalysis'));
     if (
       !window.HealthAnalyzer ||
       typeof window.HealthAnalyzer.generateWeeklyReportMarkdown !== 'function'
     ) {
-      throw new Error('周报导出功能未加载，请刷新页面后重试');
+      throw new Error(t('export.err.weeklyNotLoaded'));
     }
     const ctx = typeof getUserContextFromForm === 'function' ? getUserContextFromForm() : null;
     return window.HealthAnalyzer.generateWeeklyReportMarkdown(
@@ -1802,11 +1806,11 @@
 
   async function saveWeeklyReportToHistory() {
     if (!currentAnalysis) {
-      alert('请先完成分析');
+      alert(t('common.needAnalysis'));
       return;
     }
     if (!window.HealthHistory || typeof window.HealthHistory.saveWeeklyReport !== 'function') {
-      alert('周报历史模块不可用');
+      alert(t('weekly.err.moduleUnavailable'));
       return;
     }
     try {
@@ -1824,10 +1828,10 @@
         recoveryScore: rw && rw.recoveryScore != null ? rw.recoveryScore : null,
         loadScore: rw && rw.loadScore != null ? rw.loadScore : null,
       });
-      showExportStatus('✓ 周报已保存到本机历史');
+      showExportStatus(t('weekly.ok.saved'));
       await refreshWeeklyReportList();
     } catch (e) {
-      alert('保存周报失败: ' + (e.message || e));
+      alert(t('weekly.err.saveFail', { msg: e.message || e }));
     }
   }
 
@@ -1882,22 +1886,22 @@
         if (!window.confirm('删除该周报历史？')) return;
         await window.HealthHistory.deleteWeeklyReport(id);
         await refreshWeeklyReportList();
-        showExportStatus('✓ 已删除周报');
+        showExportStatus(t('weekly.ok.deleted'));
         return;
       }
       const row = await window.HealthHistory.getWeeklyReport(id);
       if (!row || !row.markdown) {
-        alert('未找到该周报');
+        alert(t('weekly.err.notFound'));
         return;
       }
       if (act === 'copy') {
         await navigator.clipboard.writeText(row.markdown);
-        showExportStatus('✓ 周报已复制');
-        showToast('周报 Markdown 已复制', { ok: true, ms: 2000 });
+        showExportStatus(t('weekly.ok.copied'));
+        showToast(t('weekly.ok.copiedToast'), { ok: true, ms: 2000 });
       } else if (act === 'download') {
         const end = row.weekEnd || new Date().toISOString().slice(0, 10);
         downloadText(`weekly-report-${end}.md`, row.markdown, 'text/markdown');
-        showExportStatus('✓ 周报已下载');
+        showExportStatus(t('weekly.ok.downloaded'));
       }
     } catch (e) {
       alert(e.message || String(e));
@@ -2010,11 +2014,11 @@
 
   async function saveCurrentToHistory() {
     if (!currentAnalysis) {
-      alert('请先完成分析');
+      alert(t('common.needAnalysis'));
       return;
     }
     if (!window.HealthHistory || !window.HealthAnalyzer.buildAnalysisSnapshot) {
-      alert('历史模块不可用');
+      alert(t('history.err.moduleUnavailable'));
       return;
     }
     try {
@@ -2022,10 +2026,10 @@
       const label = labelEl && labelEl.value.trim() ? labelEl.value.trim() : undefined;
       const snap = window.HealthAnalyzer.buildAnalysisSnapshot(currentAnalysis, { label });
       await window.HealthHistory.saveSnapshot(snap);
-      showExportStatus('✓ 已保存到本机历史');
+      showExportStatus(t('history.ok.saved'));
       await refreshHistorySelect();
     } catch (e) {
-      alert('保存失败: ' + (e.message || e));
+      alert(t('history.err.saveFail', { msg: e.message || e }));
     }
   }
 
@@ -2176,7 +2180,7 @@
 
   async function reapplyCsvAndRefresh() {
     if (!currentAnalysis || !currentAnalysis.data) {
-      showToast('请先完成苹果健康数据解析');
+      showToast(t('csv.err.needParse'));
       return;
     }
     try {
@@ -2193,9 +2197,9 @@
         st.classList.add('show');
         setTimeout(() => st.classList.remove('show'), 3000);
       }
-      showToast('已合并 CSV 并刷新分析', { ok: true });
+      showToast(t('csv.ok.merged'), { ok: true });
     } catch (e) {
-      showToast('CSV 合并失败：' + (e.message || e), { ms: 2800 });
+      showToast(t('csv.err.mergeFail', { msg: e.message || e }), { ms: 2800 });
     }
   }
 
@@ -2204,85 +2208,108 @@
     const av = analysis.data.dataAvailability;
     const grid = $('availability-grid');
     const items = [
-      { key: 'hasCgm', icon: '🩸', name: 'CGM 动态血糖', count: analysis.data.cgm.length + ' 条' },
-      { key: 'hasBloodPressure', icon: '❤️', name: '血压', count: analysis.data.bloodPressure.length + ' 条' },
-      { key: 'hasWeight', icon: '⚖️', name: '体重', count: (analysis.weightStats ? analysis.weightStats.dayCount + ' 趋势日 / ' : '') + analysis.data.weight.length + ' 条' },
-      { key: 'hasBodyFat', icon: '📉', name: '体脂', count: (analysis.weightStats?.bodyFatDayCount || analysis.data.bodyFat?.length || 0) + ' 点' },
-      { key: 'hasHrv', icon: '📊', name: 'HRV 心率变异性', count: Object.keys(analysis.hrvByDate).length + ' 天' },
-      { key: 'hasHeartRate', icon: '💗', name: '静息/步行心率', count: Object.keys(analysis.data.restingHr).length + ' 天' },
-      { key: 'hasSteps', icon: '👟', name: '步数', count: Object.keys(analysis.data.steps).length + ' 天' },
-      { key: 'hasSleep', icon: '😴', name: '睡眠', count: Object.keys(analysis.data.sleep).length + ' 天' },
+      { key: 'hasCgm', icon: '🩸', name: t('av.cgm'), count: t('av.nRecords', { n: analysis.data.cgm.length }) },
+      { key: 'hasBloodPressure', icon: '❤️', name: t('av.bp'), count: t('av.nRecords', { n: analysis.data.bloodPressure.length }) },
+      {
+        key: 'hasWeight',
+        icon: '⚖️',
+        name: t('av.weight'),
+        count: analysis.weightStats
+          ? t('av.trendDaysRecords', { days: analysis.weightStats.dayCount, n: analysis.data.weight.length })
+          : t('av.nRecords', { n: analysis.data.weight.length }),
+      },
+      {
+        key: 'hasBodyFat',
+        icon: '📉',
+        name: t('av.bodyFat'),
+        count: t('av.nPoints', { n: analysis.weightStats?.bodyFatDayCount || analysis.data.bodyFat?.length || 0 }),
+      },
+      { key: 'hasHrv', icon: '📊', name: t('av.hrv'), count: t('av.nDays', { n: Object.keys(analysis.hrvByDate).length }) },
+      { key: 'hasHeartRate', icon: '💗', name: t('av.hr'), count: t('av.nDays', { n: Object.keys(analysis.data.restingHr).length }) },
+      { key: 'hasSteps', icon: '👟', name: t('av.steps'), count: t('av.nDays', { n: Object.keys(analysis.data.steps).length }) },
+      { key: 'hasSleep', icon: '😴', name: t('av.sleep'), count: t('av.nDays', { n: Object.keys(analysis.data.sleep).length }) },
       {
         key: 'hasWatchActivity',
         icon: '⌚',
-        name: 'Watch 活动',
-        count: (analysis.watchStats?.dayCount || Object.keys(analysis.data.watchDaily || {}).length) + ' 天',
+        name: t('av.watch'),
+        count: t('av.nDays', {
+          n: analysis.watchStats?.dayCount || Object.keys(analysis.data.watchDaily || {}).length,
+        }),
       },
       {
         key: 'hasSpO2',
         icon: '🫁',
-        name: '血氧 SpO₂',
-        count: (analysis.watchStats?.spo2DayCount || 0) + ' 天',
+        name: t('av.spo2'),
+        count: t('av.nDays', { n: analysis.watchStats?.spo2DayCount || 0 }),
       },
       {
         key: 'hasRespiratoryRate',
         icon: '🌬️',
-        name: '呼吸频率',
-        count: analysis.watchStats?.rrMean7d != null ? '近 7 日 ' + analysis.watchStats.rrMean7d.toFixed(1) + '/分' : '有数据',
+        name: t('av.rr'),
+        count: analysis.watchStats?.rrMean7d != null
+          ? t('av.rr7d', { n: analysis.watchStats.rrMean7d.toFixed(1) })
+          : t('av.hasData'),
       },
       {
         key: 'hasVo2Max',
         icon: '🏃',
-        name: 'VO₂ max',
+        name: t('av.vo2'),
         count:
           analysis.watchStats?.vo2Latest != null
-            ? analysis.watchStats.vo2Latest.toFixed(1) + ' · ' + (analysis.watchStats.vo2DayCount || 0) + ' 天'
-            : (analysis.watchStats?.vo2DayCount || 0) + ' 天',
+            ? t('av.vo2WithDays', {
+                v: analysis.watchStats.vo2Latest.toFixed(1),
+                n: analysis.watchStats.vo2DayCount || 0,
+              })
+            : t('av.nDays', { n: analysis.watchStats?.vo2DayCount || 0 }),
       },
       {
         key: 'hasWristTemp',
         icon: '🌡️',
-        name: '睡眠腕温',
+        name: t('av.wristTemp'),
         count: analysis.watchStats?.wristTempMean7d != null
           ? analysis.watchStats.wristTempMean7d.toFixed(2) + ' °C'
-          : '有数据',
+          : t('av.hasData'),
       },
       {
         key: 'hasBreathingDisturbance',
         icon: '😮‍💨',
-        name: '睡眠呼吸紊乱',
+        name: t('av.breathing'),
         count:
           analysis.watchStats?.breathingDisturbanceDayCount > 0
             ? (analysis.watchStats.breathingDisturbanceMean7d != null
-                ? '近7日均 ' + analysis.watchStats.breathingDisturbanceMean7d.toFixed(2) + ' · '
+                ? t('av.bdMeanPrefix', { n: analysis.watchStats.breathingDisturbanceMean7d.toFixed(2) })
                 : '') +
-              analysis.watchStats.breathingDisturbanceDayCount +
-              ' 天'
-            : '有数据',
+              t('av.nDays', { n: analysis.watchStats.breathingDisturbanceDayCount })
+            : t('av.hasData'),
       },
       {
         key: 'hasWorkouts',
         icon: '🏋️',
-        name: 'Workout 会话',
+        name: t('av.workouts'),
         count: analysis.workoutStats
-          ? analysis.workoutStats.count + ' 场 · 近30日 ' + analysis.workoutStats.count30d
-          : (analysis.data.workouts?.length || 0) + ' 场',
+          ? t('av.workoutsDetail', {
+              n: analysis.workoutStats.count,
+              n30: analysis.workoutStats.count30d,
+            })
+          : t('av.nSessions', { n: analysis.data.workouts?.length || 0 }),
       },
-      { key: 'hasEcg', icon: '📈', name: 'ECG 心电图', count: analysis.data.ecg.length + ' 份' },
+      { key: 'hasEcg', icon: '📈', name: t('av.ecg'), count: t('av.nCopies', { n: analysis.data.ecg.length }) },
     ];
 
     grid.innerHTML = items.map(it => `
       <div class="availability-item ${av[it.key] ? 'has-data' : 'no-data'}">
         <div class="av-icon">${it.icon}</div>
         <div class="av-info">
-          <div class="av-name">${it.name}</div>
-          <div class="av-count">${av[it.key] ? it.count : escapeHtml(t('av.noData'))}</div>
+          <div class="av-name">${escapeHtml(it.name)}</div>
+          <div class="av-count">${av[it.key] ? escapeHtml(it.count) : escapeHtml(t('av.noData'))}</div>
         </div>
       </div>
     `).join('');
 
-    $('date-range-info').textContent =
-      `📅 数据时间范围: ${analysis.dateRange.start} 至 ${analysis.dateRange.end}`;
+    $('date-range-info').textContent = t('av.dateRange', {
+      start: analysis.dateRange.start,
+      end: analysis.dateRange.end,
+    });
   }
 
   /** 对数值数组求简单均值；不足 1 条返回 null */
@@ -2303,7 +2330,7 @@
     const startDate = (startEl && startEl.value) ? startEl.value.trim() : '';
     const endDate = (endEl && endEl.value) ? endEl.value.trim() : '';
     if (startDate && endDate && startDate > endDate) {
-      throw new Error('开始日期不能晚于结束日期');
+      throw new Error(t('parse.err.dateRange'));
     }
     const opts = {};
     if (startDate) opts.startDate = startDate;
@@ -2364,13 +2391,13 @@
       const fd = analysis.cgmStats.firstDay;
       blocks.push(`
         <div class="section-block">
-          <h3>🩸 CGM 血糖总览</h3>
+          <h3>${escapeHtml(t('summary.cgm.h3'))}</h3>
           <table class="summary-table">
-            <tr><th>分段</th><th>均值</th><th>TIR</th><th>&lt;3.9%</th><th>条数</th></tr>
-            <tr><td>全程</td><td class="num">${o.mean.toFixed(2)}</td><td class="num">${o.pctInRange.toFixed(1)}%</td><td class="num">${o.pctBelow39.toFixed(1)}%</td><td class="num">${o.count}</td></tr>
-            ${fd ? `<tr><td>首日 ${escapeHtml(analysis.cgmStats.firstDayDate || '')}</td><td class="num">${fd.mean.toFixed(2)}</td><td class="num">${fd.pctInRange.toFixed(1)}%</td><td class="num">${fd.pctBelow39.toFixed(1)}%</td><td class="num">${fd.count}</td></tr>` : ''}
-            ${st ? `<tr><td><strong>稳定期</strong></td><td class="num">${st.mean.toFixed(2)}</td><td class="num">${st.pctInRange.toFixed(1)}%</td><td class="num">${st.pctBelow39.toFixed(1)}%</td><td class="num">${st.count}</td></tr>` : ''}
-            <tr><td colspan="5" class="hint" style="background:transparent;padding:8px 0 0;margin:0;">最低/最高（全程）：${o.min.toFixed(1)} / ${o.max.toFixed(1)} mmol/L</td></tr>
+            <tr><th>${escapeHtml(t('summary.th.segment'))}</th><th>${escapeHtml(t('summary.th.mean'))}</th><th>${escapeHtml(t('summary.th.tir'))}</th><th>${escapeHtml(t('summary.th.below39'))}</th><th>${escapeHtml(t('summary.th.count'))}</th></tr>
+            <tr><td>${escapeHtml(t('summary.cgm.overall'))}</td><td class="num">${o.mean.toFixed(2)}</td><td class="num">${o.pctInRange.toFixed(1)}%</td><td class="num">${o.pctBelow39.toFixed(1)}%</td><td class="num">${o.count}</td></tr>
+            ${fd ? `<tr><td>${escapeHtml(t('summary.cgm.firstDay', { date: analysis.cgmStats.firstDayDate || '' }))}</td><td class="num">${fd.mean.toFixed(2)}</td><td class="num">${fd.pctInRange.toFixed(1)}%</td><td class="num">${fd.pctBelow39.toFixed(1)}%</td><td class="num">${fd.count}</td></tr>` : ''}
+            ${st ? `<tr><td><strong>${escapeHtml(t('summary.cgm.stable'))}</strong></td><td class="num">${st.mean.toFixed(2)}</td><td class="num">${st.pctInRange.toFixed(1)}%</td><td class="num">${st.pctBelow39.toFixed(1)}%</td><td class="num">${st.count}</td></tr>` : ''}
+            <tr><td colspan="5" class="hint" style="background:transparent;padding:8px 0 0;margin:0;">${escapeHtml(t('summary.cgm.minMax', { min: o.min.toFixed(1), max: o.max.toFixed(1) }))}</td></tr>
           </table>
         </div>
       `);
@@ -2383,26 +2410,26 @@
         return `<tr><td>${r.datetime.slice(5, 16)}</td><td class="num">${r.systolic}/${r.diastolic}${low}</td></tr>`;
       }).join('');
       const row = (label, m) => m
-        ? `<tr><td>${label} (${m.count}条)</td><td class="num">${m.systolic.toFixed(1)}/${m.diastolic.toFixed(1)}${m.lowCount ? ' · 偏低' + m.lowCount : ''}</td></tr>`
+        ? `<tr><td>${escapeHtml(t('summary.bp.withCount', { label, n: m.count }))}</td><td class="num">${m.systolic.toFixed(1)}/${m.diastolic.toFixed(1)}${m.lowCount ? escapeHtml(t('summary.bp.lowSuffix', { n: m.lowCount })) : ''}</td></tr>`
         : '';
       blocks.push(`
         <div class="section-block">
-          <h3>❤️ 血压总览</h3>
+          <h3>${escapeHtml(t('summary.bp.h3'))}</h3>
           <table class="summary-table">
-            <tr><th>时段</th><th>均值</th></tr>
-            ${row('近 7 天全天', bp.mean7d)}
-            ${row('近 7 天晨间', bp.morning7d)}
-            ${row('近 7 天晚间', bp.evening7d)}
-            ${row('近 14 天全天', bp.mean14d)}
-            ${row('近 14 天晨间', bp.morning14d)}
-            ${row('近 14 天晚间', bp.evening14d)}
-            ${bp.lowest ? `<tr><td>最低</td><td class="num">${bp.lowest.systolic}/${bp.lowest.diastolic} (${bp.lowest.datetime.slice(5, 16)})</td></tr>` : ''}
-            ${bp.highest ? `<tr><td>最高</td><td class="num">${bp.highest.systolic}/${bp.highest.diastolic} (${bp.highest.datetime.slice(5, 16)})</td></tr>` : ''}
+            <tr><th>${escapeHtml(t('summary.th.period'))}</th><th>${escapeHtml(t('summary.th.mean'))}</th></tr>
+            ${row(t('summary.bp.7dAll'), bp.mean7d)}
+            ${row(t('summary.bp.7dMorn'), bp.morning7d)}
+            ${row(t('summary.bp.7dEve'), bp.evening7d)}
+            ${row(t('summary.bp.14dAll'), bp.mean14d)}
+            ${row(t('summary.bp.14dMorn'), bp.morning14d)}
+            ${row(t('summary.bp.14dEve'), bp.evening14d)}
+            ${bp.lowest ? `<tr><td>${escapeHtml(t('summary.bp.lowest'))}</td><td class="num">${bp.lowest.systolic}/${bp.lowest.diastolic} (${bp.lowest.datetime.slice(5, 16)})</td></tr>` : ''}
+            ${bp.highest ? `<tr><td>${escapeHtml(t('summary.bp.highest'))}</td><td class="num">${bp.highest.systolic}/${bp.highest.diastolic} (${bp.highest.datetime.slice(5, 16)})</td></tr>` : ''}
           </table>
           <details style="margin-top:8px;">
-            <summary style="cursor:pointer;color:var(--primary);font-size:13px;">最近 5 条血压记录</summary>
+            <summary style="cursor:pointer;color:var(--primary);font-size:13px;">${escapeHtml(t('summary.bp.recent5'))}</summary>
             <table class="summary-table" style="margin-top:8px;">
-              <tr><th>时间</th><th>血压</th></tr>
+              <tr><th>${escapeHtml(t('summary.th.time'))}</th><th>${escapeHtml(t('summary.th.bp'))}</th></tr>
               ${rows}
             </table>
           </details>
@@ -2422,18 +2449,18 @@
       }).join('');
       blocks.push(`
         <div class="section-block">
-          <h3>⚖️ 体重与体脂（晨起趋势）</h3>
+          <h3>${escapeHtml(t('summary.weightFat.h3'))}</h3>
           <table class="summary-table">
-            <tr><th>指标</th><th>值</th></tr>
-            <tr><td>最新趋势体重</td><td class="num">${lt ? lt.weight.toFixed(1) + ' kg (' + lt.date + ')' : '—'}</td></tr>
-            <tr><td>最早趋势体重</td><td class="num">${et ? et.weight.toFixed(1) + ' kg (' + et.date + ')' : '—'}</td></tr>
-            <tr><td>趋势变化</td><td class="num">${lt && et ? (lt.weight - et.weight).toFixed(1) + ' kg' : '—'}</td></tr>
-            <tr><td>最新体脂</td><td class="num">${ws.bodyFatLatest != null ? ws.bodyFatLatest.toFixed(1) + '%' : '—'}</td></tr>
-            <tr><td>体脂变化</td><td class="num">${ws.bodyFatDelta != null ? ws.bodyFatDelta.toFixed(1) + ' 百分点' : '—'}</td></tr>
-            <tr><td>原始条数 / 趋势日</td><td class="num">${ws.rawCount} / ${ws.dayCount}</td></tr>
+            <tr><th>${escapeHtml(t('summary.th.metric'))}</th><th>${escapeHtml(t('summary.th.value'))}</th></tr>
+            <tr><td>${escapeHtml(t('summary.weight.latestTrend'))}</td><td class="num">${lt ? lt.weight.toFixed(1) + ' kg (' + lt.date + ')' : '—'}</td></tr>
+            <tr><td>${escapeHtml(t('summary.weight.earliestTrend'))}</td><td class="num">${et ? et.weight.toFixed(1) + ' kg (' + et.date + ')' : '—'}</td></tr>
+            <tr><td>${escapeHtml(t('summary.weight.trendDelta'))}</td><td class="num">${lt && et ? (lt.weight - et.weight).toFixed(1) + ' kg' : '—'}</td></tr>
+            <tr><td>${escapeHtml(t('summary.weight.latestFat'))}</td><td class="num">${ws.bodyFatLatest != null ? ws.bodyFatLatest.toFixed(1) + '%' : '—'}</td></tr>
+            <tr><td>${escapeHtml(t('summary.weight.fatDelta'))}</td><td class="num">${ws.bodyFatDelta != null ? ws.bodyFatDelta.toFixed(1) + ' ' + t('summary.weight.pctPoints') : '—'}</td></tr>
+            <tr><td>${escapeHtml(t('summary.weight.rawTrendDays'))}</td><td class="num">${ws.rawCount} / ${ws.dayCount}</td></tr>
           </table>
           <table class="summary-table">
-            <tr><th>日期</th><th>趋势</th><th>晨</th><th>晚</th><th>体脂</th></tr>
+            <tr><th>${escapeHtml(t('summary.th.date'))}</th><th>${escapeHtml(t('summary.th.trend'))}</th><th>${escapeHtml(t('summary.th.morn'))}</th><th>${escapeHtml(t('summary.th.eve'))}</th><th>${escapeHtml(t('summary.th.bodyFat'))}</th></tr>
             ${recent}
           </table>
         </div>
@@ -2444,13 +2471,13 @@
       const earliest = w[0];
       blocks.push(`
         <div class="section-block">
-          <h3>⚖️ 体重</h3>
+          <h3>${escapeHtml(t('summary.weight.h3'))}</h3>
           <table class="summary-table">
-            <tr><th>指标</th><th>值</th></tr>
-            <tr><td>最新</td><td class="num">${latest.value.toFixed(1)} kg (${latest.datetime.slice(0, 10)})</td></tr>
-            <tr><td>最早</td><td class="num">${earliest.value.toFixed(1)} kg (${earliest.datetime.slice(0, 10)})</td></tr>
-            <tr><td>变化</td><td class="num">${(latest.value - earliest.value).toFixed(1)} kg</td></tr>
-            <tr><td>记录数</td><td class="num">${w.length}</td></tr>
+            <tr><th>${escapeHtml(t('summary.th.metric'))}</th><th>${escapeHtml(t('summary.th.value'))}</th></tr>
+            <tr><td>${escapeHtml(t('summary.weight.latest'))}</td><td class="num">${latest.value.toFixed(1)} kg (${latest.datetime.slice(0, 10)})</td></tr>
+            <tr><td>${escapeHtml(t('summary.weight.earliest'))}</td><td class="num">${earliest.value.toFixed(1)} kg (${earliest.datetime.slice(0, 10)})</td></tr>
+            <tr><td>${escapeHtml(t('summary.weight.change'))}</td><td class="num">${(latest.value - earliest.value).toFixed(1)} kg</td></tr>
+            <tr><td>${escapeHtml(t('summary.weight.records'))}</td><td class="num">${w.length}</td></tr>
           </table>
         </div>
       `);
@@ -2467,14 +2494,14 @@
       }).join('');
       blocks.push(`
         <div class="section-block">
-          <h3>📊 HRV 心率变异性（最近 7 天）</h3>
+          <h3>${escapeHtml(t('summary.hrv.h3'))}</h3>
           <table class="summary-table">
-            <tr><th>指标</th><th>值</th></tr>
-            <tr><td>最近 ${recent.length} 天均值</td><td class="num">${formatMean(avg7, 1)} ms</td></tr>
-            <tr><td>有数据天数</td><td class="num">${dates.length}</td></tr>
+            <tr><th>${escapeHtml(t('summary.th.metric'))}</th><th>${escapeHtml(t('summary.th.value'))}</th></tr>
+            <tr><td>${escapeHtml(t('summary.hrv.meanN', { n: recent.length }))}</td><td class="num">${formatMean(avg7, 1)} ms</td></tr>
+            <tr><td>${escapeHtml(t('summary.common.dataDays'))}</td><td class="num">${dates.length}</td></tr>
           </table>
           <table class="summary-table">
-            <tr><th>日期</th><th>全天均值</th></tr>
+            <tr><th>${escapeHtml(t('summary.th.date'))}</th><th>${escapeHtml(t('summary.th.allDayMean'))}</th></tr>
             ${rows}
           </table>
         </div>
@@ -2497,15 +2524,15 @@
       }).join('');
       blocks.push(`
         <div class="section-block">
-          <h3>💗 静息 / 步行心率（最近 ${recent.length} 天）</h3>
+          <h3>${escapeHtml(t('summary.hr.h3', { n: recent.length }))}</h3>
           <table class="summary-table">
-            <tr><th>指标</th><th>值</th></tr>
-            <tr><td>最近静息均值 (${restVals.length} 天)</td><td class="num">${formatMean(meanOf(restVals), 1)} bpm</td></tr>
-            <tr><td>最近步行均值 (${walkVals.length} 天)</td><td class="num">${formatMean(meanOf(walkVals), 1)} bpm</td></tr>
-            <tr><td>有数据天数</td><td class="num">${sorted.length}</td></tr>
+            <tr><th>${escapeHtml(t('summary.th.metric'))}</th><th>${escapeHtml(t('summary.th.value'))}</th></tr>
+            <tr><td>${escapeHtml(t('summary.hr.restMean', { n: restVals.length }))}</td><td class="num">${formatMean(meanOf(restVals), 1)} bpm</td></tr>
+            <tr><td>${escapeHtml(t('summary.hr.walkMean', { n: walkVals.length }))}</td><td class="num">${formatMean(meanOf(walkVals), 1)} bpm</td></tr>
+            <tr><td>${escapeHtml(t('summary.common.dataDays'))}</td><td class="num">${sorted.length}</td></tr>
           </table>
           <table class="summary-table">
-            <tr><th>日期</th><th>静息</th><th>步行</th></tr>
+            <tr><th>${escapeHtml(t('summary.th.date'))}</th><th>${escapeHtml(t('summary.th.resting'))}</th><th>${escapeHtml(t('summary.th.walking'))}</th></tr>
             ${rows}
           </table>
         </div>
@@ -2531,14 +2558,14 @@
       }).join('');
       blocks.push(`
         <div class="section-block">
-          <h3>👟 步数（最近 ${recent.length} 天）</h3>
+          <h3>${escapeHtml(t('summary.steps.h3', { n: recent.length }))}</h3>
           <table class="summary-table">
-            <tr><th>指标</th><th>值</th></tr>
-            <tr><td>最近日均 (${vals.length} 天)</td><td class="num">${vals.length ? Math.round(meanOf(vals)) : '—'} 步</td></tr>
-            <tr><td>有数据天数</td><td class="num">${sorted.length}</td></tr>
+            <tr><th>${escapeHtml(t('summary.th.metric'))}</th><th>${escapeHtml(t('summary.th.value'))}</th></tr>
+            <tr><td>${escapeHtml(t('summary.steps.dailyMean', { n: vals.length }))}</td><td class="num">${vals.length ? Math.round(meanOf(vals)) : '—'} ${escapeHtml(t('summary.steps.unit'))}</td></tr>
+            <tr><td>${escapeHtml(t('summary.common.dataDays'))}</td><td class="num">${sorted.length}</td></tr>
           </table>
           <table class="summary-table">
-            <tr><th>日期</th><th>步数</th></tr>
+            <tr><th>${escapeHtml(t('summary.th.date'))}</th><th>${escapeHtml(t('summary.th.steps'))}</th></tr>
             ${rows}
           </table>
         </div>
@@ -2559,16 +2586,16 @@
       }).join('');
       blocks.push(`
         <div class="section-block">
-          <h3>😴 睡眠（最近 ${recent.length} 天）</h3>
+          <h3>${escapeHtml(t('summary.sleep.h3', { n: recent.length }))}</h3>
           <table class="summary-table">
-            <tr><th>指标</th><th>值</th></tr>
-            <tr><td>最近日均总睡眠</td><td class="num">${formatMean(meanOf(totals), 2)} h</td></tr>
-            <tr><td>最近日均深睡</td><td class="num">${formatMean(meanOf(deeps), 2)} h</td></tr>
-            <tr><td>最近日均 REM</td><td class="num">${formatMean(meanOf(rems), 2)} h</td></tr>
-            <tr><td>有数据天数</td><td class="num">${sorted.length}</td></tr>
+            <tr><th>${escapeHtml(t('summary.th.metric'))}</th><th>${escapeHtml(t('summary.th.value'))}</th></tr>
+            <tr><td>${escapeHtml(t('summary.sleep.totalMean'))}</td><td class="num">${formatMean(meanOf(totals), 2)} h</td></tr>
+            <tr><td>${escapeHtml(t('summary.sleep.deepMean'))}</td><td class="num">${formatMean(meanOf(deeps), 2)} h</td></tr>
+            <tr><td>${escapeHtml(t('summary.sleep.remMean'))}</td><td class="num">${formatMean(meanOf(rems), 2)} h</td></tr>
+            <tr><td>${escapeHtml(t('summary.common.dataDays'))}</td><td class="num">${sorted.length}</td></tr>
           </table>
           <table class="summary-table">
-            <tr><th>日期</th><th>总睡眠(h)</th><th>深睡(h)</th><th>REM(h)</th></tr>
+            <tr><th>${escapeHtml(t('summary.th.date'))}</th><th>${escapeHtml(t('summary.th.sleepTotal'))}</th><th>${escapeHtml(t('summary.th.sleepDeep'))}</th><th>${escapeHtml(t('summary.th.sleepRem'))}</th></tr>
             ${rows}
           </table>
         </div>
@@ -2595,28 +2622,33 @@
           : '—';
       blocks.push(`
         <div class="section-block">
-          <h3>⌚ Watch 活动 / 血氧 / VO₂（最近 ${recent.length} 天）</h3>
+          <h3>${escapeHtml(t('summary.watch.h3', { n: recent.length }))}</h3>
           <table class="summary-table">
-            <tr><th>指标</th><th>值</th></tr>
-            <tr><td>日均锻炼（近 7 日样本）</td><td class="num">${ws.exerciseMinMean7d != null ? ws.exerciseMinMean7d.toFixed(0) + ' min' : '—'}</td></tr>
-            <tr><td>日均活动消耗</td><td class="num">${ws.activeKcalMean7d != null ? ws.activeKcalMean7d.toFixed(0) + ' kcal' : '—'}</td></tr>
-            <tr><td>血氧均值 / 最低</td><td class="num">${ws.spo2Mean7d != null ? ws.spo2Mean7d.toFixed(1) + '%' : '—'}${ws.spo2Min7d != null ? ' / ' + ws.spo2Min7d.toFixed(1) + '%' : ''}</td></tr>
-            <tr><td>夜段血氧 (0–8h)</td><td class="num">${ws.spo2NightMean7d != null ? ws.spo2NightMean7d.toFixed(1) + '%' : '—'}${ws.spo2NightMin7d != null ? ' · 最低 ' + ws.spo2NightMin7d.toFixed(1) + '%' : ''}</td></tr>
-            <tr><td>日段血氧</td><td class="num">${ws.spo2DayMean7d != null ? ws.spo2DayMean7d.toFixed(1) + '%' : '—'}${ws.spo2DayMin7d != null ? ' · 最低 ' + ws.spo2DayMin7d.toFixed(1) + '%' : ''}</td></tr>
-            <tr><td>呼吸频率日均</td><td class="num">${ws.rrMean7d != null ? ws.rrMean7d.toFixed(1) + ' /分' : '—'}</td></tr>
-            <tr><td>夜间心率 (0–6h)</td><td class="num">${ws.nightHrMean7d != null ? ws.nightHrMean7d.toFixed(0) + ' bpm' : '—'}</td></tr>
-            <tr><td>VO₂ max 最新 / Δ</td><td class="num">${ws.vo2Latest != null ? ws.vo2Latest.toFixed(1) : '—'} / ${vo2Delta}</td></tr>
-            <tr><td>睡眠腕温日均</td><td class="num">${ws.wristTempMean7d != null ? ws.wristTempMean7d.toFixed(2) + ' °C' : '—'}</td></tr>
-            <tr><td>睡眠呼吸紊乱日均 / 最新</td><td class="num">${ws.breathingDisturbanceMean7d != null ? ws.breathingDisturbanceMean7d.toFixed(2) : '—'}${ws.breathingDisturbanceLatest != null ? ' / ' + ws.breathingDisturbanceLatest.toFixed(2) : ''}${ws.breathingDisturbanceDayCount ? '（' + ws.breathingDisturbanceDayCount + ' 天）' : ''}</td></tr>
-            <tr><td>日照日均</td><td class="num">${ws.daylightMinMean7d != null ? ws.daylightMinMean7d.toFixed(0) + ' min' : '—'}</td></tr>
-            <tr><td>站立小时日均</td><td class="num">${ws.standHoursMean7d != null ? ws.standHoursMean7d.toFixed(1) : '—'}</td></tr>
-            <tr><td>有数据天数</td><td class="num">${ws.dayCount}（血氧 ${ws.spo2DayCount} · VO₂ ${ws.vo2DayCount}${ws.breathingDisturbanceDayCount ? ' · 呼吸紊乱 ' + ws.breathingDisturbanceDayCount : ''}）</td></tr>
+            <tr><th>${escapeHtml(t('summary.th.metric'))}</th><th>${escapeHtml(t('summary.th.value'))}</th></tr>
+            <tr><td>${escapeHtml(t('summary.watch.exerciseMean'))}</td><td class="num">${ws.exerciseMinMean7d != null ? ws.exerciseMinMean7d.toFixed(0) + ' min' : '—'}</td></tr>
+            <tr><td>${escapeHtml(t('summary.watch.activeKcal'))}</td><td class="num">${ws.activeKcalMean7d != null ? ws.activeKcalMean7d.toFixed(0) + ' kcal' : '—'}</td></tr>
+            <tr><td>${escapeHtml(t('summary.watch.spo2'))}</td><td class="num">${ws.spo2Mean7d != null ? ws.spo2Mean7d.toFixed(1) + '%' : '—'}${ws.spo2Min7d != null ? ' / ' + ws.spo2Min7d.toFixed(1) + '%' : ''}</td></tr>
+            <tr><td>${escapeHtml(t('summary.watch.spo2Night'))}</td><td class="num">${ws.spo2NightMean7d != null ? ws.spo2NightMean7d.toFixed(1) + '%' : '—'}${ws.spo2NightMin7d != null ? escapeHtml(t('summary.watch.minSuffix', { n: ws.spo2NightMin7d.toFixed(1) })) : ''}</td></tr>
+            <tr><td>${escapeHtml(t('summary.watch.spo2Day'))}</td><td class="num">${ws.spo2DayMean7d != null ? ws.spo2DayMean7d.toFixed(1) + '%' : '—'}${ws.spo2DayMin7d != null ? escapeHtml(t('summary.watch.minSuffix', { n: ws.spo2DayMin7d.toFixed(1) })) : ''}</td></tr>
+            <tr><td>${escapeHtml(t('summary.watch.rr'))}</td><td class="num">${ws.rrMean7d != null ? ws.rrMean7d.toFixed(1) + escapeHtml(t('summary.watch.rrUnit')) : '—'}</td></tr>
+            <tr><td>${escapeHtml(t('summary.watch.nightHr'))}</td><td class="num">${ws.nightHrMean7d != null ? ws.nightHrMean7d.toFixed(0) + ' bpm' : '—'}</td></tr>
+            <tr><td>${escapeHtml(t('summary.watch.vo2'))}</td><td class="num">${ws.vo2Latest != null ? ws.vo2Latest.toFixed(1) : '—'} / ${vo2Delta}</td></tr>
+            <tr><td>${escapeHtml(t('summary.watch.wristTemp'))}</td><td class="num">${ws.wristTempMean7d != null ? ws.wristTempMean7d.toFixed(2) + ' °C' : '—'}</td></tr>
+            <tr><td>${escapeHtml(t('summary.watch.bd'))}</td><td class="num">${ws.breathingDisturbanceMean7d != null ? ws.breathingDisturbanceMean7d.toFixed(2) : '—'}${ws.breathingDisturbanceLatest != null ? ' / ' + ws.breathingDisturbanceLatest.toFixed(2) : ''}${ws.breathingDisturbanceDayCount ? escapeHtml(t('summary.watch.bdDays', { n: ws.breathingDisturbanceDayCount })) : ''}</td></tr>
+            <tr><td>${escapeHtml(t('summary.watch.daylight'))}</td><td class="num">${ws.daylightMinMean7d != null ? ws.daylightMinMean7d.toFixed(0) + ' min' : '—'}</td></tr>
+            <tr><td>${escapeHtml(t('summary.watch.stand'))}</td><td class="num">${ws.standHoursMean7d != null ? ws.standHoursMean7d.toFixed(1) : '—'}</td></tr>
+            <tr><td>${escapeHtml(t('summary.watch.dataDays'))}</td><td class="num">${escapeHtml(t('summary.watch.dataDaysVal', {
+              n: ws.dayCount,
+              spo2: ws.spo2DayCount,
+              vo2: ws.vo2DayCount,
+              bd: ws.breathingDisturbanceDayCount ? t('summary.watch.bdPart', { n: ws.breathingDisturbanceDayCount }) : '',
+            }))}</td></tr>
           </table>
           <table class="summary-table">
-            <tr><th>日期</th><th>锻炼</th><th>kcal</th><th>SpO₂</th><th>最低</th><th>呼吸</th><th>夜HR</th><th>VO₂</th>${showBd ? '<th>呼吸紊乱</th>' : ''}</tr>
+            <tr><th>${escapeHtml(t('summary.th.date'))}</th><th>${escapeHtml(t('summary.th.exercise'))}</th><th>${escapeHtml(t('summary.th.kcal'))}</th><th>${escapeHtml(t('summary.th.spo2'))}</th><th>${escapeHtml(t('summary.th.min'))}</th><th>${escapeHtml(t('summary.th.rr'))}</th><th>${escapeHtml(t('summary.th.nightHr'))}</th><th>${escapeHtml(t('summary.th.vo2'))}</th>${showBd ? `<th>${escapeHtml(t('summary.th.bd'))}</th>` : ''}</tr>
             ${rows}
           </table>
-          <p class="hint" style="margin-top:8px;">血氧与 VO₂ 为 Watch 估算；睡眠呼吸紊乱为 Apple 睡眠扰动估算（越高扰动相对越多），非睡眠呼吸暂停诊断。低值/偏高需结合症状，勿单次定论。</p>
+          <p class="hint" style="margin-top:8px;">${escapeHtml(t('summary.watch.hint'))}</p>
         </div>
       `);
     }
@@ -2624,29 +2656,29 @@
     // Workout 会话
     if (analysis.workoutStats && analysis.workoutStats.count > 0) {
       const wos = analysis.workoutStats;
-      const typeRows = wos.byType.slice(0, 8).map((t) =>
-        `<tr><td>${escapeHtml(t.activityLabel || t.activityType)}</td><td class="num">${t.count}</td><td class="num">${t.durationMin.toFixed(0)}</td><td class="num">${t.activeKcal ? t.activeKcal.toFixed(0) : '—'}</td></tr>`
+      const typeRows = wos.byType.slice(0, 8).map((wt) =>
+        `<tr><td>${escapeHtml(wt.activityLabel || wt.activityType)}</td><td class="num">${wt.count}</td><td class="num">${wt.durationMin.toFixed(0)}</td><td class="num">${wt.activeKcal ? wt.activeKcal.toFixed(0) : '—'}</td></tr>`
       ).join('');
       const recent = wos.sessions.slice(-8).reverse().map((s) => {
         return `<tr><td>${escapeHtml(s.startDate.slice(0, 16))}</td><td>${escapeHtml(s.activityLabel || s.activityType)}</td><td class="num">${s.durationMin.toFixed(0)}</td><td class="num">${s.activeKcal != null ? s.activeKcal.toFixed(0) : '—'}</td><td class="num">${s.hrAvg != null ? s.hrAvg.toFixed(0) : '—'}</td><td class="num">${s.hrMax != null ? s.hrMax.toFixed(0) : '—'}</td></tr>`;
       }).join('');
       blocks.push(`
         <div class="section-block">
-          <h3>🏋️ Workout 训练会话</h3>
+          <h3>${escapeHtml(t('summary.workout.h3'))}</h3>
           <table class="summary-table">
-            <tr><th>指标</th><th>值</th></tr>
-            <tr><td>总场次</td><td class="num">${wos.count}</td></tr>
-            <tr><td>近 30 日</td><td class="num">${wos.count30d} 场 · ${wos.durationSum30d.toFixed(0)} min · ${wos.activeKcalSum30d.toFixed(0)} kcal</td></tr>
-            <tr><td>近 7 日</td><td class="num">${wos.count7d} 场 · ${wos.durationSum7d.toFixed(0)} min</td></tr>
-            <tr><td>近 30 日场均时长</td><td class="num">${wos.durationMean30d != null ? wos.durationMean30d.toFixed(0) + ' min' : '—'}</td></tr>
-            <tr><td>近 30 日场均心率</td><td class="num">${wos.hrAvgMean30d != null ? wos.hrAvgMean30d.toFixed(0) + ' bpm' : '—'}</td></tr>
+            <tr><th>${escapeHtml(t('summary.th.metric'))}</th><th>${escapeHtml(t('summary.th.value'))}</th></tr>
+            <tr><td>${escapeHtml(t('summary.workout.total'))}</td><td class="num">${wos.count}</td></tr>
+            <tr><td>${escapeHtml(t('summary.workout.30d'))}</td><td class="num">${escapeHtml(t('summary.workout.30dVal', { n: wos.count30d, min: wos.durationSum30d.toFixed(0), kcal: wos.activeKcalSum30d.toFixed(0) }))}</td></tr>
+            <tr><td>${escapeHtml(t('summary.workout.7d'))}</td><td class="num">${escapeHtml(t('summary.workout.7dVal', { n: wos.count7d, min: wos.durationSum7d.toFixed(0) }))}</td></tr>
+            <tr><td>${escapeHtml(t('summary.workout.meanDur'))}</td><td class="num">${wos.durationMean30d != null ? wos.durationMean30d.toFixed(0) + ' min' : '—'}</td></tr>
+            <tr><td>${escapeHtml(t('summary.workout.meanHr'))}</td><td class="num">${wos.hrAvgMean30d != null ? wos.hrAvgMean30d.toFixed(0) + ' bpm' : '—'}</td></tr>
           </table>
           <table class="summary-table">
-            <tr><th>类型</th><th>场次</th><th>总分钟</th><th>kcal</th></tr>
+            <tr><th>${escapeHtml(t('summary.th.type'))}</th><th>${escapeHtml(t('summary.th.sessions'))}</th><th>${escapeHtml(t('summary.th.totalMin'))}</th><th>${escapeHtml(t('summary.th.kcal'))}</th></tr>
             ${typeRows}
           </table>
           <table class="summary-table">
-            <tr><th>开始</th><th>类型</th><th>min</th><th>kcal</th><th>HR均</th><th>HR最大</th></tr>
+            <tr><th>${escapeHtml(t('summary.th.start'))}</th><th>${escapeHtml(t('summary.th.type'))}</th><th>min</th><th>${escapeHtml(t('summary.th.kcal'))}</th><th>${escapeHtml(t('summary.th.hrAvg'))}</th><th>${escapeHtml(t('summary.th.hrMax'))}</th></tr>
             ${recent}
           </table>
         </div>
@@ -2659,7 +2691,7 @@
       const row = (label, val) =>
         val == null || val === ''
           ? ''
-          : `<tr><td>${label}</td><td class="num">${escapeHtml(String(val))}</td></tr>`;
+          : `<tr><td>${escapeHtml(label)}</td><td class="num">${escapeHtml(String(val))}</td></tr>`;
       const weeks = analysis.recoveryWeeks || [];
       const mini = weeks.slice(-6);
       const miniRows = mini.length
@@ -2675,40 +2707,115 @@
         : '';
       const miniTable = miniRows
         ? `
-          <p class="hint" style="margin:12px 0 6px;">近 ${mini.length} 周趋势（最旧→最新）</p>
+          <p class="hint" style="margin:12px 0 6px;">${escapeHtml(t('summary.recovery.trend', { n: mini.length }))}</p>
           <table class="summary-table">
-            <tr><th>周末</th><th>恢复</th><th>负荷</th><th>HRV</th><th>睡眠h</th></tr>
+            <tr><th>${escapeHtml(t('summary.th.weekEnd'))}</th><th>${escapeHtml(t('summary.th.recovery'))}</th><th>${escapeHtml(t('summary.th.load'))}</th><th>${escapeHtml(t('summary.th.hrv'))}</th><th>${escapeHtml(t('summary.th.sleepH'))}</th></tr>
             ${miniRows}
           </table>`
         : '';
       const w = recoveryWeights || loadRecoveryWeights();
       const weightSlider = (key, label, side) => {
         const val = w[key] != null ? Number(w[key]) : 1;
+        const aria = t('summary.recovery.weightAria', { label });
         return `
           <label class="rw-weight-row" data-side="${side}">
-            <span class="rw-weight-label">${label}</span>
-            <input type="range" id="rw-weight-${key}" min="0.1" max="5" step="0.1" value="${val}" aria-label="${label}权重">
+            <span class="rw-weight-label">${escapeHtml(label)}</span>
+            <input type="range" id="rw-weight-${key}" min="0.1" max="5" step="0.1" value="${val}" aria-label="${escapeHtml(aria)}">
             <span class="rw-weight-val" id="rw-weight-${key}-val">${val.toFixed(1)}</span>
           </label>`;
       };
+      // 评分拆解小面板：当前分、状态、基线差、生效权重
+      const weightLabelMap = {
+        hrv: t('recovery.breakdown.hrv') || 'HRV',
+        sleep: t('rw.weights.sleep') || '睡眠',
+        nightHr: t('rw.weights.nightHr') || '夜心率',
+        spo2Night: t('rw.weights.spo2Night') || '夜血氧',
+        exercise: t('rw.weights.exercise') || '锻炼',
+        workout: t('recovery.breakdown.workout') || 'Workout',
+        steps: t('rw.weights.steps') || '步数',
+      };
+      const weightKeys = ['hrv', 'sleep', 'nightHr', 'spo2Night', 'exercise', 'workout', 'steps'];
+      const weightChips = weightKeys
+        .map((k) => {
+          const val = w[k] != null ? Number(w[k]) : 1;
+          const label = weightLabelMap[k] || k;
+          return `<span class="recovery-breakdown-chip"><span class="recovery-breakdown-chip-name">${escapeHtml(label)}</span><span class="recovery-breakdown-chip-val">${val.toFixed(1)}</span></span>`;
+        })
+        .join('');
+      const recScoreTxt =
+        rw.recoveryScore != null ? String(rw.recoveryScore) : '—';
+      const loadScoreTxt = rw.loadScore != null ? String(rw.loadScore) : '—';
+      let baselineHtml = '';
+      if (rw.vsBaselineDelta != null && Number.isFinite(rw.vsBaselineDelta)) {
+        const d = rw.vsBaselineDelta;
+        const sign = d > 0 ? '+' : '';
+        const baseTxt =
+          rw.baselineRecoveryMedian != null
+            ? String(rw.baselineRecoveryMedian)
+            : '—';
+        baselineHtml = `<p class="recovery-breakdown-baseline">${escapeHtml(
+          t('recovery.breakdown.baseline') || '相对近几周中位'
+        )}: <strong>${sign}${d.toFixed(0)}</strong> <span class="hint">(${escapeHtml(
+          t('recovery.breakdown.baselineMedian') || '基线中位'
+        )} ${escapeHtml(baseTxt)})</span></p>`;
+      } else if (rw.baselineRecoveryMedian != null) {
+        baselineHtml = `<p class="recovery-breakdown-baseline hint">${escapeHtml(
+          t('recovery.breakdown.baselineMedian') || '基线中位'
+        )}: ${escapeHtml(String(rw.baselineRecoveryMedian))}</p>`;
+      }
+      const breakdownPanel = `
+          <div class="recovery-breakdown" id="recovery-breakdown" aria-label="${escapeHtml(
+            t('recovery.breakdown.title') || '恢复评分拆解'
+          )}">
+            <div class="recovery-breakdown-head">
+              <span class="recovery-breakdown-title">${escapeHtml(
+                t('recovery.breakdown.title') || '评分拆解'
+              )}</span>
+              <span class="recovery-breakdown-scores">
+                <span class="recovery-breakdown-score" data-kind="recovery">
+                  <span class="recovery-breakdown-score-label">${escapeHtml(
+                    t('recovery.breakdown.recoveryScore') || '恢复分'
+                  )}</span>
+                  <span class="recovery-breakdown-score-val">${escapeHtml(recScoreTxt)}</span>
+                </span>
+                <span class="recovery-breakdown-score" data-kind="load">
+                  <span class="recovery-breakdown-score-label">${escapeHtml(
+                    t('recovery.breakdown.loadScore') || '负荷分'
+                  )}</span>
+                  <span class="recovery-breakdown-score-val">${escapeHtml(loadScoreTxt)}</span>
+                </span>
+              </span>
+            </div>
+            <p class="recovery-breakdown-status">${escapeHtml(
+              t('recovery.breakdown.status') || '状态'
+            )}: ${escapeHtml(rw.statusLabel || '—')}</p>
+            ${baselineHtml}
+            <div class="recovery-breakdown-weights">
+              <span class="recovery-breakdown-weights-label">${escapeHtml(
+                t('recovery.breakdown.weights') || '当前权重'
+              )}</span>
+              <div class="recovery-breakdown-chips">${weightChips}</div>
+            </div>
+          </div>`;
       blocks.push(`
         <div class="section-block" id="recovery-panel">
-          <h3>🧭 近 7 日负荷与恢复</h3>
-          <p class="hint" style="margin:0 0 8px;">截止 ${escapeHtml(rw.weekEnd)} · ${escapeHtml(rw.statusLabel)}（启发式，非诊断）</p>
+          <h3>${escapeHtml(t('summary.recovery.h3'))}</h3>
+          <p class="hint" style="margin:0 0 8px;">${escapeHtml(t('summary.recovery.cutoff', { date: rw.weekEnd, status: rw.statusLabel || '' }))}</p>
+          ${breakdownPanel}
           <table class="summary-table">
-            <tr><th>指标</th><th>值</th></tr>
-            ${row('恢复分', rw.recoveryScore != null ? rw.recoveryScore + ' / 100' : null)}
-            ${row('负荷分', rw.loadScore != null ? rw.loadScore + ' / 100' : null)}
-            ${row('HRV 日均', rw.hrvMean7d != null ? rw.hrvMean7d.toFixed(1) + ' ms' : null)}
-            ${row('夜间心率', rw.nightHrMean7d != null ? rw.nightHrMean7d.toFixed(0) + ' bpm' : null)}
-            ${row('静息心率', rw.restingHrMean7d != null ? rw.restingHrMean7d.toFixed(0) + ' bpm' : null)}
-            ${row('锻炼日均', rw.exerciseMinMean7d != null ? rw.exerciseMinMean7d.toFixed(0) + ' min' : null)}
-            ${row('Workout', rw.workoutCount7d + ' 场 · ' + rw.workoutDuration7d.toFixed(0) + ' min')}
-            ${row('睡眠日均', rw.sleepMean7d != null ? rw.sleepMean7d.toFixed(2) + ' h' : null)}
-            ${row('步数日均', rw.stepsMean7d != null ? Math.round(rw.stepsMean7d) + ' 步' : null)}
-            ${row('站立小时日均', rw.standHoursMean7d != null ? rw.standHoursMean7d.toFixed(1) : null)}
-            ${row('日照日均', rw.daylightMinMean7d != null ? rw.daylightMinMean7d.toFixed(0) + ' min' : null)}
-            ${row('夜段血氧', rw.spo2NightMean7d != null ? rw.spo2NightMean7d.toFixed(1) + '%' : null)}
+            <tr><th>${escapeHtml(t('summary.th.metric'))}</th><th>${escapeHtml(t('summary.th.value'))}</th></tr>
+            ${row(t('summary.recovery.score'), rw.recoveryScore != null ? rw.recoveryScore + ' / 100' : null)}
+            ${row(t('summary.recovery.load'), rw.loadScore != null ? rw.loadScore + ' / 100' : null)}
+            ${row(t('summary.recovery.hrv'), rw.hrvMean7d != null ? rw.hrvMean7d.toFixed(1) + ' ms' : null)}
+            ${row(t('summary.recovery.nightHr'), rw.nightHrMean7d != null ? rw.nightHrMean7d.toFixed(0) + ' bpm' : null)}
+            ${row(t('summary.recovery.restingHr'), rw.restingHrMean7d != null ? rw.restingHrMean7d.toFixed(0) + ' bpm' : null)}
+            ${row(t('summary.recovery.exercise'), rw.exerciseMinMean7d != null ? rw.exerciseMinMean7d.toFixed(0) + ' min' : null)}
+            ${row(t('summary.recovery.workout'), t('summary.recovery.workoutVal', { n: rw.workoutCount7d, min: rw.workoutDuration7d.toFixed(0) }))}
+            ${row(t('summary.recovery.sleep'), rw.sleepMean7d != null ? rw.sleepMean7d.toFixed(2) + ' h' : null)}
+            ${row(t('summary.recovery.steps'), rw.stepsMean7d != null ? t('summary.recovery.stepsVal', { n: Math.round(rw.stepsMean7d) }) : null)}
+            ${row(t('summary.recovery.stand'), rw.standHoursMean7d != null ? rw.standHoursMean7d.toFixed(1) : null)}
+            ${row(t('summary.recovery.daylight'), rw.daylightMinMean7d != null ? rw.daylightMinMean7d.toFixed(0) + ' min' : null)}
+            ${row(t('summary.recovery.spo2Night'), rw.spo2NightMean7d != null ? rw.spo2NightMean7d.toFixed(1) + '%' : null)}
           </table>
           ${miniTable}
           <details class="rw-weights-panel" id="rw-weights-panel">
@@ -2771,56 +2878,56 @@
         .join('');
       const corrRows =
         es.highHrCount > 0
-          ? `<tr><td>高心率·训练±2h</td><td class="num">${nearW}</td></tr>
-            <tr><td>高心率·非运动窗</td><td class="num">${restW}</td></tr>
-            <tr><td>高心率·其他（非训练邻域粗算）</td><td class="num">${otherHr}</td></tr>` +
+          ? `<tr><td>${escapeHtml(t('summary.ecg.highNearWorkout'))}</td><td class="num">${nearW}</td></tr>
+            <tr><td>${escapeHtml(t('summary.ecg.highResting'))}</td><td class="num">${restW}</td></tr>
+            <tr><td>${escapeHtml(t('summary.ecg.highOther'))}</td><td class="num">${otherHr}</td></tr>` +
             (showActCorr
-              ? `<tr><td>高心率·低活动日</td><td class="num">${lowAct ?? 0}</td></tr>
-            <tr><td>高心率·高活动/训练邻域日</td><td class="num">${highAct ?? 0}</td></tr>`
+              ? `<tr><td>${escapeHtml(t('summary.ecg.highLowAct'))}</td><td class="num">${lowAct ?? 0}</td></tr>
+            <tr><td>${escapeHtml(t('summary.ecg.highHighAct'))}</td><td class="num">${highAct ?? 0}</td></tr>`
               : '')
           : '';
       const topHoursBlock = topHourRows
         ? `<table class="summary-table" style="margin-top:8px;">
-            <tr><th>高心率高发小时</th><th>份数</th></tr>
+            <tr><th>${escapeHtml(t('summary.th.highHrHour'))}</th><th>${escapeHtml(t('summary.th.copies'))}</th></tr>
             ${topHourRows}
           </table>`
         : '';
       blocks.push(`
         <div class="section-block">
-          <h3>📈 ECG 心电图</h3>
+          <h3>${escapeHtml(t('summary.ecg.h3'))}</h3>
           <table class="summary-table">
-            <tr><th>指标</th><th>值</th></tr>
-            <tr><td>总份数</td><td class="num">${es.count}</td></tr>
-            <tr><td>窦性 / 高心率 / 不佳</td><td class="num">${es.sinusCount} / ${es.highHrCount} / ${es.inconclusiveCount}</td></tr>
+            <tr><th>${escapeHtml(t('summary.th.metric'))}</th><th>${escapeHtml(t('summary.th.value'))}</th></tr>
+            <tr><td>${escapeHtml(t('summary.ecg.total'))}</td><td class="num">${es.count}</td></tr>
+            <tr><td>${escapeHtml(t('summary.ecg.breakdown'))}</td><td class="num">${es.sinusCount} / ${es.highHrCount} / ${es.inconclusiveCount}</td></tr>
             ${corrRows}
-            ${es.latest ? `<tr><td>最近</td><td class="num">${escapeHtml(String(es.latest.datetime).slice(0, 16))} · ${escapeHtml(es.latest.classification)}</td></tr>` : ''}
+            ${es.latest ? `<tr><td>${escapeHtml(t('summary.ecg.latest'))}</td><td class="num">${escapeHtml(String(es.latest.datetime).slice(0, 16))} · ${escapeHtml(es.latest.classification)}</td></tr>` : ''}
           </table>
           ${topHoursBlock}
           <table class="summary-table">
-            <tr><th>分类</th><th>份数</th></tr>
+            <tr><th>${escapeHtml(t('summary.th.classification'))}</th><th>${escapeHtml(t('summary.th.copies'))}</th></tr>
             ${classRows}
           </table>
           <details style="margin-top:8px;">
-            <summary style="cursor:pointer;color:var(--primary);font-size:13px;">最近记录</summary>
+            <summary style="cursor:pointer;color:var(--primary);font-size:13px;">${escapeHtml(t('summary.ecg.recent'))}</summary>
             <table class="summary-table" style="margin-top:8px;">
-              <tr><th>时间</th><th>分类</th></tr>
+              <tr><th>${escapeHtml(t('summary.th.time'))}</th><th>${escapeHtml(t('summary.th.classification'))}</th></tr>
               ${recentList}
             </table>
           </details>
-          <p class="hint" style="margin-top:8px;">高心率「训练±2h」相对 Workout 开始时间；「非运动窗」= 22–08 或附近无训练；「低活动日」≈ 步数&lt;3000 且锻炼很少，「高活动」≈ 步数≥8000 / 锻炼≥20min / 训练邻域。请优先上传完整 ZIP 或含 electrocardiograms/ 的文件夹以收录 ECG。</p>
+          <p class="hint" style="margin-top:8px;">${t('summary.ecg.hint')}</p>
         </div>
       `);
     } else if (data.ecg && data.ecg.length > 0) {
       blocks.push(`
         <div class="section-block">
-          <h3>📈 ECG 心电图</h3>
-          <p class="hint">共 ${data.ecg.length} 份</p>
+          <h3>${escapeHtml(t('summary.ecg.h3'))}</h3>
+          <p class="hint">${escapeHtml(t('summary.ecg.countOnly', { n: data.ecg.length }))}</p>
         </div>
       `);
     }
 
     if (blocks.length === 0) {
-      container.innerHTML = '<p class="hint">未发现可识别的健康数据维度。请确认导出的 ZIP 包来源。</p>';
+      container.innerHTML = `<p class="hint">${escapeHtml(t('summary.empty'))}</p>`;
       return;
     }
     // 各维度默认折叠，减轻长页滚动压力
@@ -2828,7 +2935,7 @@
       const open = idx === 0 ? ' open' : '';
       // 从块内 h3 抽标题
       const m = html.match(/<h3[^>]*>([\s\S]*?)<\/h3>/);
-      const title = m ? m[1].replace(/<[^>]+>/g, '').trim() : `维度 ${idx + 1}`;
+      const title = m ? m[1].replace(/<[^>]+>/g, '').trim() : t('summary.dimensionN', { n: idx + 1 });
       const panel = panelKeyFromTitle(title);
       const body = html.replace(/<h3[^>]*>[\s\S]*?<\/h3>/, '');
       return `<details class="summary-acc" data-panel="${panel}"${open}><summary>${title}</summary><div class="summary-acc-body">${body}</div></details>`;
@@ -2905,11 +3012,11 @@
       await navigator.clipboard.writeText(text);
       const status = $('copy-status');
       if (status) {
-        status.textContent = '✓ 已复制';
+        status.textContent = t('common.copied');
         status.classList.add('show');
         setTimeout(() => status.classList.remove('show'), 2000);
       }
-      showToast(okMsg || '已复制到剪贴板', { ok: true });
+      showToast(okMsg || t('copy.ok.clipboard'), { ok: true });
       return true;
     } catch (err) {
       try {
@@ -2921,10 +3028,10 @@
           document.execCommand('copy');
           ta.value = prev;
         }
-        showToast(okMsg || '已尝试复制', { ms: 2200 });
+        showToast(okMsg || t('copy.tried'), { ms: 2200 });
         return true;
       } catch (e2) {
-        showToast('复制失败，请长按文本手动复制', { ms: 2800 });
+        showToast(t('copy.fail'), { ms: 2800 });
         return false;
       }
     }
@@ -2934,16 +3041,16 @@
   $('btn-copy')?.addEventListener('click', async () => {
     if (!currentAnalysis) return;
     renderPrompt();
-    await copyText($('prompt-output').value, '已复制到剪贴板');
+    await copyText($('prompt-output').value, t('copy.ok.clipboard'));
   });
 
   async function copyInsightsOnly() {
     if (!currentAnalysis) {
-      showToast('请先完成分析');
+      showToast(t('common.needAnalysis'));
       return;
     }
     if (typeof window.HealthAnalyzer.generateInsightsOnlyPrompt !== 'function') {
-      showToast('摘要复制不可用');
+      showToast(t('copy.err.insightsUnavailable'));
       return;
     }
     const ctx = getUserContextFromForm();
@@ -2952,7 +3059,7 @@
       prefix = window.HealthAnalyzer.formatUserContext(ctx) || '';
     }
     const text = window.HealthAnalyzer.generateInsightsOnlyPrompt(currentAnalysis, { prefix });
-    await copyText(text, '已复制摘要短提示（适合短上下文模型）');
+    await copyText(text, t('copy.ok.insights'));
   }
 
   // 只复制自动监测摘要（短上下文）
@@ -3018,7 +3125,7 @@
     try {
       await window.HealthHistory.clearAll();
       await refreshHistorySelect();
-      showExportStatus('✓ 历史已清空');
+      showExportStatus(t('history.ok.cleared'));
     } catch (e) {
       alert(e.message || String(e));
     }
@@ -3104,6 +3211,8 @@
       renderSignals(currentAnalysis);
       renderAvailability(currentAnalysis);
       renderKpis(currentAnalysis);
+      renderSummary(currentAnalysis);
+      bindRecoveryWeightsUi();
       renderPrompt();
     } catch (e) {
       console.warn('locale refresh partial', e);

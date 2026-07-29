@@ -15,33 +15,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 部署前门禁：test/build 失败则不部署
+  # 部署前门禁：test/build 失败则不部署（与 CI 共用 reusable-test.yml）
   test:
     name: Pre-deploy tests
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: lib
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: lib/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run unit tests
-        run: npm test
-
-      # package.json: "build" = tsc && build:browser
-      - name: Build (tsc + browser bundle)
-        run: npm run build
+    uses: ./.github/workflows/reusable-test.yml
 
   deploy:
     needs: test

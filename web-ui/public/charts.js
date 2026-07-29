@@ -220,10 +220,10 @@
       ctx.fillStyle = theme.bg;
       ctx.fillRect(0, 0, cssW, cssH);
 
+      const fontBase = 'ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif';
       ctx.strokeStyle = theme.grid;
-      ctx.fillStyle = theme.label;
-      ctx.font = '11px system-ui, -apple-system, sans-serif';
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 0.5;
+      ctx.globalAlpha = 0.55;
       const ticks = 4;
       for (let i = 0; i <= ticks; i++) {
         const v = yMin + ((yMax - yMin) * i) / ticks;
@@ -232,29 +232,40 @@
         ctx.moveTo(pad.left, y);
         ctx.lineTo(pad.left + w, y);
         ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = theme.text;
+      ctx.font = '500 12px ' + fontBase;
+      for (let i = 0; i <= ticks; i++) {
+        const v = yMin + ((yMax - yMin) * i) / ticks;
+        const y = yAt(v);
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         ctx.fillText(v.toFixed(v >= 100 ? 0 : 1), pad.left - 6, y);
       }
 
       if (options.thresholds) {
+        ctx.save();
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.5;
+        ctx.font = '500 11px ' + fontBase;
         for (const t of options.thresholds) {
           if (!Number.isFinite(t.y)) continue;
           const y = yAt(t.y);
           ctx.strokeStyle = t.color || '#e74c3c';
-          ctx.setLineDash([4, 3]);
+          ctx.setLineDash([4, 4]);
           ctx.beginPath();
           ctx.moveTo(pad.left, y);
           ctx.lineTo(pad.left + w, y);
           ctx.stroke();
-          ctx.setLineDash([]);
           if (t.label) {
             ctx.fillStyle = t.color || '#e74c3c';
             ctx.textAlign = 'left';
             ctx.textBaseline = 'bottom';
-            ctx.fillText(t.label, pad.left + 4, y - 2);
+            ctx.fillText(t.label, pad.left + 6, y - 3);
           }
         }
+        ctx.restore();
       }
 
       const color = options.color || theme.primary;
@@ -288,8 +299,13 @@
       ctx.stroke();
 
       for (const i of [0, n - 1]) {
+        const ex = xAt(i), ey = yAt(points[i].y);
         ctx.beginPath();
-        ctx.arc(xAt(i), yAt(points[i].y), 3, 0, Math.PI * 2);
+        ctx.arc(ex, ey, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = theme.bg;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(ex, ey, 2.5, 0, Math.PI * 2);
         ctx.fillStyle = color;
         ctx.fill();
       }
@@ -297,23 +313,27 @@
       if (activeIndex != null && activeIndex >= 0 && activeIndex < n) {
         const ax = xAt(activeIndex);
         const ay = yAt(points[activeIndex].y);
+        ctx.save();
         ctx.strokeStyle = theme.label;
-        ctx.setLineDash([3, 3]);
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.55;
+        ctx.setLineDash([4, 4]);
         ctx.beginPath();
         ctx.moveTo(ax, pad.top);
         ctx.lineTo(ax, pad.top + h);
         ctx.stroke();
-        ctx.setLineDash([]);
+        ctx.restore();
         ctx.beginPath();
-        ctx.arc(ax, ay, 4.5, 0, Math.PI * 2);
+        ctx.arc(ax, ay, 5, 0, Math.PI * 2);
         ctx.fillStyle = color;
         ctx.fill();
         ctx.strokeStyle = theme.bg;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2.5;
         ctx.stroke();
       }
 
-      ctx.fillStyle = theme.label;
+      ctx.fillStyle = theme.text;
+      ctx.font = '500 12px ' + fontBase;
       ctx.textBaseline = 'top';
       const labelIdx = n === 1 ? [0] : n === 2 ? [0, 1] : [0, Math.floor((n - 1) / 2), n - 1];
       for (const i of labelIdx) {
@@ -324,7 +344,8 @@
 
       if (options.yLabel) {
         ctx.save();
-        ctx.fillStyle = theme.label;
+        ctx.fillStyle = theme.text;
+        ctx.font = '600 11px ' + fontBase;
         ctx.translate(12, pad.top + h / 2);
         ctx.rotate(-Math.PI / 2);
         ctx.textAlign = 'center';
@@ -351,6 +372,7 @@
         paint(idx);
         const p = points[idx];
         if (readoutEl && p) {
+          readoutEl.classList.add('is-hover');
           const xv = formatXFull(p.x);
           readoutEl.textContent = `${xv}  ·  ${Number(p.y).toFixed(p.y >= 100 ? 0 : 2)}${options.unit ? ' ' + options.unit : ''}`;
         }
@@ -359,6 +381,7 @@
       const onLeave = () => {
         paint(null);
         if (readoutEl) {
+          readoutEl.classList.remove('is-hover');
           const last = points[n - 1];
           const min = Math.min(...ys);
           const max = Math.max(...ys);
