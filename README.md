@@ -1,8 +1,12 @@
 # 苹果健康数据分析 PWA
 
+**语言 / Language：** **[中文文档](docs/README.md)** · **[English docs](docs/en/README.md)**
+
 本地隐私优先 · 跨平台 · 零服务器
 
 把 iPhone「健康」App 导出的数据包（ZIP / XML）在浏览器内解析、统计，并生成可粘贴到豆包 / ChatGPT / Claude 等大模型的标准化提示词。纯前端 PWA，无后端。
+
+> **English:** Privacy-first Apple Health export analyzer (ZIP/XML) that runs entirely in the browser, builds stats and recovery insights, and generates paste-ready LLM prompts. Full documentation: [docs/en/README.md](docs/en/README.md) · deploy [docs/en/DEPLOY.md](docs/en/DEPLOY.md) · prompts [docs/en/PROMPT_DESIGN.md](docs/en/PROMPT_DESIGN.md).
 
 在线演示（GitHub Pages）：部署成功后见仓库 Actions / Pages 地址，形如  
 `https://<USER>.github.io/health-analyzer/`
@@ -23,6 +27,8 @@
 - 查看跨维度提示、趋势图（可滑动读数）  
 - 导出 JSON / CSV、保存摘要到本机历史做环比  
 - 切换浅色 / 深色 / 跟随系统外观  
+- 顶栏切换 **中文 / English** 界面语言  
+
 
 ### 开发者端
 
@@ -74,6 +80,8 @@ python3 -m http.server 8000
 - ✅ **一键导出本周 Markdown 报告**；恢复分对比近几周中位基线  
 - ✅ **可调恢复评分权重**（localStorage）+ **周报本机历史**（IndexedDB）  
 - ✅ **CGM×睡眠/活动**联合信号（短睡+低值、高读数+低步数等）  
+- ✅ **响应式自适应 UI**（移动端优先、安全区、吸底 CTA、窄屏布局）  
+- ✅ **界面与文档 i18n**（中英双语文档 `docs/` / `docs/en/`；UI：`web-ui/public/i18n.js`）  
 
 ## 项目结构
 
@@ -85,14 +93,16 @@ health-analyzer/
 │   └── test/
 ├── web-ui/public/       # 可直接部署的 PWA 静态资源
 │   ├── index.html
+│   ├── i18n.js          # 界面中英文本
 │   ├── app.js / styles.css / charts.js / history-db.js
 │   ├── lib.js           # 由 lib 构建生成，勿手改
 │   └── parse-worker.js
-├── docs/                # 说明、部署、提示词设计
+├── docs/                # 中文说明、部署、提示词设计
+│   └── en/              # English docs
 └── .github/workflows/   # CI + GitHub Pages
 ```
 
-详见 [docs/README.md](docs/README.md)
+详见 [docs/README.md](docs/README.md) · [docs/en/README.md](docs/en/README.md)
 
 ## 部署到 GitHub Pages
 
@@ -108,14 +118,23 @@ git push origin main
 
 ## 文档
 
+中文：
+
 - [docs/README.md](docs/README.md) — 功能、局限、扩展路线  
 - [docs/DEPLOY.md](docs/DEPLOY.md) — 部署与自定义  
 - [docs/PROMPT_DESIGN.md](docs/PROMPT_DESIGN.md) — 提示词工程  
+
+English:
+
+- [docs/en/README.md](docs/en/README.md) — features, limits, roadmap  
+- [docs/en/DEPLOY.md](docs/en/DEPLOY.md) — deploy & customization  
+- [docs/en/PROMPT_DESIGN.md](docs/en/PROMPT_DESIGN.md) — prompt design  
 
 ## 版本要点（近期）
 
 | 版本 | 内容 |
 |------|------|
+| v1.18 | 响应式自适应 UI、界面/文档 i18n 与中英双语文档（`docs/en/*`） |
 | v1.17 | 可调恢复权重、周报 IndexedDB 历史、CGM×睡眠/活动联合信号 |
 | v1.16 | 周报 MD 导出、恢复基线、BD×夜血氧、ECG×活动日关联 |
 | v1.15 | 多周恢复趋势、ECG×训练时段关联、睡眠呼吸紊乱序列 |

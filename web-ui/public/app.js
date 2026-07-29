@@ -8,6 +8,9 @@
   const $ = (id) => document.getElementById(id);
   const show = (id) => $(id).classList.remove('hidden');
   const hide = (id) => $(id).classList.add('hidden');
+  /** UI i18n helper (falls back to Chinese key text when i18n.js missing) */
+  const t = (key, vars) =>
+    (window.I18n && typeof window.I18n.t === 'function') ? window.I18n.t(key, vars) : key;
 
   let currentAnalysis = null;
   let currentPromptTab = 'full';
@@ -1072,11 +1075,11 @@
       list.innerHTML = '<li class="insight-item tone-neutral"><div class="insight-title">暂无足够数据生成摘要</div><p class="insight-detail">请确认导出包含体重、血压、CGM 或心率等记录。</p></li>';
       return;
     }
-    const toneLabel = (t) => {
-      if (t === 'alert') return '需关注';
-      if (t === 'watch') return '观察';
-      if (t === 'positive') return '积极';
-      return '提示';
+    const toneLabel = (tone) => {
+      if (tone === 'alert') return t('tone.alert');
+      if (tone === 'watch') return t('tone.watch');
+      if (tone === 'positive') return t('tone.positive');
+      return t('tone.neutral');
     };
     const chartKeyFromAnchor = (a) => {
       if (!a) return '';
@@ -1106,8 +1109,8 @@
         false;
       const actions = `
         <span class="insight-actions">
-          <button type="button" class="insight-act" data-prefer="summary" data-anchor="${escapeHtml(anchor)}">明细</button>
-          ${canChart ? `<button type="button" class="insight-act" data-prefer="chart" data-anchor="${escapeHtml(anchor)}">看曲线</button>` : ''}
+          <button type="button" class="insight-act" data-prefer="summary" data-anchor="${escapeHtml(anchor)}">${escapeHtml(t('action.detail'))}</button>
+          ${canChart ? `<button type="button" class="insight-act" data-prefer="chart" data-anchor="${escapeHtml(anchor)}">${escapeHtml(t('action.chart'))}</button>` : ''}
         </span>`;
       return `
       <li class="insight-item tone-${escapeHtml(b.tone || 'neutral')} is-clickable" data-anchor="${escapeHtml(anchor)}" data-idx="${idx}" role="button" tabindex="0">
@@ -1972,7 +1975,7 @@
         <div class="av-icon">${it.icon}</div>
         <div class="av-info">
           <div class="av-name">${it.name}</div>
-          <div class="av-count">${av[it.key] ? it.count : '无数据'}</div>
+          <div class="av-count">${av[it.key] ? it.count : escapeHtml(t('av.noData'))}</div>
         </div>
       </div>
     `).join('');
@@ -2745,6 +2748,49 @@
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => renderCharts(currentAnalysis), 150);
   });
+
+  // 语言切换：静态 DOM + 已渲染的动态区块
+  function refreshLocaleUi() {
+    if (window.I18n && typeof window.I18n.applyDom === 'function') {
+      window.I18n.applyDom();
+    }
+    // 桌面上传区文案可略加强「拖放」提示
+    const uploadText = $('upload-text');
+    const drop = $('drop-zone');
+    if (uploadText && drop && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+      uploadText.textContent = t('upload.drop');
+      drop.classList.add('is-desktop-hint');
+    }
+    if (!currentAnalysis) return;
+    try {
+      renderInsights(currentAnalysis);
+      renderAvailability(currentAnalysis);
+      renderKpis(currentAnalysis);
+    } catch (e) {
+      console.warn('locale refresh partial', e);
+    }
+  }
+
+  $('locale-select')?.addEventListener('change', (e) => {
+    const next = e.target.value === 'en' ? 'en' : 'zh-CN';
+    if (window.I18n && typeof window.I18n.setLocale === 'function') {
+      window.I18n.setLocale(next);
+    }
+    refreshLocaleUi();
+  });
+
+  window.addEventListener('health-analyzer-locale', () => {
+    refreshLocaleUi();
+  });
+
+  // 初始：同步语言选择器 + 桌面拖放提示
+  (function initLocaleChrome() {
+    const sel = $('locale-select');
+    if (sel && window.I18n) {
+      sel.value = window.I18n.getLocale() || 'zh-CN';
+    }
+    refreshLocaleUi();
+  })();
 
   // ============================================================
   // Service Worker 注册

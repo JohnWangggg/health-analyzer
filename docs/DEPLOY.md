@@ -1,5 +1,7 @@
 # 部署指南
 
+**语言 / Language：** **中文** | [English](./en/DEPLOY.md)
+
 将 `web-ui/public/` 目录中的所有文件托管到任意静态 Web 服务器即可。
 
 ## 选项 1：本地 Python 快速预览

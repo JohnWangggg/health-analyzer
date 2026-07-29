@@ -1,8 +1,16 @@
 # 苹果健康数据分析 PWA
 
+**语言 / Language：** **中文** | [English](./en/README.md)
+
 > 本地隐私优先 · 跨平台 · 零服务器
 
 一款把 iPhone 苹果健康 App 导出的数据包（ZIP / XML）解析、统计、并生成可粘贴到豆包 / ChatGPT / Claude / Gemini 等大模型平台的标准化提示词的纯前端 PWA 应用。
+
+英文文档：
+
+- [English README](./en/README.md) — features, limits, roadmap  
+- [DEPLOY (EN)](./en/DEPLOY.md) — hosting & customization  
+- [PROMPT_DESIGN (EN)](./en/PROMPT_DESIGN.md) — prompt engineering  
 
 ## 核心特性
 
@@ -27,6 +35,8 @@
 - ✅ **跨维度提示 + 趋势图 + 历史环比**（IndexedDB 摘要）
 - ✅ **结果概览 KPI** 与吸底「复制完整提示词」
 - ✅ **深色模式**：跟随系统或手动切换（浅色 / 深色 / 自动）
+- ✅ **响应式自适应 UI**：移动端优先、安全区、吸底 CTA、窄屏图表与 KPI 布局
+- ✅ **界面与文档 i18n**：中英双语文档（`docs/` / `docs/en/`）；UI 语言资源目录 `web-ui/public/i18n/`
 
 ## 目录结构
 
@@ -54,9 +64,13 @@ health-analyzer/
 │           ├── icon-192.svg
 │           └── icon-512.svg
 └── docs/
-    ├── README.md                 # 本文档
+    ├── README.md                 # 本文档（中文）
     ├── DEPLOY.md                 # 部署指南
-    └── PROMPT_DESIGN.md          # 提示词设计说明
+    ├── PROMPT_DESIGN.md          # 提示词设计说明
+    └── en/                       # English docs
+        ├── README.md
+        ├── DEPLOY.md
+        └── PROMPT_DESIGN.md
 ```
 
 ## 快速开始
@@ -164,8 +178,9 @@ Service Worker 缓存所有静态资源，断网也能用。安装后像原生 A
 - **核心解析**：TypeScript 唯一源码（`lib/src`），esbuild 打包为浏览器 IIFE
 - **ZIP 解压**：本地 `fflate.min.js`（无 CDN）
 - **PWA**：Service Worker（network-first + 离线回退）+ manifest + SVG 图标
-- **UI**：原生 CSS（响应式 + 深色模式）；结果概览 / 吸底 CTA
-- **存储**：完整明细默认仅内存；可选 localStorage（背景）/ IndexedDB（摘要历史）
+- **UI**：原生 CSS（响应式自适应 + 深色模式）；结果概览 / 吸底 CTA
+- **i18n**：`docs/en/*` 英文文档；`web-ui/public/i18n/` UI 语言资源
+- **存储**：完整明细默认仅内存；可选 localStorage（背景）/ IndexedDB（摘要历史、周报）
 
 ## 开发构建
 
@@ -212,6 +227,9 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - [x] 摘要「看曲线」、复制 toast、首次使用引导
 - [x] 只复制摘要短提示、图表时间范围、失败重试保留设置
 - [x] 吸底复制摘要、图表范围记忆、体脂秤/血压 CSV 合并
+- [x] Watch 日汇总、Workout、恢复仪表与多周趋势、周报 MD
+- [x] 可调恢复权重、周报 IndexedDB、联合信号（含 CGM×睡眠/活动）
+- [x] 响应式自适应 UI 打磨 + 中英双语文档 / i18n 资源目录
 - [ ] 自定义提示词模板
 - [ ] 多用户/家庭成员数据支持
 - [ ] 与豆包 / ChatGPT API 直接对接（需用户自备 API key）
