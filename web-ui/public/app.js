@@ -768,10 +768,9 @@
       }, 220);
 
     } catch (err) {
-      setProgress(0, t('progress.error', { msg: err.message || String(err) }));
       console.error(err);
-      showError(err.message);
-      hide('step-progress');
+      // showError rewrites #step-progress and shows it; do not hide afterward
+      showError(err.message || String(err));
     }
   }
 

@@ -1,0 +1,10 @@
+This is not a valid Apple Health export.
+<<<<<<< BROKEN
+<HealthData>
+  <Record type="HKQuantityTypeIdentifierBodyMass" value="not-a-number" startDate="garbage" sourceName="X"/>
+  <Record value="72" sourceName="MissingType"/>
+  <Record type="HKQuantityTypeIdentifierStepCount" value="100"/>
+  <Workout workoutActivityType="HKWorkoutActivityTypeWalking"
+  unclosed and truncated XML
+& < > " ' random bytes \x00
+]]>

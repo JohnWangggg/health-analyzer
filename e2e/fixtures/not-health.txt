@@ -1,0 +1,2 @@
+This is a plain text file, not a ZIP or XML health export.
+It should trigger the invalid file-type path in the UI.
