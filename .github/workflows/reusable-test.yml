@@ -31,3 +31,7 @@ jobs:
       # package.json: "build" = tsc && build:browser
       - name: Build (tsc + browser bundle)
         run: npm run build
+
+      - name: UI / i18n smoke (static + locale)
+        working-directory: .
+        run: node scripts/smoke.mjs

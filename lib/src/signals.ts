@@ -5,6 +5,7 @@
 import { FullAnalysis } from './types';
 import { getDate, getHour } from './parser';
 import { createL, LocaleOptions, normalizeLocale } from './locale';
+import { toTraditionalTitle } from './zh-tw-map';
 
 export type SignalSeverity = 'info' | 'watch' | 'alert';
 
@@ -887,7 +888,18 @@ export function detectCrossSignals(
   // 严重度排序
   const rank: Record<SignalSeverity, number> = { alert: 0, watch: 1, info: 2 };
   unique.sort((a, b) => rank[a.severity] - rank[b.severity] || String(b.date || '').localeCompare(String(a.date || '')));
-  return unique.slice(0, 20);
+  const out = unique.slice(0, 20);
+  // zh-TW: 维度标签等非 L() 拼接处再过一遍词库（L() 已繁体化主文案）
+  if (normalizeLocale(options?.locale) === 'zh-TW') {
+    for (const s of out) {
+      s.title = toTraditionalTitle(s.title);
+      s.detail = toTraditionalTitle(s.detail);
+      if (s.dimensions && s.dimensions.length) {
+        s.dimensions = s.dimensions.map((d) => toTraditionalTitle(d));
+      }
+    }
+  }
+  return out;
 }
 
 /** 格式化为 Markdown，便于注入提示词或展示 */

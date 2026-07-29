@@ -87,7 +87,9 @@ var HealthAnalyzer = (() => {
     recomputeRecovery: () => recomputeRecovery,
     shortWorkoutType: () => shortWorkoutType,
     summarizeHrvByDay: () => summarizeHrvByDay,
+    toTraditionalText: () => toTraditionalText,
     toTraditionalTitle: () => toTraditionalTitle,
+    traditionalizeAnalysisCopy: () => traditionalizeAnalysisCopy,
     traditionalizeMarkdownHeadings: () => traditionalizeMarkdownHeadings,
     workoutTypeLabel: () => workoutTypeLabel,
     xmlAttr: () => xmlAttr
@@ -925,6 +927,267 @@ var HealthAnalyzer = (() => {
     }
   };
 
+  // src/zh-tw-map.ts
+  var TITLE_PHRASES_RAW = [
+    // —— 恢复 statusLabel 整句 ——
+    ["\u6062\u590D\u5C1A\u53EF\uFF0C\u53EF\u7EF4\u6301\u6216\u8F7B\u91CF\u63A8\u8FDB", "\u6062\u5FA9\u5C1A\u53EF\uFF0C\u53EF\u7DAD\u6301\u6216\u8F15\u91CF\u63A8\u9032"],
+    ["\u8D1F\u8377\u504F\u9AD8\u4E14\u6062\u590D\u504F\u7D27\uFF0C\u5EFA\u8BAE\u8F7B\u677E\u65E5", "\u8CA0\u8377\u504F\u9AD8\u4E14\u6062\u5FA9\u504F\u7DCA\uFF0C\u5EFA\u8B70\u8F15\u9B06\u65E5"],
+    ["\u6062\u590D\u6307\u6807\u504F\u5F31\uFF0C\u4F18\u5148\u7761\u7720\u4E0E\u51CF\u8D1F", "\u6062\u5FA9\u6307\u6A19\u504F\u5F31\uFF0C\u512A\u5148\u7761\u7720\u8207\u6E1B\u8CA0"],
+    ["\u6062\u590D\u5C1A\u53EF\u4F46\u6D3B\u52A8\u504F\u4F4E\uFF0C\u53EF\u9002\u91CF\u589E\u52A0\u8D70\u52A8", "\u6062\u5FA9\u5C1A\u53EF\u4F46\u6D3B\u52D5\u504F\u4F4E\uFF0C\u53EF\u9069\u91CF\u589E\u52A0\u8D70\u52D5"],
+    ["\u8D1F\u8377\u4E0E\u6062\u590D\u5927\u81F4\u5E73\u8861", "\u8CA0\u8377\u8207\u6062\u5FA9\u5927\u81F4\u5E73\u8861"],
+    ["\u6570\u636E\u4E0D\u8DB3\uFF0C\u6682\u4E0D\u8BC4\u4F30", "\u8CC7\u6599\u4E0D\u8DB3\uFF0C\u66AB\u4E0D\u8A55\u4F30"],
+    ["\u9AD8\u4E8E\u8FD1\u51E0\u5468\u4E2D\u4F4D\u7EA6", "\u9AD8\u65BC\u8FD1\u5E7E\u9031\u4E2D\u4F4D\u7D04"],
+    ["\u4F4E\u4E8E\u8FD1\u51E0\u5468\u4E2D\u4F4D\u7EA6", "\u4F4E\u65BC\u8FD1\u5E7E\u9031\u4E2D\u4F4D\u7D04"],
+    ["\u8FD1\u51E0\u5468\u4E2D\u4F4D", "\u8FD1\u5E7E\u9031\u4E2D\u4F4D"],
+    // —— 长标题 / 章节 ——
+    ["\u6570\u636E\u8D28\u91CF\u63D0\u793A\uFF08\u672A\u6765\u65E5\u671F\u5DF2\u6392\u9664\uFF09", "\u8CC7\u6599\u54C1\u8CEA\u63D0\u793A\uFF08\u672A\u4F86\u65E5\u671F\u5DF2\u6392\u9664\uFF09"],
+    ["\u4E2A\u4EBA\u80CC\u666F\uFF08\u7528\u6237\u81EA\u8FF0\uFF0C\u4EC5\u4F9B\u5BF9\u7167\uFF0C\u975E\u533B\u7597\u6863\u6848\uFF09", "\u500B\u4EBA\u80CC\u666F\uFF08\u7528\u6236\u81EA\u8FF0\uFF0C\u50C5\u4F9B\u5C0D\u7167\uFF0C\u975E\u91AB\u7642\u6A94\u6848\uFF09"],
+    ["Apple Watch\uFF08\u6D3B\u52A8 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6E29 / \u547C\u5438\u7D0A\u4E71\uFF09", "Apple Watch\uFF08\u6D3B\u52D5 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6EAB / \u547C\u5438\u7D0A\u4E82\uFF09"],
+    ["Apple Watch\uFF08\u6D3B\u52A8 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6E29\uFF09", "Apple Watch\uFF08\u6D3B\u52D5 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6EAB\uFF09"],
+    ["\u81EA\u52A8\u76D1\u6D4B\u6458\u8981\uFF08\u7A0B\u5E8F\u751F\u6210\uFF0C\u975E\u8BCA\u65AD\uFF09", "\u81EA\u52D5\u76E3\u6E2C\u6458\u8981\uFF08\u7A0B\u5E8F\u751F\u6210\uFF0C\u975E\u8A3A\u65B7\uFF09"],
+    ["\u8DE8\u7EF4\u5EA6\u63D0\u793A\uFF08\u542F\u53D1\u5F0F\uFF0C\u975E\u8BCA\u65AD\uFF09", "\u8DE8\u7DAD\u5EA6\u63D0\u793A\uFF08\u555F\u767C\u5F0F\uFF0C\u975E\u8A3A\u65B7\uFF09"],
+    ["\u9700\u8981\u590D\u67E5\u6216\u5347\u7EA7\u5904\u7406\u7684\u4FE1\u53F7", "\u9700\u8981\u8907\u67E5\u6216\u5347\u7D1A\u8655\u7406\u7684\u8A0A\u865F"],
+    ["\u6062\u590D\uFF08HRV / \u9759\u606F\u5FC3\u7387\uFF09", "\u6062\u5FA9\uFF08HRV / \u975C\u606F\u5FC3\u7387\uFF09"],
+    ["HRV \u76F8\u5BF9\u4E2A\u4EBA\u57FA\u7EBF", "HRV \u76F8\u5C0D\u500B\u4EBA\u57FA\u7DDA"],
+    ["\u591C\u95F4\u5FC3\u7387\u76F8\u5BF9\u4E2A\u4EBA\u57FA\u7EBF", "\u591C\u9593\u5FC3\u7387\u76F8\u5C0D\u500B\u4EBA\u57FA\u7DDA"],
+    ["\u4F53\u91CD\u8FD1\u5468\u76F8\u5BF9\u524D\u4E00\u5468", "\u9AD4\u91CD\u8FD1\u9031\u76F8\u5C0D\u524D\u4E00\u9031"],
+    ["\u547C\u5438\u7D0A\u4E71\u4E0E\u591C\u6BB5\u8840\u6C27", "\u547C\u5438\u7D0A\u4E82\u8207\u591C\u6BB5\u8840\u6C27"],
+    ["\u8FD1 7 \u65E5\u8D1F\u8377\u4E0E\u6062\u590D", "\u8FD1 7 \u65E5\u8CA0\u8377\u8207\u6062\u5FA9"],
+    ["\u8FD1 7 \u65E5\u8D1F\u8377/\u6062\u590D", "\u8FD1 7 \u65E5\u8CA0\u8377/\u6062\u5FA9"],
+    ["\u591A\u5468\u6062\u590D/\u8D1F\u8377\u8D8B\u52BF", "\u591A\u9031\u6062\u5FA9/\u8CA0\u8377\u8DA8\u52E2"],
+    ["\u4F53\u91CD\u8D8B\u52BF\uFF08\u6668\u8D77\uFF09", "\u9AD4\u91CD\u8DA8\u52E2\uFF08\u6668\u8D77\uFF09"],
+    ["Workout \u8BAD\u7EC3\u4F1A\u8BDD", "Workout \u8A13\u7DF4\u6703\u8A71"],
+    ["Workout \u8BAD\u7EC3", "Workout \u8A13\u7DF4"],
+    ["CGM \u52A8\u6001\u8840\u7CD6", "CGM \u52D5\u614B\u8840\u7CD6"],
+    ["HRV \u5FC3\u7387\u53D8\u5F02\u6027", "HRV \u5FC3\u7387\u8B8A\u7570\u6027"],
+    ["\u7761\u7720\u547C\u5438\u7D0A\u4E71", "\u7761\u7720\u547C\u5438\u7D0A\u4E82"],
+    ["\u5F53\u524D\u89C4\u5219\u672A\u89E6\u53D1\u660E\u663E\u7EC4\u5408\u4FE1\u53F7", "\u76EE\u524D\u898F\u5247\u672A\u89F8\u767C\u660E\u986F\u7D44\u5408\u8A0A\u865F"],
+    ["\u4EE5\u4E0B\u4E3A\u5206\u7EF4\u5EA6\u539F\u59CB\u7EDF\u8BA1\u4E0E\u660E\u7EC6\uFF0C\u8BF7\u4E0E\u6458\u8981\u4EA4\u53C9\u6838\u5BF9", "\u4EE5\u4E0B\u70BA\u5206\u7DAD\u5EA6\u539F\u59CB\u7D71\u8A08\u8207\u660E\u7D30\uFF0C\u8ACB\u8207\u6458\u8981\u4EA4\u53C9\u6838\u5C0D"],
+    // —— 信号 / 洞察常见句式 ——
+    ["\u4F4E\u7761\u7720\u4E14\u6D3B\u52A8\u91CF\u504F\u4F4E", "\u4F4E\u7761\u7720\u4E14\u6D3B\u52D5\u91CF\u504F\u4F4E"],
+    ["\u8FD1 7 \u5929\u51FA\u73B0\u504F\u4F4E\u8840\u538B\u8BFB\u6570", "\u8FD1 7 \u5929\u51FA\u73FE\u504F\u4F4E\u8840\u58D3\u8B80\u6578"],
+    ["\u9AD8\u8840\u7CD6\u8BFB\u6570\u65E5\u6D3B\u52A8\u504F\u4F4E", "\u9AD8\u8840\u7CD6\u8B80\u6578\u65E5\u6D3B\u52D5\u504F\u4F4E"],
+    ["CGM \u4F4E\u503C\u4E3B\u8981\u96C6\u4E2D\u5728\u4F20\u611F\u5668\u9996\u65E5", "CGM \u4F4E\u503C\u4E3B\u8981\u96C6\u4E2D\u5728\u611F\u6E2C\u5668\u9996\u65E5"],
+    ["\u6307\u5C16\u8840\u590D\u6838", "\u6307\u5C16\u8840\u8907\u6838"],
+    ["\u4E0D\u80FD\u4EC5\u51ED CGM \u5224\u5B9A\u4F4E\u8840\u7CD6", "\u4E0D\u80FD\u50C5\u6191 CGM \u5224\u5B9A\u4F4E\u8840\u7CD6"],
+    ["\u4F20\u611F\u5668\u4F2A\u5F71", "\u611F\u6E2C\u5668\u507D\u5F71"],
+    ["\u771F\u5B9E\u4F4E\u503C", "\u771F\u5BE6\u4F4E\u503C"],
+    ["\u7528\u836F\u8C03\u6574\u8BF7\u9075\u533B\u5631", "\u7528\u85E5\u8ABF\u6574\u8ACB\u9075\u91AB\u56D1"],
+    ["\u7ED3\u5408\u5934\u6655\u3001\u4E4F\u529B\u7B49\u75C7\u72B6\u5224\u65AD", "\u7D50\u5408\u982D\u6688\u3001\u4E4F\u529B\u7B49\u75C7\u72C0\u5224\u65B7"],
+    // —— 中等短语 ——
+    ["\u6570\u636E\u53EF\u7528\u6027", "\u8CC7\u6599\u53EF\u7528\u6027"],
+    ["\u6570\u636E\u8986\u76D6", "\u8CC7\u6599\u8986\u84CB"],
+    ["\u6570\u636E\u6982\u89C8", "\u8CC7\u6599\u6982\u89BD"],
+    ["\u6570\u636E\u8D28\u91CF\u63D0\u793A", "\u8CC7\u6599\u54C1\u8CEA\u63D0\u793A"],
+    ["\u672A\u6765\u65E5\u671F\u5DF2\u6392\u9664", "\u672A\u4F86\u65E5\u671F\u5DF2\u6392\u9664"],
+    ["\u4F53\u91CD\u4E0E\u4F53\u8102", "\u9AD4\u91CD\u8207\u9AD4\u8102"],
+    ["\u5FC3\u80BA\u9002\u80FD VO\u2082 max", "\u5FC3\u80BA\u9069\u80FD VO\u2082 max"],
+    ["\u5FC3\u80BA\u9002\u80FD", "\u5FC3\u80BA\u9069\u80FD"],
+    ["Watch \u6D3B\u52A8", "Watch \u6D3B\u52D5"],
+    ["\u8840\u6C27\uFF08Watch\uFF09", "\u8840\u6C27\uFF08Watch\uFF09"],
+    ["\u8840\u7CD6\uFF08CGM\uFF09", "\u8840\u7CD6\uFF08CGM\uFF09"],
+    ["\u547C\u5438\u9891\u7387", "\u547C\u5438\u983B\u7387"],
+    ["\u7761\u7720\u8155\u6E29", "\u7761\u7720\u8155\u6EAB"],
+    ["\u591C\u95F4\u5FC3\u7387", "\u591C\u9593\u5FC3\u7387"],
+    ["\u9759\u606F\u5FC3\u7387", "\u975C\u606F\u5FC3\u7387"],
+    ["\u6B65\u884C\u5FC3\u7387", "\u6B65\u884C\u5FC3\u7387"],
+    ["\u6B65\u6570\u4E0E\u7761\u7720", "\u6B65\u6578\u8207\u7761\u7720"],
+    ["\u8BAD\u7EC3\u4F1A\u8BDD", "\u8A13\u7DF4\u6703\u8A71"],
+    ["\u52A8\u6001\u8840\u7CD6", "\u52D5\u614B\u8840\u7CD6"],
+    ["\u5FC3\u7387\u53D8\u5F02\u6027", "\u5FC3\u7387\u8B8A\u7570\u6027"],
+    ["ECG \u5FC3\u7535\u56FE", "ECG \u5FC3\u96FB\u5716"],
+    ["\u5FC3\u7535\u56FE", "\u5FC3\u96FB\u5716"],
+    ["\u4E2A\u4EBA\u80CC\u666F", "\u500B\u4EBA\u80CC\u666F"],
+    ["\u7528\u6237\u81EA\u8FF0", "\u7528\u6236\u81EA\u8FF0"],
+    ["\u81EA\u52A8\u76D1\u6D4B\u6458\u8981", "\u81EA\u52D5\u76E3\u6E2C\u6458\u8981"],
+    ["\u8DE8\u7EF4\u5EA6\u63D0\u793A", "\u8DE8\u7DAD\u5EA6\u63D0\u793A"],
+    ["\u975E\u8BCA\u65AD", "\u975E\u8A3A\u65B7"],
+    ["\u542F\u53D1\u5F0F", "\u555F\u767C\u5F0F"],
+    ["\u76D1\u6D4B\u4EEA\u8868\u76D8", "\u76E3\u6E2C\u5100\u8868\u76E4"],
+    ["\u5F53\u524D\u5DE5\u4F5C\u5047\u8BBE", "\u76EE\u524D\u5DE5\u4F5C\u5047\u8A2D"],
+    ["\u53C2\u8003\u4F9D\u636E", "\u53C3\u8003\u4F9D\u64DA"],
+    ["\u603B\u7ED3\u5224\u65AD", "\u7E3D\u7D50\u5224\u65B7"],
+    ["\u662F\u5426\u5B58\u5728", "\u662F\u5426\u5B58\u5728"],
+    ["\u6570\u636E\u91CF", "\u8CC7\u6599\u91CF"],
+    ["\u7A33\u5B9A\u671F", "\u7A69\u5B9A\u671F"],
+    ["\u4F20\u611F\u5668", "\u611F\u6E2C\u5668"],
+    ["\u4F2A\u5F71", "\u507D\u5F71"],
+    ["\u8BFB\u6570", "\u8B80\u6578"],
+    ["\u5360\u6BD4", "\u4F54\u6BD4"],
+    ["\u590D\u6838", "\u8907\u6838"],
+    ["\u533B\u5631", "\u91AB\u56D1"],
+    ["\u7528\u836F", "\u7528\u85E5"],
+    ["\u75C7\u72B6", "\u75C7\u72C0"],
+    ["\u5F02\u5E38", "\u7570\u5E38"],
+    ["\u7EDF\u8BA1", "\u7D71\u8A08"],
+    ["\u660E\u7EC6", "\u660E\u7D30"],
+    ["\u7EF4\u5EA6", "\u7DAD\u5EA6"],
+    ["\u8840\u538B", "\u8840\u58D3"],
+    ["\u4F53\u91CD", "\u9AD4\u91CD"],
+    ["\u4F53\u8102", "\u9AD4\u8102"],
+    ["\u8D1F\u8377", "\u8CA0\u8377"],
+    ["\u6062\u590D", "\u6062\u5FA9"],
+    ["\u6D3B\u52A8", "\u6D3B\u52D5"],
+    ["\u953B\u70BC", "\u935B\u934A"],
+    ["\u8D8B\u52BF", "\u8DA8\u52E2"],
+    ["\u7D0A\u4E71", "\u7D0A\u4E82"],
+    ["\u8155\u6E29", "\u8155\u6EAB"],
+    ["\u9891\u7387", "\u983B\u7387"],
+    ["\u9002\u80FD", "\u9069\u80FD"],
+    ["\u53D8\u5F02", "\u8B8A\u7570"],
+    ["\u6570\u636E", "\u8CC7\u6599"],
+    ["\u8BAD\u7EC3", "\u8A13\u7DF4"],
+    ["\u76D1\u6D4B", "\u76E3\u6E2C"],
+    ["\u4FE1\u53F7", "\u8A0A\u865F"],
+    ["\u5173\u6CE8", "\u95DC\u6CE8"],
+    ["\u89C2\u5BDF", "\u89C0\u5BDF"],
+    ["\u63D0\u793A", "\u63D0\u793A"],
+    ["\u8BB0\u5F55", "\u8A18\u9304"],
+    ["\u51FA\u73B0", "\u51FA\u73FE"],
+    ["\u6574\u4F53", "\u6574\u9AD4"],
+    ["\u5747\u503C", "\u5747\u503C"],
+    ["\u65E5\u5747", "\u65E5\u5747"],
+    ["\u573A\u6B21", "\u5834\u6B21"],
+    ["\u5206\u949F", "\u5206\u9418"],
+    ["\u5C0F\u65F6", "\u5C0F\u6642"],
+    ["\u4F18\u5148", "\u512A\u5148"],
+    ["\u5EFA\u8BAE", "\u5EFA\u8B70"],
+    ["\u8F7B\u677E", "\u8F15\u9B06"],
+    ["\u7EF4\u6301", "\u7DAD\u6301"],
+    ["\u63A8\u8FDB", "\u63A8\u9032"],
+    ["\u504F\u7D27", "\u504F\u7DCA"],
+    ["\u9002\u91CF", "\u9069\u91CF"],
+    ["\u8D70\u52A8", "\u8D70\u52D5"],
+    ["\u8BC4\u4F30", "\u8A55\u4F30"],
+    ["\u6682\u4E0D", "\u66AB\u4E0D"],
+    ["\u4E0D\u8DB3", "\u4E0D\u8DB3"],
+    ["\u9AD8\u4E8E", "\u9AD8\u65BC"],
+    ["\u4F4E\u4E8E", "\u4F4E\u65BC"],
+    ["\u51E0\u5468", "\u5E7E\u9031"],
+    ["\u4E00\u5468", "\u4E00\u9031"],
+    ["\u591A\u5468", "\u591A\u9031"],
+    ["\u8FD1\u5468", "\u8FD1\u9031"],
+    ["\u76F8\u5BF9", "\u76F8\u5C0D"],
+    ["\u4E2A\u4EBA", "\u500B\u4EBA"],
+    ["\u57FA\u7EBF", "\u57FA\u7DDA"],
+    ["\u5BF9\u6BD4", "\u5C0D\u6BD4"],
+    ["\u5F53\u524D", "\u76EE\u524D"],
+    ["\u89C4\u5219", "\u898F\u5247"],
+    ["\u89E6\u53D1", "\u89F8\u767C"],
+    ["\u660E\u663E", "\u660E\u986F"],
+    ["\u7EC4\u5408", "\u7D44\u5408"],
+    ["\u8BCA\u65AD", "\u8A3A\u65B7"],
+    ["\u590D\u67E5", "\u8907\u67E5"],
+    ["\u5347\u7EA7", "\u5347\u7D1A"],
+    ["\u5904\u7406", "\u8655\u7406"],
+    ["\u5206\u7C7B", "\u5206\u985E"],
+    ["\u5173\u8054", "\u95DC\u806F"],
+    ["\u90BB\u57DF", "\u9130\u57DF"],
+    ["\u65F6\u6BB5", "\u6642\u6BB5"],
+    ["\u8FD0\u52A8", "\u904B\u52D5"],
+    ["\u8D28\u91CF", "\u54C1\u8CEA"],
+    ["\u6863\u6848", "\u6A94\u6848"],
+    ["\u5BF9\u7167", "\u5C0D\u7167"],
+    ["\u81EA\u8FF0", "\u81EA\u8FF0"],
+    ["\u7A0B\u5E8F", "\u7A0B\u5E8F"],
+    ["\u751F\u6210", "\u751F\u6210"],
+    ["\u4EC5\u51ED", "\u50C5\u6191"],
+    ["\u5224\u5B9A", "\u5224\u5B9A"],
+    ["\u771F\u5B9E", "\u771F\u5BE6"],
+    ["\u7ED3\u5408", "\u7D50\u5408"],
+    ["\u5934\u6655", "\u982D\u6688"],
+    ["\u4E4F\u529B", "\u4E4F\u529B"],
+    ["\u8C03\u6574", "\u8ABF\u6574"],
+    ["\u8BF7\u9075", "\u8ACB\u9075"],
+    ["\u6CE8\u610F", "\u6CE8\u610F"],
+    ["\u533A\u5206", "\u5340\u5206"],
+    ["\u4F18\u5148", "\u512A\u5148"],
+    ["\u6392\u67E5", "\u6392\u67E5"],
+    ["\u538B\u8FEB", "\u58D3\u8FEB"],
+    ["\u6821\u51C6", "\u6821\u6E96"],
+    ["\u53EF\u7591", "\u53EF\u7591"],
+    ["\u65F6\u6BB5", "\u6642\u6BB5"],
+    ["\u6B65\u6570", "\u6B65\u6578"],
+    ["\u7535", "\u96FB"],
+    ["\u4E0E", "\u8207"],
+    ["\u4E3A", "\u70BA"],
+    ["\u8FD9", "\u9019"],
+    ["\u4E2A", "\u500B"],
+    ["\u65F6", "\u6642"],
+    ["\u540E", "\u5F8C"],
+    ["\u5BF9", "\u5C0D"],
+    ["\u53D1", "\u767C"],
+    ["\u8BF7", "\u8ACB"],
+    ["\u4ECE", "\u5F9E"],
+    ["\u4F1A", "\u6703"],
+    ["\u7ECF", "\u7D93"],
+    ["\u957F", "\u9577"],
+    ["\u65E0", "\u7121"],
+    ["\u5B9E", "\u5BE6"],
+    ["\u73B0", "\u73FE"],
+    ["\u5355", "\u55AE"],
+    ["\u603B", "\u7E3D"],
+    ["\u5E94", "\u61C9"],
+    ["\u8BE5", "\u8A72"],
+    ["\u5E76", "\u4E26"],
+    ["\u6C14", "\u6C23"],
+    ["\u8F6F", "\u8EDF"],
+    ["\u9875", "\u9801"],
+    ["\u6807", "\u6A19"],
+    ["\u9898", "\u984C"],
+    ["\u8BA1", "\u8A08"],
+    ["\u8BA4", "\u8A8D"],
+    ["\u8BC6", "\u8B58"],
+    ["\u8BED", "\u8A9E"],
+    ["\u8BFB", "\u8B80"],
+    ["\u53F7", "\u865F"],
+    ["\u95E8", "\u9580"],
+    ["\u95EE", "\u554F"],
+    ["\u9669", "\u96AA"],
+    ["\u96BE", "\u96E3"],
+    ["\u9A8C", "\u9A57"],
+    ["\u8BC1", "\u8B49"],
+    ["\u636E", "\u64DA"],
+    ["\u7EA6", "\u7D04"],
+    ["\u70B9", "\u9EDE"],
+    ["\u5C06", "\u5C07"],
+    ["\u8FD8", "\u9084"],
+    ["\u8FC7", "\u904E"],
+    ["\u5F00", "\u958B"],
+    ["\u5173", "\u95DC"],
+    ["\u6765", "\u4F86"],
+    ["\u6837", "\u6A23"],
+    ["\u4EEC", "\u5011"],
+    ["\u522B", "\u5225"],
+    ["\u5219", "\u5247"],
+    ["\u95F4", "\u9593"]
+  ];
+  var TITLE_PHRASES = TITLE_PHRASES_RAW.slice().sort(
+    (a, b) => b[0].length - a[0].length
+  );
+  function toTraditionalTitle(s) {
+    if (!s) return s;
+    let out = s;
+    for (const [from, to] of TITLE_PHRASES) {
+      if (out.includes(from)) {
+        out = out.split(from).join(to);
+      }
+    }
+    return out;
+  }
+  var toTraditionalText = toTraditionalTitle;
+  function traditionalizeMarkdownHeadings(md) {
+    if (!md) return md;
+    return md.split("\n").map((line) => {
+      const m = /^(#{1,6}\s+)(.*)$/.exec(line);
+      if (!m) return line;
+      return m[1] + toTraditionalTitle(m[2]);
+    }).join("\n");
+  }
+  function traditionalizeAnalysisCopy(s) {
+    return toTraditionalTitle(s);
+  }
+
   // src/locale.ts
   function normalizeLocale(v) {
     if (v == null || v === "") return "zh-CN";
@@ -937,7 +1200,9 @@ var HealthAnalyzer = (() => {
     return "zh-CN";
   }
   function pickLocale(locale, zh, en) {
-    return locale === "en" ? en : zh;
+    if (locale === "en") return en;
+    if (locale === "zh-TW") return toTraditionalTitle(zh);
+    return zh;
   }
   function createL(localeInput = "zh-CN") {
     const locale = normalizeLocale(localeInput);
@@ -2456,7 +2721,17 @@ var HealthAnalyzer = (() => {
     }
     const rank = { alert: 0, watch: 1, info: 2 };
     unique.sort((a, b) => rank[a.severity] - rank[b.severity] || String(b.date || "").localeCompare(String(a.date || "")));
-    return unique.slice(0, 20);
+    const out = unique.slice(0, 20);
+    if (normalizeLocale(options?.locale) === "zh-TW") {
+      for (const s of out) {
+        s.title = toTraditionalTitle(s.title);
+        s.detail = toTraditionalTitle(s.detail);
+        if (s.dimensions && s.dimensions.length) {
+          s.dimensions = s.dimensions.map((d) => toTraditionalTitle(d));
+        }
+      }
+    }
+    return out;
   }
   function formatCrossSignalsForLLM(signals, options) {
     const L = createL(normalizeLocale(options?.locale));
@@ -2486,101 +2761,6 @@ var HealthAnalyzer = (() => {
     );
     lines.push("");
     return lines.join("\n");
-  }
-
-  // src/zh-tw-map.ts
-  var TITLE_PHRASES_RAW = [
-    ["\u6570\u636E\u8D28\u91CF\u63D0\u793A\uFF08\u672A\u6765\u65E5\u671F\u5DF2\u6392\u9664\uFF09", "\u8CC7\u6599\u54C1\u8CEA\u63D0\u793A\uFF08\u672A\u4F86\u65E5\u671F\u5DF2\u6392\u9664\uFF09"],
-    ["\u4E2A\u4EBA\u80CC\u666F\uFF08\u7528\u6237\u81EA\u8FF0\uFF0C\u4EC5\u4F9B\u5BF9\u7167\uFF0C\u975E\u533B\u7597\u6863\u6848\uFF09", "\u500B\u4EBA\u80CC\u666F\uFF08\u7528\u6236\u81EA\u8FF0\uFF0C\u50C5\u4F9B\u5C0D\u7167\uFF0C\u975E\u91AB\u7642\u6A94\u6848\uFF09"],
-    ["Apple Watch\uFF08\u6D3B\u52A8 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6E29 / \u547C\u5438\u7D0A\u4E71\uFF09", "Apple Watch\uFF08\u6D3B\u52D5 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6EAB / \u547C\u5438\u7D0A\u4E82\uFF09"],
-    ["Apple Watch\uFF08\u6D3B\u52A8 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6E29\uFF09", "Apple Watch\uFF08\u6D3B\u52D5 / \u8840\u6C27 / \u547C\u5438 / VO\u2082 / \u8155\u6EAB\uFF09"],
-    ["\u6062\u590D\uFF08HRV / \u9759\u606F\u5FC3\u7387\uFF09", "\u6062\u5FA9\uFF08HRV / \u975C\u606F\u5FC3\u7387\uFF09"],
-    ["HRV \u76F8\u5BF9\u4E2A\u4EBA\u57FA\u7EBF", "HRV \u76F8\u5C0D\u500B\u4EBA\u57FA\u7DDA"],
-    ["\u591C\u95F4\u5FC3\u7387\u76F8\u5BF9\u4E2A\u4EBA\u57FA\u7EBF", "\u591C\u9593\u5FC3\u7387\u76F8\u5C0D\u500B\u4EBA\u57FA\u7DDA"],
-    ["\u4F53\u91CD\u8FD1\u5468\u76F8\u5BF9\u524D\u4E00\u5468", "\u9AD4\u91CD\u8FD1\u9031\u76F8\u5C0D\u524D\u4E00\u9031"],
-    ["\u547C\u5438\u7D0A\u4E71\u4E0E\u591C\u6BB5\u8840\u6C27", "\u547C\u5438\u7D0A\u4E82\u8207\u591C\u6BB5\u8840\u6C27"],
-    ["\u8FD1 7 \u65E5\u8D1F\u8377\u4E0E\u6062\u590D", "\u8FD1 7 \u65E5\u8CA0\u8377\u8207\u6062\u5FA9"],
-    ["\u8FD1 7 \u65E5\u8D1F\u8377/\u6062\u590D", "\u8FD1 7 \u65E5\u8CA0\u8377/\u6062\u5FA9"],
-    ["\u591A\u5468\u6062\u590D/\u8D1F\u8377\u8D8B\u52BF", "\u591A\u9031\u6062\u5FA9/\u8CA0\u8377\u8DA8\u52E2"],
-    ["\u4F53\u91CD\u8D8B\u52BF\uFF08\u6668\u8D77\uFF09", "\u9AD4\u91CD\u8DA8\u52E2\uFF08\u6668\u8D77\uFF09"],
-    ["Workout \u8BAD\u7EC3\u4F1A\u8BDD", "Workout \u8A13\u7DF4\u6703\u8A71"],
-    ["Workout \u8BAD\u7EC3", "Workout \u8A13\u7DF4"],
-    ["CGM \u52A8\u6001\u8840\u7CD6", "CGM \u52D5\u614B\u8840\u7CD6"],
-    ["HRV \u5FC3\u7387\u53D8\u5F02\u6027", "HRV \u5FC3\u7387\u8B8A\u7570\u6027"],
-    ["\u7761\u7720\u547C\u5438\u7D0A\u4E71", "\u7761\u7720\u547C\u5438\u7D0A\u4E82"],
-    ["\u6570\u636E\u53EF\u7528\u6027", "\u8CC7\u6599\u53EF\u7528\u6027"],
-    ["\u6570\u636E\u8986\u76D6", "\u8CC7\u6599\u8986\u84CB"],
-    ["\u6570\u636E\u6982\u89C8", "\u8CC7\u6599\u6982\u89BD"],
-    ["\u6570\u636E\u8D28\u91CF\u63D0\u793A", "\u8CC7\u6599\u54C1\u8CEA\u63D0\u793A"],
-    ["\u672A\u6765\u65E5\u671F\u5DF2\u6392\u9664", "\u672A\u4F86\u65E5\u671F\u5DF2\u6392\u9664"],
-    ["\u4F53\u91CD\u4E0E\u4F53\u8102", "\u9AD4\u91CD\u8207\u9AD4\u8102"],
-    ["\u5FC3\u80BA\u9002\u80FD VO\u2082 max", "\u5FC3\u80BA\u9069\u80FD VO\u2082 max"],
-    ["\u5FC3\u80BA\u9002\u80FD", "\u5FC3\u80BA\u9069\u80FD"],
-    ["Watch \u6D3B\u52A8", "Watch \u6D3B\u52D5"],
-    ["\u8840\u6C27\uFF08Watch\uFF09", "\u8840\u6C27\uFF08Watch\uFF09"],
-    ["\u8840\u7CD6\uFF08CGM\uFF09", "\u8840\u7CD6\uFF08CGM\uFF09"],
-    ["\u547C\u5438\u9891\u7387", "\u547C\u5438\u983B\u7387"],
-    ["\u7761\u7720\u8155\u6E29", "\u7761\u7720\u8155\u6EAB"],
-    ["\u591C\u95F4\u5FC3\u7387", "\u591C\u9593\u5FC3\u7387"],
-    ["\u9759\u606F\u5FC3\u7387", "\u975C\u606F\u5FC3\u7387"],
-    ["\u6B65\u6570\u4E0E\u7761\u7720", "\u6B65\u6578\u8207\u7761\u7720"],
-    ["\u8BAD\u7EC3\u4F1A\u8BDD", "\u8A13\u7DF4\u6703\u8A71"],
-    ["\u52A8\u6001\u8840\u7CD6", "\u52D5\u614B\u8840\u7CD6"],
-    ["\u5FC3\u7387\u53D8\u5F02\u6027", "\u5FC3\u7387\u8B8A\u7570\u6027"],
-    ["ECG \u5FC3\u7535\u56FE", "ECG \u5FC3\u96FB\u5716"],
-    ["\u5FC3\u7535\u56FE", "\u5FC3\u96FB\u5716"],
-    ["\u4E2A\u4EBA\u80CC\u666F", "\u500B\u4EBA\u80CC\u666F"],
-    ["\u7528\u6237\u81EA\u8FF0", "\u7528\u6236\u81EA\u8FF0"],
-    ["\u81EA\u52A8\u76D1\u6D4B\u6458\u8981\uFF08\u7A0B\u5E8F\u751F\u6210\uFF0C\u975E\u8BCA\u65AD\uFF09", "\u81EA\u52D5\u76E3\u6E2C\u6458\u8981\uFF08\u7A0B\u5E8F\u751F\u6210\uFF0C\u975E\u8A3A\u65B7\uFF09"],
-    ["\u81EA\u52A8\u76D1\u6D4B\u6458\u8981", "\u81EA\u52D5\u76E3\u6E2C\u6458\u8981"],
-    ["\u8DE8\u7EF4\u5EA6\u63D0\u793A", "\u8DE8\u7DAD\u5EA6\u63D0\u793A"],
-    ["\u975E\u8BCA\u65AD", "\u975E\u8A3A\u65B7"],
-    ["\u76D1\u6D4B\u4EEA\u8868\u76D8", "\u76E3\u6E2C\u5100\u8868\u76E4"],
-    ["\u9700\u8981\u590D\u67E5\u6216\u5347\u7EA7\u5904\u7406\u7684\u4FE1\u53F7", "\u9700\u8981\u8907\u67E5\u6216\u5347\u7D1A\u8655\u7406\u7684\u8A0A\u865F"],
-    ["\u5F53\u524D\u5DE5\u4F5C\u5047\u8BBE", "\u76EE\u524D\u5DE5\u4F5C\u5047\u8A2D"],
-    ["\u53C2\u8003\u4F9D\u636E", "\u53C3\u8003\u4F9D\u64DA"],
-    ["\u603B\u7ED3\u5224\u65AD", "\u7E3D\u7D50\u5224\u65B7"],
-    ["\u662F\u5426\u5B58\u5728", "\u662F\u5426\u5B58\u5728"],
-    ["\u6570\u636E\u91CF", "\u8CC7\u6599\u91CF"],
-    ["\u7EF4\u5EA6", "\u7DAD\u5EA6"],
-    ["\u660E\u7EC6", "\u660E\u7D30"],
-    ["\u8840\u538B", "\u8840\u58D3"],
-    ["\u4F53\u91CD", "\u9AD4\u91CD"],
-    ["\u4F53\u8102", "\u9AD4\u8102"],
-    ["\u8D1F\u8377", "\u8CA0\u8377"],
-    ["\u6062\u590D", "\u6062\u5FA9"],
-    ["\u6D3B\u52A8", "\u6D3B\u52D5"],
-    ["\u8D8B\u52BF", "\u8DA8\u52E2"],
-    ["\u7D0A\u4E71", "\u7D0A\u4E82"],
-    ["\u8155\u6E29", "\u8155\u6EAB"],
-    ["\u9891\u7387", "\u983B\u7387"],
-    ["\u9002\u80FD", "\u9069\u80FD"],
-    ["\u53D8\u5F02", "\u8B8A\u7570"],
-    ["\u6570\u636E", "\u8CC7\u6599"],
-    ["\u8BAD\u7EC3", "\u8A13\u7DF4"],
-    ["\u76D1\u6D4B", "\u76E3\u6E2C"],
-    ["\u4FE1\u53F7", "\u8A0A\u865F"]
-  ];
-  var TITLE_PHRASES = TITLE_PHRASES_RAW.slice().sort(
-    (a, b) => b[0].length - a[0].length
-  );
-  function toTraditionalTitle(s) {
-    if (!s) return s;
-    let out = s;
-    for (const [from, to] of TITLE_PHRASES) {
-      if (out.includes(from)) {
-        out = out.split(from).join(to);
-      }
-    }
-    return out;
-  }
-  function traditionalizeMarkdownHeadings(md) {
-    if (!md) return md;
-    return md.split("\n").map((line) => {
-      const m = /^(#{1,6}\s+)(.*)$/.exec(line);
-      if (!m) return line;
-      return m[1] + toTraditionalTitle(m[2]);
-    }).join("\n");
   }
 
   // src/insights.ts
@@ -3089,6 +3269,7 @@ var HealthAnalyzer = (() => {
     if (locale === "zh-TW") {
       for (const b of result) {
         b.title = toTraditionalTitle(b.title);
+        if (b.detail) b.detail = toTraditionalTitle(b.detail);
       }
     }
     return result;
@@ -3104,7 +3285,8 @@ var HealthAnalyzer = (() => {
     bullets.forEach((b, i) => {
       const tag = b.tone === "alert" ? L("\u9700\u5173\u6CE8", "Attention") : b.tone === "watch" ? L("\u89C2\u5BDF", "Watch") : b.tone === "positive" ? L("\u79EF\u6781", "Positive") : L("\u63D0\u793A", "Note");
       const title = locale === "zh-TW" ? toTraditionalTitle(b.title) : b.title;
-      lines.push(`${i + 1}. **[${tag}] ${title}**\uFF1A${b.detail}`);
+      const detail = locale === "zh-TW" ? toTraditionalTitle(b.detail) : b.detail;
+      lines.push(`${i + 1}. **[${tag}] ${title}**\uFF1A${detail}`);
     });
     lines.push("");
     lines.push(
@@ -3114,14 +3296,7 @@ var HealthAnalyzer = (() => {
       )
     );
     lines.push("");
-    let out = lines.join("\n");
-    if (locale === "zh-TW") {
-      out = out.replace(
-        /^## 自动监测摘要（程序生成，非诊断）/m,
-        "## " + toTraditionalTitle("\u81EA\u52A8\u76D1\u6D4B\u6458\u8981\uFF08\u7A0B\u5E8F\u751F\u6210\uFF0C\u975E\u8BCA\u65AD\uFF09")
-      );
-    }
-    return out;
+    return lines.join("\n");
   }
   function generateInsightsOnlyPrompt(analysis, options = {}) {
     const locale = normalizeLocale(options.locale);

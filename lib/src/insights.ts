@@ -748,10 +748,11 @@ export function buildInsightBullets(
     .filter((b) => b.title !== coverageTitle)
     .sort((a, b) => rank[a.tone] - rank[b.tone]);
   const result = [...head, ...rest].slice(0, 7);
-  // zh-TW: traditionalize short titles only (body text stays shared zh-CN medical copy)
+  // zh-TW: traditionalize titles + detail body (phrase dictionary, not full OpenCC)
   if (locale === 'zh-TW') {
     for (const b of result) {
       b.title = toTraditionalTitle(b.title);
+      if (b.detail) b.detail = toTraditionalTitle(b.detail);
     }
   }
   return result;
@@ -778,7 +779,8 @@ export function formatInsightsForLLM(
             ? L('积极', 'Positive')
             : L('提示', 'Note');
     const title = locale === 'zh-TW' ? toTraditionalTitle(b.title) : b.title;
-    lines.push(`${i + 1}. **[${tag}] ${title}**：${b.detail}`);
+    const detail = locale === 'zh-TW' ? toTraditionalTitle(b.detail) : b.detail;
+    lines.push(`${i + 1}. **[${tag}] ${title}**：${detail}`);
   });
   lines.push('');
   lines.push(
@@ -788,15 +790,7 @@ export function formatInsightsForLLM(
     )
   );
   lines.push('');
-  let out = lines.join('\n');
-  if (locale === 'zh-TW') {
-    // Heading line only (body remains shared zh-CN)
-    out = out.replace(
-      /^## 自动监测摘要（程序生成，非诊断）/m,
-      '## ' + toTraditionalTitle('自动监测摘要（程序生成，非诊断）')
-    );
-  }
-  return out;
+  return lines.join('\n');
 }
 
 /**

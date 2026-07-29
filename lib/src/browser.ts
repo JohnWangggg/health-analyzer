@@ -76,7 +76,9 @@ export type { AppLocale, LFn, LocaleOptions } from './locale';
 
 export {
   toTraditionalTitle,
+  toTraditionalText,
   traditionalizeMarkdownHeadings,
+  traditionalizeAnalysisCopy,
 } from './zh-tw-map';
 
 export {

@@ -1,5 +1,7 @@
 /** UI / analysis copy locale helpers */
 
+import { toTraditionalTitle } from './zh-tw-map';
+
 export type AppLocale = 'zh-CN' | 'zh-TW' | 'en';
 
 export type LocaleOptions = { locale?: AppLocale | string };
@@ -10,9 +12,10 @@ export type LocaleOptions = { locale?: AppLocale | string };
  * - zh-TW / zh-HK / zh-Hant → zh-TW
  * - else → zh-CN
  *
- * Analysis bilingual copy (createL / pickLocale): zh-TW currently shares
- * the same Simplified Chinese medical/analysis body as zh-CN; short section
- * headers / insight titles may be traditionalized via zh-tw-map.ts.
+ * Analysis bilingual copy (createL / pickLocale):
+ * - en → English string
+ * - zh-CN → Simplified Chinese
+ * - zh-TW → Traditional via phrase dictionary (zh-tw-map), not full OpenCC
  * Full UI chrome uses Traditional Chinese in web-ui/public/i18n.js.
  */
 export function normalizeLocale(v?: string | null): AppLocale {
@@ -34,11 +37,14 @@ export function normalizeLocale(v?: string | null): AppLocale {
 
 /**
  * Pick zh or en string for analysis copy.
- * Uses en only when locale === 'en'; zh-CN and zh-TW both use the zh string
- * (Traditional medical/analysis translation deferred).
+ * - en → en
+ * - zh-TW → traditionalize zh phrase dictionary
+ * - else → zh (Simplified)
  */
 export function pickLocale(locale: AppLocale, zh: string, en: string): string {
-  return locale === 'en' ? en : zh;
+  if (locale === 'en') return en;
+  if (locale === 'zh-TW') return toTraditionalTitle(zh);
+  return zh;
 }
 
 /**
