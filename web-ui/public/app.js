@@ -31,6 +31,7 @@
   let lastCsvMergeNote = '';
   const CTX_STORAGE_KEY = 'health-analyzer-user-context-v1';
   const RECOVERY_WEIGHTS_KEY = 'health-analyzer-recovery-weights';
+  const SIGNAL_PREFS_KEY = 'health-analyzer-signal-prefs-v1';
   const THEME_KEY = 'health-analyzer-theme'; // system | light | dark
 
   const DEFAULT_RECOVERY_WEIGHTS = {
@@ -42,6 +43,12 @@
     workout: 1,
     steps: 1,
   };
+
+  /** 跨维度信号分类（用于用户开关；维度文案中英均可匹配） */
+  const SIGNAL_CATEGORY_IDS = [
+    'cgm', 'bp', 'sleep', 'hrv', 'hr', 'steps', 'weight',
+    'spo2', 'workout', 'ecg', 'watch', 'daylight', 'other',
+  ];
 
   function getDefaultRecoveryWeights() {
     const libDef =
@@ -90,6 +97,73 @@
 
   /** 当前生效的恢复权重（内存缓存，与 localStorage 同步） */
   let recoveryWeights = loadRecoveryWeights();
+
+  function defaultSignalPrefs() {
+    const o = {};
+    for (const id of SIGNAL_CATEGORY_IDS) o[id] = true;
+    return o;
+  }
+
+  function loadSignalPrefs() {
+    const base = defaultSignalPrefs();
+    try {
+      const raw = window.localStorage.getItem(SIGNAL_PREFS_KEY);
+      if (!raw) return base;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return base;
+      for (const id of SIGNAL_CATEGORY_IDS) {
+        if (typeof parsed[id] === 'boolean') base[id] = parsed[id];
+      }
+      return base;
+    } catch (e) {
+      return base;
+    }
+  }
+
+  function saveSignalPrefs(prefs) {
+    const next = { ...defaultSignalPrefs(), ...(prefs || {}) };
+    try {
+      window.localStorage.setItem(SIGNAL_PREFS_KEY, JSON.stringify(next));
+    } catch (e) { /* ignore quota */ }
+    return next;
+  }
+
+  let signalPrefs = loadSignalPrefs();
+
+  /** 将 signal.dimensions 条目映射到分类 id（兼容简繁英） */
+  function signalDimCategory(dim) {
+    const s = String(dim || '').trim();
+    const lower = s.toLowerCase();
+    if (lower === 'cgm' || /血糖|glucose/.test(s)) return 'cgm';
+    if (lower === 'hrv') return 'hrv';
+    if (lower === 'ecg' || /心电|心電/.test(s)) return 'ecg';
+    if (lower === 'workout' || /训练|訓練|workout/.test(lower)) return 'workout';
+    if (/spo|血氧/.test(s)) return 'spo2';
+    if (/blood\s*pressure|血压|血壓/.test(s)) return 'bp';
+    if (/breathing|呼吸紊乱|呼吸紊亂|睡眠呼吸/.test(s)) return 'sleep';
+    if (/sleep|睡眠/.test(s)) return 'sleep';
+    if (/step|步数|步數/.test(s)) return 'steps';
+    if (/weight|体重|體重|体脂|體脂/.test(s)) return 'weight';
+    if (/daylight|日照/.test(s)) return 'daylight';
+    if (/night\s*hr|resting|walking\s*hr|静息|靜息|夜间心率|夜間心率|步行心率/.test(s)) return 'hr';
+    if (/watch|stand|站立|活动|活動/.test(s)) return 'watch';
+    return 'other';
+  }
+
+  function signalCategoriesOf(signal) {
+    const dims = (signal && signal.dimensions) || [];
+    const set = new Set();
+    for (const d of dims) set.add(signalDimCategory(d));
+    if (!set.size) set.add('other');
+    return [...set];
+  }
+
+  /** 任一关联分类被关闭则隐藏（「不想看 CGM」则隐藏所有含 CGM 的卡） */
+  function isSignalEnabled(signal, prefs) {
+    const p = prefs || signalPrefs;
+    const cats = signalCategoriesOf(signal);
+    return cats.every((c) => p[c] !== false);
+  }
 
   // ============================================================
   // 外观（浅色 / 深色 / 跟随系统）
@@ -663,6 +737,7 @@
       recoveryWeights = loadRecoveryWeights();
       currentAnalysis = window.HealthAnalyzer.analyzeAll(data, {
         recoveryWeights,
+        locale: getAnalysisLocale(),
       });
 
       setProgress(1, '完成', { stage: 'done', hint: '即将展示监测概览…' });
@@ -1663,6 +1738,59 @@
     return t('tone.neutral');
   }
 
+  function signalCategoryLabel(id) {
+    return t('signals.cat.' + id) || id;
+  }
+
+  function renderSignalPrefsBar(allSignals, visibleCount) {
+    const prefs = signalPrefs;
+    const present = new Set();
+    for (const s of allSignals) {
+      for (const c of signalCategoriesOf(s)) present.add(c);
+    }
+    // 始终展示出现过的分类；若全空仍给常用入口
+    const ids = SIGNAL_CATEGORY_IDS.filter((id) => present.has(id) || prefs[id] === false);
+    const chips = ids.map((id) => {
+      const on = prefs[id] !== false;
+      return `<button type="button" class="chip signal-pref-chip${on ? ' is-active' : ''}" data-signal-cat="${escapeHtml(id)}" aria-pressed="${on ? 'true' : 'false'}">${escapeHtml(signalCategoryLabel(id))}</button>`;
+    }).join('');
+    const total = allSignals.length;
+    const countLine =
+      total === 0
+        ? ''
+        : `<span class="signal-pref-count">${escapeHtml(t('signals.filterCount', { shown: visibleCount, total }))}</span>`;
+    return `<div class="signal-prefs" role="group" aria-label="${escapeHtml(t('signals.filterAria'))}">
+      <div class="signal-prefs-head">
+        <span class="signal-prefs-label">${escapeHtml(t('signals.filterLabel'))}</span>
+        ${countLine}
+        <button type="button" class="signal-prefs-reset" id="signal-prefs-reset">${escapeHtml(t('signals.filterReset'))}</button>
+      </div>
+      <div class="signal-prefs-chips">${chips || `<span class="hint">${escapeHtml(t('signals.empty'))}</span>`}</div>
+    </div>`;
+  }
+
+  function bindSignalPrefsUi(container) {
+    if (!container) return;
+    container.querySelectorAll('[data-signal-cat]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-signal-cat');
+        if (!id || !SIGNAL_CATEGORY_IDS.includes(id)) return;
+        signalPrefs = saveSignalPrefs({
+          ...signalPrefs,
+          [id]: signalPrefs[id] === false,
+        });
+        if (currentAnalysis) renderSignals(currentAnalysis);
+      });
+    });
+    const reset = container.querySelector('#signal-prefs-reset');
+    if (reset) {
+      reset.addEventListener('click', () => {
+        signalPrefs = saveSignalPrefs(defaultSignalPrefs());
+        if (currentAnalysis) renderSignals(currentAnalysis);
+      });
+    }
+  }
+
   function renderSignals(analysis) {
     const container = $('signals-content');
     if (!container) return;
@@ -1672,10 +1800,15 @@
     }
     const signals = window.HealthAnalyzer.detectCrossSignals(analysis, analysisLocaleOpts());
     if (!signals.length) {
-      container.innerHTML = `<p class="hint">${t('signals.empty')}</p>`;
+      container.innerHTML =
+        renderSignalPrefsBar([], 0) +
+        `<p class="hint">${t('signals.empty')}</p>`;
+      bindSignalPrefsUi(container);
       return;
     }
-    container.innerHTML = `<div class="signals-list">${signals.map((s) => `
+    const visible = signals.filter((s) => isSignalEnabled(s, signalPrefs));
+    const listHtml = visible.length
+      ? `<div class="signals-list">${visible.map((s) => `
       <article class="signal-card severity-${escapeHtml(s.severity)}">
         <div class="signal-meta">
           <span class="signal-badge">${severityLabel(s.severity)}</span>
@@ -1685,7 +1818,10 @@
         <h3 class="signal-title">${escapeHtml(s.title)}</h3>
         <p class="signal-detail">${escapeHtml(s.detail)}</p>
       </article>
-    `).join('')}</div>`;
+    `).join('')}</div>`
+      : `<p class="hint">${escapeHtml(t('signals.allFiltered'))}</p>`;
+    container.innerHTML = renderSignalPrefsBar(signals, visible.length) + listHtml;
+    bindSignalPrefsUi(container);
   }
 
   function downloadBlob(filename, blob) {
@@ -1930,11 +2066,15 @@
 
   /**
    * 仅用当前权重重算恢复分并刷新 KPI / 摘要 / 图表 / 提示词
+   * @param weights 权重对象
+   * @param opts.quiet 语言切换等场景：不强制展开权重面板、不弹状态条
    */
-  function recomputeRecoveryWithWeights(weights) {
+  function recomputeRecoveryWithWeights(weights, opts) {
     if (!currentAnalysis) return false;
+    const quiet = !!(opts && opts.quiet);
     const w = normalizeRecoveryWeightsLocal(weights);
-    recoveryWeights = saveRecoveryWeights(w);
+    // quiet（如语言切换）：只重算文案，不回写 localStorage
+    recoveryWeights = quiet ? w : saveRecoveryWeights(w);
     const partial = {
       dateRange: currentAnalysis.dateRange,
       hrvByDate: currentAnalysis.hrvByDate,
@@ -1944,6 +2084,7 @@
       watchStats: currentAnalysis.watchStats,
       workoutStats: currentAnalysis.workoutStats,
     };
+    const locale = getAnalysisLocale();
     let result;
     if (
       window.HealthAnalyzer &&
@@ -1952,15 +2093,18 @@
       result = window.HealthAnalyzer.recomputeRecovery(partial, {
         weeks: 12,
         recoveryWeights: recoveryWeights,
+        locale,
       });
     } else {
       const recoveryWeeks = window.HealthAnalyzer.calcRecoveryWeeks(partial, {
         weeks: 12,
         recoveryWeights: recoveryWeights,
+        locale,
       });
       const recoveryWeek = window.HealthAnalyzer.calcRecoveryWeek(partial, {
         recoveryWeeks,
         recoveryWeights: recoveryWeights,
+        locale,
       });
       result = { recoveryWeek, recoveryWeeks };
     }
@@ -1970,13 +2114,15 @@
     renderKpis(currentAnalysis);
     renderSummary(currentAnalysis);
     bindRecoveryWeightsUi();
-    const panel = $('rw-weights-panel');
-    if (panel) panel.open = true;
-    const st = $('rw-weights-status');
-    if (st) {
-      st.textContent = '✓ 已按新权重重算';
-      st.classList.add('show');
-      setTimeout(() => st.classList.remove('show'), 2200);
+    if (!quiet) {
+      const panel = $('rw-weights-panel');
+      if (panel) panel.open = true;
+      const st = $('rw-weights-status');
+      if (st) {
+        st.textContent = '✓ 已按新权重重算';
+        st.classList.add('show');
+        setTimeout(() => st.classList.remove('show'), 2200);
+      }
     }
     renderCharts(currentAnalysis);
     renderInsights(currentAnalysis);
@@ -2209,6 +2355,7 @@
       recoveryWeights = loadRecoveryWeights();
       currentAnalysis = window.HealthAnalyzer.analyzeAll(currentAnalysis.data, {
         recoveryWeights,
+        locale: getAnalysisLocale(),
       });
       renderResults(currentAnalysis);
       const st = $('csv-merge-status');
@@ -3266,14 +3413,10 @@
     }
     if (!currentAnalysis) return;
     try {
-      renderCharts(currentAnalysis);
-      renderInsights(currentAnalysis);
+      // 重算恢复 statusLabel 以匹配当前语言（不改权重、不弹状态）
+      recomputeRecoveryWithWeights(recoveryWeights, { quiet: true });
       renderSignals(currentAnalysis);
       renderAvailability(currentAnalysis);
-      renderKpis(currentAnalysis);
-      renderSummary(currentAnalysis);
-      bindRecoveryWeightsUi();
-      renderPrompt();
     } catch (e) {
       console.warn('locale refresh partial', e);
     }

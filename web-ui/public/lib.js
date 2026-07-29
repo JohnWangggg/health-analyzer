@@ -925,6 +925,29 @@ var HealthAnalyzer = (() => {
     }
   };
 
+  // src/locale.ts
+  function normalizeLocale(v) {
+    if (v == null || v === "") return "zh-CN";
+    const s = String(v).trim();
+    const lower = s.toLowerCase().replace(/_/g, "-");
+    if (s === "en" || lower === "en" || lower.startsWith("en-")) return "en";
+    if (lower === "zh-tw" || lower.startsWith("zh-tw") || lower === "zh-hk" || lower.startsWith("zh-hk") || lower.includes("hant")) {
+      return "zh-TW";
+    }
+    return "zh-CN";
+  }
+  function pickLocale(locale, zh, en) {
+    return locale === "en" ? en : zh;
+  }
+  function createL(localeInput = "zh-CN") {
+    const locale = normalizeLocale(localeInput);
+    const pick = (zh, en) => pickLocale(locale, zh, en);
+    const fn = ((zh, en) => pick(zh, en));
+    fn.t = pick;
+    fn.locale = locale;
+    return fn;
+  }
+
   // src/stats.ts
   function normalizeRecoveryWeights(weights) {
     const base = { ...DEFAULT_RECOVERY_WEIGHTS };
@@ -1428,7 +1451,8 @@ var HealthAnalyzer = (() => {
     if (sorted.length % 2 === 1) return sorted[mid];
     return (sorted[mid - 1] + sorted[mid]) / 2;
   }
-  function attachRecoveryBaseline(week, recoveryWeeks) {
+  function attachRecoveryBaseline(week, recoveryWeeks, localeInput) {
+    const L = createL(normalizeLocale(localeInput));
     const priorScores = (recoveryWeeks || []).filter((p) => p.weekEnd !== week.weekEnd).map((p) => p.recoveryScore).filter((s) => s != null && Number.isFinite(s));
     let baselineRecoveryMedian = null;
     let vsBaselineDelta = null;
@@ -1439,8 +1463,14 @@ var HealthAnalyzer = (() => {
         baselineRecoveryMedian = Math.round(med);
         vsBaselineDelta = week.recoveryScore - baselineRecoveryMedian;
         if (Math.abs(vsBaselineDelta) >= 8) {
-          const dir = vsBaselineDelta > 0 ? "\u9AD8\u4E8E" : "\u4F4E\u4E8E";
-          statusLabel = `${statusLabel}\uFF08${dir}\u8FD1\u51E0\u5468\u4E2D\u4F4D\u7EA6 ${Math.abs(vsBaselineDelta)} \u5206\uFF09`;
+          const abs = Math.abs(vsBaselineDelta);
+          statusLabel = vsBaselineDelta > 0 ? L(
+            `${statusLabel}\uFF08\u9AD8\u4E8E\u8FD1\u51E0\u5468\u4E2D\u4F4D\u7EA6 ${abs} \u5206\uFF09`,
+            `${statusLabel} (~${abs} pts above recent median)`
+          ) : L(
+            `${statusLabel}\uFF08\u4F4E\u4E8E\u8FD1\u51E0\u5468\u4E2D\u4F4D\u7EA6 ${abs} \u5206\uFF09`,
+            `${statusLabel} (~${abs} pts below recent median)`
+          );
         }
       }
     }
@@ -1453,6 +1483,7 @@ var HealthAnalyzer = (() => {
     };
   }
   function scoreRecoveryLoad(input) {
+    const L = createL(normalizeLocale(input.locale));
     const w = normalizeRecoveryWeights(input.weights);
     const components = [];
     const recoveryParts = [];
@@ -1557,25 +1588,25 @@ var HealthAnalyzer = (() => {
     const loadScoreRaw = weightedMean(loadParts);
     const recoveryScore = recoveryScoreRaw != null ? Math.round(recoveryScoreRaw) : null;
     const loadScore = loadScoreRaw != null ? Math.round(loadScoreRaw) : null;
-    let statusLabel = "\u6570\u636E\u4E0D\u8DB3\uFF0C\u6682\u4E0D\u8BC4\u4F30";
+    let statusLabel = L("\u6570\u636E\u4E0D\u8DB3\uFF0C\u6682\u4E0D\u8BC4\u4F30", "Insufficient data to score");
     let statusTone = "neutral";
     if (recoveryScore != null || loadScore != null) {
       const r = recoveryScore ?? 50;
       const l = loadScore ?? 40;
       if (r >= 65 && l <= 70) {
-        statusLabel = "\u6062\u590D\u5C1A\u53EF\uFF0C\u53EF\u7EF4\u6301\u6216\u8F7B\u91CF\u63A8\u8FDB";
+        statusLabel = L("\u6062\u590D\u5C1A\u53EF\uFF0C\u53EF\u7EF4\u6301\u6216\u8F7B\u91CF\u63A8\u8FDB", "Recovery looks OK \u2014 maintain or progress lightly");
         statusTone = "positive";
       } else if (r < 45 && l >= 55) {
-        statusLabel = "\u8D1F\u8377\u504F\u9AD8\u4E14\u6062\u590D\u504F\u7D27\uFF0C\u5EFA\u8BAE\u8F7B\u677E\u65E5";
+        statusLabel = L("\u8D1F\u8377\u504F\u9AD8\u4E14\u6062\u590D\u504F\u7D27\uFF0C\u5EFA\u8BAE\u8F7B\u677E\u65E5", "High load with tight recovery \u2014 prefer easy days");
         statusTone = "watch";
       } else if (r < 40) {
-        statusLabel = "\u6062\u590D\u6307\u6807\u504F\u5F31\uFF0C\u4F18\u5148\u7761\u7720\u4E0E\u51CF\u8D1F";
+        statusLabel = L("\u6062\u590D\u6307\u6807\u504F\u5F31\uFF0C\u4F18\u5148\u7761\u7720\u4E0E\u51CF\u8D1F", "Weak recovery \u2014 prioritize sleep and reduce load");
         statusTone = "watch";
       } else if (l < 25 && r >= 50) {
-        statusLabel = "\u6062\u590D\u5C1A\u53EF\u4F46\u6D3B\u52A8\u504F\u4F4E\uFF0C\u53EF\u9002\u91CF\u589E\u52A0\u8D70\u52A8";
+        statusLabel = L("\u6062\u590D\u5C1A\u53EF\u4F46\u6D3B\u52A8\u504F\u4F4E\uFF0C\u53EF\u9002\u91CF\u589E\u52A0\u8D70\u52A8", "Recovery OK but activity is low \u2014 add light walking");
         statusTone = "neutral";
       } else {
-        statusLabel = "\u8D1F\u8377\u4E0E\u6062\u590D\u5927\u81F4\u5E73\u8861";
+        statusLabel = L("\u8D1F\u8377\u4E0E\u6062\u590D\u5927\u81F4\u5E73\u8861", "Load and recovery are roughly balanced");
         statusTone = "neutral";
       }
     }
@@ -1583,13 +1614,19 @@ var HealthAnalyzer = (() => {
     if (recoveryScore != null && base != null && Number.isFinite(base)) {
       const delta = recoveryScore - base;
       if (Math.abs(delta) >= 8) {
-        const dir = delta > 0 ? "\u9AD8\u4E8E" : "\u4F4E\u4E8E";
-        statusLabel = `${statusLabel}\uFF08${dir}\u8FD1\u51E0\u5468\u4E2D\u4F4D\u7EA6 ${Math.abs(delta)} \u5206\uFF09`;
+        const abs = Math.abs(delta);
+        statusLabel = delta > 0 ? L(
+          `${statusLabel}\uFF08\u9AD8\u4E8E\u8FD1\u51E0\u5468\u4E2D\u4F4D\u7EA6 ${abs} \u5206\uFF09`,
+          `${statusLabel} (~${abs} pts above recent median)`
+        ) : L(
+          `${statusLabel}\uFF08\u4F4E\u4E8E\u8FD1\u51E0\u5468\u4E2D\u4F4D\u7EA6 ${abs} \u5206\uFF09`,
+          `${statusLabel} (~${abs} pts below recent median)`
+        );
       }
     }
     return { recoveryScore, loadScore, statusLabel, statusTone, components };
   }
-  function buildRecoveryWeekAt(analysis, weekEnd, weights) {
+  function buildRecoveryWeekAt(analysis, weekEnd, weights, locale) {
     if (!weekEnd) return null;
     const hrvMeans = {};
     for (const [d, h] of Object.entries(analysis.hrvByDate || {})) {
@@ -1635,7 +1672,8 @@ var HealthAnalyzer = (() => {
       exerciseMinMean7d,
       workoutDuration7d,
       stepsMean7d,
-      weights
+      weights,
+      locale
     });
     return {
       weekEnd,
@@ -1676,14 +1714,20 @@ var HealthAnalyzer = (() => {
   function calcRecoveryWeek(analysis, options) {
     const end = analysis.dateRange?.end;
     if (!end) return null;
-    const week = buildRecoveryWeekAt(analysis, end, options?.recoveryWeights);
+    const week = buildRecoveryWeekAt(
+      analysis,
+      end,
+      options?.recoveryWeights,
+      options?.locale
+    );
     if (!week) return null;
     if (options?.skipBaseline) return week;
     const weeks = options?.recoveryWeeks !== void 0 ? options.recoveryWeeks : calcRecoveryWeeks(analysis, {
       weeks: 12,
-      recoveryWeights: options?.recoveryWeights
+      recoveryWeights: options?.recoveryWeights,
+      locale: options?.locale
     });
-    return attachRecoveryBaseline(week, weeks);
+    return attachRecoveryBaseline(week, weeks, options?.locale);
   }
   function calcRecoveryWeeks(analysis, options) {
     const end = analysis.dateRange?.end;
@@ -1692,10 +1736,11 @@ var HealthAnalyzer = (() => {
     const start = analysis.dateRange?.start || "";
     const points = [];
     const weights = options?.recoveryWeights;
+    const locale = options?.locale;
     for (let i = n - 1; i >= 0; i--) {
       const weekEnd = addDaysIso(end, -i * 7);
       if (start && weekEnd < start) continue;
-      const full = buildRecoveryWeekAt(analysis, weekEnd, weights);
+      const full = buildRecoveryWeekAt(analysis, weekEnd, weights, locale);
       if (full) points.push(toRecoveryWeekPoint(full));
     }
     return points.length ? points : null;
@@ -1704,11 +1749,13 @@ var HealthAnalyzer = (() => {
     const weeks = Math.max(1, Math.min(52, Math.floor(options?.weeks ?? 12)));
     const recoveryWeeks = calcRecoveryWeeks(analysis, {
       weeks,
-      recoveryWeights: options?.recoveryWeights
+      recoveryWeights: options?.recoveryWeights,
+      locale: options?.locale
     });
     const recoveryWeek = calcRecoveryWeek(analysis, {
       recoveryWeeks,
-      recoveryWeights: options?.recoveryWeights
+      recoveryWeights: options?.recoveryWeights,
+      locale: options?.locale
     });
     return { recoveryWeek, recoveryWeeks };
   }
@@ -1747,10 +1794,16 @@ var HealthAnalyzer = (() => {
       workoutStats
     };
     const rw = options?.recoveryWeights;
-    const recoveryWeeks = calcRecoveryWeeks(partial, { weeks: 12, recoveryWeights: rw });
+    const locale = options?.locale;
+    const recoveryWeeks = calcRecoveryWeeks(partial, {
+      weeks: 12,
+      recoveryWeights: rw,
+      locale
+    });
     const recoveryWeek = calcRecoveryWeek(partial, {
       recoveryWeeks,
-      recoveryWeights: rw
+      recoveryWeights: rw,
+      locale
     });
     return {
       data,
@@ -1773,29 +1826,6 @@ var HealthAnalyzer = (() => {
       dateRange: { start, end },
       generatedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
-  }
-
-  // src/locale.ts
-  function normalizeLocale(v) {
-    if (v == null || v === "") return "zh-CN";
-    const s = String(v).trim();
-    const lower = s.toLowerCase().replace(/_/g, "-");
-    if (s === "en" || lower === "en" || lower.startsWith("en-")) return "en";
-    if (lower === "zh-tw" || lower.startsWith("zh-tw") || lower === "zh-hk" || lower.startsWith("zh-hk") || lower.includes("hant")) {
-      return "zh-TW";
-    }
-    return "zh-CN";
-  }
-  function pickLocale(locale, zh, en) {
-    return locale === "en" ? en : zh;
-  }
-  function createL(localeInput = "zh-CN") {
-    const locale = normalizeLocale(localeInput);
-    const pick = (zh, en) => pickLocale(locale, zh, en);
-    const fn = ((zh, en) => pick(zh, en));
-    fn.t = pick;
-    fn.locale = locale;
-    return fn;
   }
 
   // src/signals.ts

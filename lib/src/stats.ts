@@ -31,6 +31,7 @@ import {
   DEFAULT_RECOVERY_WEIGHTS,
 } from './types';
 import { getDate, getHour, parseAppleDate, workoutTypeLabel } from './parser';
+import { createL, normalizeLocale, AppLocale } from './locale';
 
 /** 将部分权重与默认合并，非正数回退默认 */
 export function normalizeRecoveryWeights(
@@ -708,8 +709,10 @@ function medianNumber(values: number[]): number | null {
  */
 export function attachRecoveryBaseline(
   week: RecoveryWeekStats,
-  recoveryWeeks: RecoveryWeekPoint[] | null | undefined
+  recoveryWeeks: RecoveryWeekPoint[] | null | undefined,
+  localeInput?: AppLocale | string | null
 ): RecoveryWeekStats {
+  const L = createL(normalizeLocale(localeInput));
   const priorScores = (recoveryWeeks || [])
     .filter((p) => p.weekEnd !== week.weekEnd)
     .map((p) => p.recoveryScore)
@@ -725,8 +728,17 @@ export function attachRecoveryBaseline(
       baselineRecoveryMedian = Math.round(med);
       vsBaselineDelta = week.recoveryScore - baselineRecoveryMedian;
       if (Math.abs(vsBaselineDelta) >= 8) {
-        const dir = vsBaselineDelta > 0 ? '高于' : '低于';
-        statusLabel = `${statusLabel}（${dir}近几周中位约 ${Math.abs(vsBaselineDelta)} 分）`;
+        const abs = Math.abs(vsBaselineDelta);
+        statusLabel =
+          vsBaselineDelta > 0
+            ? L(
+                `${statusLabel}（高于近几周中位约 ${abs} 分）`,
+                `${statusLabel} (~${abs} pts above recent median)`
+              )
+            : L(
+                `${statusLabel}（低于近几周中位约 ${abs} 分）`,
+                `${statusLabel} (~${abs} pts below recent median)`
+              );
       }
     }
   }
@@ -754,6 +766,7 @@ function scoreRecoveryLoad(input: {
   baselineRecoveryMedian?: number | null;
   /** 个人权重；缺省等权 */
   weights?: Partial<RecoveryWeights> | null;
+  locale?: AppLocale | string | null;
 }): {
   recoveryScore: number | null;
   loadScore: number | null;
@@ -761,6 +774,7 @@ function scoreRecoveryLoad(input: {
   statusTone: RecoveryWeekStats['statusTone'];
   components: RecoveryScorePart[];
 } {
+  const L = createL(normalizeLocale(input.locale));
   const w = normalizeRecoveryWeights(input.weights);
   const components: RecoveryScorePart[] = [];
 
@@ -870,25 +884,25 @@ function scoreRecoveryLoad(input: {
   const recoveryScore = recoveryScoreRaw != null ? Math.round(recoveryScoreRaw) : null;
   const loadScore = loadScoreRaw != null ? Math.round(loadScoreRaw) : null;
 
-  let statusLabel = '数据不足，暂不评估';
+  let statusLabel = L('数据不足，暂不评估', 'Insufficient data to score');
   let statusTone: RecoveryWeekStats['statusTone'] = 'neutral';
   if (recoveryScore != null || loadScore != null) {
     const r = recoveryScore ?? 50;
     const l = loadScore ?? 40;
     if (r >= 65 && l <= 70) {
-      statusLabel = '恢复尚可，可维持或轻量推进';
+      statusLabel = L('恢复尚可，可维持或轻量推进', 'Recovery looks OK — maintain or progress lightly');
       statusTone = 'positive';
     } else if (r < 45 && l >= 55) {
-      statusLabel = '负荷偏高且恢复偏紧，建议轻松日';
+      statusLabel = L('负荷偏高且恢复偏紧，建议轻松日', 'High load with tight recovery — prefer easy days');
       statusTone = 'watch';
     } else if (r < 40) {
-      statusLabel = '恢复指标偏弱，优先睡眠与减负';
+      statusLabel = L('恢复指标偏弱，优先睡眠与减负', 'Weak recovery — prioritize sleep and reduce load');
       statusTone = 'watch';
     } else if (l < 25 && r >= 50) {
-      statusLabel = '恢复尚可但活动偏低，可适量增加走动';
+      statusLabel = L('恢复尚可但活动偏低，可适量增加走动', 'Recovery OK but activity is low — add light walking');
       statusTone = 'neutral';
     } else {
-      statusLabel = '负荷与恢复大致平衡';
+      statusLabel = L('负荷与恢复大致平衡', 'Load and recovery are roughly balanced');
       statusTone = 'neutral';
     }
   }
@@ -898,8 +912,17 @@ function scoreRecoveryLoad(input: {
   if (recoveryScore != null && base != null && Number.isFinite(base)) {
     const delta = recoveryScore - base;
     if (Math.abs(delta) >= 8) {
-      const dir = delta > 0 ? '高于' : '低于';
-      statusLabel = `${statusLabel}（${dir}近几周中位约 ${Math.abs(delta)} 分）`;
+      const abs = Math.abs(delta);
+      statusLabel =
+        delta > 0
+          ? L(
+              `${statusLabel}（高于近几周中位约 ${abs} 分）`,
+              `${statusLabel} (~${abs} pts above recent median)`
+            )
+          : L(
+              `${statusLabel}（低于近几周中位约 ${abs} 分）`,
+              `${statusLabel} (~${abs} pts below recent median)`
+            );
     }
   }
 
@@ -920,7 +943,8 @@ export type RecoveryAnalysisPartial = {
 function buildRecoveryWeekAt(
   analysis: RecoveryAnalysisPartial,
   weekEnd: string,
-  weights?: Partial<RecoveryWeights> | null
+  weights?: Partial<RecoveryWeights> | null,
+  locale?: AppLocale | string | null
 ): RecoveryWeekStats | null {
   if (!weekEnd) return null;
 
@@ -982,6 +1006,7 @@ function buildRecoveryWeekAt(
     workoutDuration7d,
     stepsMean7d,
     weights,
+    locale,
   });
 
   return {
@@ -1033,11 +1058,17 @@ export function calcRecoveryWeek(
     recoveryWeeks?: RecoveryWeekPoint[] | null;
     skipBaseline?: boolean;
     recoveryWeights?: Partial<RecoveryWeights> | null;
+    locale?: AppLocale | string | null;
   }
 ): RecoveryWeekStats | null {
   const end = analysis.dateRange?.end;
   if (!end) return null;
-  const week = buildRecoveryWeekAt(analysis, end, options?.recoveryWeights);
+  const week = buildRecoveryWeekAt(
+    analysis,
+    end,
+    options?.recoveryWeights,
+    options?.locale
+  );
   if (!week) return null;
   if (options?.skipBaseline) return week;
   const weeks =
@@ -1046,8 +1077,9 @@ export function calcRecoveryWeek(
       : calcRecoveryWeeks(analysis, {
           weeks: 12,
           recoveryWeights: options?.recoveryWeights,
+          locale: options?.locale,
         });
-  return attachRecoveryBaseline(week, weeks);
+  return attachRecoveryBaseline(week, weeks, options?.locale);
 }
 
 /**
@@ -1056,7 +1088,11 @@ export function calcRecoveryWeek(
  */
 export function calcRecoveryWeeks(
   analysis: RecoveryAnalysisPartial,
-  options?: { weeks?: number; recoveryWeights?: Partial<RecoveryWeights> | null }
+  options?: {
+    weeks?: number;
+    recoveryWeights?: Partial<RecoveryWeights> | null;
+    locale?: AppLocale | string | null;
+  }
 ): RecoveryWeekPoint[] | null {
   const end = analysis.dateRange?.end;
   if (!end) return null;
@@ -1064,11 +1100,12 @@ export function calcRecoveryWeeks(
   const start = analysis.dateRange?.start || '';
   const points: RecoveryWeekPoint[] = [];
   const weights = options?.recoveryWeights;
+  const locale = options?.locale;
 
   for (let i = n - 1; i >= 0; i--) {
     const weekEnd = addDaysIso(end, -i * 7);
     if (start && weekEnd < start) continue;
-    const full = buildRecoveryWeekAt(analysis, weekEnd, weights);
+    const full = buildRecoveryWeekAt(analysis, weekEnd, weights, locale);
     if (full) points.push(toRecoveryWeekPoint(full));
   }
 
@@ -1084,6 +1121,7 @@ export function recomputeRecovery(
   options?: {
     weeks?: number;
     recoveryWeights?: Partial<RecoveryWeights> | null;
+    locale?: AppLocale | string | null;
   }
 ): {
   recoveryWeek: RecoveryWeekStats | null;
@@ -1093,10 +1131,12 @@ export function recomputeRecovery(
   const recoveryWeeks = calcRecoveryWeeks(analysis, {
     weeks,
     recoveryWeights: options?.recoveryWeights,
+    locale: options?.locale,
   });
   const recoveryWeek = calcRecoveryWeek(analysis, {
     recoveryWeeks,
     recoveryWeights: options?.recoveryWeights,
+    locale: options?.locale,
   });
   return { recoveryWeek, recoveryWeeks };
 }
@@ -1104,7 +1144,10 @@ export function recomputeRecovery(
 /** 完整分析入口 */
 export function analyzeAll(
   data: HealthData,
-  options?: { recoveryWeights?: Partial<RecoveryWeights> | null }
+  options?: {
+    recoveryWeights?: Partial<RecoveryWeights> | null;
+    locale?: AppLocale | string | null;
+  }
 ): FullAnalysis {
   const allDates: string[] = [
     ...data.cgm.map((x) => getDate(x.datetime)),
@@ -1143,10 +1186,16 @@ export function analyzeAll(
   };
 
   const rw = options?.recoveryWeights;
-  const recoveryWeeks = calcRecoveryWeeks(partial, { weeks: 12, recoveryWeights: rw });
+  const locale = options?.locale;
+  const recoveryWeeks = calcRecoveryWeeks(partial, {
+    weeks: 12,
+    recoveryWeights: rw,
+    locale,
+  });
   const recoveryWeek = calcRecoveryWeek(partial, {
     recoveryWeeks,
     recoveryWeights: rw,
+    locale,
   });
 
   return {
