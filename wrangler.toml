@@ -1,0 +1,13 @@
+# Cloudflare Workers / Pages（静态资源）部署配置
+# 本地预览: npx wrangler dev
+# 部署:     npx wrangler deploy
+# 文档:     https://developers.cloudflare.com/workers/static-assets/
+
+name = "health-analyzer"
+compatibility_date = "2026-07-29"
+
+# 将纯前端 PWA 目录作为静态资源发布（无后端 Worker 逻辑也可）
+[assets]
+directory = "./web-ui/public"
+# SPA / 本地路由回退（打开子路径时回到 index.html；本应用以 ./ 相对路径为主，可选）
+# not_found_handling = "single-page-application"
