@@ -2782,6 +2782,33 @@ body.has-results .result-section {
   text-decoration: none;
 }
 
+/* 隐私一键清除 / 敏感字段勾选 */
+.privacy-wipe-panel {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+}
+.privacy-wipe-panel .btn-danger-text {
+  margin-top: 4px;
+}
+.privacy-wipe-inline {
+  margin: 12px 0 0;
+}
+.ctx-include-sensitive {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-muted, #5c6570);
+  cursor: pointer;
+}
+.ctx-include-sensitive input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
 .btn-reset {
   flex-shrink: 0;
   margin-top: 2px;
@@ -3439,4 +3466,24 @@ body.has-results .app-footer {
   font-size: 13px;
   color: var(--text);
   line-height: 1.45;
+}
+
+/* 导入诊断（质量横幅旁，功能展示，非视觉重设计） */
+.import-diag-banner .import-diag-meta {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted, var(--text));
+  opacity: 0.92;
+}
+.import-diag-banner .import-diag-issues {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.import-diag-banner .import-diag-actions {
+  margin: 8px 0 0;
+}
+.import-diag-banner .import-diag-actions .btn-secondary {
+  font-size: 12px;
+  padding: 6px 12px;
 }

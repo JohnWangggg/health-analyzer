@@ -183,6 +183,10 @@
             <textarea id="ctx-notes" rows="2" maxlength="500" placeholder="可选"></textarea>
           </label>
         </div>
+        <label class="ctx-include-sensitive" for="ctx-include-sensitive">
+          <input type="checkbox" id="ctx-include-sensitive" checked>
+          <span data-i18n="ctx.includeSensitive">复制提示词时包含用药与病史</span>
+        </label>
         <div class="context-actions">
           <button type="button" id="btn-ctx-save" class="btn-secondary" data-i18n="ctx.save">保存到本机</button>
           <button type="button" id="btn-ctx-clear" class="btn-ghost" data-i18n="ctx.clear">清空</button>
@@ -365,6 +369,12 @@
       </div>
       <p class="hint compact-hint export-shortcut-hint" data-i18n="export.shortcutHint">有结果时可用 ⌘/Ctrl+Shift+C 复制完整提示词。</p>
 
+      <div class="privacy-wipe-panel" role="region" aria-labelledby="privacy-wipe-title">
+        <h3 class="panel-subhead" id="privacy-wipe-title" data-i18n="privacy.wipeTitle">隐私与本机数据</h3>
+        <p class="hint compact-hint" data-i18n="privacy.wipeHint">清除个人背景、恢复权重、信号偏好、图表范围及 IndexedDB 摘要/周报历史。主题与界面语言会保留。</p>
+        <button type="button" id="btn-clear-all-local" class="btn-danger-text" data-i18n="privacy.wipeBtn">清除所有本机健康数据</button>
+      </div>
+
       <div class="weekly-report-panel history-panel">
         <h3 class="panel-subhead" data-i18n="weekly.title">本周报告历史</h3>
         <p class="hint compact-hint" data-i18n="weekly.hint">下载后可选保存 Markdown 到本机 IndexedDB（最多 20 条，不上传）。</p>
@@ -449,7 +459,11 @@
         <li data-i18n="privacy.f3">可选：个人背景 → localStorage；摘要快照 → IndexedDB（可清空）</li>
         <li data-i18n="privacy.f4">PWA 缓存仅保存网页程序，不自动保存完整健康导出</li>
         <li data-i18n="privacy.f5">复制提示词后，是否发给第三方大模型由您决定</li>
+        <li data-i18n="privacy.f6">可在「导出与历史」一键清除本机健康相关存储（主题/语言可保留）</li>
       </ul>
+      <p class="privacy-wipe-inline">
+        <button type="button" id="btn-clear-all-local-fold" class="btn-danger-text" data-i18n="privacy.wipeBtn">清除所有本机健康数据</button>
+      </p>
     </details>
     </div><!-- /.layout-main -->
 

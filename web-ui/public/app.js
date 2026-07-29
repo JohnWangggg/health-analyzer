@@ -29,10 +29,79 @@
   let lastSelectedFiles = null;
   /** 最近一次 CSV 合并说明（展示在质量横幅旁） */
   let lastCsvMergeNote = '';
+  /** 最近一次导入诊断（本机展示/复制，不上传） */
+  let lastImportDiagnostics = null;
   const CTX_STORAGE_KEY = 'health-analyzer-user-context-v1';
   const RECOVERY_WEIGHTS_KEY = 'health-analyzer-recovery-weights';
   const SIGNAL_PREFS_KEY = 'health-analyzer-signal-prefs-v1';
   const THEME_KEY = 'health-analyzer-theme'; // system | light | dark
+  /** 首次复制完整/摘要提示词时的隐私确认（发往第三方大模型） */
+  const LLM_COPY_ACK_KEY = 'health-analyzer-llm-copy-ack';
+  /** 是否在提示词中包含用药/病史等敏感自述 */
+  const INCLUDE_SENSITIVE_KEY = 'health-analyzer-include-sensitive-ctx';
+  /**
+   * 健康相关 localStorage 键（一键清除会删这些）。
+   * 刻意保留：THEME_KEY、health-analyzer-locale、侧栏折叠、安装/更新提示等 UI 偏好。
+   */
+  const HEALTH_LOCAL_STORAGE_KEYS = [
+    CTX_STORAGE_KEY,
+    RECOVERY_WEIGHTS_KEY,
+    SIGNAL_PREFS_KEY,
+    CHART_RANGE_KEY,
+    LLM_COPY_ACK_KEY,
+    INCLUDE_SENSITIVE_KEY,
+    'health-analyzer-insight-coach',
+  ];
+
+  /**
+   * ZIP 内存保护阈值（可调）。
+   * 解压前按压缩包大小拒绝过大文件；解压时只提取 export.xml / ECG CSV，
+   * 并限制条目数与展开体积，降低 zip bomb / 无关资源占满内存的风险。
+   */
+  const ZIP_LIMITS = {
+    WARN_BYTES: 600 * 1024 * 1024, // 600MB：进度区额外提示
+    REJECT_BYTES: 800 * 1024 * 1024, // 800MB：拒绝整包
+    MAX_CENTRAL_ENTRIES: 80000,
+    MAX_ECG_FILES: 400,
+    MAX_SELECTED_INFLATED: 1400 * 1024 * 1024, // 选中文件 originalSize 合计
+    MAX_XML_INFLATED: 1200 * 1024 * 1024,
+    MAX_SINGLE_ECG_INFLATED: 15 * 1024 * 1024,
+    BOMB_RATIO: 80,
+    BOMB_MIN_ORIGINAL: 50 * 1024 * 1024,
+  };
+
+  function formatBytes(n) {
+    const v = Number(n) || 0;
+    if (v >= 1024 * 1024 * 1024) return (v / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+    if (v >= 1024 * 1024) return Math.round(v / (1024 * 1024)) + ' MB';
+    if (v >= 1024) return Math.round(v / 1024) + ' KB';
+    return v + ' B';
+  }
+
+  function createEmptyImportDiagnostics() {
+    return {
+      source: '',
+      zipName: '',
+      zipBytes: 0,
+      xmlFileName: '',
+      xmlBytes: 0,
+      zipEntryCount: 0,
+      zipExtractedCount: 0,
+      selectedInflatedEstimate: 0,
+      ecgTruncated: false,
+      ecgCap: ZIP_LIMITS.MAX_ECG_FILES,
+      ecg: {
+        candidates: 0,
+        parsed: 0,
+        skippedDate: 0,
+        skippedFuture: 0,
+        skippedInvalid: 0,
+        errors: [], // { file, reason }
+      },
+      domains: {},
+      notes: [],
+    };
+  }
 
   const DEFAULT_RECOVERY_WEIGHTS = {
     hrv: 1,
@@ -344,6 +413,40 @@
     };
   }
 
+  function loadIncludeSensitiveCtx() {
+    try {
+      const v = window.localStorage.getItem(INCLUDE_SENSITIVE_KEY);
+      if (v === '0') return false;
+      if (v === '1') return true;
+    } catch (e) { /* ignore */ }
+    return true; // 默认包含（与历史行为一致）
+  }
+
+  function saveIncludeSensitiveCtx(on) {
+    try {
+      window.localStorage.setItem(INCLUDE_SENSITIVE_KEY, on ? '1' : '0');
+    } catch (e) { /* ignore */ }
+  }
+
+  function syncIncludeSensitiveCheckbox() {
+    const el = $('ctx-include-sensitive');
+    if (el) el.checked = loadIncludeSensitiveCtx();
+  }
+
+  /**
+   * 注入提示词用的上下文：可按勾选剥离用药/病史。
+   * 年龄/身高/目标体重/关注点/备注仍保留（备注本身可被 lib 边界包裹）。
+   */
+  function getUserContextForPrompt() {
+    const ctx = getUserContextFromForm();
+    if (loadIncludeSensitiveCtx()) return ctx;
+    return {
+      ...ctx,
+      medications: null,
+      conditions: null,
+    };
+  }
+
   function applyUserContextToForm(ctx) {
     if (!ctx) return;
     const set = (id, v) => {
@@ -401,8 +504,14 @@
   }
 
   loadUserContext();
+  syncIncludeSensitiveCheckbox();
   $('btn-ctx-save')?.addEventListener('click', saveUserContext);
   $('btn-ctx-clear')?.addEventListener('click', clearUserContext);
+  $('ctx-include-sensitive')?.addEventListener('change', (e) => {
+    const on = !!(e.target && e.target.checked);
+    saveIncludeSensitiveCtx(on);
+    if (currentAnalysis) renderPrompt();
+  });
   // 编辑后即时刷新提示词（若已有分析结果）
   ['ctx-age', 'ctx-sex', 'ctx-height', 'ctx-target-weight', 'ctx-medications', 'ctx-conditions', 'ctx-focus', 'ctx-notes']
     .forEach((id) => {
@@ -641,6 +750,9 @@
     show('step-progress');
     setProgress(0.02, t('progress.prepare'), { stage: 'read', hint: t('progress.hintPrepare') });
 
+    const importDiag = createEmptyImportDiagnostics();
+    lastImportDiagnostics = null;
+
     try {
       let xmlText = '';
       let xmlBytes = null;  // 流式解析的字节流
@@ -650,16 +762,39 @@
         const zipFile = files.find(f => f.name.endsWith('.zip'));
         const xmlFile = files.find(f => f.name.endsWith('.xml'));
         if (zipFile) {
+          importDiag.source = 'zip';
+          importDiag.zipName = zipFile.name || '';
+          importDiag.zipBytes = zipFile.size || 0;
+          const largeHint =
+            zipFile.size > ZIP_LIMITS.WARN_BYTES
+              ? t('progress.unzipWarn', { size: formatBytes(zipFile.size) })
+              : zipFile.size > 200 * 1024 * 1024
+                ? t('progress.unzipLarge')
+                : t('progress.unzipLocal');
           setProgress(0.04, t('progress.unzip'), {
             stage: 'read',
-            hint: zipFile.size > 200 * 1024 * 1024
-              ? t('progress.unzipLarge')
-              : t('progress.unzipLocal'),
+            hint: largeHint,
           });
           const result = await extractXmlFromZipBrowser(zipFile);
           xmlBytes = result.xmlBytes;  // 直接使用字节流，避免 512MB 字符串限制
+          importDiag.xmlFileName = result.xmlFileName || '';
+          importDiag.xmlBytes = (result.xmlBytes && result.xmlBytes.byteLength) || 0;
+          if (result.meta) {
+            importDiag.zipEntryCount = result.meta.entryCount || 0;
+            importDiag.zipExtractedCount = result.meta.extractedCount || 0;
+            importDiag.selectedInflatedEstimate = result.meta.selectedInflatedEstimate || 0;
+            importDiag.ecgTruncated = !!result.meta.ecgTruncated;
+            if (result.meta.ecgTruncated) {
+              importDiag.notes.push(
+                t('import.diag.ecgTruncated', { n: ZIP_LIMITS.MAX_ECG_FILES })
+              );
+            }
+          }
           ecgFiles = result.ecgEntries.map(e => ({ name: e.filename, _text: e.text }));
         } else if (xmlFile) {
+          importDiag.source = 'xml';
+          importDiag.xmlFileName = xmlFile.name || '';
+          importDiag.xmlBytes = xmlFile.size || 0;
           setProgress(0.04, t('progress.readXml'), { stage: 'read' });
           xmlText = await readFileAsText(xmlFile);
         } else {
@@ -675,15 +810,21 @@
           );
         }
       } else if (source === 'xml_only') {
+        importDiag.source = 'xml';
         const xmlFile = files.find(f => f.name.endsWith('.xml'));
         if (!xmlFile) throw new Error(t('parse.err.needXml'));
+        importDiag.xmlFileName = xmlFile.name || '';
+        importDiag.xmlBytes = xmlFile.size || 0;
         setProgress(0.04, t('progress.readXml'), { stage: 'read' });
         xmlText = await readFileAsText(xmlFile);
         // 同批多选的 CSV 一并尝试作为 ECG（内容校验在 ingest）
         ecgFiles = files.filter((f) => f.name.endsWith('.csv'));
       } else if (source === 'folder') {
+        importDiag.source = 'folder';
         const xmlFile = files.find(f => /export|导出/i.test(f.name) && f.name.endsWith('.xml'));
         if (!xmlFile) throw new Error(t('parse.err.folderNoXml'));
+        importDiag.xmlFileName = xmlFile.name || xmlFile.webkitRelativePath || '';
+        importDiag.xmlBytes = xmlFile.size || 0;
         setProgress(0.04, t('progress.readFolder'), { stage: 'read' });
         xmlText = await readFileAsText(xmlFile);
         // 收集 ECG 文件（electrocardiograms 目录或文件名含 ecg）
@@ -711,36 +852,75 @@
         data = await parseHealthData(xmlText, parseOptions);
       }
 
-      // 解析 ECG（同样排除未来日期）
-      const ingestEcg = (summary) => {
+      // 解析 ECG：失败/跳过计入诊断，不再完全静默
+      const ingestEcg = (summary, fileLabel) => {
+        if (!summary) {
+          importDiag.ecg.skippedInvalid += 1;
+          importDiag.ecg.errors.push({
+            file: fileLabel,
+            reason: 'invalid',
+          });
+          return;
+        }
+        if (!summary.datetime && summary.classification === 'unknown') {
+          importDiag.ecg.skippedInvalid += 1;
+          importDiag.ecg.errors.push({
+            file: fileLabel,
+            reason: 'invalid',
+          });
+          return;
+        }
         if (!ecgWithinDateFilter(summary, parseOptions)) {
           const raw = summary && summary.datetime ? String(summary.datetime).slice(0, 10) : '';
           const ref =
             parseOptions.referenceDate ||
             (window.HealthAnalyzer.getLocalToday && window.HealthAnalyzer.getLocalToday());
-          if (ref && raw > ref) noteEcgSkippedFuture(data, summary);
+          if (ref && raw > ref) {
+            noteEcgSkippedFuture(data, summary);
+            importDiag.ecg.skippedFuture += 1;
+          } else {
+            importDiag.ecg.skippedDate += 1;
+          }
           return;
         }
         data.ecg.push(summary);
         data.dataAvailability.hasEcg = true;
+        importDiag.ecg.parsed += 1;
       };
 
       if (ecgFiles.length > 0) {
+        importDiag.ecg.candidates = ecgFiles.length;
         for (const f of ecgFiles) {
+          const label = f.name || f.filename || 'ecg.csv';
           try {
             const text = f._text || await readFileAsText(f);
-            ingestEcg(window.HealthAnalyzer.parseEcgCsv(text));
-          } catch (e) { /* ignore */ }
+            ingestEcg(window.HealthAnalyzer.parseEcgCsv(text), label);
+          } catch (e) {
+            importDiag.ecg.errors.push({
+              file: label,
+              reason: (e && e.message) ? String(e.message) : 'error',
+            });
+          }
         }
       } else {
         const allCsv = files.filter(f => f.name.endsWith('.csv'));
+        importDiag.ecg.candidates = allCsv.length;
         for (const f of allCsv) {
+          const label = f.name || 'ecg.csv';
           try {
             const text = await readFileAsText(f);
-            if (text.includes('分类') && text.includes('记录日期')) {
-              ingestEcg(window.HealthAnalyzer.parseEcgCsv(text));
+            if (
+              (text.includes('分类') && text.includes('记录日期')) ||
+              (/Classification/i.test(text) && /Record Date/i.test(text))
+            ) {
+              ingestEcg(window.HealthAnalyzer.parseEcgCsv(text), label);
             }
-          } catch (e) { /* ignore */ }
+          } catch (e) {
+            importDiag.ecg.errors.push({
+              file: label,
+              reason: (e && e.message) ? String(e.message) : 'error',
+            });
+          }
         }
       }
 
@@ -761,6 +941,9 @@
         locale: getAnalysisLocale(),
       });
 
+      importDiag.domains = summarizeDomainCounts(data);
+      lastImportDiagnostics = importDiag;
+
       setProgress(1, t('progress.doneText'), { stage: 'done', hint: t('progress.doneHint') });
       setTimeout(() => {
         hide('step-progress');
@@ -772,6 +955,24 @@
       // showError rewrites #step-progress and shows it; do not hide afterward
       showError(err.message || String(err));
     }
+  }
+
+  function summarizeDomainCounts(data) {
+    if (!data) return {};
+    const watchDays = data.watchDaily ? Object.keys(data.watchDaily).length : 0;
+    return {
+      cgm: (data.cgm && data.cgm.length) || 0,
+      bloodPressure: (data.bloodPressure && data.bloodPressure.length) || 0,
+      weight: (data.weight && data.weight.length) || 0,
+      bodyFat: (data.bodyFat && data.bodyFat.length) || 0,
+      hrvDays: data.hrv ? Object.keys(data.hrv).length : 0,
+      restingHrDays: data.restingHr ? Object.keys(data.restingHr).length : 0,
+      stepsDays: data.steps ? Object.keys(data.steps).length : 0,
+      sleepDays: data.sleep ? Object.keys(data.sleep).length : 0,
+      workouts: (data.workouts && data.workouts.length) || 0,
+      ecg: (data.ecg && data.ecg.length) || 0,
+      watchDays,
+    };
   }
 
   function buildProgressCardHtml() {
@@ -912,52 +1113,207 @@
     });
   }
 
+  /** 修复 macOS ZIP 文件名 UTF-8 编码问题 */
+  function decodeZipEntryName(name) {
+    const key = String(name || '');
+    const bytes = new Uint8Array(key.length);
+    for (let i = 0; i < key.length; i++) bytes[i] = key.charCodeAt(i) & 0xff;
+    let decoded;
+    try {
+      decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    } catch {
+      decoded = key;
+    }
+    if (decoded.includes('\ufffd')) decoded = key;
+    return decoded;
+  }
+
+  function isHealthExportXmlName(name) {
+    const base = (String(name).split('/').pop() || String(name)).trim();
+    if (/export_cda\.xml$/i.test(base)) return false;
+    if (/^export\.xml$/i.test(base)) return true;
+    // 简中 / 繁中导出名
+    if (/导出\.xml$/i.test(base) || /匯出\.xml$/i.test(base)) return true;
+    return false;
+  }
+
+  function isEcgCsvPath(name) {
+    return /electrocardiograms/i.test(name) && /\.csv$/i.test(name);
+  }
+
   /**
-   * 浏览器内解压 ZIP（使用本地 fflate 库）
+   * 浏览器内解压 ZIP（本地 fflate）。
+   * 内存保护：体积上限、只提取 export.xml / ECG CSV、条目与展开体积限制、异常压缩比中止。
    */
   async function extractXmlFromZipBrowser(zipFile) {
     if (!window.fflate) {
       throw new Error(t('parse.err.fflateMissing'));
     }
-    const buf = await zipFile.arrayBuffer();
-    const unzipped = window.fflate.unzipSync(new Uint8Array(buf));
 
-    // 修复 macOS ZIP 文件名 UTF-8 编码问题
+    const zipBytes = zipFile.size || 0;
+    if (zipBytes > ZIP_LIMITS.REJECT_BYTES) {
+      throw new Error(
+        t('parse.err.zipTooLarge', {
+          size: formatBytes(zipBytes),
+          limit: formatBytes(ZIP_LIMITS.REJECT_BYTES),
+        })
+      );
+    }
+
+    let u8 = new Uint8Array(await zipFile.arrayBuffer());
+
+    let entryCount = 0;
+    let selectedInflated = 0;
+    let ecgAccepted = 0;
+    let ecgSeen = 0;
+    let ecgTruncated = false;
+    const nameSamples = [];
+
+    const filter = (file) => {
+      entryCount += 1;
+      if (entryCount > ZIP_LIMITS.MAX_CENTRAL_ENTRIES) {
+        throw new Error('ZIP_TOO_MANY_ENTRIES');
+      }
+
+      const rawName = file && file.name != null ? String(file.name) : '';
+      const name = decodeZipEntryName(rawName);
+      if (nameSamples.length < 12) nameSamples.push(name);
+
+      const originalSize = (file && file.originalSize) || 0;
+      const compressedSize = (file && file.size) || 0;
+
+      // 异常压缩比（简单 zip bomb 防护）
+      if (
+        originalSize >= ZIP_LIMITS.BOMB_MIN_ORIGINAL &&
+        compressedSize > 0 &&
+        originalSize / compressedSize >= ZIP_LIMITS.BOMB_RATIO
+      ) {
+        throw new Error('ZIP_BOMB');
+      }
+
+      if (isHealthExportXmlName(name)) {
+        if (originalSize > ZIP_LIMITS.MAX_XML_INFLATED) {
+          throw new Error('ZIP_XML_TOO_LARGE');
+        }
+        if (selectedInflated + originalSize > ZIP_LIMITS.MAX_SELECTED_INFLATED) {
+          throw new Error('ZIP_INFLATED_TOO_LARGE');
+        }
+        selectedInflated += originalSize;
+        return true;
+      }
+
+      if (isEcgCsvPath(name)) {
+        ecgSeen += 1;
+        if (ecgAccepted >= ZIP_LIMITS.MAX_ECG_FILES) {
+          ecgTruncated = true;
+          return false;
+        }
+        if (originalSize > ZIP_LIMITS.MAX_SINGLE_ECG_INFLATED) {
+          return false;
+        }
+        if (selectedInflated + originalSize > ZIP_LIMITS.MAX_SELECTED_INFLATED) {
+          throw new Error('ZIP_INFLATED_TOO_LARGE');
+        }
+        selectedInflated += originalSize;
+        ecgAccepted += 1;
+        return true;
+      }
+
+      // 不解压 workout-routes / 相册 / export_cda 等无关条目
+      return false;
+    };
+
+    let unzipped;
+    try {
+      unzipped = window.fflate.unzipSync(u8, { filter });
+    } catch (e) {
+      const code = e && e.message ? String(e.message) : String(e);
+      if (code === 'ZIP_TOO_MANY_ENTRIES') {
+        throw new Error(
+          t('parse.err.zipTooManyEntries', { n: ZIP_LIMITS.MAX_CENTRAL_ENTRIES })
+        );
+      }
+      if (code === 'ZIP_BOMB') {
+        throw new Error(t('parse.err.zipBomb'));
+      }
+      if (code === 'ZIP_XML_TOO_LARGE') {
+        throw new Error(
+          t('parse.err.zipXmlTooLarge', {
+            limit: formatBytes(ZIP_LIMITS.MAX_XML_INFLATED),
+          })
+        );
+      }
+      if (code === 'ZIP_INFLATED_TOO_LARGE') {
+        throw new Error(
+          t('parse.err.zipInflatedTooLarge', {
+            limit: formatBytes(ZIP_LIMITS.MAX_SELECTED_INFLATED),
+          })
+        );
+      }
+      throw new Error(t('parse.err.zipCorrupt', { msg: code }));
+    } finally {
+      // 尽早丢弃压缩包缓冲引用，便于 GC（unzipped 仅含目标文件）
+      u8 = null;
+    }
+
+    // 解码已提取条目的文件名
     const decodedEntries = {};
     for (const key of Object.keys(unzipped)) {
-      const bytes = new Uint8Array(key.length);
-      for (let i = 0; i < key.length; i++) bytes[i] = key.charCodeAt(i) & 0xff;
-      let decoded;
-      try {
-        decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-      } catch {
-        decoded = key;
-      }
-      if (decoded.includes('\ufffd')) decoded = key;
-      decodedEntries[decoded] = unzipped[key];
+      decodedEntries[decodeZipEntryName(key)] = unzipped[key];
     }
+    // 释放 raw-key map
+    unzipped = null;
 
-    // 优先选主 export.xml（不是 export_cda.xml）
-    const xmlKeys = Object.keys(decodedEntries).filter(k => /\.xml$/i.test(k));
-    const xmlFile = xmlKeys.find(k =>
-      k.endsWith('export.xml') && !k.endsWith('export_cda.xml')
-    ) || xmlKeys.find(k => /导出\.xml$/i.test(k)) || xmlKeys
-      .filter(k => !k.endsWith('export_cda.xml'))
-      .sort((a, b) => decodedEntries[b].byteLength - decodedEntries[a].byteLength)[0];
+    const xmlKeys = Object.keys(decodedEntries).filter((k) => /\.xml$/i.test(k));
+    const xmlFile =
+      xmlKeys.find((k) => isHealthExportXmlName(k) && /export\.xml$/i.test(k.split('/').pop() || k)) ||
+      xmlKeys.find((k) => isHealthExportXmlName(k)) ||
+      xmlKeys
+        .filter((k) => !/export_cda\.xml$/i.test(k))
+        .sort(
+          (a, b) =>
+            (decodedEntries[b].byteLength || 0) - (decodedEntries[a].byteLength || 0)
+        )[0];
 
     if (!xmlFile) {
-      const fileList = Object.keys(decodedEntries).slice(0, 10).join(', ');
-      throw new Error(t('parse.err.zipNoXml', { files: fileList }));
+      const fileList = (nameSamples.length ? nameSamples : Object.keys(decodedEntries))
+        .slice(0, 10)
+        .join(', ');
+      throw new Error(t('parse.err.zipNoXml', { files: fileList || '—' }));
     }
 
+    const xmlBytes = decodedEntries[xmlFile];
+    const ecgEntries = Object.keys(decodedEntries)
+      .filter((k) => isEcgCsvPath(k))
+      .map((k) => {
+        const bytes = decodedEntries[k];
+        let text = '';
+        try {
+          text = new TextDecoder('utf-8').decode(bytes);
+        } catch (e) {
+          text = '';
+        }
+        // 尽快释放单文件 Uint8Array 引用（文本已独立）
+        decodedEntries[k] = null;
+        return { filename: k, text };
+      });
+
+    const extractedCount =
+      (xmlBytes ? 1 : 0) + ecgEntries.length;
+
     return {
-      xmlBytes: decodedEntries[xmlFile],  // 字节流，让上层流式解析
-      ecgEntries: Object.keys(decodedEntries)
-        .filter(k => /electrocardiograms/.test(k) && k.endsWith('.csv'))
-        .map(k => ({
-          filename: k,
-          text: new TextDecoder('utf-8').decode(decodedEntries[k]),
-        })),
+      xmlBytes,
+      xmlFileName: xmlFile,
+      ecgEntries,
+      meta: {
+        zipBytes,
+        entryCount,
+        extractedCount,
+        selectedInflatedEstimate: selectedInflated,
+        ecgSeen,
+        ecgAccepted: ecgEntries.length,
+        ecgTruncated,
+      },
     };
   }
 
@@ -1758,11 +2114,29 @@
     `).join('');
   }
 
+  /**
+   * 首次复制提示词（完整或摘要）时弹出隐私提醒：
+   * 数据将由用户粘贴到第三方大模型；本站不上传。
+   * 确认后写入 localStorage，之后不再打扰。
+   */
+  function ensureLlmCopyAck() {
+    try {
+      if (window.localStorage.getItem(LLM_COPY_ACK_KEY) === '1') return true;
+    } catch (e) { /* ignore */ }
+    const ok = window.confirm(t('privacy.llmCopyAck'));
+    if (!ok) return false;
+    try {
+      window.localStorage.setItem(LLM_COPY_ACK_KEY, '1');
+    } catch (e) { /* ignore */ }
+    return true;
+  }
+
   async function copyFullPrompt(statusEl) {
     if (!currentAnalysis) {
       alert(t('common.needAnalysis'));
       return;
     }
+    if (!ensureLlmCopyAck()) return;
     // 确保为完整提示词
     currentPromptTab = 'full';
     document.querySelectorAll('.tab-btn').forEach((b) => {
@@ -1993,7 +2367,7 @@
     ) {
       throw new Error(t('export.err.weeklyNotLoaded'));
     }
-    const ctx = typeof getUserContextFromForm === 'function' ? getUserContextFromForm() : null;
+    const ctx = typeof getUserContextForPrompt === 'function' ? getUserContextForPrompt() : null;
     return window.HealthAnalyzer.generateWeeklyReportMarkdown(
       currentAnalysis,
       ctx,
@@ -2028,7 +2402,7 @@
     ) {
       throw new Error(t('export.err.needAnalysis'));
     }
-    const ctx = typeof getUserContextFromForm === 'function' ? getUserContextFromForm() : null;
+    const ctx = typeof getUserContextForPrompt === 'function' ? getUserContextForPrompt() : null;
     return window.HealthAnalyzer.generateVisitSummaryMarkdown(
       currentAnalysis,
       ctx,
@@ -2401,6 +2775,129 @@
 
   $('btn-csv-apply')?.addEventListener('click', () => { reapplyCsvAndRefresh(); });
 
+  function sourceLabel(source) {
+    if (source === 'zip') return t('import.diag.source.zip');
+    if (source === 'folder') return t('import.diag.source.folder');
+    if (source === 'xml') return t('import.diag.source.xml');
+    return source || '—';
+  }
+
+  function ecgSkipTotal(diag) {
+    if (!diag || !diag.ecg) return 0;
+    return (
+      (diag.ecg.skippedDate || 0) +
+      (diag.ecg.skippedFuture || 0) +
+      (diag.ecg.skippedInvalid || 0)
+    );
+  }
+
+  function formatDomainSummaryLine(domains) {
+    if (!domains) return '';
+    const sep = getAnalysisLocale() === 'en' ? ', ' : '、';
+    const pairs = [
+      ['CGM', domains.cgm],
+      ['BP', domains.bloodPressure],
+      ['Weight', domains.weight],
+      ['BodyFat', domains.bodyFat],
+      ['HRV', domains.hrvDays],
+      ['RHR', domains.restingHrDays],
+      ['Steps', domains.stepsDays],
+      ['Sleep', domains.sleepDays],
+      ['Workout', domains.workouts],
+      ['ECG', domains.ecg],
+      ['Watch', domains.watchDays],
+    ]
+      .filter(([, n]) => n > 0)
+      .map(([k, n]) => `${k} ${n}`);
+    return pairs.length ? pairs.join(sep) : '—';
+  }
+
+  function buildImportDiagSummaryText(diag) {
+    if (!diag) return '';
+    const ecgSkip = ecgSkipTotal(diag);
+    const ecgErr = (diag.ecg && diag.ecg.errors && diag.ecg.errors.length) || 0;
+    return t('import.diag.summary', {
+      source: sourceLabel(diag.source),
+      xml: diag.xmlFileName || t('import.diag.noXmlName'),
+      ecgCand: diag.ecg ? diag.ecg.candidates : 0,
+      ecgOk: diag.ecg ? diag.ecg.parsed : 0,
+      ecgSkip,
+      ecgErr,
+    });
+  }
+
+  function buildImportDiagIssuesText(diag) {
+    if (!diag || !diag.ecg) return '';
+    const bits = [];
+    if (diag.ecg.skippedInvalid) {
+      bits.push(`${t('import.diag.ecgSkipInvalid')} ×${diag.ecg.skippedInvalid}`);
+    }
+    if (diag.ecg.skippedDate) {
+      bits.push(`${t('import.diag.ecgSkipDate')} ×${diag.ecg.skippedDate}`);
+    }
+    if (diag.ecg.skippedFuture) {
+      bits.push(`${t('import.diag.ecgSkipFuture')} ×${diag.ecg.skippedFuture}`);
+    }
+    const errFiles = (diag.ecg.errors || [])
+      .filter((e) => e.reason !== 'invalid')
+      .slice(0, 5)
+      .map((e) => {
+        const base = (e.file || '').split('/').pop() || e.file || '?';
+        return `${base}: ${e.reason === 'invalid' ? t('import.diag.ecgSkipInvalid') : (e.reason || t('import.diag.ecgError'))}`;
+      });
+    if (errFiles.length) {
+      bits.push(errFiles.join(getAnalysisLocale() === 'en' ? '; ' : '；'));
+    }
+    if (diag.notes && diag.notes.length) {
+      bits.push(diag.notes.join(getAnalysisLocale() === 'en' ? '; ' : '；'));
+    }
+    if (!bits.length) return '';
+    return t('import.diag.ecgErrors', { detail: bits.join(getAnalysisLocale() === 'en' ? ' · ' : ' · ') });
+  }
+
+  function buildImportDiagnosticReport(diag, analysis) {
+    const lines = [];
+    lines.push(t('import.diag.reportHeader'));
+    lines.push(new Date().toISOString());
+    lines.push('');
+    lines.push(buildImportDiagSummaryText(diag));
+    if (diag.source === 'zip') {
+      lines.push(
+        t('import.diag.zipMeta', {
+          size: formatBytes(diag.zipBytes || 0),
+          entries: diag.zipEntryCount || 0,
+          extracted: diag.zipExtractedCount || 0,
+        })
+      );
+      if (diag.zipName) lines.push(`ZIP: ${diag.zipName}`);
+    }
+    if (diag.xmlFileName) {
+      lines.push(`XML: ${diag.xmlFileName} (${formatBytes(diag.xmlBytes || 0)})`);
+    }
+    const issues = buildImportDiagIssuesText(diag);
+    if (issues) lines.push(issues);
+    const domainLine = formatDomainSummaryLine(diag.domains);
+    lines.push(t('import.diag.domains', { list: domainLine }));
+    if (analysis && analysis.dateRange) {
+      lines.push(
+        t('av.dateRange', {
+          start: analysis.dateRange.start || '—',
+          end: analysis.dateRange.end || '—',
+        })
+      );
+    }
+    if (diag.ecg && diag.ecg.errors && diag.ecg.errors.length) {
+      lines.push('');
+      lines.push('ECG detail:');
+      for (const e of diag.ecg.errors.slice(0, 40)) {
+        lines.push(`- ${e.file || '?'}: ${e.reason || 'error'}`);
+      }
+    }
+    lines.push('');
+    lines.push(t('import.diag.reportFooter'));
+    return lines.join('\n');
+  }
+
   function renderDataQualityBanner(analysis) {
     const host = $('data-quality-banner');
     if (!host) return;
@@ -2470,6 +2967,36 @@
         </div>
       `);
     }
+
+    // 导入诊断：识别文件、ECG 跳过/失败、各维度记录数
+    if (lastImportDiagnostics) {
+      const diag = lastImportDiagnostics;
+      const issues = buildImportDiagIssuesText(diag);
+      const domainLine = formatDomainSummaryLine(diag.domains);
+      const zipLine =
+        diag.source === 'zip'
+          ? t('import.diag.zipMeta', {
+              size: formatBytes(diag.zipBytes || 0),
+              entries: diag.zipEntryCount || 0,
+              extracted: diag.zipExtractedCount || 0,
+            })
+          : '';
+      parts.push(`
+        <div class="quality-banner quality-banner-info import-diag-banner" role="status">
+          <strong>${escapeHtml(t('import.diag.title'))}</strong>
+          <p>${escapeHtml(buildImportDiagSummaryText(diag))}</p>
+          ${zipLine ? `<p class="import-diag-meta">${escapeHtml(zipLine)}</p>` : ''}
+          <p class="import-diag-meta">${escapeHtml(t('import.diag.domains', { list: domainLine }))}</p>
+          ${issues ? `<p class="import-diag-issues">${escapeHtml(issues)}</p>` : ''}
+          <p class="import-diag-actions">
+            <button type="button" id="btn-copy-import-diag" class="btn-secondary">
+              ${escapeHtml(t('import.diag.copy'))}
+            </button>
+          </p>
+        </div>
+      `);
+    }
+
     if (!parts.length) {
       host.innerHTML = '';
       host.classList.add('hidden');
@@ -2477,6 +3004,14 @@
     }
     host.classList.remove('hidden');
     host.innerHTML = parts.join('');
+
+    const copyBtn = $('btn-copy-import-diag');
+    if (copyBtn && lastImportDiagnostics) {
+      copyBtn.addEventListener('click', async () => {
+        const report = buildImportDiagnosticReport(lastImportDiagnostics, analysis);
+        await copyText(report, t('import.diag.copied'));
+      });
+    }
   }
 
   async function readOptionalCsv(inputId) {
@@ -3368,7 +3903,7 @@
 
   function renderPrompt() {
     if (!currentAnalysis) return;
-    const ctx = getUserContextFromForm();
+    const ctx = getUserContextForPrompt();
     const loc = analysisLocaleOpts();
     let text = '';
     if (currentPromptTab === 'full') {
@@ -3439,6 +3974,7 @@
   // 提示词区：复制当前标签内容
   $('btn-copy')?.addEventListener('click', async () => {
     if (!currentAnalysis) return;
+    if (!ensureLlmCopyAck()) return;
     renderPrompt();
     await copyText($('prompt-output').value, t('copy.ok.clipboard'));
   });
@@ -3448,11 +3984,12 @@
       showToast(t('common.needAnalysis'));
       return;
     }
+    if (!ensureLlmCopyAck()) return;
     if (typeof window.HealthAnalyzer.generateInsightsOnlyPrompt !== 'function') {
       showToast(t('copy.err.insightsUnavailable'));
       return;
     }
-    const ctx = getUserContextFromForm();
+    const ctx = getUserContextForPrompt();
     let prefix = '';
     if (window.HealthAnalyzer.formatUserContext) {
       prefix = window.HealthAnalyzer.formatUserContext(ctx) || '';
@@ -3529,6 +4066,82 @@
       alert(e.message || String(e));
     }
   });
+
+  /**
+   * 一键清除所有本机健康相关数据：
+   * - localStorage：个人背景、恢复权重、信号偏好、图表范围、LLM 复制确认、敏感字段勾选、洞察 coach
+   * - IndexedDB：摘要历史 + 周报历史
+   * 保留：主题 (THEME_KEY)、语言 (health-analyzer-locale)、侧栏折叠、安装/更新提示等 UI 偏好
+   */
+  async function clearAllLocalHealthData() {
+    if (!window.confirm(t('privacy.wipeConfirm'))) return;
+    // localStorage 健康相关
+    for (const key of HEALTH_LOCAL_STORAGE_KEYS) {
+      try {
+        window.localStorage.removeItem(key);
+      } catch (e) { /* ignore */ }
+    }
+    // 表单与内存状态
+    clearUserContext();
+    // 已 removeItem，不再回写默认到 storage；仅内存 / UI 重置
+    recoveryWeights = getDefaultRecoveryWeights();
+    signalPrefs = defaultSignalPrefs();
+    chartRangeDays = 30;
+    document.querySelectorAll('[data-days]').forEach((btn) => {
+      const d = Number(btn.getAttribute('data-days'));
+      btn.classList.toggle('is-active', d === chartRangeDays);
+    });
+    syncIncludeSensitiveCheckbox();
+    // 恢复权重滑块 UI（若有）
+    try {
+      if (typeof fillRecoveryWeightsForm === 'function') {
+        fillRecoveryWeightsForm(recoveryWeights);
+      }
+    } catch (e) { /* ignore */ }
+    // IndexedDB
+    try {
+      if (window.HealthHistory) {
+        if (typeof window.HealthHistory.clearAllStores === 'function') {
+          await window.HealthHistory.clearAllStores();
+        } else {
+          if (typeof window.HealthHistory.clearAll === 'function') {
+            await window.HealthHistory.clearAll();
+          }
+          if (typeof window.HealthHistory.clearWeeklyReports === 'function') {
+            await window.HealthHistory.clearWeeklyReports();
+          }
+        }
+      }
+    } catch (e) {
+      alert(t('privacy.wipeFail', { msg: e && e.message ? e.message : String(e) }));
+      return;
+    }
+    const labelEl = $('history-label');
+    if (labelEl) labelEl.value = '';
+    const wrLabel = $('weekly-report-label');
+    if (wrLabel) wrLabel.value = '';
+    const cmp = $('history-compare');
+    if (cmp) cmp.innerHTML = '';
+    await refreshHistorySelect();
+    await refreshWeeklyReportList();
+    if (currentAnalysis) {
+      // 信号筛选依赖 prefs；重置后重绘
+      try {
+        if (typeof renderSignals === 'function') renderSignals(currentAnalysis);
+      } catch (e) { /* ignore */ }
+      renderPrompt();
+    }
+    showExportStatus(t('privacy.wipeOk'));
+    showToast(t('privacy.wipeOk'), { ok: true, ms: 2800 });
+  }
+
+  $('btn-clear-all-local')?.addEventListener('click', () => {
+    clearAllLocalHealthData();
+  });
+  $('btn-clear-all-local-fold')?.addEventListener('click', () => {
+    clearAllLocalHealthData();
+  });
+
   $('history-select')?.addEventListener('change', (e) => {
     renderHistoryCompare(e.target.value);
   });
@@ -3553,6 +4166,8 @@
 
   $('btn-reset')?.addEventListener('click', () => {
     currentAnalysis = null;
+    lastImportDiagnostics = null;
+    lastCsvMergeNote = '';
     setResultsVisible(false);
     hide('step-overview');
     hide('step-summary');
@@ -3574,6 +4189,11 @@
     if (banner) {
       banner.innerHTML = '';
       banner.classList.add('hidden');
+    }
+    const hints = $('import-hints');
+    if (hints) {
+      hints.innerHTML = '';
+      hints.classList.add('hidden');
     }
     show('step-source');
     fileInput.value = '';

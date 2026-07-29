@@ -125,12 +125,41 @@
       });
   }
 
+  /** 仅清空摘要快照 store（兼容旧「清空历史」按钮） */
   function clearAll() {
     return openDb().then(
       (db) =>
         new Promise((resolve, reject) => {
           const tx = db.transaction(STORE, 'readwrite');
           tx.objectStore(STORE).clear();
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        })
+    );
+  }
+
+  /**
+   * 清空全部本机健康历史 store：摘要快照 + 周报历史
+   * 供「清除所有本机健康数据」一键使用
+   */
+  function clearAllStores() {
+    return openDb().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const names = [STORE];
+          if (db.objectStoreNames.contains(STORE_REPORTS)) {
+            names.push(STORE_REPORTS);
+          }
+          const tx = db.transaction(names, 'readwrite');
+          for (const n of names) {
+            tx.objectStore(n).clear();
+          }
           tx.oncomplete = () => {
             db.close();
             resolve();
@@ -315,6 +344,7 @@
     getSnapshot,
     deleteSnapshot,
     clearAll,
+    clearAllStores,
     MAX_SNAPSHOTS,
     // 周报
     saveWeeklyReport,
