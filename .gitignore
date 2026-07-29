@@ -4,6 +4,7 @@ node_modules/
 # TypeScript 构建产物（lib/dist 是构建产物，源码在 lib/src）
 lib/dist/
 lib/.test-dist/
+lib/.scan-dist/
 
 # 系统
 .DS_Store
