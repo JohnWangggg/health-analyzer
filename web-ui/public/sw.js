@@ -1,7 +1,7 @@
 /* Apple Health 数据分析 PWA Service Worker */
 /* network-first（HTML/JS/CSS）+ 缓存回退，保持离线可用并减少陈旧资源 */
 
-const CACHE_NAME = 'health-analyzer-v24';
+const CACHE_NAME = 'health-analyzer-v25';
 const ASSETS = [
   './',
   './index.html',
