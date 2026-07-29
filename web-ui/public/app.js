@@ -49,6 +49,7 @@
     'cgm', 'bp', 'sleep', 'hrv', 'hr', 'steps', 'weight',
     'spo2', 'workout', 'ecg', 'watch', 'daylight', 'other',
   ];
+  const SIGNAL_SEV_IDS = ['alert', 'watch', 'info'];
 
   function getDefaultRecoveryWeights() {
     const libDef =
@@ -101,6 +102,7 @@
   function defaultSignalPrefs() {
     const o = {};
     for (const id of SIGNAL_CATEGORY_IDS) o[id] = true;
+    for (const sev of SIGNAL_SEV_IDS) o['sev.' + sev] = true;
     return o;
   }
 
@@ -111,7 +113,7 @@
       if (!raw) return base;
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') return base;
-      for (const id of SIGNAL_CATEGORY_IDS) {
+      for (const id of Object.keys(base)) {
         if (typeof parsed[id] === 'boolean') base[id] = parsed[id];
       }
       return base;
@@ -158,9 +160,11 @@
     return [...set];
   }
 
-  /** 任一关联分类被关闭则隐藏（「不想看 CGM」则隐藏所有含 CGM 的卡） */
+  /** 任一关联分类被关闭则隐藏；严重度关闭时亦隐藏 */
   function isSignalEnabled(signal, prefs) {
     const p = prefs || signalPrefs;
+    const sev = (signal && signal.severity) || 'info';
+    if (p['sev.' + sev] === false) return false;
     const cats = signalCategoriesOf(signal);
     return cats.every((c) => p[c] !== false);
   }
@@ -201,12 +205,15 @@
     const label = $('theme-toggle-label');
     if (icon) icon.textContent = resolved === 'dark' ? '☾' : '☀';
     if (label) {
-      label.textContent = m === 'system' ? '自动' : (m === 'dark' ? '深色' : '浅色');
+      label.textContent =
+        m === 'system' ? t('theme.auto') : m === 'dark' ? t('theme.dark') : t('theme.light');
     }
     const btn = $('theme-toggle');
     if (btn) {
-      btn.setAttribute('aria-label', '当前外观：' + (m === 'system' ? '跟随系统' : m === 'dark' ? '深色' : '浅色') + '，点击切换');
-      btn.title = '点击切换：浅色 → 深色 → 自动';
+      const modeLabel =
+        m === 'system' ? t('theme.followSystem') : m === 'dark' ? t('theme.dark') : t('theme.light');
+      btn.setAttribute('aria-label', t('theme.ariaCurrent', { mode: modeLabel }));
+      btn.title = t('theme.titleCycle');
     }
     // 主题变更后重绘图表
     if (currentAnalysis) {
@@ -240,37 +247,38 @@
   const installSteps = $('install-steps');
   const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
   const isIos = /iphone|ipad|ipod/i.test(window.navigator.userAgent);
-  const installDismissed = (() => {
+  function isInstallDismissed() {
     try { return window.localStorage.getItem('health-analyzer-install-dismissed') === '1'; } catch { return false; }
-  })();
+  }
 
   function fillInstallSteps() {
     if (!installSteps) return;
     const steps = isIos
-      ? [
-          '用 Safari 打开本页（其他浏览器通常无法添加到主屏幕）',
-          '点底部中间的「分享」按钮',
-          '向下滑动，选择「添加到主屏幕」',
-          '确认名称后点「添加」',
-        ]
-      : [
-          '打开浏览器菜单（⋮ 或 ⋯）',
-          '选择「安装应用」或「添加到主屏幕」',
-          '确认安装后，从桌面图标启动即可离线使用',
-        ];
-    installSteps.innerHTML = steps.map((s) => `<li>${s}</li>`).join('');
+      ? [t('install.ios.s1'), t('install.ios.s2'), t('install.ios.s3'), t('install.ios.s4')]
+      : [t('install.other.s1'), t('install.other.s2'), t('install.other.s3')];
+    installSteps.innerHTML = steps.map((s) => `<li>${escapeHtml(s)}</li>`).join('');
   }
 
-  function showInstallGuide() {
-    if (!installGuide || isStandalone || installDismissed) return;
+  /** @param opts.forceText 仅刷新文案，不强制重新展开已关闭的引导条 */
+  function showInstallGuide(opts) {
+    if (!installGuide || isStandalone || isInstallDismissed()) return;
+    const forceText = !!(opts && opts.forceText);
+    if (!forceText) installGuide.classList.remove('hidden');
+    // 语言切换时：若条已隐藏则只更新文案结构，不重新弹出
+    if (forceText && installGuide.classList.contains('hidden')) {
+      fillInstallSteps();
+      return;
+    }
     installGuide.classList.remove('hidden');
     fillInstallSteps();
     if (isIos) {
-      if (installGuideText) installGuideText.textContent = 'iPhone：用 Safari 分享 → 添加到主屏幕，可像 App 一样打开。';
-      if (installAction) installAction.textContent = '查看 iPhone 步骤';
+      if (installGuideText) installGuideText.textContent = t('install.ios.body');
+      if (installAction) installAction.textContent = t('install.ios.action');
     } else {
-      if (installGuideText) installGuideText.textContent = '可安装到桌面，离线也能打开本工具（健康数据仍只在本机处理）。';
-      if (installAction) installAction.textContent = deferredInstallPrompt ? '安装应用' : '查看安装步骤';
+      if (installGuideText) installGuideText.textContent = t('install.generic.body');
+      if (installAction) {
+        installAction.textContent = deferredInstallPrompt ? t('install.pwa') : t('install.viewSteps');
+      }
     }
   }
 
@@ -278,7 +286,7 @@
     event.preventDefault();
     deferredInstallPrompt = event;
     showInstallGuide();
-    if (installAction) installAction.textContent = '安装应用';
+    if (installAction) installAction.textContent = t('install.pwa');
   });
 
   installAction?.addEventListener('click', async () => {
@@ -294,8 +302,8 @@
       installSteps.classList.toggle('hidden', showing);
       if (installAction) {
         installAction.textContent = showing
-          ? (isIos ? '查看 iPhone 步骤' : '查看安装步骤')
-          : '收起步骤';
+          ? (isIos ? t('install.ios.action') : t('install.viewSteps'))
+          : t('install.collapseSteps');
       }
       return;
     }
@@ -618,7 +626,7 @@
     const source = document.querySelector('input[name="source"]:checked').value;
 
     show('step-progress');
-    setProgress(0.02, '准备中…', { stage: 'read', hint: '正在准备读取文件…' });
+    setProgress(0.02, t('progress.prepare'), { stage: 'read', hint: t('progress.hintPrepare') });
 
     try {
       let xmlText = '';
@@ -629,17 +637,17 @@
         const zipFile = files.find(f => f.name.endsWith('.zip'));
         const xmlFile = files.find(f => f.name.endsWith('.xml'));
         if (zipFile) {
-          setProgress(0.04, '解压 ZIP…', {
+          setProgress(0.04, t('progress.unzip'), {
             stage: 'read',
             hint: zipFile.size > 200 * 1024 * 1024
-              ? '文件较大（200MB+），解压与解析可能需要 30–90 秒…'
-              : '正在本机解压，不会上传…',
+              ? t('progress.unzipLarge')
+              : t('progress.unzipLocal'),
           });
           const result = await extractXmlFromZipBrowser(zipFile);
           xmlBytes = result.xmlBytes;  // 直接使用字节流，避免 512MB 字符串限制
           ecgFiles = result.ecgEntries.map(e => ({ name: e.filename, _text: e.text }));
         } else if (xmlFile) {
-          setProgress(0.04, '读取 XML…', { stage: 'read' });
+          setProgress(0.04, t('progress.readXml'), { stage: 'read' });
           xmlText = await readFileAsText(xmlFile);
         } else {
           throw new Error(t('parse.err.needZipOrXml'));
@@ -656,30 +664,30 @@
       } else if (source === 'xml_only') {
         const xmlFile = files.find(f => f.name.endsWith('.xml'));
         if (!xmlFile) throw new Error(t('parse.err.needXml'));
-        setProgress(0.04, '读取 XML…', { stage: 'read' });
+        setProgress(0.04, t('progress.readXml'), { stage: 'read' });
         xmlText = await readFileAsText(xmlFile);
         // 同批多选的 CSV 一并尝试作为 ECG（内容校验在 ingest）
         ecgFiles = files.filter((f) => f.name.endsWith('.csv'));
       } else if (source === 'folder') {
         const xmlFile = files.find(f => /export|导出/i.test(f.name) && f.name.endsWith('.xml'));
         if (!xmlFile) throw new Error(t('parse.err.folderNoXml'));
-        setProgress(0.04, '读取文件夹…', { stage: 'read' });
+        setProgress(0.04, t('progress.readFolder'), { stage: 'read' });
         xmlText = await readFileAsText(xmlFile);
         // 收集 ECG 文件（electrocardiograms 目录或文件名含 ecg）
         ecgFiles = files.filter(f => f.name.endsWith('.csv') && (f.name.includes('ecg') || (f.webkitRelativePath || '').includes('electrocardiograms')));
       }
 
-      setProgress(0.08, '解析健康记录…', {
+      setProgress(0.08, t('progress.parseHealth'), {
         stage: 'parse',
-        hint: '优先在后台线程解析；失败时自动回退主线程…',
+        hint: t('progress.parseWorkerHint'),
       });
 
       // 可选日期范围（YYYY-MM-DD）；留空则不过滤
       const parseOptions = getDateFilterOptions();
       parseOptions.onProgress = (p) =>
-        setProgress(0.08 + p * 0.72, `解析记录… ${Math.round(p * 100)}%`, {
+        setProgress(0.08 + p * 0.72, t('progress.parsePct', { pct: Math.round(p * 100) }), {
           stage: 'parse',
-          hint: p < 0.5 ? '正在扫描 Record…' : '后半段通常包含心率/活动等高频数据…',
+          hint: p < 0.5 ? t('progress.scanRecords') : t('progress.scanLate'),
         });
 
       // Worker 优先；失败自动回退主线程
@@ -724,7 +732,7 @@
       }
 
       // 可选：合并外部 CSV（上传区已选文件）
-      setProgress(0.86, '合并外部 CSV…', { stage: 'stats', hint: '若已选择体脂秤/血压 CSV 则合并…' });
+      setProgress(0.86, t('progress.mergeCsv'), { stage: 'stats', hint: t('progress.mergeCsvHint') });
       lastCsvMergeNote = '';
       try {
         const mergeNote = await applySelectedCsvToData(data);
@@ -733,48 +741,63 @@
         console.warn('CSV 合并跳过', e);
       }
 
-      setProgress(0.92, '生成统计与摘要…', { stage: 'stats', hint: '计算 KPI、晨重、CGM 稳定期与提示词…' });
+      setProgress(0.92, t('progress.stats'), { stage: 'stats', hint: t('progress.statsHint') });
       recoveryWeights = loadRecoveryWeights();
       currentAnalysis = window.HealthAnalyzer.analyzeAll(data, {
         recoveryWeights,
         locale: getAnalysisLocale(),
       });
 
-      setProgress(1, '完成', { stage: 'done', hint: '即将展示监测概览…' });
+      setProgress(1, t('progress.doneText'), { stage: 'done', hint: t('progress.doneHint') });
       setTimeout(() => {
         hide('step-progress');
         renderResults(currentAnalysis);
       }, 220);
 
     } catch (err) {
-      setProgress(0, '错误: ' + err.message);
+      setProgress(0, t('progress.error', { msg: err.message || String(err) }));
       console.error(err);
       showError(err.message);
       hide('step-progress');
     }
   }
 
-  const PROGRESS_CARD_HTML = `
-      <h2><span class="step-num">2</span> 正在分析</h2>
-      <p class="progress-lead">数据只在本机处理，不会上传。大文件可能需要几十秒，请保持页面打开。</p>
+  function buildProgressCardHtml() {
+    return `
+      <h2><span class="step-num">2</span> ${escapeHtml(t('step2.title'))}</h2>
+      <p class="progress-lead">${escapeHtml(t('step2.lead'))}</p>
       <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress-bar">
         <div class="progress-fill" id="progress-fill"></div>
       </div>
-      <p id="progress-text" class="progress-text">准备中...</p>
-      <p id="progress-hint" class="progress-hint">正在读取文件…</p>
+      <p id="progress-text" class="progress-text">${escapeHtml(t('progress.prepare'))}</p>
+      <p id="progress-hint" class="progress-hint">${escapeHtml(t('progress.reading'))}</p>
       <ol class="progress-stages" id="progress-stages">
-        <li data-stage="read">读取文件</li>
-        <li data-stage="parse">解析记录</li>
-        <li data-stage="stats">生成统计</li>
-        <li data-stage="done">完成</li>
+        <li data-stage="read">${escapeHtml(t('stage.read'))}</li>
+        <li data-stage="parse">${escapeHtml(t('stage.parse'))}</li>
+        <li data-stage="stats">${escapeHtml(t('stage.stats'))}</li>
+        <li data-stage="done">${escapeHtml(t('stage.done'))}</li>
       </ol>
-  `;
+    `;
+  }
 
   function ensureProgressCard() {
     const card = $('step-progress');
     if (!card) return;
     if (!$('progress-fill') || !$('progress-text')) {
-      card.innerHTML = PROGRESS_CARD_HTML;
+      card.innerHTML = buildProgressCardHtml();
+    } else {
+      // 语言切换后同步阶段标签
+      const stages = card.querySelectorAll('#progress-stages [data-stage]');
+      stages.forEach((el) => {
+        const key = el.getAttribute('data-stage');
+        if (key) el.textContent = t('stage.' + key);
+      });
+      const h2 = card.querySelector('h2');
+      if (h2 && h2.querySelector('.step-num') && !h2.querySelector('.step-num').textContent.includes('✗')) {
+        h2.innerHTML = `<span class="step-num">2</span> ${escapeHtml(t('step2.title'))}`;
+      }
+      const lead = card.querySelector('.progress-lead');
+      if (lead) lead.textContent = t('step2.lead');
     }
   }
 
@@ -805,10 +828,10 @@
     if (label) label.textContent = text;
     if (hint) {
       if (opts && opts.hint) hint.textContent = opts.hint;
-      else if (ratio < 0.05) hint.textContent = '正在读取与解压文件（ZIP 越大越慢）…';
-      else if (ratio < 0.75) hint.textContent = '正在扫描健康记录，可后台进行，请勿关闭页面…';
-      else if (ratio < 1) hint.textContent = '正在汇总指标与生成摘要…';
-      else hint.textContent = '即将展示结果…';
+      else if (ratio < 0.05) hint.textContent = t('progress.hintRead');
+      else if (ratio < 0.75) hint.textContent = t('progress.hintParse');
+      else if (ratio < 1) hint.textContent = t('progress.hintStats');
+      else hint.textContent = t('progress.hintDone');
     }
     if (opts && opts.stage) setProgressStage(opts.stage);
     else if (ratio < 0.05) setProgressStage('read');
@@ -821,26 +844,26 @@
     const card = $('step-progress');
     const canRetrySame = !!(lastSelectedFiles && lastSelectedFiles.length);
     card.innerHTML = `
-      <h2><span class="step-num">✗</span> 解析失败</h2>
+      <h2><span class="step-num">✗</span> ${escapeHtml(t('parse.fail.title'))}</h2>
       <div class="error-box" role="alert">
-        <strong>错误信息：</strong> ${escapeHtml(msg)}
+        <strong>${escapeHtml(t('parse.fail.label'))}</strong> ${escapeHtml(msg)}
       </div>
       <p class="progress-hint" style="text-align:left;margin-top:10px;">
-        日期范围与个人背景仍会保留。可直接重试同一文件，或重新选择文件。
+        ${escapeHtml(t('parse.fail.keepSettings'))}
       </p>
       <details style="margin-top:12px;">
-        <summary style="cursor:pointer;color:var(--primary);">可能的解决方案</summary>
+        <summary style="cursor:pointer;color:var(--primary);">${escapeHtml(t('parse.fail.solutions'))}</summary>
         <ul style="padding-left:24px;margin-top:8px;font-size:14px;line-height:1.8;">
-          <li>确认 ZIP 包是 iPhone 苹果健康 App 导出的原始数据</li>
-          <li>ZIP 包内应包含 <code>export.xml</code> 或 <code>导出.xml</code>（非 export_cda.xml）</li>
-          <li>解压失败时可改用「单独 XML」或电脑端文件夹导入</li>
-          <li>大型文件（500MB+）请保持页面打开，并关闭其他标签页释放内存</li>
-          <li>若设置了日期范围，请确认开始日期不晚于结束日期</li>
+          <li>${escapeHtml(t('parse.fail.tip1'))}</li>
+          <li>${escapeHtml(t('parse.fail.tip2'))}</li>
+          <li>${escapeHtml(t('parse.fail.tip3'))}</li>
+          <li>${escapeHtml(t('parse.fail.tip4'))}</li>
+          <li>${escapeHtml(t('parse.fail.tip5'))}</li>
         </ul>
       </details>
       <div class="error-actions">
-        ${canRetrySame ? '<button id="btn-retry-same" class="btn-primary" type="button">重试（保留设置）</button>' : ''}
-        <button id="btn-retry" class="btn-secondary" type="button">重新选择文件</button>
+        ${canRetrySame ? `<button id="btn-retry-same" class="btn-primary" type="button">${escapeHtml(t('parse.fail.retrySame'))}</button>` : ''}
+        <button id="btn-retry" class="btn-secondary" type="button">${escapeHtml(t('parse.fail.retryPick'))}</button>
       </div>
     `;
     show('step-progress');
@@ -1443,7 +1466,7 @@
     const list = $('insight-list');
     if (!list) return;
     if (!window.HealthAnalyzer || typeof window.HealthAnalyzer.buildInsightBullets !== 'function') {
-      list.innerHTML = '<li class="insight-item tone-neutral"><div class="insight-title">摘要模块未加载</div></li>';
+      list.innerHTML = `<li class="insight-item tone-neutral"><div class="insight-title">${escapeHtml(t('insights.moduleMissing'))}</div></li>`;
       return;
     }
     const bullets = window.HealthAnalyzer.buildInsightBullets(analysis, analysisLocaleOpts()) || [];
@@ -1770,14 +1793,21 @@
     if (!total) return '';
     const prefs = signalPrefs;
     const present = new Set();
+    const presentSev = new Set();
     for (const s of allSignals) {
       for (const c of signalCategoriesOf(s)) present.add(c);
+      presentSev.add((s && s.severity) || 'info');
     }
     // 展示出现过的分类；以及用户已关闭但仍需可重新打开的分类
     const ids = SIGNAL_CATEGORY_IDS.filter((id) => present.has(id) || prefs[id] === false);
     const chips = ids.map((id) => {
       const on = prefs[id] !== false;
       return `<button type="button" class="chip signal-pref-chip${on ? ' is-active' : ''}" data-signal-cat="${escapeHtml(id)}" aria-pressed="${on ? 'true' : 'false'}">${escapeHtml(signalCategoryLabel(id))}</button>`;
+    }).join('');
+    const sevIds = SIGNAL_SEV_IDS.filter((id) => presentSev.has(id) || prefs['sev.' + id] === false);
+    const sevChips = sevIds.map((id) => {
+      const on = prefs['sev.' + id] !== false;
+      return `<button type="button" class="chip signal-pref-chip signal-sev-chip${on ? ' is-active' : ''}" data-signal-sev="${escapeHtml(id)}" aria-pressed="${on ? 'true' : 'false'}">${escapeHtml(t('signals.sev.' + id))}</button>`;
     }).join('');
     const countLine = `<span class="signal-pref-count">${escapeHtml(t('signals.filterCount', { shown: visibleCount, total }))}</span>`;
     return `<div class="signal-prefs" role="group" aria-label="${escapeHtml(t('signals.filterAria'))}">
@@ -1787,6 +1817,7 @@
         <button type="button" class="signal-prefs-reset" id="signal-prefs-reset">${escapeHtml(t('signals.filterReset'))}</button>
       </div>
       <div class="signal-prefs-chips">${chips}</div>
+      ${sevChips ? `<div class="signal-prefs-sev"><span class="signal-prefs-label">${escapeHtml(t('signals.sevLabel'))}</span> ${sevChips}</div>` : ''}
     </div>`;
   }
 
@@ -1799,6 +1830,18 @@
         signalPrefs = saveSignalPrefs({
           ...signalPrefs,
           [id]: signalPrefs[id] === false,
+        });
+        if (currentAnalysis) renderSignals(currentAnalysis);
+      });
+    });
+    container.querySelectorAll('[data-signal-sev]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-signal-sev');
+        if (!id || !SIGNAL_SEV_IDS.includes(id)) return;
+        const key = 'sev.' + id;
+        signalPrefs = saveSignalPrefs({
+          ...signalPrefs,
+          [key]: signalPrefs[key] === false,
         });
         if (currentAnalysis) renderSignals(currentAnalysis);
       });
@@ -1816,7 +1859,7 @@
     const container = $('signals-content');
     if (!container) return;
     if (!window.HealthAnalyzer || typeof window.HealthAnalyzer.detectCrossSignals !== 'function') {
-      container.innerHTML = '<p class="hint">信号模块未加载。</p>';
+      container.innerHTML = `<p class="hint">${escapeHtml(t('signals.moduleMissing'))}</p>`;
       return;
     }
     const signals = window.HealthAnalyzer.detectCrossSignals(analysis, analysisLocaleOpts());
@@ -2016,18 +2059,18 @@
     const list = $('weekly-report-list');
     if (!list) return;
     if (!window.HealthHistory || typeof window.HealthHistory.listWeeklyReports !== 'function') {
-      list.innerHTML = '<p class="hint">周报历史不可用</p>';
+      list.innerHTML = `<p class="hint">${escapeHtml(t('weekly.err.moduleUnavailable'))}</p>`;
       return;
     }
     let rows = [];
     try {
       rows = await window.HealthHistory.listWeeklyReports();
     } catch (e) {
-      list.innerHTML = '<p class="hint">IndexedDB 不可用</p>';
+      list.innerHTML = `<p class="hint">${escapeHtml(t('weekly.err.idb'))}</p>`;
       return;
     }
     if (!rows.length) {
-      list.innerHTML = '<p class="hint">暂无已保存的周报（本机，最多 20 条）</p>';
+      list.innerHTML = `<p class="hint">${escapeHtml(t('weekly.empty'))}</p>`;
       return;
     }
     list.innerHTML = rows
@@ -2035,9 +2078,10 @@
         const when = (r.savedAt || '').slice(0, 16).replace('T', ' ');
         const week = r.weekEnd || '—';
         const label = r.label ? escapeHtml(r.label) : '';
-        const scores =
-          (r.recoveryScore != null ? `恢复 ${r.recoveryScore}` : '') +
-          (r.loadScore != null ? ` · 负荷 ${r.loadScore}` : '');
+        const scoreParts = [];
+        if (r.recoveryScore != null) scoreParts.push(t('weekly.scoreRecovery', { n: r.recoveryScore }));
+        if (r.loadScore != null) scoreParts.push(t('weekly.scoreLoad', { n: r.loadScore }));
+        const scores = scoreParts.join(' · ');
         return `
           <div class="weekly-report-item" data-id="${escapeHtml(r.id)}">
             <div class="weekly-report-meta">
@@ -2047,9 +2091,9 @@
               ${scores ? `<span class="muted">${escapeHtml(scores)}</span>` : ''}
             </div>
             <div class="weekly-report-actions">
-              <button type="button" class="btn-ghost btn-sm" data-wr-act="copy" data-id="${escapeHtml(r.id)}">复制</button>
-              <button type="button" class="btn-ghost btn-sm" data-wr-act="download" data-id="${escapeHtml(r.id)}">下载</button>
-              <button type="button" class="btn-danger-text btn-sm" data-wr-act="delete" data-id="${escapeHtml(r.id)}">删除</button>
+              <button type="button" class="btn-ghost btn-sm" data-wr-act="copy" data-id="${escapeHtml(r.id)}">${escapeHtml(t('weekly.act.copy'))}</button>
+              <button type="button" class="btn-ghost btn-sm" data-wr-act="download" data-id="${escapeHtml(r.id)}">${escapeHtml(t('weekly.act.download'))}</button>
+              <button type="button" class="btn-danger-text btn-sm" data-wr-act="delete" data-id="${escapeHtml(r.id)}">${escapeHtml(t('weekly.act.delete'))}</button>
             </div>
           </div>`;
       })
@@ -2060,7 +2104,7 @@
     if (!window.HealthHistory || !id) return;
     try {
       if (act === 'delete') {
-        if (!window.confirm('删除该周报历史？')) return;
+        if (!window.confirm(t('weekly.confirmDelete'))) return;
         await window.HealthHistory.deleteWeeklyReport(id);
         await refreshWeeklyReportList();
         showExportStatus(t('weekly.ok.deleted'));
@@ -2173,6 +2217,19 @@
     }
   }
 
+  function snapMetricLabel(key, fallback) {
+    if (!key) return fallback || '';
+    const v = t('snap.' + key);
+    return v === 'snap.' + key ? (fallback || key) : v;
+  }
+
+  function snapUnitLabel(unit) {
+    if (unit === '步' || unit === 'steps') return t('snap.unit.steps');
+    if (unit === '场' || unit === 'sessions') return t('snap.unit.sessions');
+    if (unit === '份' || unit === 'records') return t('snap.unit.copies');
+    return unit || '';
+  }
+
   async function refreshHistorySelect() {
     const select = $('history-select');
     if (!select || !window.HealthHistory) return;
@@ -2180,12 +2237,13 @@
     try {
       rows = await window.HealthHistory.listSnapshots();
     } catch (e) {
-      select.innerHTML = '<option value="">（IndexedDB 不可用）</option>';
+      select.innerHTML = `<option value="">${escapeHtml(t('history.err.idb'))}</option>`;
       return;
     }
     if (!rows.length) {
-      select.innerHTML = '<option value="">（暂无历史）</option>';
-      $('history-compare').innerHTML = '';
+      select.innerHTML = `<option value="">${escapeHtml(t('history.empty'))}</option>`;
+      const cmp = $('history-compare');
+      if (cmp) cmp.innerHTML = '';
       return;
     }
     select.innerHTML = rows.map((s) => {
@@ -2224,24 +2282,29 @@
     const box = $('history-compare');
     if (!box) return;
     if (!historyId || !currentAnalysis) {
-      box.innerHTML = '<p class="hint">选择一条历史快照后，将与<strong>当前分析</strong>环比关键指标。</p>';
+      box.innerHTML = `<p class="hint">${escapeHtml(t('history.compare.hint'))}</p>`;
       return;
     }
     try {
       const prev = await window.HealthHistory.getSnapshot(historyId);
       if (!prev) {
-        box.innerHTML = '<p class="hint">未找到该快照。</p>';
+        box.innerHTML = `<p class="hint">${escapeHtml(t('history.compare.notFound'))}</p>`;
         return;
       }
       const curr = window.HealthAnalyzer.buildAnalysisSnapshot(currentAnalysis);
       const diffs = window.HealthAnalyzer.compareSnapshots(prev, curr);
       if (!diffs.length) {
-        box.innerHTML = '<p class="hint">无重叠指标可对比。</p>';
+        box.innerHTML = `<p class="hint">${escapeHtml(t('history.compare.noOverlap'))}</p>`;
         return;
       }
       const fmt = (v, unit) => {
         if (v == null || !Number.isFinite(v)) return '—';
-        const d = unit === '步' ? 0 : unit === '%' || unit === 'ms' || unit === 'bpm' || unit === 'mmHg' ? 1 : 2;
+        const d =
+          unit === '步' || unit === 'steps' || unit === t('snap.unit.steps')
+            ? 0
+            : unit === '%' || unit === 'ms' || unit === 'bpm' || unit === 'mmHg'
+              ? 1
+              : 2;
         return v.toFixed(d);
       };
       const deltaClass = (d) => {
@@ -2249,26 +2312,37 @@
         if (Math.abs(d) < 1e-9) return 'delta-zero';
         return d > 0 ? 'delta-up' : 'delta-down';
       };
+      const when = (prev.savedAt || '').slice(0, 16).replace('T', ' ');
       box.innerHTML = `
-        <p class="hint">历史：${escapeHtml((prev.savedAt || '').slice(0, 16).replace('T', ' '))}
-          （数据 ${escapeHtml(prev.dateRange?.start || '')} ~ ${escapeHtml(prev.dateRange?.end || '')}）
-          → 当前分析</p>
+        <p class="hint">${escapeHtml(t('history.compare.head', {
+          when,
+          start: prev.dateRange?.start || '',
+          end: prev.dateRange?.end || '',
+        }))}</p>
         <table>
-          <thead><tr><th>指标</th><th class="num">历史</th><th class="num">当前</th><th class="num">变化</th></tr></thead>
+          <thead><tr>
+            <th>${escapeHtml(t('history.compare.thMetric'))}</th>
+            <th class="num">${escapeHtml(t('history.compare.thPrev'))}</th>
+            <th class="num">${escapeHtml(t('history.compare.thCurr'))}</th>
+            <th class="num">${escapeHtml(t('history.compare.thDelta'))}</th>
+          </tr></thead>
           <tbody>
-            ${diffs.map((r) => `
+            ${diffs.map((r) => {
+              const unit = snapUnitLabel(r.unit);
+              const label = snapMetricLabel(r.key, r.label);
+              return `
               <tr>
-                <td>${escapeHtml(r.label)}</td>
-                <td class="num">${fmt(r.previous, r.unit)} ${escapeHtml(r.unit)}</td>
-                <td class="num">${fmt(r.current, r.unit)} ${escapeHtml(r.unit)}</td>
+                <td>${escapeHtml(label)}</td>
+                <td class="num">${fmt(r.previous, r.unit)} ${escapeHtml(unit)}</td>
+                <td class="num">${fmt(r.current, r.unit)} ${escapeHtml(unit)}</td>
                 <td class="num ${deltaClass(r.delta)}">${r.delta == null ? '—' : ((r.delta > 0 ? '+' : '') + fmt(r.delta, r.unit))}</td>
-              </tr>
-            `).join('')}
+              </tr>`;
+            }).join('')}
           </tbody>
         </table>
       `;
     } catch (e) {
-      box.innerHTML = `<p class="hint">对比失败：${escapeHtml(e.message || String(e))}</p>`;
+      box.innerHTML = `<p class="hint">${escapeHtml(t('history.compare.fail', { msg: e.message || String(e) }))}</p>`;
     }
   }
 
@@ -3352,7 +3426,7 @@
   $('btn-history-refresh')?.addEventListener('click', () => { refreshHistorySelect(); });
   $('btn-history-clear')?.addEventListener('click', async () => {
     if (!window.HealthHistory) return;
-    if (!window.confirm('确定清空本机全部历史摘要快照？此操作不可恢复。')) return;
+    if (!window.confirm(t('history.confirmClear'))) return;
     try {
       await window.HealthHistory.clearAll();
       await refreshHistorySelect();
@@ -3435,6 +3509,12 @@
       uploadText.textContent = t('upload.drop');
       drop.classList.add('is-desktop-hint');
     }
+    // 进度卡 / 安装引导 / 主题按钮文案
+    try {
+      ensureProgressCard();
+      applyTheme(getStoredTheme());
+      showInstallGuide({ forceText: true });
+    } catch (_) { /* ignore */ }
     if (!currentAnalysis) return;
     try {
       // 重算恢复 statusLabel 以匹配当前语言（不改权重、不弹状态）
@@ -3442,6 +3522,8 @@
       renderSignals(currentAnalysis);
       renderAvailability(currentAnalysis);
       maybeShowImportHints(currentAnalysis);
+      refreshWeeklyReportList().catch(() => {});
+      refreshHistorySelect().catch(() => {});
     } catch (e) {
       console.warn('locale refresh partial', e);
     }

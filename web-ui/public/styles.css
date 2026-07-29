@@ -1407,10 +1407,22 @@ body.has-results .app-toast {
   border-radius: 4px;
 }
 
-.signal-prefs-chips {
+.signal-prefs-chips,
+.signal-prefs-sev {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+}
+
+.signal-prefs-sev {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
+}
+
+.signal-sev-chip {
+  font-weight: 600;
 }
 
 .signal-pref-chip {
