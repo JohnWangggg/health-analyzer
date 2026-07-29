@@ -16,7 +16,8 @@
       'theme.toggle': '外观',
       'theme.aria': '切换浅色或深色外观',
       'lang.label': '语言',
-      'lang.zh': '中文',
+      'lang.zh': '简体中文',
+      'lang.zhTW': '繁體中文',
       'lang.en': 'English',
       'install.title': '建议添加到主屏幕',
       'install.body': '安装后可像普通 App 一样离线打开（数据仍只在本机处理）。',
@@ -80,6 +81,9 @@
       'nav.export': '导出',
       'nav.prompt': '提示词',
       'nav.aria': '结果分区',
+      'nav.collapse': '收起',
+      'nav.expand': '展开',
+      'nav.toggle.aria': '收起或展开左侧结果导航',
       'overview.eyebrow': '分析完成',
       'overview.title': '监测概览',
       'overview.reset': '重新上传',
@@ -127,6 +131,13 @@
       'prompt.hint': '一键复制到豆包 / ChatGPT / Claude / Gemini。无数据维度会跳过。',
       'prompt.badge': '已含自动摘要',
       'prompt.tip': '含：监测摘要 · 稳定期 CGM · 晨重 · 晨晚血压 · 跨维度提示',
+      'prompt.trust.fullSummary': '已含自动摘要',
+      'prompt.trust.dataOnly': '数据 + 摘要',
+      'prompt.trust.shortSystem': '短系统提示',
+      'prompt.trust.noRole': '无角色指令；适合自定义 system prompt',
+      'prompt.trust.pasteSystem': '粘贴到 system 字段，再附数据摘要',
+      'prompt.trust.charCount': '{approx} 字',
+      'prompt.trust.kcharCount': '约 {approx} 千字',
       'prompt.tab.full': '完整提示词',
       'prompt.tab.data': '仅数据摘要',
       'prompt.tab.system': '简短系统提示',
@@ -144,7 +155,7 @@
       'privacy.f3': '可选：个人背景 → localStorage；摘要快照 → IndexedDB（可清空）',
       'privacy.f4': 'PWA 缓存仅保存网页程序，不自动保存完整健康导出',
       'privacy.f5': '复制提示词后，是否发给第三方大模型由您决定',
-      'footer': '开源 · 本地优先 · v1.20',
+      'footer': '开源 · 本地优先 · v1.21',
       'sticky.next': '下一步',
       'sticky.copyInsights': '复制摘要',
       'sticky.copyFull': '复制完整提示词',
@@ -161,6 +172,169 @@
       'layout.mobile': '移动布局',
       'note.analysisLang': '监测摘要、跨维度信号与周报可随界面语言切换；完整医学提示词仍以中文为主。',
     },
+    'zh-TW': {
+      'app.title': '蘋果健康數據分析',
+      'app.subtitle': '本地隱私優先 · 計算在您的裝置完成',
+      'app.metaDescription': '本地隱私優先的蘋果健康數據分析與大模型提示詞工具',
+      'theme.toggle': '外觀',
+      'theme.aria': '切換淺色或深色外觀',
+      'lang.label': '語言',
+      'lang.zh': '簡體中文',
+      'lang.zhTW': '繁體中文',
+      'lang.en': 'English',
+      'install.title': '建議加入主畫面',
+      'install.body': '安裝後可像一般 App 一樣離線開啟（資料仍只在本機處理）。',
+      'install.action': '查看加入方法',
+      'install.dismiss': '關閉提示',
+      'step1.title': '上傳健康資料',
+      'step1.lead': '建議使用 iPhone「健康」App 匯出的 <strong>ZIP</strong>。解析與統計均在本機完成。',
+      'source.zip.title': '蘋果健康匯出 ZIP',
+      'source.zip.desc': '健康 App → 大頭貼 → 匯出健康資料',
+      'source.advanced': '其他匯入方式（XML / 資料夾）',
+      'source.xml.title': '單獨的 XML 檔案',
+      'source.xml.desc': 'export.xml 或 匯出.xml',
+      'source.folder.title': '已解壓的資料夾',
+      'source.folder.desc': '適合電腦端 Chrome / Edge；手機支援有限',
+      'upload.text': '點選選擇檔案',
+      'upload.hint': '支援 .zip / .xml',
+      'upload.drop': '拖放檔案到此處，或點選選擇',
+      'upload.aria': '選擇健康資料檔案上傳',
+      'csv.summary': '可選：合併體脂秤 / 血壓計 CSV',
+      'csv.hint': '支援歐姆龍類中文表頭。與蘋果健康資料按時間合併，不覆蓋既有記錄。',
+      'csv.weight': '體重 / 體脂 CSV',
+      'csv.bp': '血壓 CSV',
+      'csv.apply': '套用到目前分析（需已解析）',
+      'date.summary': '可選：限制分析日期範圍',
+      'date.hint': '不填則使用匯出中的全部記錄。',
+      'date.start': '開始日期',
+      'date.end': '結束日期',
+      'ctx.summary': '可選：個人背景（寫入提示詞，僅本機儲存）',
+      'ctx.hint': '用藥、目標體重與關注點會注入提示詞；保存在本機 localStorage，不上傳。',
+      'ctx.age': '年齡',
+      'ctx.sex': '性別',
+      'ctx.height': '身高 (cm)',
+      'ctx.targetWeight': '目標體重 (kg)',
+      'ctx.medications': '目前用藥',
+      'ctx.conditions': '已知狀況',
+      'ctx.focus': '本次關注點',
+      'ctx.notes': '補充說明',
+      'ctx.save': '儲存到本機',
+      'ctx.clear': '清空',
+      'privacy.noticeTitle': '隱私：健康明細預設不離開本機',
+      'privacy.li1': 'ZIP/XML 不會上傳到本站伺服器；解析在瀏覽器內完成。',
+      'privacy.li2': '完整分析結果預設只在目前頁面記憶體；重新整理後需重新上傳。',
+      'privacy.li3': '可選：個人背景寫入 localStorage；摘要快照可寫入 IndexedDB 供環比。',
+      'help.export': '如何從 iPhone 匯出？',
+      'help.export.1': '開啟 <strong>健康</strong> App → 右上角大頭貼',
+      'help.export.2': '<strong>匯出健康資料</strong> → <strong>匯出</strong>',
+      'help.export.3': '儲存到「檔案」App，再在本頁選擇該 ZIP',
+      'help.export.4': '體積很大時（數百 MB），建議在電腦瀏覽器開啟本頁再上傳',
+      'step2.title': '正在分析',
+      'step2.lead': '資料只在本機處理，不會上傳。大檔案可能需要數十秒，請保持頁面開啟。',
+      'progress.prepare': '準備中…',
+      'progress.reading': '正在讀取檔案…',
+      'stage.read': '讀取檔案',
+      'stage.parse': '解析記錄',
+      'stage.stats': '產生統計',
+      'stage.done': '完成',
+      'nav.overview': '概覽',
+      'nav.summary': '明細',
+      'nav.signals': '提示',
+      'nav.charts': '圖表',
+      'nav.export': '匯出',
+      'nav.prompt': '提示詞',
+      'nav.aria': '結果分區',
+      'nav.collapse': '收起',
+      'nav.expand': '展開',
+      'nav.toggle.aria': '收起或展開左側結果導航',
+      'overview.eyebrow': '分析完成',
+      'overview.title': '監測概覽',
+      'overview.reset': '重新上傳',
+      'overview.privacy': '完整明細僅在本頁；可複製提示詞給大模型，或儲存摘要到本機歷史。',
+      'insight.subhead': '先看這些',
+      'insight.lead': '點條目看明細，點「看曲線」跳到對應趨勢圖（非診斷）。',
+      'hero.copy': '複製完整提示詞',
+      'hero.openPrompt': '開啟提示詞區',
+      'availability.summary': '資料可用性',
+      'summary.title': '統計明細',
+      'summary.hint': '各維度可展開。體重為晨起趨勢；CGM 優先看穩定期；血壓含晨晚分層。',
+      'signals.title': '跨維度提示',
+      'signals.hint': '規則線索，非診斷；已寫入完整提示詞。',
+      'signals.empty': '目前規則未觸發明顯組合訊號。資料仍建議人工複核關鍵邊界值。',
+      'charts.title': '趨勢圖',
+      'charts.hint': '本地繪製。在圖上滑動可讀數；體重為晨起趨勢。',
+      'charts.range7': '近 7 天',
+      'charts.range30': '近 30 天',
+      'charts.range90': '近 90 天',
+      'charts.rangeAll': '全部',
+      'export.title': '匯出與歷史',
+      'export.hint': '均在本機。歷史只存摘要指標（最多 30 條）。',
+      'export.json': '匯出 JSON',
+      'export.csv': '匯出 CSV 包',
+      'export.snapshot': '匯出摘要快照',
+      'export.weekly': '匯出本週報告',
+      'export.ok.json': '✓ JSON 已下載',
+      'export.ok.csvZip': '✓ CSV ZIP 已下載',
+      'export.ok.csvText': '✓ CSV 文字已下載',
+      'export.ok.snapshot': '✓ 摘要快照已下載',
+      'export.ok.weekly': '✓ 本週報告已下載',
+      'weekly.title': '本週報告歷史',
+      'weekly.hint': '下載後可選儲存 Markdown 到本機 IndexedDB（最多 20 條，不上傳）。',
+      'weekly.label': '週報備註（可選）',
+      'weekly.save': '儲存到本機歷史',
+      'weekly.refresh': '重新整理',
+      'history.title': '摘要快照歷史',
+      'history.label': '摘要名稱（可選）',
+      'history.save': '儲存到本機歷史',
+      'history.refresh': '重新整理列表',
+      'history.clear': '清空歷史',
+      'history.compare': '與歷史快照對比（目前分析）',
+      'history.empty': '（暫無歷史）',
+      'prompt.title': '大模型提示詞',
+      'prompt.hint': '一鍵複製到豆包 / ChatGPT / Claude / Gemini。無資料維度會跳過。',
+      'prompt.badge': '已含自動摘要',
+      'prompt.tip': '含：監測摘要 · 穩定期 CGM · 晨重 · 晨晚血壓 · 跨維度提示',
+      'prompt.trust.fullSummary': '已含自動摘要',
+      'prompt.trust.dataOnly': '資料 + 摘要',
+      'prompt.trust.shortSystem': '簡短系統提示',
+      'prompt.trust.noRole': '無角色指令；適合自定義 system prompt',
+      'prompt.trust.pasteSystem': '貼上到 system 欄位，再附資料摘要',
+      'prompt.trust.charCount': '{approx} 字',
+      'prompt.trust.kcharCount': '約 {approx} 千字',
+      'prompt.tab.full': '完整提示詞',
+      'prompt.tab.data': '僅資料摘要',
+      'prompt.tab.system': '簡短系統提示',
+      'prompt.expand': '展開全部預覽',
+      'prompt.copy': '複製到剪貼簿',
+      'prompt.copyInsights': '只複製摘要',
+      'prompt.download': '下載 .md',
+      'prompt.help': '使用建議',
+      'prompt.help.1': '國產模型對中文醫學語境通常更貼切',
+      'prompt.help.2': '貼上後可補充「請額外關注 XX」',
+      'prompt.help.3': '報告需與原始資料交叉核對，尤其是邊界值',
+      'privacy.fold': '隱私聲明（本地優先，點開查看）',
+      'privacy.f1': '解析與統計在<strong>您的瀏覽器</strong>內完成，無後端上傳健康明細',
+      'privacy.f2': '完整分析預設只在目前頁記憶體；重新整理後需重新上傳 ZIP/XML',
+      'privacy.f3': '可選：個人背景 → localStorage；摘要快照 → IndexedDB（可清空）',
+      'privacy.f4': 'PWA 快取僅保存網頁程式，不自動保存完整健康匯出',
+      'privacy.f5': '複製提示詞後，是否發給第三方大模型由您決定',
+      'footer': '開源 · 本地優先 · v1.21',
+      'sticky.next': '下一步',
+      'sticky.copyInsights': '複製摘要',
+      'sticky.copyFull': '複製完整提示詞',
+      'sticky.top': '回到概覽',
+      'sticky.aria': '快捷操作',
+      'action.detail': '明細',
+      'action.chart': '看曲線',
+      'tone.alert': '需關注',
+      'tone.watch': '觀察',
+      'tone.positive': '積極',
+      'tone.neutral': '提示',
+      'av.noData': '無資料',
+      'layout.desktop': '寬螢幕佈局',
+      'layout.mobile': '行動佈局',
+      'note.analysisLang': '監測摘要、跨維度訊號與週報可隨介面語言切換；完整醫學提示詞仍以中文為主（繁體介面下分析文案暫與簡體共用）。',
+    },
     en: {
       'app.title': 'Apple Health Analyzer',
       'app.subtitle': 'Local-first · All compute stays on your device',
@@ -168,7 +342,8 @@
       'theme.toggle': 'Theme',
       'theme.aria': 'Toggle light or dark appearance',
       'lang.label': 'Language',
-      'lang.zh': '中文',
+      'lang.zh': '简体中文',
+      'lang.zhTW': '繁體中文',
       'lang.en': 'English',
       'install.title': 'Add to Home Screen',
       'install.body': 'Install for app-like offline access. Data still stays on this device.',
@@ -232,6 +407,9 @@
       'nav.export': 'Export',
       'nav.prompt': 'Prompt',
       'nav.aria': 'Result sections',
+      'nav.collapse': 'Collapse',
+      'nav.expand': 'Expand',
+      'nav.toggle.aria': 'Collapse or expand the left result navigation',
       'overview.eyebrow': 'Analysis ready',
       'overview.title': 'Monitoring overview',
       'overview.reset': 'Upload again',
@@ -279,6 +457,13 @@
       'prompt.hint': 'Copy into Doubao / ChatGPT / Claude / Gemini. Empty domains are skipped.',
       'prompt.badge': 'Includes auto summary',
       'prompt.tip': 'Includes: monitoring summary · stable CGM · morning weight · AM/PM BP · cross signals',
+      'prompt.trust.fullSummary': 'Includes auto summary',
+      'prompt.trust.dataOnly': 'Data + summary',
+      'prompt.trust.shortSystem': 'Short system prompt',
+      'prompt.trust.noRole': 'No role instruction; good for custom system prompt',
+      'prompt.trust.pasteSystem': 'Paste into system field, then attach data summary',
+      'prompt.trust.charCount': '{approx} chars',
+      'prompt.trust.kcharCount': '~{approx}k chars',
       'prompt.tab.full': 'Full prompt',
       'prompt.tab.data': 'Data summary only',
       'prompt.tab.system': 'Short system prompt',
@@ -296,7 +481,7 @@
       'privacy.f3': 'Optional: context → localStorage; snapshots → IndexedDB (clearable)',
       'privacy.f4': 'PWA cache stores the app shell only, not full health exports',
       'privacy.f5': 'Whether you send the prompt to a third-party model is your choice',
-      'footer': 'Open source · local-first · v1.20',
+      'footer': 'Open source · local-first · v1.21',
       'sticky.next': 'Next',
       'sticky.copyInsights': 'Copy summary',
       'sticky.copyFull': 'Copy full prompt',
@@ -317,14 +502,32 @@
 
   var locale = 'zh-CN';
 
+  /** Normalize navigator / storage / UI values → 'zh-CN' | 'zh-TW' | 'en' */
+  function normalize(v) {
+    if (v == null || v === '') return 'zh-CN';
+    var s = String(v).trim();
+    var lower = s.toLowerCase().replace(/_/g, '-');
+    if (s === 'en' || lower === 'en' || /^en[-_]/.test(lower) || /^en$/i.test(s)) return 'en';
+    if (
+      lower === 'zh-tw' ||
+      lower.indexOf('zh-tw') === 0 ||
+      lower === 'zh-hk' ||
+      lower.indexOf('zh-hk') === 0 ||
+      lower.indexOf('hant') !== -1
+    ) {
+      return 'zh-TW';
+    }
+    return 'zh-CN';
+  }
+
   function detectLocale() {
     try {
       var saved = global.localStorage && global.localStorage.getItem(STORAGE_KEY);
-      if (saved === 'en' || saved === 'zh-CN') return saved;
+      if (saved === 'en' || saved === 'zh-CN' || saved === 'zh-TW') return saved;
+      if (saved) return normalize(saved);
     } catch (e) { /* ignore */ }
     var nav = (global.navigator && (global.navigator.language || global.navigator.userLanguage)) || 'zh-CN';
-    if (/^en/i.test(nav)) return 'en';
-    return 'zh-CN';
+    return normalize(nav);
   }
 
   function t(key, vars) {
@@ -342,13 +545,12 @@
   }
 
   function setLocale(next) {
-    if (next !== 'en' && next !== 'zh-CN') next = 'zh-CN';
-    locale = next;
+    locale = normalize(next);
     try {
       global.localStorage.setItem(STORAGE_KEY, locale);
     } catch (e) { /* ignore */ }
     if (global.document && global.document.documentElement) {
-      global.document.documentElement.lang = locale === 'en' ? 'en' : 'zh-CN';
+      global.document.documentElement.lang = locale;
       global.document.documentElement.setAttribute('data-locale', locale);
     }
     applyDom();
@@ -406,7 +608,7 @@
   function init() {
     locale = detectLocale();
     if (global.document && global.document.documentElement) {
-      global.document.documentElement.lang = locale === 'en' ? 'en' : 'zh-CN';
+      global.document.documentElement.lang = locale;
       global.document.documentElement.setAttribute('data-locale', locale);
     }
     if (global.document && global.document.readyState === 'loading') {
@@ -422,6 +624,7 @@
     t: t,
     setLocale: setLocale,
     getLocale: getLocale,
+    normalize: normalize,
     applyDom: applyDom,
     init: init,
     messages: messages,

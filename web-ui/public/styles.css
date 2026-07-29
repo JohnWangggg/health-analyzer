@@ -133,6 +133,10 @@
   color-scheme: dark;
 }
 
+:root {
+  --result-side-nav-w: 0px;
+}
+
 html, body {
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
                "Noto Sans CJK SC", sans-serif;
@@ -209,6 +213,8 @@ body.has-results #step-source.source-collapsed h2::after {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   scrollbar-width: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
 }
 .result-sticky-nav::-webkit-scrollbar { display: none; }
 
@@ -2270,6 +2276,8 @@ body.has-results .app-footer {
     margin: 0 -12px 12px;
     padding: 8px 12px;
     border-radius: 0;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.07);
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   }
 
   .sticky-cta {
@@ -2364,6 +2372,10 @@ body.has-results .app-footer {
     --result-side-nav-w: 172px;
   }
 
+  body.has-results.side-nav-collapsed {
+    --result-side-nav-w: 56px;
+  }
+
   body.has-results .result-side-nav {
     display: flex;
     flex-direction: column;
@@ -2385,10 +2397,57 @@ body.has-results .app-footer {
     -webkit-backdrop-filter: blur(10px);
     box-shadow: var(--shadow);
     scrollbar-width: thin;
+    transition: width 0.2s ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    body.has-results .result-side-nav {
+      transition: none;
+    }
+  }
+
+  .side-nav-toggle {
+    display: none;
+  }
+
+  body.has-results .side-nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 10px;
+    margin-bottom: 4px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--primary-dark);
+    border-radius: 999px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    min-height: 36px;
+    text-align: left;
+  }
+
+  body.has-results .side-nav-toggle:hover {
+    background: color-mix(in srgb, var(--primary-light) 80%, var(--primary) 12%);
+  }
+
+  body.has-results .side-nav-toggle:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  body.has-results.side-nav-collapsed .side-nav-toggle {
+    justify-content: center;
+    padding: 8px;
   }
 
   body.has-results .result-side-nav .result-nav-link {
     display: flex;
+    align-items: center;
+    gap: 8px;
     width: 100%;
     justify-content: flex-start;
     text-align: left;
@@ -2398,6 +2457,12 @@ body.has-results .app-footer {
     border-radius: 999px;
   }
 
+  body.has-results .result-side-nav .result-nav-link .nav-icon {
+    font-size: 16px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
   body.has-results .result-side-nav .result-nav-link:hover {
     background: color-mix(in srgb, var(--primary-light) 80%, var(--primary) 12%);
   }
@@ -2405,11 +2470,38 @@ body.has-results .app-footer {
   body.has-results .result-side-nav .result-nav-link.is-active {
     background: var(--primary);
     color: #fff;
+    box-shadow: inset 3px 0 0 rgba(255, 255, 255, 0.6);
+    font-weight: 600;
   }
 
   body.has-results .result-side-nav .result-nav-link:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
+  }
+
+  /* Collapsed rail: hide text, center icons */
+  body.has-results.side-nav-collapsed .result-side-nav {
+    padding: 8px;
+    gap: 8px;
+  }
+
+  body.has-results.side-nav-collapsed .result-side-nav .result-nav-link {
+    justify-content: center;
+    padding: 8px;
+  }
+
+  body.has-results.side-nav-collapsed .result-side-nav .result-nav-link .nav-text,
+  body.has-results.side-nav-collapsed .side-nav-toggle .toggle-text {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  body.has-results.side-nav-collapsed .side-nav-toggle .toggle-icon {
+    transform: rotate(180deg);
   }
 
   /* Shift main shell so content does not sit under the rail */

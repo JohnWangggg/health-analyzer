@@ -17,6 +17,7 @@
   let deferredInstallPrompt = null;
   /** 图表时间范围：7|30|90|0(全部) */
   const CHART_RANGE_KEY = 'health-analyzer-chart-range';
+  const SIDE_NAV_COLLAPSED_KEY = 'health-analyzer-side-nav-collapsed';
   let chartRangeDays = (() => {
     try {
       const v = Number(window.localStorage.getItem(CHART_RANGE_KEY));
@@ -944,6 +945,62 @@
       teardownResultNavSpy();
     }
   }
+
+  function loadSideNavCollapsed() {
+    try { return window.localStorage.getItem(SIDE_NAV_COLLAPSED_KEY) === '1'; } catch { return false; }
+  }
+
+  function saveSideNavCollapsed(collapsed) {
+    try { window.localStorage.setItem(SIDE_NAV_COLLAPSED_KEY, collapsed ? '1' : '0'); } catch { /* ignore */ }
+  }
+
+  function applySideNavCollapsed(collapsed) {
+    document.body.classList.toggle('side-nav-collapsed', !!collapsed);
+    const btn = $('side-nav-toggle');
+    if (btn) {
+      btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      const icon = btn.querySelector('.toggle-icon');
+      const text = btn.querySelector('.toggle-text');
+      if (icon) icon.textContent = collapsed ? '▶' : '◀';
+      if (text) text.textContent = t(collapsed ? 'nav.expand' : 'nav.collapse');
+    }
+  }
+
+  function toggleSideNav() {
+    const next = !document.body.classList.contains('side-nav-collapsed');
+    saveSideNavCollapsed(next);
+    applySideNavCollapsed(next);
+  }
+
+  function initResultNavKeyboard() {
+    [$('result-sticky-nav'), $('result-side-nav')].forEach((nav) => {
+      if (!nav) return;
+      nav.addEventListener('keydown', (e) => {
+        const links = Array.from(nav.querySelectorAll('.result-nav-link'));
+        const idx = links.indexOf(document.activeElement);
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          const next = links[(idx + 1) % links.length];
+          next?.focus();
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          const prev = links[(idx - 1 + links.length) % links.length];
+          prev?.focus();
+        } else if (e.key === 'Home') {
+          e.preventDefault();
+          links[0]?.focus();
+        } else if (e.key === 'End') {
+          e.preventDefault();
+          links[links.length - 1]?.focus();
+        }
+      });
+    });
+  }
+
+  // 恢复侧栏折叠状态（无结果时 class 存在但不生效，有结果后 CSS 立即响应）
+  applySideNavCollapsed(loadSideNavCollapsed());
+  $('side-nav-toggle')?.addEventListener('click', toggleSideNav);
+  initResultNavKeyboard();
 
   function renderResults(analysis) {
     show('step-overview');
@@ -2631,17 +2688,19 @@
     const meta = $('prompt-trust-meta');
     const tip = document.querySelector('#prompt-trust .trust-tip');
     const len = (text || '').length;
-    const approx = len < 1000 ? `${len} 字` : `约 ${(len / 1000).toFixed(1)} 千字`;
+    const approx = len < 1000
+      ? t('prompt.trust.charCount', { approx: len })
+      : t('prompt.trust.kcharCount', { approx: (len / 1000).toFixed(1) });
     if (meta) meta.textContent = approx;
     if (currentPromptTab === 'full') {
-      if (badge) badge.textContent = '已含自动摘要';
-      if (tip) tip.textContent = '含：监测摘要 · 稳定期 CGM · 晨重 · 晨晚血压 · 跨维度提示';
+      if (badge) badge.textContent = t('prompt.trust.fullSummary');
+      if (tip) tip.textContent = t('prompt.tip');
     } else if (currentPromptTab === 'data') {
-      if (badge) badge.textContent = '数据 + 摘要';
-      if (tip) tip.textContent = '无角色指令；适合自定义 system prompt';
+      if (badge) badge.textContent = t('prompt.trust.dataOnly');
+      if (tip) tip.textContent = t('prompt.trust.noRole');
     } else {
-      if (badge) badge.textContent = '短系统提示';
-      if (tip) tip.textContent = '粘贴到 system 字段，再附数据摘要';
+      if (badge) badge.textContent = t('prompt.trust.shortSystem');
+      if (tip) tip.textContent = t('prompt.trust.pasteSystem');
     }
   }
 
@@ -2859,6 +2918,8 @@
     if (window.I18n && typeof window.I18n.applyDom === 'function') {
       window.I18n.applyDom();
     }
+    // 同步侧栏折叠按钮文案（applyDom 可能覆盖为默认展开文案）
+    applySideNavCollapsed(loadSideNavCollapsed());
     // 桌面上传区文案可略加强「拖放」提示
     const uploadText = $('upload-text');
     const drop = $('drop-zone');
@@ -2879,7 +2940,9 @@
   }
 
   $('locale-select')?.addEventListener('change', (e) => {
-    const next = e.target.value === 'en' ? 'en' : 'zh-CN';
+    const raw = e.target.value;
+    const next =
+      raw === 'en' ? 'en' : raw === 'zh-TW' ? 'zh-TW' : 'zh-CN';
     if (window.I18n && typeof window.I18n.setLocale === 'function') {
       window.I18n.setLocale(next);
     }

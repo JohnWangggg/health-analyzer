@@ -1681,7 +1681,13 @@ var HealthAnalyzer = (() => {
 
   // src/locale.ts
   function normalizeLocale(v) {
-    if (v === "en" || v && v.toLowerCase().startsWith("en")) return "en";
+    if (v == null || v === "") return "zh-CN";
+    const s = String(v).trim();
+    const lower = s.toLowerCase().replace(/_/g, "-");
+    if (s === "en" || lower === "en" || lower.startsWith("en-")) return "en";
+    if (lower === "zh-tw" || lower.startsWith("zh-tw") || lower === "zh-hk" || lower.startsWith("zh-hk") || lower.includes("hant")) {
+      return "zh-TW";
+    }
     return "zh-CN";
   }
   function pickLocale(locale, zh, en) {
