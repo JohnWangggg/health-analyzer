@@ -417,7 +417,7 @@
   function parseWithWorker(source, options) {
     return new Promise((resolve, reject) => {
       if (typeof Worker === 'undefined') {
-        reject(new Error('Worker 不可用'));
+        reject(new Error(t('parse.err.workerUnavailable')));
         return;
       }
       let worker;
@@ -435,7 +435,7 @@
 
       const timer = setTimeout(() => {
         cleanup();
-        reject(new Error('Worker 解析超时'));
+        reject(new Error(t('parse.err.workerTimeout')));
       }, 10 * 60 * 1000);
 
       worker.onmessage = (ev) => {
@@ -443,7 +443,7 @@
         if (msg.type === 'worker-error') {
           clearTimeout(timer);
           cleanup();
-          reject(new Error(msg.error || 'Worker 初始化失败'));
+          reject(new Error(msg.error || t('parse.err.workerFailed')));
           return;
         }
         if (msg.id !== id) return;
@@ -462,13 +462,13 @@
         if (msg.type === 'error') {
           clearTimeout(timer);
           cleanup();
-          reject(new Error(msg.error || 'Worker 解析失败'));
+          reject(new Error(msg.error || t('parse.err.workerFailed')));
         }
       };
       worker.onerror = (err) => {
         clearTimeout(timer);
         cleanup();
-        reject(err.error || new Error(err.message || 'Worker 错误'));
+        reject(err.error || new Error(err.message || t('parse.err.workerFailed')));
       };
 
       const payload = {
@@ -534,31 +534,44 @@
   function updateUploadLabels() {
     const checked = document.querySelector('input[name="source"]:checked');
     const val = checked ? checked.value : 'apple_health_export';
+    const desktopFine = (() => {
+      try {
+        return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+      } catch {
+        return !isTouchDevice;
+      }
+    })();
     if (val === 'folder') {
       fileInput.hidden = true;
       folderInput.hidden = false;
-      if (uploadText) uploadText.textContent = '点击选择文件夹';
-      if (uploadHint) uploadHint.textContent = '需包含 export.xml；建议使用电脑 Chrome / Edge';
+      if (uploadText) uploadText.textContent = t('upload.folder');
+      if (uploadHint) uploadHint.textContent = t('upload.folderHint');
+      if (dropZone) dropZone.classList.remove('is-desktop-hint');
     } else if (val === 'xml_only') {
       fileInput.hidden = false;
       folderInput.hidden = true;
       fileInput.accept = '.xml';
-      if (uploadText) uploadText.textContent = isTouchDevice ? '点击选择 XML 文件' : '点击或拖拽 XML 文件';
-      if (uploadHint) uploadHint.textContent = 'export.xml 或 导出.xml';
+      if (uploadText) {
+        uploadText.textContent = isTouchDevice ? t('upload.xmlTap') : t('upload.xmlDrag');
+      }
+      if (uploadHint) uploadHint.textContent = t('upload.xmlHint');
+      if (dropZone) dropZone.classList.toggle('is-desktop-hint', desktopFine && !isTouchDevice);
     } else {
       fileInput.hidden = false;
       folderInput.hidden = true;
       fileInput.accept = '.zip,.xml';
       if (uploadText) {
-        uploadText.textContent = isTouchDevice
-          ? '点击选择 ZIP 文件'
-          : '点击或拖拽 ZIP / XML';
+        // 桌面精细指针时用更强的拖放提示
+        if (desktopFine && !isTouchDevice) {
+          uploadText.textContent = t('upload.drop');
+        } else {
+          uploadText.textContent = isTouchDevice ? t('upload.zipTap') : t('upload.zipDrag');
+        }
       }
       if (uploadHint) {
-        uploadHint.textContent = isTouchDevice
-          ? '推荐苹果健康导出的 .zip；大文件建议用电脑浏览器'
-          : '推荐 .zip；也可直接选 export.xml';
+        uploadHint.textContent = isTouchDevice ? t('upload.zipHintTouch') : t('upload.zipHint');
       }
+      if (dropZone) dropZone.classList.toggle('is-desktop-hint', desktopFine && !isTouchDevice);
     }
   }
 
@@ -1395,8 +1408,8 @@
     const tip = document.createElement('div');
     tip.className = 'insight-coach';
     tip.innerHTML = `
-      <span>点条目看<strong>明细</strong>，或点「看曲线」核对趋势。</span>
-      <button type="button" class="btn-ghost insight-coach-dismiss" aria-label="知道了">知道了</button>
+      <span>${escapeHtml(t('insight.coach'))}</span>
+      <button type="button" class="btn-ghost insight-coach-dismiss" aria-label="${escapeHtml(t('insight.coach.dismiss'))}">${escapeHtml(t('insight.coach.dismiss'))}</button>
     `;
     panel.insertBefore(tip, panel.querySelector('.insight-list'));
     tip.querySelector('.insight-coach-dismiss')?.addEventListener('click', () => {
@@ -2433,13 +2446,27 @@
       bpCsvText: bpCsvText || undefined,
     });
     const bits = [];
-    if (result.weightAdded) bits.push(`体重 +${result.weightAdded}`);
-    if (result.weightUpdated) bits.push(`补全体脂/BMI ${result.weightUpdated}`);
-    if (result.bodyFatFilled) bits.push(`体脂字段 ${result.bodyFatFilled}`);
-    if (result.bpAdded) bits.push(`血压 +${result.bpAdded}`);
-    if (result.skipped) bits.push(`跳过重复 ${result.skipped}`);
-    if (result.notes && result.notes.length) bits.push(result.notes.join('；'));
-    return bits.length ? bits.join(' · ') : 'CSV 已处理（无新增）';
+    if (result.weightAdded) bits.push(t('csv.bit.weightAdded', { n: result.weightAdded }));
+    if (result.weightUpdated) bits.push(t('csv.bit.weightUpdated', { n: result.weightUpdated }));
+    if (result.bodyFatFilled) bits.push(t('csv.bit.bodyFatFilled', { n: result.bodyFatFilled }));
+    if (result.bpAdded) bits.push(t('csv.bit.bpAdded', { n: result.bpAdded }));
+    if (result.skipped) bits.push(t('csv.bit.skipped', { n: result.skipped }));
+    if (result.notes && result.notes.length) {
+      bits.push(result.notes.map(translateCsvNote).join(getAnalysisLocale() === 'en' ? '; ' : '；'));
+    }
+    return bits.length ? bits.join(' · ') : t('csv.bit.none');
+  }
+
+  function translateCsvNote(note) {
+    const s = String(note || '');
+    // 库侧固定中文 note → 当前 UI 语言
+    if (s.indexOf('体重 CSV') !== -1 || /No valid weight CSV/i.test(s)) {
+      return t('csv.note.weightEmpty');
+    }
+    if (s.indexOf('血压 CSV') !== -1 || /No valid BP CSV/i.test(s)) {
+      return t('csv.note.bpEmpty');
+    }
+    return s;
   }
 
   async function reapplyCsvAndRefresh() {
@@ -2449,7 +2476,7 @@
     }
     try {
       const note = await applySelectedCsvToData(currentAnalysis.data);
-      lastCsvMergeNote = note || 'CSV 已处理';
+      lastCsvMergeNote = note || t('csv.bit.done');
       recoveryWeights = loadRecoveryWeights();
       currentAnalysis = window.HealthAnalyzer.analyzeAll(currentAnalysis.data, {
         recoveryWeights,
@@ -3308,7 +3335,7 @@
     if (!ta || !btn) return;
     const willExpand = ta.classList.contains('is-collapsed');
     ta.classList.toggle('is-collapsed', !willExpand);
-    btn.textContent = willExpand ? '收起预览' : '展开全部预览';
+    btn.textContent = willExpand ? t('prompt.collapse') : t('prompt.expand');
     btn.setAttribute('aria-expanded', willExpand ? 'true' : 'false');
   });
 
@@ -3502,18 +3529,19 @@
     }
     // 同步侧栏折叠按钮文案（applyDom 可能覆盖为默认展开文案）
     applySideNavCollapsed(loadSideNavCollapsed());
-    // 桌面上传区文案可略加强「拖放」提示
-    const uploadText = $('upload-text');
-    const drop = $('drop-zone');
-    if (uploadText && drop && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
-      uploadText.textContent = t('upload.drop');
-      drop.classList.add('is-desktop-hint');
-    }
-    // 进度卡 / 安装引导 / 主题按钮文案
+    // 上传区 / 进度卡 / 安装引导 / 主题
     try {
+      updateUploadLabels();
       ensureProgressCard();
       applyTheme(getStoredTheme());
       showInstallGuide({ forceText: true });
+      // 提示词展开按钮随语言刷新
+      const expBtn = $('btn-prompt-expand');
+      const ta = $('prompt-output');
+      if (expBtn && ta) {
+        const collapsed = ta.classList.contains('is-collapsed');
+        expBtn.textContent = collapsed ? t('prompt.expand') : t('prompt.collapse');
+      }
     } catch (_) { /* ignore */ }
     if (!currentAnalysis) return;
     try {
