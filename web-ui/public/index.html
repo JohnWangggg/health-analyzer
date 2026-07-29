@@ -287,7 +287,22 @@
         <span id="export-status" class="copy-status" aria-live="polite"></span>
       </div>
 
+      <div class="weekly-report-panel history-panel">
+        <h3 class="panel-subhead">本周报告历史</h3>
+        <p class="hint compact-hint">下载后可选保存 Markdown 到本机 IndexedDB（最多 20 条，不上传）。</p>
+        <div class="history-save-row">
+          <label class="date-field history-name-field">
+            <span>周报备注（可选）</span>
+            <input type="text" id="weekly-report-label" maxlength="80" placeholder="例如 训练周 / 出差周" autocomplete="off">
+          </label>
+          <button type="button" id="btn-weekly-save" class="btn-secondary">保存到本机历史</button>
+          <button type="button" id="btn-weekly-refresh" class="btn-ghost">刷新</button>
+        </div>
+        <div id="weekly-report-list" class="weekly-report-list" aria-label="已保存的周报列表"></div>
+      </div>
+
       <div class="history-panel">
+        <h3 class="panel-subhead">摘要快照历史</h3>
         <div class="history-save-row">
           <label class="date-field history-name-field">
             <span>摘要名称（可选）</span>

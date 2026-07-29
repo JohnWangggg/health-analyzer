@@ -26,7 +26,66 @@
   /** 最近一次 CSV 合并说明（展示在质量横幅旁） */
   let lastCsvMergeNote = '';
   const CTX_STORAGE_KEY = 'health-analyzer-user-context-v1';
+  const RECOVERY_WEIGHTS_KEY = 'health-analyzer-recovery-weights';
   const THEME_KEY = 'health-analyzer-theme'; // system | light | dark
+
+  const DEFAULT_RECOVERY_WEIGHTS = {
+    hrv: 1,
+    sleep: 1,
+    nightHr: 1,
+    spo2Night: 1,
+    exercise: 1,
+    workout: 1,
+    steps: 1,
+  };
+
+  function getDefaultRecoveryWeights() {
+    const libDef =
+      window.HealthAnalyzer && window.HealthAnalyzer.DEFAULT_RECOVERY_WEIGHTS;
+    if (libDef && typeof libDef === 'object') {
+      return { ...DEFAULT_RECOVERY_WEIGHTS, ...libDef };
+    }
+    return { ...DEFAULT_RECOVERY_WEIGHTS };
+  }
+
+  function normalizeRecoveryWeightsLocal(raw) {
+    if (
+      window.HealthAnalyzer &&
+      typeof window.HealthAnalyzer.normalizeRecoveryWeights === 'function'
+    ) {
+      return window.HealthAnalyzer.normalizeRecoveryWeights(raw);
+    }
+    const base = getDefaultRecoveryWeights();
+    if (!raw || typeof raw !== 'object') return base;
+    for (const k of Object.keys(base)) {
+      const v = Number(raw[k]);
+      if (Number.isFinite(v) && v > 0) base[k] = v;
+    }
+    return base;
+  }
+
+  function loadRecoveryWeights() {
+    try {
+      const raw = window.localStorage.getItem(RECOVERY_WEIGHTS_KEY);
+      if (!raw) return getDefaultRecoveryWeights();
+      return normalizeRecoveryWeightsLocal(JSON.parse(raw));
+    } catch (e) {
+      return getDefaultRecoveryWeights();
+    }
+  }
+
+  function saveRecoveryWeights(weights) {
+    const w = normalizeRecoveryWeightsLocal(weights);
+    try {
+      window.localStorage.setItem(RECOVERY_WEIGHTS_KEY, JSON.stringify(w));
+    } catch (e) {
+      /* ignore quota */
+    }
+    return w;
+  }
+
+  /** 当前生效的恢复权重（内存缓存，与 localStorage 同步） */
+  let recoveryWeights = loadRecoveryWeights();
 
   // ============================================================
   // 外观（浅色 / 深色 / 跟随系统）
@@ -597,7 +656,10 @@
       }
 
       setProgress(0.92, '生成统计与摘要…', { stage: 'stats', hint: '计算 KPI、晨重、CGM 稳定期与提示词…' });
-      currentAnalysis = window.HealthAnalyzer.analyzeAll(data);
+      recoveryWeights = loadRecoveryWeights();
+      currentAnalysis = window.HealthAnalyzer.analyzeAll(data, {
+        recoveryWeights,
+      });
 
       setProgress(1, '完成', { stage: 'done', hint: '即将展示监测概览…' });
       setTimeout(() => {
@@ -815,16 +877,61 @@
     renderAvailability(analysis);
     renderKpis(analysis);
     renderSummary(analysis);
+    bindRecoveryWeightsUi();
     renderSignals(analysis);
     renderCharts(analysis);
     renderPrompt();
     refreshHistorySelect().catch(() => { /* ignore */ });
+    refreshWeeklyReportList().catch(() => { /* ignore */ });
 
     // 图表 DOM 就绪后再渲染可点摘要（含「看曲线」）与引导
     renderInsights(analysis);
     showInsightCoachOnce();
 
     $('step-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /** 绑定恢复权重滑块（renderSummary 后调用） */
+  function bindRecoveryWeightsUi() {
+    const panel = $('rw-weights-panel');
+    if (!panel || panel.dataset.bound === '1') {
+      // 每次 renderSummary 重建 DOM，需重新绑定
+    }
+    const keys = ['hrv', 'sleep', 'nightHr', 'spo2Night', 'exercise', 'workout', 'steps'];
+    for (const k of keys) {
+      const el = $(`rw-weight-${k}`);
+      if (!el) continue;
+      el.oninput = () => {
+        const lab = $(`rw-weight-${k}-val`);
+        if (lab) lab.textContent = Number(el.value).toFixed(1);
+      };
+    }
+    const resetBtn = $('btn-rw-weights-reset');
+    if (resetBtn) {
+      resetBtn.onclick = () => {
+        const def = getDefaultRecoveryWeights();
+        fillRecoveryWeightsForm(def);
+        const st = $('rw-weights-status');
+        if (st) {
+          st.textContent = '已填入默认，点应用生效';
+          st.classList.add('show');
+        }
+      };
+    }
+    const applyBtn = $('btn-rw-weights-apply');
+    if (applyBtn) {
+      applyBtn.onclick = () => {
+        const w = readRecoveryWeightsFromForm();
+        const ok = recomputeRecoveryWithWeights(w);
+        const st = $('rw-weights-status');
+        if (st) {
+          st.textContent = ok ? '✓ 已按新权重重算' : '请先完成分析';
+          st.classList.add('show');
+          setTimeout(() => st.classList.remove('show'), 2200);
+        }
+        if (ok) showToast('恢复评分已按个人权重重算', { ok: true, ms: 2200 });
+      };
+    }
   }
 
   function flashEl(el, ms) {
@@ -1359,24 +1466,216 @@
     }
   }
 
+  function buildWeeklyReportMarkdown() {
+    if (!currentAnalysis) throw new Error('请先完成分析');
+    if (
+      !window.HealthAnalyzer ||
+      typeof window.HealthAnalyzer.generateWeeklyReportMarkdown !== 'function'
+    ) {
+      throw new Error('周报导出功能未加载，请刷新页面后重试');
+    }
+    const ctx = typeof getUserContextFromForm === 'function' ? getUserContextFromForm() : null;
+    return window.HealthAnalyzer.generateWeeklyReportMarkdown(currentAnalysis, ctx);
+  }
+
   function exportWeeklyReport() {
     try {
-      if (!currentAnalysis) throw new Error('请先完成分析');
-      if (
-        !window.HealthAnalyzer ||
-        typeof window.HealthAnalyzer.generateWeeklyReportMarkdown !== 'function'
-      ) {
-        throw new Error('周报导出功能未加载，请刷新页面后重试');
-      }
-      const ctx = typeof getUserContextFromForm === 'function' ? getUserContextFromForm() : null;
-      const md = window.HealthAnalyzer.generateWeeklyReportMarkdown(currentAnalysis, ctx);
+      const md = buildWeeklyReportMarkdown();
       const end =
         (currentAnalysis.dateRange && currentAnalysis.dateRange.end) ||
         new Date().toISOString().slice(0, 10);
       downloadText(`weekly-report-${end}.md`, md, 'text/markdown');
       showExportStatus('✓ 本周报告已下载');
+      // 提示可保存到本机历史
+      const saveBtn = $('btn-weekly-save');
+      if (saveBtn) {
+        saveBtn.classList.add('btn-pulse-hint');
+        setTimeout(() => saveBtn.classList.remove('btn-pulse-hint'), 1800);
+      }
     } catch (e) {
       alert(e.message || String(e));
+    }
+  }
+
+  async function saveWeeklyReportToHistory() {
+    if (!currentAnalysis) {
+      alert('请先完成分析');
+      return;
+    }
+    if (!window.HealthHistory || typeof window.HealthHistory.saveWeeklyReport !== 'function') {
+      alert('周报历史模块不可用');
+      return;
+    }
+    try {
+      const md = buildWeeklyReportMarkdown();
+      const end =
+        (currentAnalysis.dateRange && currentAnalysis.dateRange.end) ||
+        new Date().toISOString().slice(0, 10);
+      const labelEl = $('weekly-report-label');
+      const label = labelEl && labelEl.value.trim() ? labelEl.value.trim() : '';
+      const rw = currentAnalysis.recoveryWeek;
+      await window.HealthHistory.saveWeeklyReport({
+        weekEnd: end,
+        markdown: md,
+        label,
+        recoveryScore: rw && rw.recoveryScore != null ? rw.recoveryScore : null,
+        loadScore: rw && rw.loadScore != null ? rw.loadScore : null,
+      });
+      showExportStatus('✓ 周报已保存到本机历史');
+      await refreshWeeklyReportList();
+    } catch (e) {
+      alert('保存周报失败: ' + (e.message || e));
+    }
+  }
+
+  async function refreshWeeklyReportList() {
+    const list = $('weekly-report-list');
+    if (!list) return;
+    if (!window.HealthHistory || typeof window.HealthHistory.listWeeklyReports !== 'function') {
+      list.innerHTML = '<p class="hint">周报历史不可用</p>';
+      return;
+    }
+    let rows = [];
+    try {
+      rows = await window.HealthHistory.listWeeklyReports();
+    } catch (e) {
+      list.innerHTML = '<p class="hint">IndexedDB 不可用</p>';
+      return;
+    }
+    if (!rows.length) {
+      list.innerHTML = '<p class="hint">暂无已保存的周报（本机，最多 20 条）</p>';
+      return;
+    }
+    list.innerHTML = rows
+      .map((r) => {
+        const when = (r.savedAt || '').slice(0, 16).replace('T', ' ');
+        const week = r.weekEnd || '—';
+        const label = r.label ? escapeHtml(r.label) : '';
+        const scores =
+          (r.recoveryScore != null ? `恢复 ${r.recoveryScore}` : '') +
+          (r.loadScore != null ? ` · 负荷 ${r.loadScore}` : '');
+        return `
+          <div class="weekly-report-item" data-id="${escapeHtml(r.id)}">
+            <div class="weekly-report-meta">
+              <strong>${escapeHtml(week)}</strong>
+              <span class="muted">${escapeHtml(when)}</span>
+              ${label ? `<span class="weekly-report-label-tag">${label}</span>` : ''}
+              ${scores ? `<span class="muted">${escapeHtml(scores)}</span>` : ''}
+            </div>
+            <div class="weekly-report-actions">
+              <button type="button" class="btn-ghost btn-sm" data-wr-act="copy" data-id="${escapeHtml(r.id)}">复制</button>
+              <button type="button" class="btn-ghost btn-sm" data-wr-act="download" data-id="${escapeHtml(r.id)}">下载</button>
+              <button type="button" class="btn-danger-text btn-sm" data-wr-act="delete" data-id="${escapeHtml(r.id)}">删除</button>
+            </div>
+          </div>`;
+      })
+      .join('');
+  }
+
+  async function handleWeeklyReportAction(act, id) {
+    if (!window.HealthHistory || !id) return;
+    try {
+      if (act === 'delete') {
+        if (!window.confirm('删除该周报历史？')) return;
+        await window.HealthHistory.deleteWeeklyReport(id);
+        await refreshWeeklyReportList();
+        showExportStatus('✓ 已删除周报');
+        return;
+      }
+      const row = await window.HealthHistory.getWeeklyReport(id);
+      if (!row || !row.markdown) {
+        alert('未找到该周报');
+        return;
+      }
+      if (act === 'copy') {
+        await navigator.clipboard.writeText(row.markdown);
+        showExportStatus('✓ 周报已复制');
+        showToast('周报 Markdown 已复制', { ok: true, ms: 2000 });
+      } else if (act === 'download') {
+        const end = row.weekEnd || new Date().toISOString().slice(0, 10);
+        downloadText(`weekly-report-${end}.md`, row.markdown, 'text/markdown');
+        showExportStatus('✓ 周报已下载');
+      }
+    } catch (e) {
+      alert(e.message || String(e));
+    }
+  }
+
+  /**
+   * 仅用当前权重重算恢复分并刷新 KPI / 摘要 / 图表 / 提示词
+   */
+  function recomputeRecoveryWithWeights(weights) {
+    if (!currentAnalysis) return false;
+    const w = normalizeRecoveryWeightsLocal(weights);
+    recoveryWeights = saveRecoveryWeights(w);
+    const partial = {
+      dateRange: currentAnalysis.dateRange,
+      hrvByDate: currentAnalysis.hrvByDate,
+      restingHrByDate: currentAnalysis.restingHrByDate,
+      stepsByDate: currentAnalysis.stepsByDate,
+      sleepByDate: currentAnalysis.sleepByDate,
+      watchStats: currentAnalysis.watchStats,
+      workoutStats: currentAnalysis.workoutStats,
+    };
+    let result;
+    if (
+      window.HealthAnalyzer &&
+      typeof window.HealthAnalyzer.recomputeRecovery === 'function'
+    ) {
+      result = window.HealthAnalyzer.recomputeRecovery(partial, {
+        weeks: 12,
+        recoveryWeights: recoveryWeights,
+      });
+    } else {
+      const recoveryWeeks = window.HealthAnalyzer.calcRecoveryWeeks(partial, {
+        weeks: 12,
+        recoveryWeights: recoveryWeights,
+      });
+      const recoveryWeek = window.HealthAnalyzer.calcRecoveryWeek(partial, {
+        recoveryWeeks,
+        recoveryWeights: recoveryWeights,
+      });
+      result = { recoveryWeek, recoveryWeeks };
+    }
+    currentAnalysis.recoveryWeek = result.recoveryWeek;
+    currentAnalysis.recoveryWeeks = result.recoveryWeeks;
+    // 局部刷新（摘要含权重面板，需重新绑定）
+    renderKpis(currentAnalysis);
+    renderSummary(currentAnalysis);
+    bindRecoveryWeightsUi();
+    const panel = $('rw-weights-panel');
+    if (panel) panel.open = true;
+    const st = $('rw-weights-status');
+    if (st) {
+      st.textContent = '✓ 已按新权重重算';
+      st.classList.add('show');
+      setTimeout(() => st.classList.remove('show'), 2200);
+    }
+    renderCharts(currentAnalysis);
+    renderInsights(currentAnalysis);
+    renderPrompt();
+    return true;
+  }
+
+  function readRecoveryWeightsFromForm() {
+    const keys = ['hrv', 'sleep', 'nightHr', 'spo2Night', 'exercise', 'workout', 'steps'];
+    const out = {};
+    for (const k of keys) {
+      const el = $(`rw-weight-${k}`);
+      if (!el) continue;
+      const v = Number(el.value);
+      out[k] = Number.isFinite(v) && v > 0 ? v : 1;
+    }
+    return normalizeRecoveryWeightsLocal(out);
+  }
+
+  function fillRecoveryWeightsForm(weights) {
+    const w = normalizeRecoveryWeightsLocal(weights);
+    for (const [k, v] of Object.entries(w)) {
+      const el = $(`rw-weight-${k}`);
+      if (el) el.value = String(v);
+      const lab = $(`rw-weight-${k}-val`);
+      if (lab) lab.textContent = Number(v).toFixed(1);
     }
   }
 
@@ -1579,7 +1878,10 @@
     try {
       const note = await applySelectedCsvToData(currentAnalysis.data);
       lastCsvMergeNote = note || 'CSV 已处理';
-      currentAnalysis = window.HealthAnalyzer.analyzeAll(currentAnalysis.data);
+      recoveryWeights = loadRecoveryWeights();
+      currentAnalysis = window.HealthAnalyzer.analyzeAll(currentAnalysis.data, {
+        recoveryWeights,
+      });
       renderResults(currentAnalysis);
       const st = $('csv-merge-status');
       if (st) {
@@ -2075,8 +2377,18 @@
             ${miniRows}
           </table>`
         : '';
+      const w = recoveryWeights || loadRecoveryWeights();
+      const weightSlider = (key, label, side) => {
+        const val = w[key] != null ? Number(w[key]) : 1;
+        return `
+          <label class="rw-weight-row" data-side="${side}">
+            <span class="rw-weight-label">${label}</span>
+            <input type="range" id="rw-weight-${key}" min="0.1" max="5" step="0.1" value="${val}" aria-label="${label}权重">
+            <span class="rw-weight-val" id="rw-weight-${key}-val">${val.toFixed(1)}</span>
+          </label>`;
+      };
       blocks.push(`
-        <div class="section-block">
+        <div class="section-block" id="recovery-panel">
           <h3>🧭 近 7 日负荷与恢复</h3>
           <p class="hint" style="margin:0 0 8px;">截止 ${escapeHtml(rw.weekEnd)} · ${escapeHtml(rw.statusLabel)}（启发式，非诊断）</p>
           <table class="summary-table">
@@ -2095,6 +2407,30 @@
             ${row('夜段血氧', rw.spo2NightMean7d != null ? rw.spo2NightMean7d.toFixed(1) + '%' : null)}
           </table>
           ${miniTable}
+          <details class="rw-weights-panel" id="rw-weights-panel">
+            <summary>个人恢复评分权重</summary>
+            <p class="hint" style="margin:8px 0;">相对权重，仅影响本机评分；默认全 1.0 与历史等权一致。调后点「应用并重算恢复」。</p>
+            <div class="rw-weights-grid">
+              <div class="rw-weights-col">
+                <div class="rw-weights-side">恢复侧</div>
+                ${weightSlider('hrv', 'HRV', 'recovery')}
+                ${weightSlider('sleep', '睡眠', 'recovery')}
+                ${weightSlider('nightHr', '夜心率', 'recovery')}
+                ${weightSlider('spo2Night', '夜血氧', 'recovery')}
+              </div>
+              <div class="rw-weights-col">
+                <div class="rw-weights-side">负荷侧</div>
+                ${weightSlider('exercise', '锻炼', 'load')}
+                ${weightSlider('workout', 'Workout', 'load')}
+                ${weightSlider('steps', '步数', 'load')}
+              </div>
+            </div>
+            <div class="rw-weights-actions">
+              <button type="button" class="btn-ghost btn-sm" id="btn-rw-weights-reset">重置默认</button>
+              <button type="button" class="btn-secondary btn-sm" id="btn-rw-weights-apply">应用并重算恢复</button>
+              <span class="copy-status" id="rw-weights-status" aria-live="polite"></span>
+            </div>
+          </details>
         </div>
       `);
     }
@@ -2334,6 +2670,15 @@
   $('btn-export-csv')?.addEventListener('click', exportCsvBundle);
   $('btn-export-snapshot')?.addEventListener('click', exportSnapshot);
   $('btn-export-weekly')?.addEventListener('click', exportWeeklyReport);
+  $('btn-weekly-save')?.addEventListener('click', () => { saveWeeklyReportToHistory(); });
+  $('btn-weekly-refresh')?.addEventListener('click', () => { refreshWeeklyReportList(); });
+  $('weekly-report-list')?.addEventListener('click', (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('[data-wr-act]') : null;
+    if (!btn) return;
+    const act = btn.getAttribute('data-wr-act');
+    const id = btn.getAttribute('data-id');
+    handleWeeklyReportAction(act, id);
+  });
   $('btn-history-save')?.addEventListener('click', () => { saveCurrentToHistory(); });
   $('btn-history-refresh')?.addEventListener('click', () => { refreshHistorySelect(); });
   $('btn-history-clear')?.addEventListener('click', async () => {

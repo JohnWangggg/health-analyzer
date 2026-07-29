@@ -3,6 +3,7 @@
  */
 
 import { FullAnalysis } from './types';
+import { getDate, getHour } from './parser';
 
 export type SignalSeverity = 'info' | 'watch' | 'alert';
 
@@ -152,6 +153,123 @@ export function detectCrossSignals(analysis: FullAnalysis): CrossSignal[] {
         title: 'CGM 低值主要集中在传感器首日',
         detail: `首日 <3.9 占比 ${fd.pctBelow39.toFixed(1)}%，稳定期仅 ${st.pctBelow39.toFixed(1)}% 且无 <3.0。解读时请以稳定期为准，首日低值优先考虑压迫/校准伪影并指尖血复核可疑时段。`,
         dimensions: ['CGM'],
+      });
+    }
+  }
+
+  // CGM × 睡眠 / 活动联合（启发式，非诊断）
+  if (analysis.cgmStats?.daily) {
+    const daily = analysis.cgmStats.daily;
+    const cgmDayDates = Object.keys(daily).sort();
+    const nightHrByDate: Record<string, number> = {};
+    for (const d of analysis.watchStats?.days || []) {
+      if (d.nightHrMean != null && Number.isFinite(d.nightHrMean)) {
+        nightHrByDate[d.date] = d.nightHrMean;
+      }
+    }
+
+    // 同日：CGM 低值偏多 + 睡眠偏短
+    for (const d of cgmDayDates.slice(-14)) {
+      const day = daily[d];
+      const sleepH = sleepMap[d]?.total;
+      if (
+        day &&
+        day.pctBelow39 >= 15 &&
+        day.count >= 12 &&
+        sleepH != null &&
+        sleepH < 6
+      ) {
+        signals.push({
+          severity: 'watch',
+          date: d,
+          title: '睡眠偏短且 CGM 低值偏多',
+          detail:
+            `${d}：总睡眠 ${sleepH.toFixed(2)} h，CGM <3.9 占比 ${day.pctBelow39.toFixed(1)}%（${day.count} 条）` +
+            `，最低 ${day.min.toFixed(1)}。睡眠不足可与低血糖读数同日出现，优先指尖血复核可疑低值并保证睡眠；勿仅凭 CGM 定论。`,
+          dimensions: ['CGM', '睡眠'],
+        });
+      }
+    }
+
+    // 同日：高血糖读数 + 步数很低
+    for (const d of cgmDayDates.slice(-14)) {
+      const day = daily[d];
+      const steps = stepsMap[d];
+      if (!day || day.count < 12 || steps == null || steps >= 3000) continue;
+      const highGlu = day.pctAbove78 >= 15 || day.mean >= 7.8;
+      if (!highGlu) continue;
+      signals.push({
+        severity: 'info',
+        date: d,
+        title: '高血糖读数日活动偏低',
+        detail:
+          `${d}：CGM 均值 ${day.mean.toFixed(2)} mmol/L` +
+          (day.pctAbove78 > 0 ? `，>7.8 占比 ${day.pctAbove78.toFixed(1)}%` : '') +
+          `（${day.count} 条）；步数约 ${Math.round(steps)}。` +
+          `高读数日活动偏少仅供自我对照（餐后走动等），不能替代诊疗；异常高值建议复测并遵医嘱。`,
+        dimensions: ['CGM', '步数'],
+      });
+    }
+
+    // 夜段导向：当日 CGM 低值偏多 + 0–6 点 CGM 均值偏低 + 夜间心率偏高（有数据时）
+    if ((data.cgm || []).length && Object.keys(nightHrByDate).length) {
+      const nightValsByDate: Record<string, number[]> = {};
+      for (const p of data.cgm) {
+        const hour = getHour(p.datetime);
+        // 与 Watch 夜 HR 一致：0–5 点
+        if (!Number.isFinite(hour) || hour < 0 || hour >= 6) continue;
+        const date = getDate(p.datetime);
+        if (!nightValsByDate[date]) nightValsByDate[date] = [];
+        nightValsByDate[date].push(p.value);
+      }
+      for (const d of Object.keys(nightValsByDate).sort().slice(-14)) {
+        const day = daily[d];
+        const nightVals = nightValsByDate[d];
+        const nightHr = nightHrByDate[d];
+        if (!day || day.pctBelow39 < 15 || day.count < 12) continue;
+        if (!nightVals || nightVals.length < 3 || nightHr == null) continue;
+        const nightMean = nightVals.reduce((a, b) => a + b, 0) / nightVals.length;
+        if (nightMean >= 4.0) continue;
+        const hrElevated =
+          restBase != null ? nightHr >= restBase + 8 : nightHr >= 72;
+        if (!hrElevated) continue;
+        signals.push({
+          severity: 'info',
+          date: d,
+          title: '夜段 CGM 偏低且夜间心率偏高',
+          detail:
+            `${d}：0–6 点 CGM 均约 ${nightMean.toFixed(2)} mmol/L（${nightVals.length} 点），全日 <3.9 占比 ${day.pctBelow39.toFixed(1)}%；` +
+            `夜间心率约 ${nightHr.toFixed(0)} bpm` +
+            (restBase != null ? `（近 7 日静息约 ${restBase.toFixed(0)}）` : '') +
+            '。夜段低值需排除压迫伪影并用指尖血复核；心率偏高可结合睡眠质量观察。非诊断。',
+          dimensions: ['CGM', '夜间心率', '睡眠'],
+        });
+      }
+    }
+  }
+
+  // 多日：稳定期 CGM 低值偏多 + 近 7 日睡眠偏短
+  {
+    const st = analysis.cgmStats?.stable || analysis.cgmStats?.overall;
+    const sleep7 = recentDates(Object.keys(sleepMap), 7);
+    const sleepMean7d =
+      analysis.recoveryWeek?.sleepMean7d ??
+      mean(sleep7.map((d) => sleepMap[d]?.total).filter((v): v is number => v != null && Number.isFinite(v)));
+    if (
+      st &&
+      st.pctBelow39 >= 5 &&
+      st.count >= 24 &&
+      sleepMean7d != null &&
+      sleepMean7d < 6 &&
+      sleep7.length >= 3
+    ) {
+      signals.push({
+        severity: 'info',
+        title: '稳定期 CGM 低值偏多且近 7 日睡眠偏短',
+        detail:
+          `稳定期/可用段 <3.9 占比 ${st.pctBelow39.toFixed(1)}%（n=${st.count}），近 7 日睡眠日均约 ${sleepMean7d.toFixed(1)} h。` +
+          `恢复与血糖读数可同向偏倚；优先保证睡眠、指尖血复核可疑低值，并避免在睡眠债日过度解读单次 CGM。`,
+        dimensions: ['CGM', '睡眠'],
       });
     }
   }

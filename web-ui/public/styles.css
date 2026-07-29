@@ -1551,6 +1551,146 @@ body.has-results .result-section {
   min-height: 44px;
 }
 
+.panel-subhead {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--primary-dark);
+}
+
+.weekly-report-panel {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.weekly-report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.weekly-report-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--chart-bg);
+}
+
+.weekly-report-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: baseline;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.weekly-report-meta .muted,
+.weekly-report-item .muted {
+  color: var(--text-light);
+  font-size: 12px;
+}
+
+.weekly-report-label-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--text);
+}
+
+.weekly-report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.btn-sm {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: 13px;
+}
+
+.btn-pulse-hint {
+  box-shadow: 0 0 0 2px var(--primary, #2980b9);
+}
+
+/* 恢复评分权重 */
+.rw-weights-panel {
+  margin-top: 14px;
+  padding: 8px 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--chart-bg);
+}
+
+.rw-weights-panel > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--primary-dark);
+  padding: 4px 0;
+}
+
+.rw-weights-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 16px;
+  margin-top: 8px;
+}
+
+@media (max-width: 560px) {
+  .rw-weights-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rw-weights-side {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-light);
+  margin-bottom: 6px;
+}
+
+.rw-weight-row {
+  display: grid;
+  grid-template-columns: 64px 1fr 32px;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.rw-weight-label {
+  color: var(--text);
+}
+
+.rw-weight-row input[type="range"] {
+  width: 100%;
+  accent-color: var(--primary, #2980b9);
+}
+
+.rw-weight-val {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--text-light);
+}
+
+.rw-weights-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
 /* 吸底主 CTA */
 .sticky-cta {
   position: fixed;

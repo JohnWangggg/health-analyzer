@@ -33,8 +33,14 @@ export {
   enrichEcgWithContext,
   calcRecoveryWeek,
   calcRecoveryWeeks,
+  recomputeRecovery,
+  normalizeRecoveryWeights,
   summarizeHrvByDay,
+  attachRecoveryBaseline,
 } from './stats';
+
+export { DEFAULT_RECOVERY_WEIGHTS } from './types';
+export type { RecoveryWeights } from './types';
 
 export {
   processWorkoutBlock,

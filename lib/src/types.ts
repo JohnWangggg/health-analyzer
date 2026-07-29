@@ -377,6 +377,38 @@ export interface WorkoutTypeSummary {
 }
 
 /**
+ * 恢复 / 负荷评分个人权重（相对比例，正数；缺省按 1.0）。
+ * 仅对「有数据的维度」参与加权平均，全 1.0 时与原先等权一致。
+ */
+export interface RecoveryWeights {
+  /** 恢复侧：HRV */
+  hrv: number;
+  /** 恢复侧：睡眠时长 */
+  sleep: number;
+  /** 恢复侧：夜间心率（相对静息或绝对） */
+  nightHr: number;
+  /** 恢复侧：夜段血氧 */
+  spo2Night: number;
+  /** 负荷侧：锻炼分钟 */
+  exercise: number;
+  /** 负荷侧：Workout 时长 */
+  workout: number;
+  /** 负荷侧：步数 */
+  steps: number;
+}
+
+/** 默认等权（与历史启发式一致） */
+export const DEFAULT_RECOVERY_WEIGHTS: RecoveryWeights = {
+  hrv: 1,
+  sleep: 1,
+  nightHr: 1,
+  spo2Night: 1,
+  exercise: 1,
+  workout: 1,
+  steps: 1,
+};
+
+/**
  * 近 7 日负荷 / 恢复仪表（启发式，非诊断）
  */
 export interface RecoveryWeekStats {

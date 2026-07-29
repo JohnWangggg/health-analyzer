@@ -72,6 +72,13 @@ export function generateWeeklyReportMarkdown(
   }
   lines.push(``);
 
+  // 简短目录（锚点式标题列表，便于长文扫读）
+  const hasEcg = !!(analysis.ecgStats && analysis.ecgStats.count > 0);
+  lines.push(`> **目录** · 🧭 负荷与恢复 · 📋 监测摘要 · 🔗 关键跨维度信号 · 📊 本周数据速览 · 🏃 Workout 本周场次${hasEcg ? ' · 📈 ECG' : ''} · ⚠️ 边界声明`);
+  lines.push(``);
+  lines.push(`---`);
+  lines.push(``);
+
   const ctx = formatUserContext(userContext);
   if (ctx && ctx.trim()) {
     lines.push(ctx.trimEnd());
@@ -79,7 +86,7 @@ export function generateWeeklyReportMarkdown(
   }
 
   // —— 负荷 / 恢复 ——
-  lines.push(`## 负荷与恢复`);
+  lines.push(`## 🧭 负荷与恢复`);
   lines.push(``);
   const rw = analysis.recoveryWeek;
   if (rw) {
@@ -103,8 +110,11 @@ export function generateWeeklyReportMarkdown(
     lines.push(``);
   }
 
+  lines.push(`---`);
+  lines.push(``);
+
   // —— 监测摘要 ——
-  lines.push(`## 监测摘要`);
+  lines.push(`## 📋 监测摘要`);
   lines.push(``);
   const bullets = buildInsightBullets(analysis);
   // 优先非「数据覆盖」类，取前 6 条
@@ -120,8 +130,11 @@ export function generateWeeklyReportMarkdown(
   }
   lines.push(``);
 
+  lines.push(`---`);
+  lines.push(``);
+
   // —— 跨维度信号 ——
-  lines.push(`## 关键跨维度信号`);
+  lines.push(`## 🔗 关键跨维度信号`);
   lines.push(``);
   const signals = detectCrossSignals(analysis).slice(0, 5);
   if (signals.length) {
@@ -136,8 +149,11 @@ export function generateWeeklyReportMarkdown(
   }
   lines.push(``);
 
+  lines.push(`---`);
+  lines.push(``);
+
   // —— 本周数据速览 ——
-  lines.push(`## 本周数据速览`);
+  lines.push(`## 📊 本周数据速览`);
   lines.push(``);
   lines.push(`| 指标 | 近 7 日 |`);
   lines.push(`|---|---|`);
@@ -194,8 +210,11 @@ export function generateWeeklyReportMarkdown(
   }
   lines.push(``);
 
+  lines.push(`---`);
+  lines.push(``);
+
   // —— Workout 场次 ——
-  lines.push(`## Workout 本周场次`);
+  lines.push(`## 🏃 Workout 本周场次`);
   lines.push(``);
   const weekSessions = sessionsInWeek(analysis.workoutStats?.sessions, end);
   if (weekSessions.length) {
@@ -219,7 +238,9 @@ export function generateWeeklyReportMarkdown(
   // —— ECG ——
   const es = analysis.ecgStats;
   if (es && es.count > 0) {
-    lines.push(`## ECG`);
+    lines.push(`---`);
+    lines.push(``);
+    lines.push(`## 📈 ECG`);
     lines.push(``);
     lines.push(
       `共 **${es.count}** 份（窦性 ${es.sinusCount} · 高心率 ${es.highHrCount} · 结果不佳 ${es.inconclusiveCount} · 其他 ${es.otherCount}）。`
@@ -241,8 +262,11 @@ export function generateWeeklyReportMarkdown(
     lines.push(``);
   }
 
+  lines.push(`---`);
+  lines.push(``);
+
   // —— 边界声明 ——
-  lines.push(`## 边界声明`);
+  lines.push(`## ⚠️ 边界声明`);
   lines.push(``);
   lines.push(
     `- 本周报由程序自动汇总 Apple Health 等本地数据，**非医疗诊断**，不替代医生门诊。`

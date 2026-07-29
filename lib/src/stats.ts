@@ -26,8 +26,39 @@ import {
   ERecordSummary,
   RecoveryWeekStats,
   RecoveryWeekPoint,
+  RecoveryWeights,
+  DEFAULT_RECOVERY_WEIGHTS,
 } from './types';
 import { getDate, getHour, parseAppleDate, workoutTypeLabel } from './parser';
+
+/** 将部分权重与默认合并，非正数回退默认 */
+export function normalizeRecoveryWeights(
+  weights?: Partial<RecoveryWeights> | null
+): RecoveryWeights {
+  const base = { ...DEFAULT_RECOVERY_WEIGHTS };
+  if (!weights) return base;
+  const keys = Object.keys(base) as (keyof RecoveryWeights)[];
+  for (const k of keys) {
+    const v = weights[k];
+    if (v != null && Number.isFinite(v) && v > 0) {
+      base[k] = v;
+    }
+  }
+  return base;
+}
+
+/** 加权平均：仅对有值的维度；权重全相等时与简单平均一致 */
+function weightedMean(parts: { value: number; weight: number }[]): number | null {
+  let sum = 0;
+  let wSum = 0;
+  for (const p of parts) {
+    if (!Number.isFinite(p.value) || !Number.isFinite(p.weight) || p.weight <= 0) continue;
+    sum += p.value * p.weight;
+    wSum += p.weight;
+  }
+  if (wSum <= 0) return null;
+  return sum / wSum;
+}
 
 function calcStats(values: number[]): Stats {
   values = values.filter(Number.isFinite);
@@ -719,45 +750,71 @@ function scoreRecoveryLoad(input: {
   stepsMean7d: number | null;
   /** 可选：此前多周恢复分中位（由 attachRecoveryBaseline 统一写入，此处仅预留） */
   baselineRecoveryMedian?: number | null;
+  /** 个人权重；缺省等权 */
+  weights?: Partial<RecoveryWeights> | null;
 }): {
   recoveryScore: number | null;
   loadScore: number | null;
   statusLabel: string;
   statusTone: RecoveryWeekStats['statusTone'];
 } {
-  const recoveryParts: number[] = [];
+  const w = normalizeRecoveryWeights(input.weights);
+
+  const recoveryParts: { value: number; weight: number }[] = [];
   if (input.hrvMean7d != null) {
     // 约 20–60 ms 映射到 30–90
-    recoveryParts.push(Math.max(0, Math.min(100, ((input.hrvMean7d - 15) / 45) * 100)));
+    recoveryParts.push({
+      value: Math.max(0, Math.min(100, ((input.hrvMean7d - 15) / 45) * 100)),
+      weight: w.hrv,
+    });
   }
   if (input.sleepMean7d != null) {
-    recoveryParts.push(Math.max(0, Math.min(100, (input.sleepMean7d / 8) * 100)));
+    recoveryParts.push({
+      value: Math.max(0, Math.min(100, (input.sleepMean7d / 8) * 100)),
+      weight: w.sleep,
+    });
   }
   if (input.nightHrMean7d != null && input.restingHrMean7d != null) {
     const delta = input.nightHrMean7d - input.restingHrMean7d;
-    recoveryParts.push(Math.max(0, Math.min(100, 80 - delta * 4)));
+    recoveryParts.push({
+      value: Math.max(0, Math.min(100, 80 - delta * 4)),
+      weight: w.nightHr,
+    });
   } else if (input.nightHrMean7d != null) {
-    recoveryParts.push(Math.max(0, Math.min(100, 100 - (input.nightHrMean7d - 50) * 1.5)));
+    recoveryParts.push({
+      value: Math.max(0, Math.min(100, 100 - (input.nightHrMean7d - 50) * 1.5)),
+      weight: w.nightHr,
+    });
   }
   if (input.spo2NightMean7d != null) {
-    recoveryParts.push(Math.max(0, Math.min(100, (input.spo2NightMean7d - 90) * 10)));
+    recoveryParts.push({
+      value: Math.max(0, Math.min(100, (input.spo2NightMean7d - 90) * 10)),
+      weight: w.spo2Night,
+    });
   }
 
-  const loadParts: number[] = [];
+  const loadParts: { value: number; weight: number }[] = [];
   if (input.exerciseMinMean7d != null) {
-    loadParts.push(Math.max(0, Math.min(100, (input.exerciseMinMean7d / 45) * 100)));
+    loadParts.push({
+      value: Math.max(0, Math.min(100, (input.exerciseMinMean7d / 45) * 100)),
+      weight: w.exercise,
+    });
   }
   if (input.workoutDuration7d > 0) {
-    loadParts.push(Math.max(0, Math.min(100, (input.workoutDuration7d / 150) * 100)));
+    loadParts.push({
+      value: Math.max(0, Math.min(100, (input.workoutDuration7d / 150) * 100)),
+      weight: w.workout,
+    });
   }
   if (input.stepsMean7d != null) {
-    loadParts.push(Math.max(0, Math.min(100, (input.stepsMean7d / 10000) * 100)));
+    loadParts.push({
+      value: Math.max(0, Math.min(100, (input.stepsMean7d / 10000) * 100)),
+      weight: w.steps,
+    });
   }
 
-  const avg = (arr: number[]) =>
-    arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
-  const recoveryScoreRaw = avg(recoveryParts);
-  const loadScoreRaw = avg(loadParts);
+  const recoveryScoreRaw = weightedMean(recoveryParts);
+  const loadScoreRaw = weightedMean(loadParts);
   const recoveryScore = recoveryScoreRaw != null ? Math.round(recoveryScoreRaw) : null;
   const loadScore = loadScoreRaw != null ? Math.round(loadScoreRaw) : null;
 
@@ -810,7 +867,8 @@ export type RecoveryAnalysisPartial = {
 /** 以指定 weekEnd 计算近 7 日负荷/恢复（内部共用） */
 function buildRecoveryWeekAt(
   analysis: RecoveryAnalysisPartial,
-  weekEnd: string
+  weekEnd: string,
+  weights?: Partial<RecoveryWeights> | null
 ): RecoveryWeekStats | null {
   if (!weekEnd) return null;
 
@@ -871,6 +929,7 @@ function buildRecoveryWeekAt(
     exerciseMinMean7d,
     workoutDuration7d,
     stepsMean7d,
+    weights,
   });
 
   return {
@@ -917,17 +976,24 @@ function toRecoveryWeekPoint(full: RecoveryWeekStats): RecoveryWeekPoint {
  */
 export function calcRecoveryWeek(
   analysis: RecoveryAnalysisPartial,
-  options?: { recoveryWeeks?: RecoveryWeekPoint[] | null; skipBaseline?: boolean }
+  options?: {
+    recoveryWeeks?: RecoveryWeekPoint[] | null;
+    skipBaseline?: boolean;
+    recoveryWeights?: Partial<RecoveryWeights> | null;
+  }
 ): RecoveryWeekStats | null {
   const end = analysis.dateRange?.end;
   if (!end) return null;
-  const week = buildRecoveryWeekAt(analysis, end);
+  const week = buildRecoveryWeekAt(analysis, end, options?.recoveryWeights);
   if (!week) return null;
   if (options?.skipBaseline) return week;
   const weeks =
     options?.recoveryWeeks !== undefined
       ? options.recoveryWeeks
-      : calcRecoveryWeeks(analysis, { weeks: 12 });
+      : calcRecoveryWeeks(analysis, {
+          weeks: 12,
+          recoveryWeights: options?.recoveryWeights,
+        });
   return attachRecoveryBaseline(week, weeks);
 }
 
@@ -937,26 +1003,56 @@ export function calcRecoveryWeek(
  */
 export function calcRecoveryWeeks(
   analysis: RecoveryAnalysisPartial,
-  options?: { weeks?: number }
+  options?: { weeks?: number; recoveryWeights?: Partial<RecoveryWeights> | null }
 ): RecoveryWeekPoint[] | null {
   const end = analysis.dateRange?.end;
   if (!end) return null;
   const n = Math.max(1, Math.min(52, Math.floor(options?.weeks ?? 12)));
   const start = analysis.dateRange?.start || '';
   const points: RecoveryWeekPoint[] = [];
+  const weights = options?.recoveryWeights;
 
   for (let i = n - 1; i >= 0; i--) {
     const weekEnd = addDaysIso(end, -i * 7);
     if (start && weekEnd < start) continue;
-    const full = buildRecoveryWeekAt(analysis, weekEnd);
+    const full = buildRecoveryWeekAt(analysis, weekEnd, weights);
     if (full) points.push(toRecoveryWeekPoint(full));
   }
 
   return points.length ? points : null;
 }
 
+/**
+ * 仅用已有分析字段重算恢复/负荷（不重新 parse）。
+ * 适合 UI 调整权重后即时刷新。
+ */
+export function recomputeRecovery(
+  analysis: RecoveryAnalysisPartial,
+  options?: {
+    weeks?: number;
+    recoveryWeights?: Partial<RecoveryWeights> | null;
+  }
+): {
+  recoveryWeek: RecoveryWeekStats | null;
+  recoveryWeeks: RecoveryWeekPoint[] | null;
+} {
+  const weeks = Math.max(1, Math.min(52, Math.floor(options?.weeks ?? 12)));
+  const recoveryWeeks = calcRecoveryWeeks(analysis, {
+    weeks,
+    recoveryWeights: options?.recoveryWeights,
+  });
+  const recoveryWeek = calcRecoveryWeek(analysis, {
+    recoveryWeeks,
+    recoveryWeights: options?.recoveryWeights,
+  });
+  return { recoveryWeek, recoveryWeeks };
+}
+
 /** 完整分析入口 */
-export function analyzeAll(data: HealthData): FullAnalysis {
+export function analyzeAll(
+  data: HealthData,
+  options?: { recoveryWeights?: Partial<RecoveryWeights> | null }
+): FullAnalysis {
   const allDates: string[] = [
     ...data.cgm.map((x) => getDate(x.datetime)),
     ...data.bloodPressure.map((x) => x.date),
@@ -993,8 +1089,12 @@ export function analyzeAll(data: HealthData): FullAnalysis {
     workoutStats,
   };
 
-  const recoveryWeeks = calcRecoveryWeeks(partial, { weeks: 12 });
-  const recoveryWeek = calcRecoveryWeek(partial, { recoveryWeeks });
+  const rw = options?.recoveryWeights;
+  const recoveryWeeks = calcRecoveryWeeks(partial, { weeks: 12, recoveryWeights: rw });
+  const recoveryWeek = calcRecoveryWeek(partial, {
+    recoveryWeeks,
+    recoveryWeights: rw,
+  });
 
   return {
     data,

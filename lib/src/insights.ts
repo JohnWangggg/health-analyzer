@@ -380,9 +380,18 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
     });
   }
 
-  // 并入跨维度信号（高优先级）
+  // 并入跨维度信号（高优先级）；CGM×睡眠/活动至多一条
   const signals = detectCrossSignals(analysis);
-  for (const s of signals.slice(0, 4)) {
+  const isCgmSleepOrActivity = (dims: string[]) =>
+    dims.includes('CGM') && (dims.includes('睡眠') || dims.includes('步数'));
+  let cgmSleepActAdded = false;
+  let signalsAdded = 0;
+  for (const s of signals) {
+    if (signalsAdded >= 4) break;
+    if (isCgmSleepOrActivity(s.dimensions)) {
+      if (cgmSleepActAdded) continue;
+      cgmSleepActAdded = true;
+    }
     if (s.severity === 'info' && bullets.length >= 6) continue;
     bullets.push({
       tone: toneFromSeverity(s.severity),
@@ -390,6 +399,7 @@ export function buildInsightBullets(analysis: FullAnalysis): InsightBullet[] {
       detail: s.detail,
       anchor: 'signals',
     });
+    signalsAdded += 1;
   }
 
   // 去重 title
