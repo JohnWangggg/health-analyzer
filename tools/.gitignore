@@ -1,0 +1,13 @@
+# HL7 FHIR Validator CLI (downloaded; not committed)
+validator_cli.jar
+validator_cli.jar.*
+*.partial
+*.jar
+
+# Package / terminology caches & HTML reports
+fhir-package-cache/
+txCache/
+fhir-hl7-validator-report.html
+fhir-settings-empty.json
+*.log
+.fhir-validator/

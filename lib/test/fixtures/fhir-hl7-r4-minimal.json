@@ -1,0 +1,200 @@
+{
+  "resourceType": "Bundle",
+  "id": "hl7-r4-minimal-fixture-v1",
+  "meta": {
+    "tag": [
+      {
+        "system": "urn:health-analyzer:tag",
+        "code": "hl7-validator-fixture",
+        "display": "Synthetic R4 fixture for offline HL7 validator (no personal health data)"
+      },
+      {
+        "system": "urn:health-analyzer:export-kind",
+        "code": "external-exchange",
+        "display": "External exchange candidate (fixture)"
+      },
+      {
+        "system": "urn:health-analyzer:exchange-purpose",
+        "code": "anonymous-share",
+        "display": "Anonymous data share (no subject / no Patient)"
+      }
+    ]
+  },
+  "type": "collection",
+  "timestamp": "2026-07-10T12:00:00.000Z",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee1001",
+      "resource": {
+        "resourceType": "Device",
+        "id": "device-apple-watch",
+        "meta": {
+          "tag": [
+            {
+              "system": "urn:health-analyzer:tag",
+              "code": "hl7-validator-fixture",
+              "display": "Synthetic fixture device class"
+            }
+          ]
+        },
+        "status": "active",
+        "manufacturer": "Apple Inc.",
+        "deviceName": [
+          {
+            "name": "Apple Watch",
+            "type": "user-friendly-name"
+          }
+        ],
+        "type": {
+          "text": "Wearable smartwatch (Apple Watch class)"
+        },
+        "note": [
+          {
+            "text": "Synthetic measurement device class for HL7 fixture only (no UDI). Project-specific extensions intentionally omitted so Base R4 validation can pass without a private IG."
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee1002",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-steps-0",
+        "meta": {
+          "profile": ["http://hl7.org/fhir/StructureDefinition/Observation"]
+        },
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "activity",
+                "display": "Activity"
+              }
+            ],
+            "text": "Activity"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "55423-8",
+              "display": "Number of steps in 24 hour Measured"
+            }
+          ],
+          "text": "Number of steps in 24 hour Measured"
+        },
+        "effectivePeriod": {
+          "start": "2026-07-10",
+          "end": "2026-07-10"
+        },
+        "valueQuantity": {
+          "value": 8000,
+          "unit": "/d",
+          "system": "http://unitsofmeasure.org",
+          "code": "/d"
+        },
+        "device": {
+          "reference": "urn:uuid:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee1001",
+          "display": "Apple Watch"
+        },
+        "note": [
+          {
+            "text": "Synthetic fixture only — not real patient data"
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee1003",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-glucose-0",
+        "meta": {
+          "profile": ["http://hl7.org/fhir/StructureDefinition/Observation"]
+        },
+        "status": "final",
+        "category": [
+          {
+            "coding": [
+              {
+                "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                "code": "laboratory",
+                "display": "Laboratory"
+              }
+            ],
+            "text": "Laboratory"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2339-0",
+              "display": "Glucose [Mass/volume] in Blood"
+            }
+          ],
+          "text": "Glucose [Mass/volume] in Blood"
+        },
+        "effectiveDateTime": "2026-07-10T08:15:00+08:00",
+        "valueQuantity": {
+          "value": 5.5,
+          "unit": "mmol/L",
+          "system": "http://unitsofmeasure.org",
+          "code": "mmol/L"
+        },
+        "note": [
+          {
+            "text": "Synthetic fixture only — not real patient data; no subject (anonymous-share)"
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee1004",
+      "resource": {
+        "resourceType": "Provenance",
+        "id": "prov-fixture-0",
+        "target": [
+          {
+            "reference": "urn:uuid:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee1002"
+          },
+          {
+            "reference": "urn:uuid:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee1003"
+          }
+        ],
+        "recorded": "2026-07-10T12:00:00.000Z",
+        "agent": [
+          {
+            "type": {
+              "coding": [
+                {
+                  "system": "http://terminology.hl7.org/CodeSystem/provenance-participant-type",
+                  "code": "assembler",
+                  "display": "Assembler"
+                }
+              ]
+            },
+            "who": {
+              "display": "health-analyzer HL7 validator fixture (no personal data)"
+            }
+          }
+        ],
+        "entity": [
+          {
+            "role": "source",
+            "what": {
+              "identifier": {
+                "system": "urn:health-analyzer:import-batch",
+                "value": "batch_fixture_hl7_v1"
+              },
+              "display": "synthetic structure fixture (no real health data)"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

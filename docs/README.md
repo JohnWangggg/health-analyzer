@@ -246,9 +246,26 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - [x] 可调恢复权重、周报 IndexedDB、联合信号（含 CGM×睡眠/活动）
 - [x] 响应式自适应 UI 打磨 + 中英双语文档 / i18n 资源目录
 - [x] Health Auto Export JSON/CSV 增量导入、去重与未知指标清单
+- [x] FHIR 试验性导出分层：项目自检 / 交换门禁 / 可选官方 HL7 validator_cli（合成 fixture，`-tx n/a`）
 - [ ] 自定义提示词模板
 - [ ] 多用户/家庭成员数据支持
 - [ ] 与豆包 / ChatGPT API 直接对接（需用户自备 API key）
+
+## FHIR 校验层次（v1.58–v1.60）
+
+本项目**不上传**用户健康数据到在线校验服务。FHIR 相关检查分三层：
+
+| 命令 | 作用 | 是否官方 HL7 |
+|------|------|----------------|
+| `npm run test:fhir:structure` | 项目结构自检（夹具 + `validateFhirExportBundle`） | 否 |
+| `npm run test:fhir:exchange` | 独立 R4 交换门禁（`validateFhirR4ExchangeGate`） | 否（自定义规则） |
+| `npm run test:fhir:hl7` | 官方 `validator_cli.jar` 校验合成 fixture（`-tx n/a`） | **是** |
+
+- `npm run test:fhir` 会依次跑三层；无 Java 时 HL7 层 **软跳过**（exit 0）。
+- 严格 CI 可设 `FHIR_HL7_REQUIRED=1` 或运行 `npm run test:fhir:hl7:required`。
+- 夹具：`lib/test/fixtures/fhir-hl7-r4-minimal.json`（合成数据，无个人身份）。
+- Jar 下载到 `tools/validator_cli.jar`（gitignore，不提交）。
+- 本机需要 JDK（如 `brew install openjdk@21`），并将 `JAVA_HOME`/`PATH` 指向该 JDK。
 
 ## 许可
 
