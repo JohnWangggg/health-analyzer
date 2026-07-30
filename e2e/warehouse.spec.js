@@ -214,6 +214,106 @@ test.describe('v1.68 raw warehouse', () => {
     await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
   });
 
+  test('BP/weight yearly shards: multi-year persist, load, optional year delete', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.bloodPressure = [
+        { datetime: '2025-03-10T08:00:00', systolic: 120, diastolic: 80 },
+        { datetime: '2025-08-12T08:00:00', systolic: 118, diastolic: 78 },
+        { datetime: '2026-01-05T08:00:00', systolic: 122, diastolic: 81 },
+        { datetime: '2026-06-20T08:00:00', systolic: 119, diastolic: 79 },
+      ];
+      data.weight = [
+        { datetime: '2025-02-01T07:00:00', value: 70.5 },
+        { datetime: '2025-11-01T07:00:00', value: 69.8 },
+        { datetime: '2026-04-01T07:00:00', value: 68.9 },
+      ];
+      data.bodyFat = [
+        { datetime: '2025-02-01T07:00:00', value: 22.1 },
+        { datetime: '2026-04-01T07:00:00', value: 20.5 },
+      ];
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasWeight = true;
+      data.dataAvailability.hasBodyFat = true;
+      await HH.persistHealthDataWarehouse(data);
+    });
+
+    const afterPersist = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+      const data = (loaded && loaded.data) || {};
+      const chunkIds = ((loaded && loaded.chunks) || []).map((c) => c.id).sort();
+      return {
+        layout: st.layout,
+        bpYears: st.bpYears || [],
+        weightYears: st.weightYears || [],
+        bpLen: (data.bloodPressure || []).length,
+        weightLen: (data.weight || []).length,
+        bodyFatLen: (data.bodyFat || []).length,
+        hasBp2025: chunkIds.indexOf('bloodPressure|2025') >= 0,
+        hasBp2026: chunkIds.indexOf('bloodPressure|2026') >= 0,
+        hasW2025: chunkIds.indexOf('weight|2025') >= 0,
+        hasW2026: chunkIds.indexOf('weight|2026') >= 0,
+        hasCore: chunkIds.indexOf('core|full') >= 0,
+        noLegacyFull: chunkIds.indexOf('healthData|full') < 0,
+      };
+    });
+    expect(afterPersist.layout).toBe('sharded-v1');
+    expect(afterPersist.hasCore).toBe(true);
+    expect(afterPersist.noLegacyFull).toBe(true);
+    expect(afterPersist.bpYears).toEqual(expect.arrayContaining(['2025', '2026']));
+    expect(afterPersist.weightYears).toEqual(expect.arrayContaining(['2025', '2026']));
+    expect(afterPersist.bpLen).toBe(4);
+    expect(afterPersist.weightLen).toBe(3);
+    expect(afterPersist.bodyFatLen).toBe(2);
+    expect(afterPersist.hasBp2025).toBe(true);
+    expect(afterPersist.hasBp2026).toBe(true);
+    expect(afterPersist.hasW2025).toBe(true);
+    expect(afterPersist.hasW2026).toBe(true);
+
+    // Optional: delete one BP year and one weight year
+    const del = await page.evaluate(async () => {
+      const bp = await window.HealthHistory.deleteBloodPressureYearShards(['2025']);
+      const wt = await window.HealthHistory.deleteWeightYearShards(['2025']);
+      const st = await window.HealthHistory.getWarehouseStatus();
+      const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+      const data = (loaded && loaded.data) || {};
+      return {
+        bpOk: !!(bp && bp.ok),
+        wtOk: !!(wt && wt.ok),
+        bpYears: st.bpYears || [],
+        weightYears: st.weightYears || [],
+        bpLen: (data.bloodPressure || []).length,
+        weightLen: (data.weight || []).length,
+        bodyFatLen: (data.bodyFat || []).length,
+        has2025Bp: (data.bloodPressure || []).some((p) =>
+          String(p.datetime || '').startsWith('2025')
+        ),
+        has2026Bp: (data.bloodPressure || []).some((p) =>
+          String(p.datetime || '').startsWith('2026')
+        ),
+      };
+    });
+    expect(del.bpOk).toBe(true);
+    expect(del.wtOk).toBe(true);
+    expect(del.bpYears).not.toContain('2025');
+    expect(del.bpYears).toContain('2026');
+    expect(del.weightYears).not.toContain('2025');
+    expect(del.weightYears).toContain('2026');
+    expect(del.bpLen).toBe(2);
+    expect(del.weightLen).toBe(1);
+    expect(del.bodyFatLen).toBe(1);
+    expect(del.has2025Bp).toBe(false);
+    expect(del.has2026Bp).toBe(true);
+  });
+
   test('deleteCgmMonthShards bulk removes months and updates status', async ({ page }) => {
     await waitAppReady(page);
     // Seed warehouse with three synthetic months via API

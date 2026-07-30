@@ -7380,6 +7380,8 @@
         if (st.layout === 'sharded-v1') {
           layoutEl.textContent = t('warehouse.layout.sharded', {
             months: String((st.cgmMonths && st.cgmMonths.length) || 0),
+            bpYears: String((st.bpYears && st.bpYears.length) || 0),
+            weightYears: String((st.weightYears && st.weightYears.length) || 0),
             chunks: String(st.chunkCount || 0),
           });
           layoutEl.classList.remove('hidden');

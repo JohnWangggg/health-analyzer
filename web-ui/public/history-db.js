@@ -2,6 +2,7 @@
  * IndexedDB：本地保存分析摘要快照 + 周报历史 + 事件时间线 + 导入批次可追溯
  * + v1.68 可选原始 HealthData 仓（须用户授权；默认不落盘明细）
  * + v1.75 CGM 按月分片 domainChunks（core|full + cgm|YYYY-MM；兼容 healthData|full）
+ * + v1.79 BP/体重按年分片（bloodPressure|YYYY、weight|YYYY；bodyFat 并入 weight 年片）
  * 不上传；摘要仓不含完整 CGM；原始仓仅在 consent 开启后写入
  */
 (function (global) {
@@ -23,11 +24,14 @@
   /** Soft / hard byte caps for raw warehouse (approx JSON size) */
   const WAREHOUSE_SOFT_BYTES = 150 * 1024 * 1024;
   const WAREHOUSE_HARD_BYTES = 200 * 1024 * 1024;
-  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.75.0';
+  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.79.0';
   /** @deprecated legacy single-blob id; still read for migrate */
   const WH_CHUNK_HEALTH = 'healthData|full';
   const WH_CHUNK_CORE = 'core|full';
   const WH_META_ID = 'primary';
+  const WH_DOMAIN_CGM = 'cgm';
+  const WH_DOMAIN_BP = 'bloodPressure';
+  const WH_DOMAIN_WEIGHT = 'weight';
 
   function openDb() {
     return new Promise((resolve, reject) => {
@@ -364,14 +368,63 @@
     return /^\d{4}-\d{2}$/.test(s) ? s : 'unknown';
   }
 
+  function yearKeyFromDatetime(dt) {
+    const s = String(dt || '').slice(0, 4);
+    return /^\d{4}$/.test(s) ? s : 'unknown';
+  }
+
+  function recomputeSplitTotalBytes(split) {
+    const monthBytes = (split.months || []).reduce((s, m) => s + (m.approxBytes || 0), 0);
+    const bpBytes = (split.bpYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
+    const weightBytes = (split.weightYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
+    split.totalBytes = (split.coreBytes || 0) + monthBytes + bpBytes + weightBytes;
+    return split.totalBytes;
+  }
+
   /**
-   * Split HealthData into core (no cgm) + monthly CGM shards.
-   * @returns {{ core: object, months: { month: string, points: object[] }[], totalBytes: number }}
+   * Reassemble a full HealthData object from an in-memory split result.
+   */
+  function reassembleFromSplit(split) {
+    const payload = clonePlain(split.core);
+    payload.cgm = [];
+    (split.months || []).forEach((m) => {
+      payload.cgm = payload.cgm.concat(m.points || []);
+    });
+    payload.bloodPressure = [];
+    (split.bpYears || []).forEach((y) => {
+      payload.bloodPressure = payload.bloodPressure.concat(y.points || []);
+    });
+    payload.weight = [];
+    payload.bodyFat = [];
+    (split.weightYears || []).forEach((y) => {
+      payload.weight = payload.weight.concat(y.weight || []);
+      payload.bodyFat = payload.bodyFat.concat(y.bodyFat || []);
+    });
+    if (payload.dataAvailability) {
+      payload.dataAvailability.hasCgm = payload.cgm.length > 0;
+      payload.dataAvailability.hasBloodPressure = payload.bloodPressure.length > 0;
+      payload.dataAvailability.hasWeight = payload.weight.length > 0;
+      if (payload.bodyFat.length) payload.dataAvailability.hasBodyFat = true;
+    }
+    return payload;
+  }
+
+  /**
+   * Split HealthData into core (no cgm / BP / weight) + monthly CGM + yearly BP/weight shards.
+   * bodyFat rides with weight year shards.
+   * @returns {{ core: object, months: object[], bpYears: object[], weightYears: object[], coreBytes: number, totalBytes: number }}
    */
   function splitHealthDataShards(healthData) {
     const full = clonePlain(healthData);
     const cgm = Array.isArray(full.cgm) ? full.cgm : [];
+    const bloodPressure = Array.isArray(full.bloodPressure) ? full.bloodPressure : [];
+    const weight = Array.isArray(full.weight) ? full.weight : [];
+    const bodyFat = Array.isArray(full.bodyFat) ? full.bodyFat : [];
     full.cgm = [];
+    full.bloodPressure = [];
+    full.weight = [];
+    full.bodyFat = [];
+
     /** @type {Record<string, object[]>} */
     const byMonth = {};
     cgm.forEach((p) => {
@@ -387,9 +440,55 @@
         approxBytes: approxJsonBytes(byMonth[month]),
         recordCount: byMonth[month].length,
       }));
+
+    /** @type {Record<string, object[]>} */
+    const bpByYear = {};
+    bloodPressure.forEach((p) => {
+      const y = yearKeyFromDatetime(p && p.datetime);
+      if (!bpByYear[y]) bpByYear[y] = [];
+      bpByYear[y].push(p);
+    });
+    const bpYears = Object.keys(bpByYear)
+      .sort()
+      .map((year) => ({
+        year,
+        points: bpByYear[year],
+        approxBytes: approxJsonBytes(bpByYear[year]),
+        recordCount: bpByYear[year].length,
+      }));
+
+    /** @type {Record<string, { weight: object[], bodyFat: object[] }>} */
+    const weightByYear = {};
+    weight.forEach((p) => {
+      const y = yearKeyFromDatetime(p && p.datetime);
+      if (!weightByYear[y]) weightByYear[y] = { weight: [], bodyFat: [] };
+      weightByYear[y].weight.push(p);
+    });
+    bodyFat.forEach((p) => {
+      const y = yearKeyFromDatetime(p && p.datetime);
+      if (!weightByYear[y]) weightByYear[y] = { weight: [], bodyFat: [] };
+      weightByYear[y].bodyFat.push(p);
+    });
+    const weightYears = Object.keys(weightByYear)
+      .sort()
+      .map((year) => {
+        const bucket = weightByYear[year];
+        const recordCount = (bucket.weight.length || 0) + (bucket.bodyFat.length || 0);
+        const payloadSlice = { weight: bucket.weight, bodyFat: bucket.bodyFat };
+        return {
+          year,
+          weight: bucket.weight,
+          bodyFat: bucket.bodyFat,
+          payload: payloadSlice,
+          approxBytes: approxJsonBytes(payloadSlice),
+          recordCount,
+        };
+      });
+
     const coreBytes = approxJsonBytes(full);
-    const totalBytes = coreBytes + months.reduce((s, m) => s + m.approxBytes, 0);
-    return { core: full, months, coreBytes, totalBytes };
+    const split = { core: full, months, bpYears, weightYears, coreBytes, totalBytes: 0 };
+    recomputeSplitTotalBytes(split);
+    return split;
   }
 
   /**
@@ -405,7 +504,7 @@
       const oldest = split.months.shift();
       removedCgm += oldest.recordCount || 0;
       removedMonths += 1;
-      split.totalBytes = split.coreBytes + split.months.reduce((s, m) => s + m.approxBytes, 0);
+      recomputeSplitTotalBytes(split);
     }
     // Fallback: if still over soft with one fat month, point-trim that month
     if (split.totalBytes > WAREHOUSE_SOFT_BYTES && split.months.length === 1) {
@@ -413,7 +512,8 @@
       let pts = m.points.slice().sort((a, b) =>
         String(a && a.datetime || '').localeCompare(String(b && b.datetime || ''))
       );
-      while (approxJsonBytes(pts) + split.coreBytes > WAREHOUSE_SOFT_BYTES && pts.length > 500) {
+      const otherBytes = split.totalBytes - (m.approxBytes || 0);
+      while (approxJsonBytes(pts) + otherBytes > WAREHOUSE_SOFT_BYTES && pts.length > 500) {
         const drop = Math.max(50, Math.floor(pts.length * 0.1));
         removedCgm += drop;
         pts = pts.slice(drop);
@@ -421,7 +521,7 @@
       m.points = pts;
       m.recordCount = pts.length;
       m.approxBytes = approxJsonBytes(pts);
-      split.totalBytes = split.coreBytes + m.approxBytes;
+      recomputeSplitTotalBytes(split);
     }
     return {
       trimmed: removedCgm > 0,
@@ -433,27 +533,95 @@
   }
 
   /**
+   * After CGM eviction: drop oldest BP/weight year shards until under soft quota.
+   * Mutates split.bpYears / split.weightYears.
+   */
+  function evictOldestBpWeightYears(split) {
+    let removedBp = 0;
+    let removedWeight = 0;
+    let removedYears = 0;
+    const beforeBytes = split.totalBytes;
+    if (!split.bpYears) split.bpYears = [];
+    if (!split.weightYears) split.weightYears = [];
+
+    while (
+      split.totalBytes > WAREHOUSE_SOFT_BYTES &&
+      (split.bpYears.length > 0 || split.weightYears.length > 0)
+    ) {
+      // Keep at least the newest year overall when only one year remains across both domains
+      const years = {};
+      split.bpYears.forEach((y) => {
+        years[y.year] = true;
+      });
+      split.weightYears.forEach((y) => {
+        years[y.year] = true;
+      });
+      const yearKeys = Object.keys(years).sort();
+      if (yearKeys.length <= 1) break;
+
+      const oldestYear = yearKeys[0];
+      const bpIdx = split.bpYears.findIndex((y) => y.year === oldestYear);
+      const wIdx = split.weightYears.findIndex((y) => y.year === oldestYear);
+      if (bpIdx >= 0) {
+        const row = split.bpYears.splice(bpIdx, 1)[0];
+        removedBp += row.recordCount || 0;
+        removedYears += 1;
+      } else if (wIdx >= 0) {
+        const row = split.weightYears.splice(wIdx, 1)[0];
+        removedWeight += (row.weight && row.weight.length) || 0;
+        removedWeight += (row.bodyFat && row.bodyFat.length) || 0;
+        removedYears += 1;
+      } else {
+        break;
+      }
+      // Prefer remove both domains for same year in subsequent iterations
+      recomputeSplitTotalBytes(split);
+    }
+    return {
+      trimmed: removedBp > 0 || removedWeight > 0,
+      removedBp,
+      removedWeight,
+      removedYears,
+      beforeBytes,
+      afterBytes: split.totalBytes,
+    };
+  }
+
+  /**
+   * Run CGM month eviction then optional BP/weight year eviction.
+   */
+  function applyShardQuotaEviction(split) {
+    const cgmEv = evictOldestCgmMonths(split);
+    const yearEv = evictOldestBpWeightYears(split);
+    return {
+      trimmed: !!(cgmEv.trimmed || yearEv.trimmed),
+      removedCgm: cgmEv.removedCgm || 0,
+      removedMonths: cgmEv.removedMonths || 0,
+      removedBp: yearEv.removedBp || 0,
+      removedWeight: yearEv.removedWeight || 0,
+      removedYears: yearEv.removedYears || 0,
+      beforeBytes: cgmEv.beforeBytes,
+      afterBytes: split.totalBytes,
+    };
+  }
+
+  /**
    * Drop oldest CGM samples until under soft quota (legacy helper name for API).
-   * Prefer monthly eviction; falls back to point trim inside newest month.
+   * Prefer monthly eviction; falls back to point trim inside newest month; then year shards.
    */
   function trimCgmForSoftQuota(healthData) {
     try {
       const split = splitHealthDataShards(healthData);
-      const ev = evictOldestCgmMonths(split);
-      // Reassemble for callers expecting full payload
-      const payload = clonePlain(split.core);
-      payload.cgm = [];
-      split.months.forEach((m) => {
-        payload.cgm = payload.cgm.concat(m.points);
-      });
-      if (payload.dataAvailability) {
-        payload.dataAvailability.hasCgm = payload.cgm.length > 0;
-      }
+      const ev = applyShardQuotaEviction(split);
+      const payload = reassembleFromSplit(split);
       return {
         payload,
         trimmed: ev.trimmed,
         removedCgm: ev.removedCgm,
         removedMonths: ev.removedMonths,
+        removedBp: ev.removedBp,
+        removedWeight: ev.removedWeight,
+        removedYears: ev.removedYears,
         beforeBytes: ev.beforeBytes,
         afterBytes: approxJsonBytes(payload),
       };
@@ -479,17 +647,69 @@
     const core = allChunks.find((c) => c && (c.id === WH_CHUNK_CORE || c.domain === 'core'));
     if (!core || !core.payload) return null;
     const data = clonePlain(core.payload);
-    data.cgm = [];
+
+    // CGM: if month shards exist, replace; else keep core.cgm (v1.75-only cores may be empty)
     const cgmChunks = allChunks
-      .filter((c) => c && c.domain === 'cgm' && Array.isArray(c.payload))
+      .filter((c) => c && c.domain === WH_DOMAIN_CGM && Array.isArray(c.payload))
       .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
-    cgmChunks.forEach((c) => {
-      data.cgm = data.cgm.concat(c.payload);
-    });
-    if (data.dataAvailability) {
-      data.dataAvailability.hasCgm = data.cgm.length > 0;
+    if (cgmChunks.length) {
+      data.cgm = [];
+      cgmChunks.forEach((c) => {
+        data.cgm = data.cgm.concat(c.payload);
+      });
+    } else if (!Array.isArray(data.cgm)) {
+      data.cgm = [];
     }
-    return { data, legacy: false, chunks: allChunks, core, cgmChunks };
+
+    // BP year shards (v1.79+). If none, keep core.bloodPressure for backward compat with CGM-only sharding.
+    const bpChunks = allChunks
+      .filter((c) => c && c.domain === WH_DOMAIN_BP && Array.isArray(c.payload))
+      .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+    if (bpChunks.length) {
+      data.bloodPressure = [];
+      bpChunks.forEach((c) => {
+        data.bloodPressure = data.bloodPressure.concat(c.payload);
+      });
+    } else if (!Array.isArray(data.bloodPressure)) {
+      data.bloodPressure = [];
+    }
+
+    // Weight year shards: payload may be array (weight only) or { weight, bodyFat }
+    const weightChunks = allChunks
+      .filter((c) => c && c.domain === WH_DOMAIN_WEIGHT && c.payload != null)
+      .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+    if (weightChunks.length) {
+      data.weight = [];
+      data.bodyFat = Array.isArray(data.bodyFat) ? [] : [];
+      weightChunks.forEach((c) => {
+        const p = c.payload;
+        if (Array.isArray(p)) {
+          data.weight = data.weight.concat(p);
+        } else if (p && typeof p === 'object') {
+          if (Array.isArray(p.weight)) data.weight = data.weight.concat(p.weight);
+          if (Array.isArray(p.bodyFat)) data.bodyFat = data.bodyFat.concat(p.bodyFat);
+        }
+      });
+    } else {
+      if (!Array.isArray(data.weight)) data.weight = [];
+      if (!Array.isArray(data.bodyFat)) data.bodyFat = [];
+    }
+
+    if (data.dataAvailability) {
+      data.dataAvailability.hasCgm = (data.cgm && data.cgm.length) > 0;
+      data.dataAvailability.hasBloodPressure = (data.bloodPressure && data.bloodPressure.length) > 0;
+      data.dataAvailability.hasWeight = (data.weight && data.weight.length) > 0;
+      if (data.bodyFat && data.bodyFat.length) data.dataAvailability.hasBodyFat = true;
+    }
+    return {
+      data,
+      legacy: false,
+      chunks: allChunks,
+      core,
+      cgmChunks,
+      bpChunks,
+      weightChunks,
+    };
   }
 
   function listAllWarehouseChunks(db) {
@@ -506,7 +726,7 @@
   }
 
   /**
-   * Persist merged HealthData into warehouse (sharded CGM by month).
+   * Persist merged HealthData into warehouse (CGM by month; BP/weight by year).
    * @param {object} healthData
    * @param {{ batchId?: string|null }} [opts]
    * @returns {Promise<{ ok: boolean, reason?: string, meta?: object, approxBytes?: number }>}
@@ -524,7 +744,7 @@
       let trimMeta;
       try {
         split = splitHealthDataShards(healthData);
-        trimMeta = evictOldestCgmMonths(split);
+        trimMeta = applyShardQuotaEviction(split);
       } catch (e) {
         return { ok: false, reason: 'clone_failed', message: String((e && e.message) || e) };
       }
@@ -540,14 +760,7 @@
       }
 
       // Reassemble for stats
-      const payload = clonePlain(split.core);
-      payload.cgm = [];
-      split.months.forEach((m) => {
-        payload.cgm = payload.cgm.concat(m.points);
-      });
-      if (payload.dataAvailability) {
-        payload.dataAvailability.hasCgm = payload.cgm.length > 0;
-      }
+      const payload = reassembleFromSplit(split);
 
       const recordCount = countHealthRecords(payload);
       const dateRange = inferDateRange(payload);
@@ -562,14 +775,16 @@
         dateEnd: dateRange ? dateRange.end : null,
         payload: split.core,
         approxBytes: split.coreBytes,
-        recordCount: countHealthRecords(Object.assign({}, split.core, { cgm: [] })),
+        recordCount: countHealthRecords(
+          Object.assign({}, split.core, { cgm: [], bloodPressure: [], weight: [], bodyFat: [] })
+        ),
         batchId,
         updatedAt: now,
         codec: 'json',
       };
-      const cgmChunks = split.months.map((m) => ({
+      const cgmChunks = (split.months || []).map((m) => ({
         id: 'cgm|' + m.month,
-        domain: 'cgm',
+        domain: WH_DOMAIN_CGM,
         shard: m.month,
         dateStart: m.month + '-01',
         dateEnd: m.month + '-28',
@@ -580,9 +795,48 @@
         updatedAt: now,
         codec: 'json',
       }));
+      const bpChunks = (split.bpYears || []).map((y) => ({
+        id: 'bloodPressure|' + y.year,
+        domain: WH_DOMAIN_BP,
+        shard: y.year,
+        dateStart: y.year + '-01-01',
+        dateEnd: y.year + '-12-31',
+        payload: y.points,
+        approxBytes: y.approxBytes,
+        recordCount: y.recordCount,
+        batchId,
+        updatedAt: now,
+        codec: 'json',
+      }));
+      const weightChunks = (split.weightYears || []).map((y) => ({
+        id: 'weight|' + y.year,
+        domain: WH_DOMAIN_WEIGHT,
+        shard: y.year,
+        dateStart: y.year + '-01-01',
+        dateEnd: y.year + '-12-31',
+        payload: y.payload || { weight: y.weight || [], bodyFat: y.bodyFat || [] },
+        approxBytes: y.approxBytes,
+        recordCount: y.recordCount,
+        batchId,
+        updatedAt: now,
+        codec: 'json',
+      }));
 
       meta.dateRange = dateRange;
       meta.domainStats = buildDomainStats(payload);
+      // Reflect multi-chunk domains in domainStats.chunkCount
+      if (meta.domainStats.cgm && cgmChunks.length) {
+        meta.domainStats.cgm.chunkCount = cgmChunks.length;
+      }
+      if (meta.domainStats.bloodPressure && bpChunks.length) {
+        meta.domainStats.bloodPressure.chunkCount = bpChunks.length;
+      }
+      if (meta.domainStats.weight && weightChunks.length) {
+        meta.domainStats.weight.chunkCount = weightChunks.length;
+      }
+      if (meta.domainStats.bodyFat && weightChunks.length) {
+        meta.domainStats.bodyFat.chunkCount = weightChunks.length;
+      }
       meta.totalApproxBytes = approxBytes;
       meta.totalRecordCount = recordCount;
       meta.lastImportBatchId = batchId || meta.lastImportBatchId || null;
@@ -590,10 +844,15 @@
       meta.codec = 'json';
       meta.layout = 'sharded-v1';
       meta.cgmMonths = cgmChunks.map((c) => c.shard);
+      meta.bpYears = bpChunks.map((c) => c.shard);
+      meta.weightYears = weightChunks.map((c) => c.shard);
       if (approxBytes > WAREHOUSE_SOFT_BYTES) {
         meta.notes = ['soft_quota_exceeded'];
       } else if (trimMeta.trimmed) {
-        meta.notes = ['cgm_months_evicted_for_quota'];
+        const notes = [];
+        if (trimMeta.removedMonths) notes.push('cgm_months_evicted_for_quota');
+        if (trimMeta.removedYears) notes.push('bp_weight_years_evicted_for_quota');
+        meta.notes = notes.length ? notes : ['shards_evicted_for_quota'];
       } else {
         meta.notes = [];
       }
@@ -615,6 +874,8 @@
             store.clear();
             store.put(coreChunk);
             cgmChunks.forEach((c) => store.put(c));
+            bpChunks.forEach((c) => store.put(c));
+            weightChunks.forEach((c) => store.put(c));
             tx.objectStore(STORE_WH_META).put(Object.assign(defaultWarehouseMeta(), meta, { id: WH_META_ID }));
             tx.oncomplete = () => {
               db.close();
@@ -626,8 +887,13 @@
                 trimmedCgm: trimMeta.removedCgm || 0,
                 trimmed: !!trimMeta.trimmed,
                 removedMonths: trimMeta.removedMonths || 0,
+                removedBp: trimMeta.removedBp || 0,
+                removedWeight: trimMeta.removedWeight || 0,
+                removedYears: trimMeta.removedYears || 0,
                 layout: 'sharded-v1',
                 cgmMonthCount: cgmChunks.length,
+                bpYearCount: bpChunks.length,
+                weightYearCount: weightChunks.length,
               });
             };
             tx.onerror = () => {
@@ -689,6 +955,8 @@
         softWarn: !!(meta.totalApproxBytes > WAREHOUSE_SOFT_BYTES),
         layout: meta.layout || null,
         cgmMonths: meta.cgmMonths || [],
+        bpYears: meta.bpYears || [],
+        weightYears: meta.weightYears || [],
       };
     }).then((status) => {
       if (!status.granted) return status;
@@ -711,7 +979,7 @@
               status.domainStats = stats;
               status.layout = assembled.legacy ? 'legacy-full' : 'sharded-v1';
               const cgmChunkRows = (all || [])
-                .filter((c) => c && c.domain === 'cgm')
+                .filter((c) => c && c.domain === WH_DOMAIN_CGM)
                 .slice()
                 .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
               status.cgmMonths = cgmChunkRows.map((c) => c.shard).filter(Boolean);
@@ -720,10 +988,47 @@
                 recordCount: c.recordCount != null ? c.recordCount : (Array.isArray(c.payload) ? c.payload.length : 0),
                 approxBytes: c.approxBytes || 0,
               }));
+              const bpChunkRows = (all || [])
+                .filter((c) => c && c.domain === WH_DOMAIN_BP)
+                .slice()
+                .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+              status.bpYears = bpChunkRows.map((c) => c.shard).filter(Boolean);
+              status.bpYearDetails = bpChunkRows.map((c) => ({
+                year: c.shard || '',
+                recordCount: c.recordCount != null ? c.recordCount : (Array.isArray(c.payload) ? c.payload.length : 0),
+                approxBytes: c.approxBytes || 0,
+              }));
+              const weightChunkRows = (all || [])
+                .filter((c) => c && c.domain === WH_DOMAIN_WEIGHT)
+                .slice()
+                .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+              status.weightYears = weightChunkRows.map((c) => c.shard).filter(Boolean);
+              status.weightYearDetails = weightChunkRows.map((c) => {
+                let recordCount = c.recordCount;
+                if (recordCount == null) {
+                  const p = c.payload;
+                  if (Array.isArray(p)) recordCount = p.length;
+                  else if (p && typeof p === 'object') {
+                    recordCount = ((p.weight && p.weight.length) || 0) + ((p.bodyFat && p.bodyFat.length) || 0);
+                  } else recordCount = 0;
+                }
+                return {
+                  year: c.shard || '',
+                  recordCount,
+                  approxBytes: c.approxBytes || 0,
+                };
+              });
+              status.yearDetails = {
+                bloodPressure: status.bpYearDetails,
+                weight: status.weightYearDetails,
+              };
               status.chunkCount = (all || []).length;
               status.coreBytes = ((all || []).find((c) => c && (c.id === WH_CHUNK_CORE || c.domain === 'core')) || {}).approxBytes || 0;
             } else if (assembled && assembled.legacy) {
               status.cgmMonthDetails = [];
+              status.bpYearDetails = [];
+              status.weightYearDetails = [];
+              status.yearDetails = { bloodPressure: [], weight: [] };
               status.chunkCount = 1;
             }
             status.softWarn = status.approxBytes > WAREHOUSE_SOFT_BYTES;
@@ -929,8 +1234,24 @@
             || approxJsonBytes(assembled.data);
           meta.totalRecordCount = countHealthRecords(assembled.data);
           meta.dateRange = inferDateRange(assembled.data);
+          meta.domainStats = buildDomainStats(assembled.data);
           meta.lastWrittenAt = now;
           meta.layout = assembled.legacy ? 'legacy-full' : 'sharded-v1';
+          meta.cgmMonths = toWrite
+            .filter((c) => c && c.domain === WH_DOMAIN_CGM)
+            .map((c) => c.shard)
+            .filter(Boolean)
+            .sort();
+          meta.bpYears = toWrite
+            .filter((c) => c && c.domain === WH_DOMAIN_BP)
+            .map((c) => c.shard)
+            .filter(Boolean)
+            .sort();
+          meta.weightYears = toWrite
+            .filter((c) => c && c.domain === WH_DOMAIN_WEIGHT)
+            .map((c) => c.shard)
+            .filter(Boolean)
+            .sort();
           tx.objectStore(STORE_WH_META).put(meta);
 
           if (body.snapshots && unique.indexOf(STORE) >= 0) {
@@ -1738,7 +2059,25 @@
     return out;
   }
 
-  function recomputeMetaAfterCgmDeletes(meta, remaining, note) {
+  function fillShardYearLists(next, remaining) {
+    next.cgmMonths = remaining
+      .filter((c) => c && c.domain === WH_DOMAIN_CGM)
+      .map((c) => c.shard)
+      .filter(Boolean)
+      .sort();
+    next.bpYears = remaining
+      .filter((c) => c && c.domain === WH_DOMAIN_BP)
+      .map((c) => c.shard)
+      .filter(Boolean)
+      .sort();
+    next.weightYears = remaining
+      .filter((c) => c && c.domain === WH_DOMAIN_WEIGHT)
+      .map((c) => c.shard)
+      .filter(Boolean)
+      .sort();
+  }
+
+  function recomputeMetaAfterShardDeletes(meta, remaining, note) {
     const now = new Date().toISOString();
     let next = Object.assign(defaultWarehouseMeta(), meta, { id: WH_META_ID });
     const assembled = reassembleFromChunks(remaining);
@@ -1748,33 +2087,43 @@
       next.dateRange = inferDateRange(assembled.data);
       next.domainStats = buildDomainStats(assembled.data);
       next.layout = assembled.legacy ? 'legacy-full' : 'sharded-v1';
-      next.cgmMonths = remaining
-        .filter((c) => c && c.domain === 'cgm')
-        .map((c) => c.shard)
-        .filter(Boolean)
-        .sort();
+      fillShardYearLists(next, remaining);
     } else {
       const core = remaining.find((c) => c && (c.id === WH_CHUNK_CORE || c.domain === 'core'));
       if (core && core.payload) {
+        // Fall back to core-only reassembly without domain shards
         const data = clonePlain(core.payload);
-        data.cgm = [];
-        next.totalApproxBytes = core.approxBytes || approxJsonBytes(core.payload);
+        if (!Array.isArray(data.cgm)) data.cgm = [];
+        if (!Array.isArray(data.bloodPressure)) data.bloodPressure = [];
+        if (!Array.isArray(data.weight)) data.weight = [];
+        if (!Array.isArray(data.bodyFat)) data.bodyFat = [];
+        next.totalApproxBytes =
+          remaining.reduce((s, c) => s + (c.approxBytes || 0), 0) ||
+          core.approxBytes ||
+          approxJsonBytes(core.payload);
         next.totalRecordCount = countHealthRecords(data);
         next.dateRange = inferDateRange(data);
         next.domainStats = buildDomainStats(data);
         next.layout = 'sharded-v1';
-        next.cgmMonths = [];
+        fillShardYearLists(next, remaining);
       } else {
         next.totalApproxBytes = 0;
         next.totalRecordCount = 0;
         next.dateRange = null;
         next.domainStats = {};
         next.cgmMonths = [];
+        next.bpYears = [];
+        next.weightYears = [];
       }
     }
     next.lastWrittenAt = now;
     next.notes = note ? [note] : [];
     return next;
+  }
+
+  /** @deprecated use recomputeMetaAfterShardDeletes */
+  function recomputeMetaAfterCgmDeletes(meta, remaining, note) {
+    return recomputeMetaAfterShardDeletes(meta, remaining, note);
   }
 
   /**
@@ -1856,6 +2205,95 @@
     });
   }
 
+  function normalizeYears(years) {
+    const out = [];
+    const seen = {};
+    (Array.isArray(years) ? years : [years]).forEach((raw) => {
+      const y = String(raw || '').slice(0, 4);
+      if (/^\d{4}$/.test(y) && !seen[y]) {
+        seen[y] = true;
+        out.push(y);
+      }
+    });
+    return out;
+  }
+
+  /**
+   * Delete one or more yearly shards for bloodPressure or weight.
+   * @param {'bloodPressure'|'weight'} domain
+   * @param {string|string[]} years e.g. '2025' or ['2024','2025']
+   */
+  function deleteDomainYearShards(domain, years) {
+    const dom = String(domain || '');
+    if (dom !== WH_DOMAIN_BP && dom !== WH_DOMAIN_WEIGHT) {
+      return Promise.resolve({ ok: false, reason: 'invalid_domain' });
+    }
+    const list = normalizeYears(years);
+    if (!list.length) {
+      return Promise.resolve({ ok: false, reason: 'invalid_year' });
+    }
+    const idSet = {};
+    list.forEach((y) => {
+      idSet[dom + '|' + y] = y;
+    });
+    return getWarehouseMeta().then((meta) => {
+      if (!meta.consent || !meta.consent.granted) {
+        return { ok: false, reason: 'no_consent' };
+      }
+      return openDb().then(
+        (db) =>
+          new Promise((resolve, reject) => {
+            if (!db.objectStoreNames.contains(STORE_WH_CHUNKS)) {
+              db.close();
+              resolve({ ok: false, reason: 'store_missing' });
+              return;
+            }
+            const tx = db.transaction([STORE_WH_CHUNKS, STORE_WH_META], 'readwrite');
+            const store = tx.objectStore(STORE_WH_CHUNKS);
+            Object.keys(idSet).forEach((id) => store.delete(id));
+            const allReq = store.getAll();
+            allReq.onsuccess = () => {
+              const all = allReq.result || [];
+              const remaining = all.filter((c) => c && !idSet[c.id]);
+              const deleted = list.slice();
+              const note =
+                deleted.length === 1
+                  ? dom + '_year_deleted:' + deleted[0]
+                  : dom + '_years_deleted:' + deleted.join(',');
+              const next = recomputeMetaAfterShardDeletes(meta, remaining, note);
+              tx.objectStore(STORE_WH_META).put(next);
+              tx.oncomplete = () => {
+                db.close();
+                resolve({
+                  ok: true,
+                  domain: dom,
+                  years: deleted,
+                  deleted,
+                  meta: next,
+                });
+              };
+            };
+            allReq.onerror = () => {
+              db.close();
+              reject(allReq.error);
+            };
+            tx.onerror = () => {
+              db.close();
+              reject(tx.error);
+            };
+          })
+      );
+    });
+  }
+
+  function deleteBloodPressureYearShards(years) {
+    return deleteDomainYearShards(WH_DOMAIN_BP, years);
+  }
+
+  function deleteWeightYearShards(years) {
+    return deleteDomainYearShards(WH_DOMAIN_WEIGHT, years);
+  }
+
   global.HealthHistory = {
     saveSnapshot,
     listSnapshots,
@@ -1898,8 +2336,13 @@
     clearWarehousePayloadKeepConsent,
     deleteCgmMonthShard,
     deleteCgmMonthShards,
+    deleteDomainYearShards,
+    deleteBloodPressureYearShards,
+    deleteWeightYearShards,
     buildDomainStats,
     trimCgmForSoftQuota,
+    splitHealthDataShards,
+    reassembleFromChunks,
     persistHealthDataWarehouse,
     loadHealthDataWarehouse,
     exportWarehouseBackup,
