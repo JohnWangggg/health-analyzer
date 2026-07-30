@@ -85,6 +85,10 @@
   const LLM_COPY_ACK_KEY = 'health-analyzer-llm-copy-ack';
   /** 是否在提示词中包含用药/病史等敏感自述 */
   const INCLUDE_SENSITIVE_KEY = 'health-analyzer-include-sensitive-ctx';
+  /** CGM 仓「仅保留近 N 个月」的 N（3/6/12/24，默认 6） */
+  const CGM_KEEP_MONTHS_KEY = 'health-analyzer-cgm-keep-months';
+  const CGM_KEEP_MONTHS_OPTIONS = [3, 6, 12, 24];
+  const CGM_KEEP_MONTHS_DEFAULT = 6;
   /**
    * 健康相关 localStorage 键（一键清除会删这些）。
    * 刻意保留：THEME_KEY、health-analyzer-locale、侧栏折叠、安装/更新提示等 UI 偏好。
@@ -101,6 +105,7 @@
     CHART_PRESETS_KEY,
     LLM_COPY_ACK_KEY,
     INCLUDE_SENSITIVE_KEY,
+    CGM_KEEP_MONTHS_KEY,
     'health-analyzer-insight-coach',
   ];
 
@@ -7142,6 +7147,9 @@
     if (bl) bl.checked = true;
     const ev = $('chart-events-toggle');
     if (ev) ev.checked = true;
+    try {
+      if (typeof syncCgmKeepMonthsUi === 'function') syncCgmKeepMonthsUi();
+    } catch (e) { /* ignore */ }
     syncIncludeSensitiveCheckbox();
     // 恢复权重滑块 UI（若有）
     try {
@@ -7530,6 +7538,31 @@
       .filter(Boolean);
   }
 
+  function getCgmKeepMonths() {
+    try {
+      const v = Number(window.localStorage.getItem(CGM_KEEP_MONTHS_KEY));
+      if (CGM_KEEP_MONTHS_OPTIONS.indexOf(v) >= 0) return v;
+    } catch (e) { /* ignore */ }
+    return CGM_KEEP_MONTHS_DEFAULT;
+  }
+
+  function setCgmKeepMonths(n) {
+    const num = Number(n);
+    const v = CGM_KEEP_MONTHS_OPTIONS.indexOf(num) >= 0 ? num : CGM_KEEP_MONTHS_DEFAULT;
+    try {
+      window.localStorage.setItem(CGM_KEEP_MONTHS_KEY, String(v));
+    } catch (e) { /* ignore */ }
+    return v;
+  }
+
+  function syncCgmKeepMonthsUi() {
+    const n = getCgmKeepMonths();
+    const sel = $('warehouse-cgm-keep-months');
+    if (sel && sel.value !== String(n)) sel.value = String(n);
+    const btn = $('btn-warehouse-cgm-keep-recent');
+    if (btn) btn.textContent = t('warehouse.cgmKeepRecent', { n: String(n) });
+  }
+
   $('warehouse-cgm-select-all')?.addEventListener('change', (e) => {
     const on = !!(e.target && e.target.checked);
     document.querySelectorAll('#warehouse-cgm-month-list .wh-month-cb').forEach((cb) => {
@@ -7539,24 +7572,33 @@
   $('btn-warehouse-cgm-delete-selected')?.addEventListener('click', () => {
     deleteCgmMonthShardsUi(getSelectedCgmMonthsFromUi());
   });
+  $('warehouse-cgm-keep-months')?.addEventListener('change', (e) => {
+    setCgmKeepMonths(e.target && e.target.value);
+    syncCgmKeepMonthsUi();
+  });
+  window.addEventListener('health-analyzer-locale', () => {
+    syncCgmKeepMonthsUi();
+  });
+  syncCgmKeepMonthsUi();
   $('btn-warehouse-cgm-keep-recent')?.addEventListener('click', async () => {
     const HH = window.HealthHistory;
     if (!HH || typeof HH.getWarehouseStatus !== 'function') return;
+    const keepN = getCgmKeepMonths();
     try {
       const st = await HH.getWarehouseStatus();
       const months = (st.cgmMonths || (st.cgmMonthDetails || []).map((d) => d.month) || [])
         .slice()
         .filter(Boolean)
         .sort();
-      if (months.length <= 6) {
-        showToast(t('warehouse.cgmKeepRecentNone'), { ms: 2200 });
+      if (months.length <= keepN) {
+        showToast(t('warehouse.cgmKeepRecentNone', { n: String(keepN) }), { ms: 2200 });
         return;
       }
-      const keep = months.slice(-6); // oldest..newest → keep newest 6
+      const keep = months.slice(-keepN); // oldest..newest → keep newest N
       const drop = months.filter((m) => keep.indexOf(m) < 0);
       await deleteCgmMonthShardsUi(
         drop,
-        t('warehouse.cgmKeepRecentConfirm', { n: String(drop.length), keep: '6' })
+        t('warehouse.cgmKeepRecentConfirm', { n: String(drop.length), keep: String(keepN) })
       );
     } catch (e) {
       showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });

@@ -571,6 +571,28 @@ body.has-results .result-bottom-nav:not(.hidden) {
   margin: 0;
 }
 
+.warehouse-cgm-keep-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted, var(--text));
+  min-height: 36px;
+  margin: 0;
+}
+
+.warehouse-cgm-keep-label select {
+  min-height: 32px;
+  min-width: 4.5em;
+  padding: 4px 8px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
 .wh-month-check {
   display: inline-flex;
   align-items: center;

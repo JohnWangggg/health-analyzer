@@ -633,7 +633,16 @@
               <span data-i18n="warehouse.cgmSelectAll">全选</span>
             </label>
             <button type="button" id="btn-warehouse-cgm-delete-selected" class="btn-danger-text btn-sm" data-i18n="warehouse.cgmDeleteSelected">删除所选</button>
-            <button type="button" id="btn-warehouse-cgm-keep-recent" class="btn-ghost btn-sm" data-i18n="warehouse.cgmKeepRecent6">仅保留近 6 个月</button>
+            <label class="warehouse-cgm-keep-label" for="warehouse-cgm-keep-months">
+              <span data-i18n="warehouse.cgmKeepMonthsLabel">保留月数</span>
+              <select id="warehouse-cgm-keep-months" data-i18n-aria="warehouse.cgmKeepMonthsLabel" aria-label="保留月数">
+                <option value="3">3</option>
+                <option value="6" selected>6</option>
+                <option value="12">12</option>
+                <option value="24">24</option>
+              </select>
+            </label>
+            <button type="button" id="btn-warehouse-cgm-keep-recent" class="btn-ghost btn-sm">仅保留近 6 个月</button>
           </div>
           <ul id="warehouse-cgm-month-list" class="warehouse-cgm-month-list" aria-label="CGM months"></ul>
         </div>
@@ -785,7 +794,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.78</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.79-keep-n</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

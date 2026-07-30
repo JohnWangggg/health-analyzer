@@ -258,6 +258,92 @@ test.describe('v1.68 raw warehouse', () => {
     expect(after.hasJuly).toBe(true);
   });
 
+  test('keep recent N months: N=3 leaves newest 3 of 5', async ({ page }) => {
+    await waitAppReady(page);
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.cgm = [
+        { datetime: '2026-03-10T08:00:00', value: 5.0 },
+        { datetime: '2026-04-10T08:00:00', value: 5.1 },
+        { datetime: '2026-05-10T08:00:00', value: 5.2 },
+        { datetime: '2026-06-15T08:00:00', value: 5.5 },
+        { datetime: '2026-07-10T08:00:00', value: 6.0 },
+      ];
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasCgm = true;
+      await HH.persistHealthDataWarehouse(data);
+    });
+
+    const beforeMonths = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      return (st.cgmMonths || []).slice().sort();
+    });
+    expect(beforeMonths).toEqual(['2026-03', '2026-04', '2026-05', '2026-06', '2026-07']);
+
+    // Reload so auto-hydrate sets has-results and reveals More → export/warehouse UI
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+
+    await setWorkspace(page, 'more');
+    await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+    await expect(page.locator('#warehouse-cgm-months')).toBeVisible({ timeout: 8_000 });
+    await expect(page.locator('#warehouse-cgm-month-list li')).toHaveCount(5, { timeout: 8_000 });
+
+    // Configurable N: select 3 months, button label updates
+    await page.locator('#warehouse-cgm-keep-months').selectOption('3');
+    await expect
+      .poll(async () => page.evaluate(() => localStorage.getItem('health-analyzer-cgm-keep-months')))
+      .toBe('3');
+    await expect(page.locator('#btn-warehouse-cgm-keep-recent')).toContainText(/3/);
+
+    page.once('dialog', async (d) => {
+      // confirm shows keep N and drop count (2 older months)
+      expect(d.message()).toMatch(/3/);
+      await d.accept();
+    });
+    await page.locator('#btn-warehouse-cgm-keep-recent').click();
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const st = await window.HealthHistory.getWarehouseStatus();
+            return (st.cgmMonths || []).slice().sort();
+          }),
+        { timeout: 10_000 }
+      )
+      .toEqual(['2026-05', '2026-06', '2026-07']);
+
+    const afterCgm = await page.evaluate(async () => {
+      const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+      const cgm = (loaded && loaded.data && loaded.data.cgm) || [];
+      return {
+        hasMar: cgm.some((p) => String(p.datetime || '').startsWith('2026-03')),
+        hasApr: cgm.some((p) => String(p.datetime || '').startsWith('2026-04')),
+        hasMay: cgm.some((p) => String(p.datetime || '').startsWith('2026-05')),
+        hasJun: cgm.some((p) => String(p.datetime || '').startsWith('2026-06')),
+        hasJul: cgm.some((p) => String(p.datetime || '').startsWith('2026-07')),
+      };
+    });
+    expect(afterCgm.hasMar).toBe(false);
+    expect(afterCgm.hasApr).toBe(false);
+    expect(afterCgm.hasMay).toBe(true);
+    expect(afterCgm.hasJun).toBe(true);
+    expect(afterCgm.hasJul).toBe(true);
+  });
+
   test('encrypted backup roundtrip with passphrase', async ({ page }) => {
     await waitAppReady(page);
     await selectXmlOnly(page);
