@@ -7426,12 +7426,24 @@
         monthsWrap.classList.remove('hidden');
         monthsList.innerHTML = details
           .map((row) => {
-            const m = escapeHtml(row.month || '—');
+            const rawM = String(row.month || '');
+            const m = escapeHtml(rawM || '—');
             const n = escapeHtml(String(row.recordCount || 0));
             const b = escapeHtml(formatBytes(row.approxBytes || 0));
-            return `<li><span class="wh-month">${m}</span><span class="wh-month-meta">${n} · ${b}</span></li>`;
+            const delLabel = escapeHtml(t('warehouse.cgmMonthDelete'));
+            return `<li class="wh-month-row">`
+              + `<span class="wh-month">${m}</span>`
+              + `<span class="wh-month-meta">${n} · ${b}</span>`
+              + `<button type="button" class="btn-danger-text btn-sm wh-month-del" data-cgm-month="${escapeHtml(rawM)}" aria-label="${delLabel} ${m}">${delLabel}</button>`
+              + `</li>`;
           })
           .join('');
+        monthsList.querySelectorAll('.wh-month-del[data-cgm-month]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const month = btn.getAttribute('data-cgm-month');
+            if (month) deleteCgmMonthShardUi(month);
+          });
+        });
       }
 
       // Browser origin storage estimate (best-effort)
@@ -7449,6 +7461,41 @@
       await refreshWarehouseHomeBanner();
     } catch (e) {
       if (statusEl) statusEl.textContent = t('warehouse.err', { msg: (e && e.message) || String(e) });
+    }
+  }
+
+  async function deleteCgmMonthShardUi(month) {
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.deleteCgmMonthShard !== 'function') return;
+    if (!window.confirm(t('warehouse.cgmMonthDeleteConfirm', { month: String(month) }))) return;
+    try {
+      const res = await HH.deleteCgmMonthShard(month);
+      if (!res || !res.ok) {
+        showToast(t('warehouse.err', { msg: (res && res.reason) || 'fail' }), { ms: 2800 });
+        return;
+      }
+      showToast(t('warehouse.cgmMonthDeleted', { month: String(month) }), { ok: true, ms: 2400 });
+      showWarehouseStatusMsg(t('warehouse.cgmMonthDeleted', { month: String(month) }));
+      // If current analysis is loaded from warehouse, filter CGM points for that month in memory
+      if (currentAnalysis && currentAnalysis.data && Array.isArray(currentAnalysis.data.cgm)) {
+        const prefix = String(month).slice(0, 7);
+        currentAnalysis.data.cgm = currentAnalysis.data.cgm.filter(
+          (p) => !String(p && p.datetime || '').startsWith(prefix)
+        );
+        try {
+          recoveryWeights = loadRecoveryWeights();
+          currentAnalysis = window.HealthAnalyzer.analyzeAll(currentAnalysis.data, {
+            recoveryWeights,
+            locale: getAnalysisLocale(),
+          });
+          renderResults(currentAnalysis);
+        } catch (e) {
+          console.warn('re-analyze after month delete', e);
+        }
+      }
+      await refreshWarehousePanel();
+    } catch (e) {
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
     }
   }
 

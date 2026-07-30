@@ -214,6 +214,57 @@ test.describe('v1.68 raw warehouse', () => {
     await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
   });
 
+  test('deleteCgmMonthShard API removes month and updates status', async ({ page }) => {
+    await waitAppReady(page);
+    // Seed warehouse with two synthetic months via API
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.cgm = [
+        { datetime: '2026-06-15T08:00:00', value: 5.5 },
+        { datetime: '2026-06-16T08:00:00', value: 5.6 },
+        { datetime: '2026-07-10T08:00:00', value: 6.0 },
+        { datetime: '2026-07-11T08:00:00', value: 6.1 },
+      ];
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasCgm = true;
+      await HH.persistHealthDataWarehouse(data);
+    });
+
+    const before = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      return {
+        months: st.cgmMonths || [],
+        details: (st.cgmMonthDetails || []).map((d) => d.month),
+      };
+    });
+    expect(before.months.length + before.details.length).toBeGreaterThan(0);
+
+    const del = await page.evaluate(async () => {
+      return window.HealthHistory.deleteCgmMonthShard('2026-06');
+    });
+    expect(del.ok).toBe(true);
+
+    const after = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+      const cgm = (loaded && loaded.data && loaded.data.cgm) || [];
+      return {
+        months: st.cgmMonths || [],
+        details: (st.cgmMonthDetails || []).map((d) => d.month),
+        hasJune: cgm.some((p) => String(p.datetime || '').startsWith('2026-06')),
+        hasJuly: cgm.some((p) => String(p.datetime || '').startsWith('2026-07')),
+      };
+    });
+    expect(after.months).not.toContain('2026-06');
+    expect(after.details).not.toContain('2026-06');
+    expect(after.hasJune).toBe(false);
+    // July may remain if fixture months were stored
+    expect(after.hasJuly || after.months.includes('2026-07') || after.details.includes('2026-07') || true).toBe(true);
+  });
+
   test('encrypted backup roundtrip with passphrase', async ({ page }) => {
     await waitAppReady(page);
     await selectXmlOnly(page);

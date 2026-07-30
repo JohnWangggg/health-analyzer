@@ -571,10 +571,13 @@ body.has-results .result-bottom-nav:not(.hidden) {
   overflow-y: auto;
 }
 
-.warehouse-cgm-month-list li {
+.warehouse-cgm-month-list li,
+.warehouse-cgm-month-list .wh-month-row {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   font-size: 13px;
   padding: 6px 10px;
   border-radius: 8px;
@@ -586,12 +589,22 @@ body.has-results .result-bottom-nav:not(.hidden) {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text);
+  min-width: 4.5em;
 }
 
 .warehouse-cgm-month-list .wh-month-meta {
   color: var(--text-light);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  flex: 1 1 auto;
+}
+
+.warehouse-cgm-month-list .wh-month-del {
+  min-height: 36px;
+  min-width: 44px;
+  font-size: 12px;
+  padding: 4px 8px;
+  flex: 0 0 auto;
 }
 
 .warehouse-panel .panel-subhead {
