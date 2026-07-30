@@ -73,6 +73,7 @@ export {
   MAIN_PROMPT_TEMPLATE,
   MAIN_PROMPT_TEMPLATE_EN,
 } from './prompts/llm-prompt';
+export type { PromptOptions, LlmPromptOptions } from './prompts/llm-prompt';
 
 export {
   buildAnalysisSnapshot,
@@ -118,6 +119,7 @@ export {
   CGM_REPORT_DAYS,
   CGM_MIN_COVERAGE_PCT,
 } from './export';
+export type { WeeklyReportOptions, ClinicalReportOptions } from './export';
 
 export {
   parseWeightScaleCsv,

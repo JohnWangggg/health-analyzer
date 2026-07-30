@@ -8,6 +8,24 @@ import { detectCrossSignals, formatCrossSignalsForLLM } from '../signals';
 import { buildInsightBullets, formatInsightsForLLM } from '../insights';
 import { traditionalizeMarkdownHeadings } from '../zh-tw-map';
 import { createL, normalizeLocale, LocaleOptions } from '../locale';
+import {
+  HealthEvent,
+  filterEventsInRange,
+  formatEventsMarkdown,
+} from '../events';
+
+/**
+ * LLM 提示词选项：locale + 可选本机事件时间线（默认脱敏）。
+ * 事件仅时间共现参考，不作因果/调药建议；须 includeEvents === true 才写入。
+ */
+export interface PromptOptions extends LocaleOptions {
+  /** default false — events are sensitive; temporal co-occurrence only */
+  includeEvents?: boolean;
+  events?: HealthEvent[] | null;
+}
+
+/** @deprecated Prefer PromptOptions */
+export type LlmPromptOptions = PromptOptions;
 
 /** 主提示词：引导 LLM 按指定格式输出深度分析报告（中文） */
 export const MAIN_PROMPT_TEMPLATE = `# 角色与任务
@@ -1362,10 +1380,52 @@ export function formatAnalysisForLLM(
   return md;
 }
 
+function formatEventsForPrompt(
+  analysis: FullAnalysis,
+  options?: LlmPromptOptions
+): string {
+  if (!options?.includeEvents) return '';
+  const locale = normalizeLocale(options.locale);
+  const L = createL(locale);
+  const rangeStart = analysis.dateRange?.start || null;
+  const rangeEnd = analysis.dateRange?.end || null;
+  const rawEvents = options.events || [];
+  const filtered =
+    rangeStart || rangeEnd
+      ? filterEventsInRange(rawEvents, rangeStart, rangeEnd)
+      : rawEvents;
+
+  const instruction = L(
+    '以下事件仅供时间共现参考，禁止推断因果或给出调药建议。',
+    'Events below are for temporal co-occurrence only; do not infer causation or medication advice.'
+  );
+
+  if (!filtered.length) {
+    return [
+      instruction,
+      '',
+      L('## 事件时间线（时间共现，非因果）', '## Events timeline (co-occurrence, not causation)'),
+      '',
+      L(
+        '> 已勾选附带事件，但当前分析窗口内无记录（不回退展示窗口外历史）。',
+        '> Events opted in, but none fall in the analysis window (no fallback to out-of-range history).'
+      ),
+      '',
+    ].join('\n');
+  }
+
+  const body = formatEventsMarkdown(filtered, {
+    locale,
+    title: L('## 事件时间线（时间共现，非因果）', '## Events timeline (co-occurrence, not causation)'),
+  }).trimEnd();
+
+  return [instruction, '', body, ''].join('\n');
+}
+
 function combineContextAndData(
   analysis: FullAnalysis,
   userContext?: UserContext | null,
-  options?: LocaleOptions
+  options?: LlmPromptOptions
 ): string {
   const localeOpts = { locale: normalizeLocale(options?.locale) };
   const insightsSection = formatInsightsForLLM(
@@ -1378,23 +1438,29 @@ function combineContextAndData(
     detectCrossSignals(analysis, localeOpts),
     localeOpts
   );
-  const parts = [ctxSection, insightsSection, dataSection, signalsSection].filter(
-    (s) => s && s.trim()
-  );
+  const eventsSection = formatEventsForPrompt(analysis, options);
+  const parts = [
+    ctxSection,
+    insightsSection,
+    dataSection,
+    signalsSection,
+    eventsSection,
+  ].filter((s) => s && s.trim());
   return parts.join('\n');
 }
 
 /**
  * 生成完整的大模型提示词（主提示词 + 可选个人背景 + 格式化数据）
  * @param options.locale 'zh-CN' | 'en'（默认 zh-CN）
+ * @param options.includeEvents 默认 false；为 true 时才挂载事件（时间共现，非因果）
  */
 export function generateLLMPrompt(
   analysis: FullAnalysis,
   userContext?: UserContext | null,
-  options?: LocaleOptions
+  options?: LlmPromptOptions
 ): string {
   const locale = normalizeLocale(options?.locale);
-  const dataSection = combineContextAndData(analysis, userContext, { locale });
+  const dataSection = combineContextAndData(analysis, userContext, options);
   const template = locale === 'en' ? MAIN_PROMPT_TEMPLATE_EN : MAIN_PROMPT_TEMPLATE;
   return template
     .replace('{ANALYSIS_JSON}', dataSection)
@@ -1407,7 +1473,7 @@ export function generateLLMPrompt(
 export function generateDataOnly(
   analysis: FullAnalysis,
   userContext?: UserContext | null,
-  options?: LocaleOptions
+  options?: LlmPromptOptions
 ): string {
   return combineContextAndData(analysis, userContext, options);
 }

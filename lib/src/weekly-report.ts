@@ -7,8 +7,18 @@ import { buildInsightBullets } from './insights';
 import { detectCrossSignals } from './signals';
 import { formatUserContext } from './prompts/llm-prompt';
 import { AppLocale, createL, normalizeLocale } from './locale';
+import {
+  HealthEvent,
+  filterEventsInRange,
+  formatEventsMarkdown,
+} from './events';
 
-export type WeeklyReportOptions = { locale?: AppLocale | string };
+export type WeeklyReportOptions = {
+  locale?: AppLocale | string;
+  /** default false — events are sensitive */
+  includeEvents?: boolean;
+  events?: HealthEvent[] | null;
+};
 
 function addDaysIso(date: string, deltaDays: number): string {
   const t = Date.parse(`${date}T00:00:00Z`);
@@ -47,6 +57,7 @@ export function generateWeeklyReportMarkdown(
 ): string {
   const locale = normalizeLocale(options?.locale);
   const L = createL(locale);
+  const includeEvents = !!options?.includeEvents;
   const end = analysis.dateRange?.end || '';
   const start = end ? weekStartFromEnd(end) : analysis.dateRange?.start || '';
   const lines: string[] = [];
@@ -93,10 +104,11 @@ export function generateWeeklyReportMarkdown(
   // 简短目录（锚点式标题列表，便于长文扫读）
   const hasEcg = !!(analysis.ecgStats && analysis.ecgStats.count > 0);
   const tocEcg = hasEcg ? ' · 📈 ECG' : '';
+  const tocEvents = includeEvents ? L(' · 🗓️ 本周事件', ' · 🗓️ Events') : '';
   lines.push(
     L(
-      `> **目录** · 🧭 负荷与恢复 · 📋 监测摘要 · 🔗 关键跨维度信号 · 📊 本周数据速览 · 🏃 Workout 本周场次${tocEcg} · ⚠️ 边界声明`,
-      `> **Contents** · 🧭 Load & Recovery · 📋 Monitoring summary · 🔗 Key cross-signals · 📊 Week snapshot · 🏃 Workouts this week${tocEcg} · ⚠️ Boundary / Disclaimer`
+      `> **目录** · 🧭 负荷与恢复 · 📋 监测摘要 · 🔗 关键跨维度信号 · 📊 本周数据速览 · 🏃 Workout 本周场次${tocEcg}${tocEvents} · ⚠️ 边界声明`,
+      `> **Contents** · 🧭 Load & Recovery · 📋 Monitoring summary · 🔗 Key cross-signals · 📊 Week snapshot · 🏃 Workouts this week${tocEcg}${tocEvents} · ⚠️ Boundary / Disclaimer`
     )
   );
   lines.push(``);
@@ -400,6 +412,33 @@ export function generateWeeklyReportMarkdown(
       );
     }
     lines.push(``);
+  }
+
+  // —— 本周事件时间线（须 includeEvents；仅时间共现，非因果；默认关闭）——
+  if (includeEvents) {
+    lines.push(`---`);
+    lines.push(``);
+    const rawEvents = options?.events || [];
+    const filtered =
+      start || end ? filterEventsInRange(rawEvents, start || null, end || null) : rawEvents;
+    if (filtered.length) {
+      lines.push(
+        formatEventsMarkdown(filtered, {
+          locale,
+          title: L('## 🗓️ 本周事件时间线', '## 🗓️ Events this week'),
+          max: 30,
+        }).trimEnd()
+      );
+      lines.push(``);
+    } else {
+      lines.push(
+        L(
+          '本周窗口内无本机事件',
+          'No local events in this week window'
+        )
+      );
+      lines.push(``);
+    }
   }
 
   lines.push(`---`);

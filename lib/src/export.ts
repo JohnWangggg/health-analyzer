@@ -7,6 +7,7 @@ import { buildAnalysisSnapshot, AnalysisSnapshot } from './snapshot';
 import { detectCrossSignals, CrossSignal } from './signals';
 
 export { generateWeeklyReportMarkdown } from './weekly-report';
+export type { WeeklyReportOptions } from './weekly-report';
 export { generateVisitSummaryMarkdown } from './visit-summary';
 export {
   CGM_REPORT_DAYS,

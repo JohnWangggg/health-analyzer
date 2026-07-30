@@ -2479,6 +2479,24 @@ body.has-results .result-section {
   border-top: 1px solid var(--border);
 }
 
+.weekly-report-panel .check-inline,
+.weekly-report-panel .weekly-include-events {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 0 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.weekly-report-panel .check-inline input,
+.weekly-report-panel .weekly-include-events input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
 .weekly-report-list {
   display: flex;
   flex-direction: column;

@@ -210,6 +210,10 @@
           <input type="checkbox" id="ctx-include-sensitive" checked>
           <span data-i18n="ctx.includeSensitive">复制提示词时包含用药与病史</span>
         </label>
+        <label class="ctx-include-sensitive" for="ctx-include-events">
+          <input type="checkbox" id="ctx-include-events">
+          <span data-i18n="ctx.includeEvents">复制提示词时包含本机事件时间线</span>
+        </label>
         <div class="context-actions">
           <button type="button" id="btn-ctx-save" class="btn-secondary" data-i18n="ctx.save">保存到本机</button>
           <button type="button" id="btn-ctx-clear" class="btn-ghost" data-i18n="ctx.clear">清空</button>
@@ -489,7 +493,11 @@
 
       <div class="weekly-report-panel history-panel">
         <h3 class="panel-subhead" data-i18n="weekly.title">本周报告历史</h3>
-        <p class="hint compact-hint" data-i18n="weekly.hint">下载后可选保存 Markdown 到本机 IndexedDB（最多 20 条，不上传）。</p>
+        <p class="hint compact-hint" data-i18n="weekly.hint">下载后可选保存 Markdown 到本机 IndexedDB（最多 20 条，不上传）。默认不含事件；可勾选附带本机事件时间线。</p>
+        <label class="check-inline weekly-include-events" for="weekly-include-events">
+          <input type="checkbox" id="weekly-include-events" />
+          <span data-i18n="weekly.includeEvents">周报包含本机事件时间线</span>
+        </label>
         <div class="history-save-row">
           <label class="date-field history-name-field">
             <span data-i18n="weekly.label">周报备注（可选）</span>
@@ -582,7 +590,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.44</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.45</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

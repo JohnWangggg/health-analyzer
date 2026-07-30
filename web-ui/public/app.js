@@ -518,6 +518,10 @@
     saveIncludeSensitiveCtx(on);
     if (currentAnalysis) renderPrompt();
   });
+  // 提示词可选附带本机事件（默认 OFF；与 clinical-include-events 独立）
+  $('ctx-include-events')?.addEventListener('change', () => {
+    if (currentAnalysis) renderPrompt();
+  });
   // 编辑后即时刷新提示词（若已有分析结果）
   ['ctx-age', 'ctx-sex', 'ctx-height', 'ctx-target-weight', 'ctx-medications', 'ctx-conditions', 'ctx-focus', 'ctx-notes']
     .forEach((id) => {
@@ -3021,7 +3025,7 @@
       b.classList.toggle('active', on);
       b.setAttribute('aria-selected', on ? 'true' : 'false');
     });
-    renderPrompt();
+    await renderPrompt();
     const text = $('prompt-output') ? $('prompt-output').value : '';
     try {
       await navigator.clipboard.writeText(text);
@@ -3246,7 +3250,11 @@
     }
   }
 
-  function buildWeeklyReportMarkdown() {
+  /**
+   * 生成周报 Markdown。默认不含事件；仅当 #weekly-include-events 勾选时加载并附带。
+   * 与 clinical-include-events / ctx-include-events 相互独立。
+   */
+  async function buildWeeklyReportMarkdown() {
     if (!currentAnalysis) throw new Error(t('common.needAnalysis'));
     if (
       !window.HealthAnalyzer ||
@@ -3255,16 +3263,21 @@
       throw new Error(t('export.err.weeklyNotLoaded'));
     }
     const ctx = typeof getUserContextForPrompt === 'function' ? getUserContextForPrompt() : null;
+    const opts = Object.assign({}, analysisLocaleOpts());
+    if ($('weekly-include-events')?.checked) {
+      opts.includeEvents = true;
+      opts.events = (await loadEventsForClinicalExport()) || [];
+    }
     return window.HealthAnalyzer.generateWeeklyReportMarkdown(
       currentAnalysis,
       ctx,
-      analysisLocaleOpts()
+      opts
     );
   }
 
-  function exportWeeklyReport() {
+  async function exportWeeklyReport() {
     try {
-      const md = buildWeeklyReportMarkdown();
+      const md = await buildWeeklyReportMarkdown();
       const end =
         (currentAnalysis.dateRange && currentAnalysis.dateRange.end) ||
         new Date().toISOString().slice(0, 10);
@@ -3376,7 +3389,7 @@
       return;
     }
     try {
-      const md = buildWeeklyReportMarkdown();
+      const md = await buildWeeklyReportMarkdown();
       const end =
         (currentAnalysis.dateRange && currentAnalysis.dateRange.end) ||
         new Date().toISOString().slice(0, 10);
@@ -5143,15 +5156,30 @@
     }
   }
 
-  function renderPrompt() {
+  /** 避免异步加载事件时旧的 renderPrompt 覆盖新结果 */
+  let promptRenderGen = 0;
+
+  /**
+   * 渲染提示词。默认不含本机事件；仅 #ctx-include-events 勾选时加载并附带。
+   * 与 clinical-include-events / weekly-include-events 相互独立。
+   */
+  async function renderPrompt() {
     if (!currentAnalysis) return;
+    const gen = ++promptRenderGen;
     const ctx = getUserContextForPrompt();
     const loc = analysisLocaleOpts();
+    const opts = Object.assign({}, loc);
+    // 仅提示词隐私勾选控制；不跟随 clinical/weekly 勾选
+    if ($('ctx-include-events')?.checked) {
+      opts.includeEvents = true;
+      opts.events = (await loadEventsForClinicalExport()) || [];
+      if (gen !== promptRenderGen) return;
+    }
     let text = '';
     if (currentPromptTab === 'full') {
-      text = window.HealthAnalyzer.generateLLMPrompt(currentAnalysis, ctx, loc);
+      text = window.HealthAnalyzer.generateLLMPrompt(currentAnalysis, ctx, opts);
     } else if (currentPromptTab === 'data') {
-      text = window.HealthAnalyzer.generateDataOnly(currentAnalysis, ctx, loc);
+      text = window.HealthAnalyzer.generateDataOnly(currentAnalysis, ctx, opts);
     } else {
       const locCode = (loc && loc.locale) || 'zh-CN';
       text =
@@ -5159,6 +5187,7 @@
           ? window.HealthAnalyzer.SHORT_SYSTEM_PROMPT_EN
           : window.HealthAnalyzer.SHORT_SYSTEM_PROMPT;
     }
+    if (gen !== promptRenderGen) return;
     const ta = $('prompt-output');
     if (ta) ta.value = text;
     updatePromptTrust(text);
@@ -5217,7 +5246,7 @@
   $('btn-copy')?.addEventListener('click', async () => {
     if (!currentAnalysis) return;
     if (!ensureLlmCopyAck()) return;
-    renderPrompt();
+    await renderPrompt();
     await copyText($('prompt-output').value, t('copy.ok.clipboard'));
   });
 
