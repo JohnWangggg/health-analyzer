@@ -1,11 +1,13 @@
 /**
- * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference / Patient 导出（试验性 v1.55）
+ * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference / Patient / Device 导出（试验性 v1.57）
  *
  * - 仅生成本地可下载 JSON Bundle；非医院系统对接、非 FHIR 认证提交
  * - Bundle entry.fullUrl 使用 urn:uuid:；Provenance.target 与之匹配
  * - 日汇总用 effectivePeriod；瞬时测点用 effectiveDateTime
  * - v1.53：按 domainSourceBatches 为每个导入批次生成细粒度 Provenance（仅 target 该域 Observation）
  * - v1.55：可选本机伪名 Patient（默认关闭，无身份 / 无 subject）
+ * - v1.56：日汇总日期精度；Patient 默认无固定 identifier；birthDate 仅年
+ * - v1.57：可选 Device（Apple Watch / iPhone / HAE / Apple Health 聚合）+ Observation.device
  * - 含结构自检 validateFhirExportBundle（非官方 FHIR 校验器）
  */
 
@@ -29,7 +31,7 @@ import { buildAgpSvg, buildCgm14DayReport } from './clinical-report';
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.6.1';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.7.0';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
@@ -42,12 +44,60 @@ const EXT_SOURCE_BATCH_IDS = 'urn:health-analyzer:extension:source-batch-ids';
 const EXT_BIRTH_YEAR_ONLY = 'urn:health-analyzer:extension:birth-year-only';
 /** Patient extension: local pseudonym disclaimer */
 const EXT_PATIENT_DISCLAIMER = 'urn:health-analyzer:extension:patient-disclaimer';
+/** Device extension: local device class (not a verified UDI) */
+const EXT_DEVICE_CLASS = 'urn:health-analyzer:extension:device-class';
 /** Stable local patient identifier system / value (no real identity) */
 const PATIENT_ID_SYSTEM = 'urn:health-analyzer:patient';
 const PATIENT_LOCAL_ID = 'patient-local-1';
 /** @deprecated Do not use a fixed identifier across exports (merge risk). */
 const PATIENT_IDENTIFIER_VALUE_LEGACY = 'local-patient';
 const FHIR_ADMIN_GENDERS = new Set(['male', 'female', 'other', 'unknown']);
+
+/**
+ * Local device class keys for clinical-review readability (not verified UDI/serial).
+ * - apple-watch: Watch-derived metrics
+ * - iphone: Health app / phone entry (e.g. many BP entries)
+ * - hae-import: Health Auto Export merge path
+ * - apple-health: multi-source aggregates or generic Apple Health export
+ */
+export type FhirDeviceClass = 'apple-watch' | 'iphone' | 'hae-import' | 'apple-health';
+
+export const FHIR_DEVICE_CLASSES: readonly FhirDeviceClass[] = [
+  'apple-watch',
+  'iphone',
+  'hae-import',
+  'apple-health',
+] as const;
+
+const DEVICE_CLASS_META: Record<
+  FhirDeviceClass,
+  { id: string; display: string; manufacturer: string; typeText: string }
+> = {
+  'apple-watch': {
+    id: 'device-apple-watch',
+    display: 'Apple Watch',
+    manufacturer: 'Apple Inc.',
+    typeText: 'Wearable smartwatch (Apple Watch class)',
+  },
+  iphone: {
+    id: 'device-iphone',
+    display: 'iPhone',
+    manufacturer: 'Apple Inc.',
+    typeText: 'Smartphone / Health app entry device (iPhone class)',
+  },
+  'hae-import': {
+    id: 'device-hae-import',
+    display: 'Health Auto Export (HAE)',
+    manufacturer: 'Third-party HAE / local import',
+    typeText: 'Health Auto Export import path (not a physical sensor UDI)',
+  },
+  'apple-health': {
+    id: 'device-apple-health',
+    display: 'Apple Health (aggregate / multi-source)',
+    manufacturer: 'Apple Inc. / mixed sources',
+    typeText: 'Apple Health export aggregate or multi-source daily total',
+  },
+};
 
 /**
  * FHIR Observation byType key → analysis domain key (domainSourceBatches / HAE byDomain).
@@ -114,6 +164,12 @@ export interface FhirExportOptions {
   /** optional birthYear only (not full DOB) for privacy */
   patientBirthYear?: number | null;
   /**
+   * Emit local Device resources and wire Observation.device (default true).
+   * Classes: Apple Watch / iPhone / HAE import / Apple Health aggregate.
+   * Not verified UDI — clinical-review readability only.
+   */
+  includeDevices?: boolean;
+  /**
    * Attach a local clinical review document as DocumentReference (default false).
    * Provide markdown and/or html; content is truncated if over maxClinicalDocChars.
    */
@@ -145,6 +201,7 @@ export interface FhirExportResult {
     provenances: number;
     documentReferences: number;
     patients: number;
+    devices: number;
     byType: Record<string, number>;
   };
   notes: string[];
@@ -368,6 +425,105 @@ function entryFor(
     idToFullUrl.set(`${rt}/${id}`, fullUrl);
   }
   return { fullUrl, resource };
+}
+
+/**
+ * Local device class resource for Observation.device wiring (v1.57).
+ * Pseudonym device class only — not a verified UDI / serial / model.
+ */
+export function buildLocalDeviceResource(
+  deviceClass: FhirDeviceClass
+): Record<string, unknown> {
+  const meta = DEVICE_CLASS_META[deviceClass];
+  if (!meta) {
+    throw new Error(`unknown FhirDeviceClass: ${String(deviceClass)}`);
+  }
+  return {
+    resourceType: 'Device',
+    id: meta.id,
+    meta: {
+      source: META_SOURCE,
+      tag: [
+        {
+          system: 'urn:health-analyzer:tag',
+          code: FHIR_EXPORT_PROFILE,
+          display: 'Experimental local FHIR-shaped export',
+        },
+      ],
+    },
+    status: 'active',
+    manufacturer: meta.manufacturer,
+    deviceName: [{ name: meta.display, type: 'user-friendly-name' }],
+    type: { text: meta.typeText },
+    extension: [
+      {
+        url: EXT_DEVICE_CLASS,
+        valueCode: deviceClass,
+      },
+      {
+        url: 'urn:health-analyzer:extension:device-disclaimer',
+        valueString:
+          'Local device class for clinical review readability only. Not a verified UDI, serial number, or legal device identity.',
+      },
+    ],
+    note: [
+      {
+        text: 'Mapped from Apple Health / HAE import heuristics (source class, not calibrated instrument metadata).',
+      },
+    ],
+  };
+}
+
+/** Logical Device/{id} for a class key */
+export function deviceLogicalId(deviceClass: FhirDeviceClass): string {
+  return DEVICE_CLASS_META[deviceClass].id;
+}
+
+export function deviceDisplayName(deviceClass: FhirDeviceClass): string {
+  return DEVICE_CLASS_META[deviceClass].display;
+}
+
+/**
+ * Heuristic Observation → device class mapping (domain / steps breakdown / HAE batches).
+ * Per-sample sourceName is often dropped after parse; this is intentionally coarse.
+ */
+export function resolveObservationDeviceClass(
+  byTypeKey: string,
+  opts?: {
+    hasHaeImport?: boolean;
+    stepsDay?: { watch?: number; iphone?: number; max?: number } | null;
+  }
+): FhirDeviceClass {
+  const key = String(byTypeKey || '');
+  // Watch-native daily metrics
+  if (
+    key === 'spo2' ||
+    key === 'vo2Max' ||
+    key === 'breathingDisturbance' ||
+    key === 'wristTemperature' ||
+    key === 'nightHeartRate' ||
+    key === 'respiratoryRate' ||
+    key === 'restingHeartRate' ||
+    key === 'sleep'
+  ) {
+    return 'apple-watch';
+  }
+  if (key === 'steps') {
+    const day = opts?.stepsDay;
+    const w = day && Number.isFinite(Number(day.watch)) ? Number(day.watch) : 0;
+    const p = day && Number.isFinite(Number(day.iphone)) ? Number(day.iphone) : 0;
+    if (w > 0 && p > 0) return 'apple-health';
+    if (p > 0 && w <= 0) return 'iphone';
+    if (w > 0) return 'apple-watch';
+    return 'apple-health';
+  }
+  // Many BP entries come from Health app on iPhone (fixture uses sourceName=iPhone)
+  if (key === 'bloodPressure') return 'iphone';
+  // CGM / weight often via HAE JSON merge when hae batches present
+  if (key === 'glucose' || key === 'bodyWeight') {
+    return opts?.hasHaeImport ? 'hae-import' : 'apple-health';
+  }
+  return 'apple-health';
 }
 
 /**
@@ -1003,17 +1159,29 @@ export function validateFhirExportBundle(
           `Patient/${id || i} uses fixed identifier "local-patient" (merge risk; omit or use random persistent id)`
         );
       }
+    } else if (rt === 'Device') {
+      if (r.status != null && r.status !== 'active' && r.status !== 'inactive' && r.status !== 'entered-in-error') {
+        issues.push(`Device/${id || i} unexpected status ${String(r.status)}`);
+      }
+      const hasName =
+        (Array.isArray(r.deviceName) && r.deviceName.length > 0) ||
+        r.type != null ||
+        r.manufacturer != null;
+      if (!hasName) {
+        issues.push(`Device/${id || i} missing deviceName/type/manufacturer`);
+      }
     }
   }
 
   // Patient fullUrls (for subject resolution when Patient is present)
   const patientFullUrls = new Set<string>();
+  const deviceFullUrls = new Set<string>();
   for (let i = 0; i < entry.length; i++) {
     const e = entry[i] || {};
     const r = (e.resource || null) as Record<string, unknown> | null;
-    if (r && r.resourceType === 'Patient' && e.fullUrl != null) {
-      patientFullUrls.add(String(e.fullUrl));
-    }
+    if (!r || e.fullUrl == null) continue;
+    if (r.resourceType === 'Patient') patientFullUrls.add(String(e.fullUrl));
+    if (r.resourceType === 'Device') deviceFullUrls.add(String(e.fullUrl));
   }
 
   // Observation / DocumentReference subject.reference must resolve when present;
@@ -1034,6 +1202,25 @@ export function validateFhirExportBundle(
     } else if (patientFullUrls.size > 0 && !patientFullUrls.has(ref)) {
       issues.push(
         `${rt}/${String(r.id || i)} subject.reference ${ref} must resolve to Patient entry fullUrl`
+      );
+    }
+  }
+
+  // Observation.device.reference must resolve to a Device entry fullUrl when present
+  for (let i = 0; i < entry.length; i++) {
+    const r = (entry[i]?.resource || null) as Record<string, unknown> | null;
+    if (!r || r.resourceType !== 'Observation') continue;
+    const dev = r.device as { reference?: string } | undefined;
+    if (!dev || typeof dev !== 'object') continue;
+    const ref = dev.reference != null ? String(dev.reference) : '';
+    if (!ref) continue;
+    if (!fullUrls.has(ref)) {
+      issues.push(
+        `Observation/${String(r.id || i)} device.reference ${ref} does not match any entry.fullUrl`
+      );
+    } else if (deviceFullUrls.size > 0 && !deviceFullUrls.has(ref)) {
+      issues.push(
+        `Observation/${String(r.id || i)} device.reference ${ref} must resolve to Device entry fullUrl`
       );
     }
   }
@@ -1323,17 +1510,44 @@ export function buildFhirExportBundle(
   const observations: Record<string, unknown>[] = [];
   /** Parallel to observations: analysis domain key for provenance / extensions */
   const observationDomains: string[] = [];
+  /** Parallel to observations: device class when includeDevices */
+  const observationDeviceClasses: (FhirDeviceClass | null)[] = [];
   const domainSourceBatches = analysis.domainSourceBatches;
+
+  // Device wiring (v1.57): default on for clinical review readability
+  const includeDevices = opts.includeDevices !== false;
+  const batchesEarly = (Array.isArray(opts.importBatches) ? opts.importBatches : [])
+    .map((b) => normalizeImportBatch(b))
+    .filter((b): b is ImportBatchRecord => !!b);
+  const hasHaeImport = batchesEarly.some((b) => b.source === 'hae');
 
   const pushObs = (
     obs: Record<string, unknown>,
-    byTypeKey: string
+    byTypeKey: string,
+    deviceHint?: {
+      stepsDay?: { watch?: number; iphone?: number; max?: number } | null;
+      deviceClass?: FhirDeviceClass | null;
+    }
   ): void => {
     const domain = FHIR_OBS_TYPE_TO_DOMAIN[byTypeKey] || byTypeKey;
     attachSourceBatchExtension(obs, domain, domainSourceBatches);
     observations.push(obs);
     observationDomains.push(domain);
     byType[byTypeKey] = (byType[byTypeKey] || 0) + 1;
+    if (!includeDevices) {
+      observationDeviceClasses.push(null);
+      return;
+    }
+    if (deviceHint && deviceHint.deviceClass != null) {
+      observationDeviceClasses.push(deviceHint.deviceClass);
+      return;
+    }
+    observationDeviceClasses.push(
+      resolveObservationDeviceClass(byTypeKey, {
+        hasHaeImport,
+        stepsDay: deviceHint?.stepsDay,
+      })
+    );
   };
 
   // --- Blood pressure ---
@@ -1391,7 +1605,8 @@ export function buildFhirExportBundle(
   }
   for (let i = 0; i < stepDatesUsed.length; i++) {
     const d = stepDatesUsed[i];
-    pushObs(buildStepsObservation(d, stepsMap[d], i), 'steps');
+    const stepsDay = data?.steps && data.steps[d] ? data.steps[d] : null;
+    pushObs(buildStepsObservation(d, stepsMap[d], i), 'steps', { stepsDay });
   }
 
   // --- Resting HR (optional easy domain) ---
@@ -1640,11 +1855,30 @@ export function buildFhirExportBundle(
     );
   }
 
+  // --- Optional Devices (v1.57; default on) ---
+  const usedDeviceClasses = new Set<FhirDeviceClass>();
+  if (includeDevices) {
+    for (const cls of observationDeviceClasses) {
+      if (cls) usedDeviceClasses.add(cls);
+    }
+  }
+  const deviceResources: Record<string, unknown>[] = [];
+  if (includeDevices && usedDeviceClasses.size > 0) {
+    for (const cls of FHIR_DEVICE_CLASSES) {
+      if (!usedDeviceClasses.has(cls)) continue;
+      deviceResources.push(buildLocalDeviceResource(cls));
+    }
+    notes.push(
+      `includeDevices: ${deviceResources.length} Device class(es) (${[...usedDeviceClasses].join(
+        ', '
+      )}); Observation.device wires to Device fullUrl`
+    );
+  } else if (!includeDevices) {
+    notes.push('includeDevices: false — no Device resources / no Observation.device');
+  }
+
   // --- Provenance ---
-  const batchesRaw = opts.importBatches;
-  const batches = (Array.isArray(batchesRaw) ? batchesRaw : [])
-    .map((b) => normalizeImportBatch(b))
-    .filter((b): b is ImportBatchRecord => !!b);
+  const batches = batchesEarly;
 
   const includeProvenance =
     opts.includeProvenance === false
@@ -1656,8 +1890,8 @@ export function buildFhirExportBundle(
   const provenances: Record<string, unknown>[] = [];
 
   // --- Bundle entries with urn:uuid fullUrl (identity for collection) ---
-  // Patient first when present; then Observations / DocumentReference; Provenance last.
-  // Provenance targets assembler agent + obs/docs only (prefer not targeting Patient).
+  // Patient → Devices → Observations / DocumentReference → Provenance.
+  // Provenance targets assembler agent + obs/docs only (prefer not targeting Patient/Device).
   const timestamp = new Date().toISOString();
   const idToFullUrl = new Map<string, string>();
   const resourceEntries: Record<string, unknown>[] = [];
@@ -1675,6 +1909,25 @@ export function buildFhirExportBundle(
     }
     for (const doc of documentReferences) {
       doc.subject = subject;
+    }
+  }
+
+  for (const dev of deviceResources) {
+    resourceEntries.push(entryFor(dev, idToFullUrl));
+  }
+
+  // Wire Observation.device to Device fullUrl after Device entries exist
+  if (includeDevices && deviceResources.length > 0) {
+    for (let i = 0; i < observations.length; i++) {
+      const cls = observationDeviceClasses[i];
+      if (!cls) continue;
+      const logical = `Device/${deviceLogicalId(cls)}`;
+      const fullUrl = idToFullUrl.get(logical);
+      if (!fullUrl) continue;
+      observations[i].device = {
+        reference: fullUrl,
+        display: deviceDisplayName(cls),
+      };
     }
   }
 
@@ -1787,7 +2040,7 @@ export function buildFhirExportBundle(
         {
           system: 'urn:health-analyzer:tag',
           code: FHIR_EXPORT_PROFILE,
-          display: 'health-analyzer FHIR export profile v1.6.0',
+          display: `health-analyzer FHIR export profile ${FHIR_EXPORT_PROFILE}`,
         },
         {
           system: 'urn:health-analyzer:rule-version',
@@ -1814,12 +2067,13 @@ export function buildFhirExportBundle(
     provenances: provenances.length,
     documentReferences: documentReferences.length,
     patients: patientResource ? 1 : 0,
+    devices: deviceResources.length,
     byType,
   };
 
   notes.push(
     `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} ` +
-      `Patient=${counts.patients} Provenance=${counts.provenances} ` +
+      `Patient=${counts.patients} Device=${counts.devices} Provenance=${counts.provenances} ` +
       `(bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, ` +
       `steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, ` +
       `sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, ` +

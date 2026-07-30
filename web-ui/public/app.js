@@ -3782,6 +3782,11 @@
         opts.includeAgpSvg = true;
       }
 
+      // Optional Devices (v1.57): default checked in UI; wire Observation.device
+      if ($('fhir-include-devices')) {
+        opts.includeDevices = !!$('fhir-include-devices').checked;
+      }
+
       // Optional local pseudonym Patient (default off — no identity / no subject)
       // Do not auto-pull age/sex from user context; display name only when opted in.
       if ($('fhir-include-patient') && $('fhir-include-patient').checked) {

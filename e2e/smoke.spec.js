@@ -141,12 +141,25 @@ test.describe('health-analyzer PWA smoke', () => {
       const patientRes = ((withPatient.bundle && withPatient.bundle.entry) || [])
         .map((e) => e.resource)
         .find((r) => r && r.resourceType === 'Patient');
+      const devices = entries.filter(
+        (e) => e && e.resource && e.resource.resourceType === 'Device'
+      );
+      const deviceUrls = new Set(devices.map((e) => String(e.fullUrl || '')));
+      const obsWithDev = obs.filter(
+        (e) => e.resource && e.resource.device && e.resource.device.reference
+      );
+      const noDevices = HA.buildFhirExportBundle(analysis, {
+        includeDevices: false,
+        includeProvenance: false,
+      });
+      const noDevEntries = (noDevices.bundle && noDevices.bundle.entry) || [];
       return {
         resourceType: out.bundle && out.bundle.resourceType,
         type: out.bundle && out.bundle.type,
         obsCount: obs.length,
         provCount: prov.length,
         countsObs: out.counts && out.counts.observations,
+        countsDevices: out.counts && out.counts.devices,
         hasJson: typeof out.json === 'string' && out.json.includes('Bundle'),
         hasBtn: !!document.getElementById('btn-export-fhir'),
         fullUrlsOk: entries.every((e) => /^urn:uuid:/i.test(String(e.fullUrl || ''))),
@@ -157,6 +170,13 @@ test.describe('health-analyzer PWA smoke', () => {
           patientRes &&
           (!patientRes.identifier ||
             !patientRes.identifier.some((id) => id && id.value === 'local-patient')),
+        hasDevices: devices.length > 0,
+        deviceRefsOk:
+          obsWithDev.length > 0 &&
+          obsWithDev.every((e) => deviceUrls.has(String(e.resource.device.reference))),
+        noDevicesWhenOff:
+          (noDevices.counts && noDevices.counts.devices === 0) &&
+          noDevEntries.every((e) => !e.resource || e.resource.resourceType !== 'Device'),
         validationOk: !!(out.validation && out.validation.ok),
       };
     }, xml);
@@ -172,15 +192,21 @@ test.describe('health-analyzer PWA smoke', () => {
     expect(result.defaultNoPatient).toBe(true);
     expect(result.patientBirthYearOnly).toBe(true);
     expect(result.patientNoFixedId).toBe(true);
+    expect(result.hasDevices).toBe(true);
+    expect(result.deviceRefsOk).toBe(true);
+    expect(result.noDevicesWhenOff).toBe(true);
+    expect(result.countsDevices).toBeGreaterThan(0);
     expect(result.validationOk).toBe(true);
     expect(result.hasBtn).toBe(true);
   });
 
   /**
-   * v1.56: assert the *downloaded* Bundle JSON (not only in-page construct),
-   * covering date-precision Period and Patient merge-safe semantics.
+   * v1.56–1.57: assert the *downloaded* Bundle JSON (not only in-page construct),
+   * covering date-precision Period, Patient merge-safe semantics, and Device wiring.
    */
-  test('v1.56: FHIR export download Bundle period TZ + Patient semantics', async ({ page }) => {
+  test('v1.56–1.57: FHIR export download Bundle period/Patient/Device semantics', async ({
+    page,
+  }) => {
     await page.goto('/');
     await page.waitForFunction(
       () =>
@@ -252,6 +278,35 @@ test.describe('health-analyzer PWA smoke', () => {
         expect(String(steps.effectivePeriod.start)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
         expect(String(steps.effectivePeriod.end)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       }
+
+      // v1.57: Devices on by default (UI checkbox checked)
+      const devices = entries.filter(
+        (e) => e && e.resource && e.resource.resourceType === 'Device'
+      );
+      expect(devices.length).toBeGreaterThan(0);
+      const deviceFullUrls = new Set(devices.map((e) => String(e.fullUrl || '')));
+      const obsWithDevice = entries.filter(
+        (e) =>
+          e &&
+          e.resource &&
+          e.resource.resourceType === 'Observation' &&
+          e.resource.device &&
+          e.resource.device.reference
+      );
+      expect(obsWithDevice.length).toBeGreaterThan(0);
+      expect(
+        obsWithDevice.every((e) => deviceFullUrls.has(String(e.resource.device.reference)))
+      ).toBe(true);
+      const deviceNames = devices
+        .map((e) => {
+          const dn = e.resource.deviceName;
+          return Array.isArray(dn) && dn[0] ? String(dn[0].name || '') : '';
+        })
+        .join(' ');
+      // At least one of the clinical-review classes should appear
+      expect(/Apple Watch|iPhone|Apple Health|HAE|Health Auto Export/i.test(deviceNames)).toBe(
+        true
+      );
     }
 
     // --- With Patient: no fixed local-patient identifier ---

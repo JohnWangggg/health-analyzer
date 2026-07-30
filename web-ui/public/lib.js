@@ -29,6 +29,7 @@ var HealthAnalyzer = (() => {
     CGM_MIN_COVERAGE_PCT: () => CGM_MIN_COVERAGE_PCT,
     CGM_REPORT_DAYS: () => CGM_REPORT_DAYS,
     DEFAULT_RECOVERY_WEIGHTS: () => DEFAULT_RECOVERY_WEIGHTS,
+    FHIR_DEVICE_CLASSES: () => FHIR_DEVICE_CLASSES,
     FHIR_EXPORT_PROFILE: () => FHIR_EXPORT_PROFILE,
     FHIR_OBS_TYPE_TO_DOMAIN: () => FHIR_OBS_TYPE_TO_DOMAIN,
     FHIR_R4: () => FHIR_R4,
@@ -50,6 +51,7 @@ var HealthAnalyzer = (() => {
     buildExportBundle: () => buildExportBundle,
     buildFhirExportBundle: () => buildFhirExportBundle,
     buildInsightBullets: () => buildInsightBullets,
+    buildLocalDeviceResource: () => buildLocalDeviceResource,
     buildLocalPatientResource: () => buildLocalPatientResource,
     calcBloodPressureStats: () => calcBloodPressureStats,
     calcBpStats: () => calcBloodPressureStats,
@@ -71,6 +73,8 @@ var HealthAnalyzer = (() => {
     dayEffectivePeriod: () => dayEffectivePeriod,
     daysBetween: () => daysBetween,
     detectCrossSignals: () => detectCrossSignals,
+    deviceDisplayName: () => deviceDisplayName,
+    deviceLogicalId: () => deviceLogicalId,
     enrichEcgWithContext: () => enrichEcgWithContext,
     ensureSignalEvidence: () => ensureSignalEvidence,
     eventsNearDate: () => eventsNearDate,
@@ -129,6 +133,7 @@ var HealthAnalyzer = (() => {
     processWorkoutBlock: () => processWorkoutBlock,
     processXmlLine: () => processXmlLine,
     recomputeRecovery: () => recomputeRecovery,
+    resolveObservationDeviceClass: () => resolveObservationDeviceClass,
     shortImportBatchIdForProv: () => shortImportBatchIdForProv,
     shortWorkoutType: () => shortWorkoutType,
     sortHealthEvents: () => sortHealthEvents,
@@ -7773,7 +7778,7 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.6.1";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.7.0";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
@@ -7782,10 +7787,43 @@ List 5\u20137 working hypotheses that best fit the available data
   var EXT_SOURCE_BATCH_IDS = "urn:health-analyzer:extension:source-batch-ids";
   var EXT_BIRTH_YEAR_ONLY = "urn:health-analyzer:extension:birth-year-only";
   var EXT_PATIENT_DISCLAIMER = "urn:health-analyzer:extension:patient-disclaimer";
+  var EXT_DEVICE_CLASS = "urn:health-analyzer:extension:device-class";
   var PATIENT_ID_SYSTEM = "urn:health-analyzer:patient";
   var PATIENT_LOCAL_ID = "patient-local-1";
   var PATIENT_IDENTIFIER_VALUE_LEGACY = "local-patient";
   var FHIR_ADMIN_GENDERS = /* @__PURE__ */ new Set(["male", "female", "other", "unknown"]);
+  var FHIR_DEVICE_CLASSES = [
+    "apple-watch",
+    "iphone",
+    "hae-import",
+    "apple-health"
+  ];
+  var DEVICE_CLASS_META = {
+    "apple-watch": {
+      id: "device-apple-watch",
+      display: "Apple Watch",
+      manufacturer: "Apple Inc.",
+      typeText: "Wearable smartwatch (Apple Watch class)"
+    },
+    iphone: {
+      id: "device-iphone",
+      display: "iPhone",
+      manufacturer: "Apple Inc.",
+      typeText: "Smartphone / Health app entry device (iPhone class)"
+    },
+    "hae-import": {
+      id: "device-hae-import",
+      display: "Health Auto Export (HAE)",
+      manufacturer: "Third-party HAE / local import",
+      typeText: "Health Auto Export import path (not a physical sensor UDI)"
+    },
+    "apple-health": {
+      id: "device-apple-health",
+      display: "Apple Health (aggregate / multi-source)",
+      manufacturer: "Apple Inc. / mixed sources",
+      typeText: "Apple Health export aggregate or multi-source daily total"
+    }
+  };
   var FHIR_OBS_TYPE_TO_DOMAIN = {
     bloodPressure: "bloodPressure",
     bodyWeight: "weight",
@@ -7970,6 +8008,71 @@ List 5\u20137 working hypotheses that best fit the available data
       idToFullUrl.set(`${rt}/${id}`, fullUrl);
     }
     return { fullUrl, resource };
+  }
+  function buildLocalDeviceResource(deviceClass) {
+    const meta = DEVICE_CLASS_META[deviceClass];
+    if (!meta) {
+      throw new Error(`unknown FhirDeviceClass: ${String(deviceClass)}`);
+    }
+    return {
+      resourceType: "Device",
+      id: meta.id,
+      meta: {
+        source: META_SOURCE,
+        tag: [
+          {
+            system: "urn:health-analyzer:tag",
+            code: FHIR_EXPORT_PROFILE,
+            display: "Experimental local FHIR-shaped export"
+          }
+        ]
+      },
+      status: "active",
+      manufacturer: meta.manufacturer,
+      deviceName: [{ name: meta.display, type: "user-friendly-name" }],
+      type: { text: meta.typeText },
+      extension: [
+        {
+          url: EXT_DEVICE_CLASS,
+          valueCode: deviceClass
+        },
+        {
+          url: "urn:health-analyzer:extension:device-disclaimer",
+          valueString: "Local device class for clinical review readability only. Not a verified UDI, serial number, or legal device identity."
+        }
+      ],
+      note: [
+        {
+          text: "Mapped from Apple Health / HAE import heuristics (source class, not calibrated instrument metadata)."
+        }
+      ]
+    };
+  }
+  function deviceLogicalId(deviceClass) {
+    return DEVICE_CLASS_META[deviceClass].id;
+  }
+  function deviceDisplayName(deviceClass) {
+    return DEVICE_CLASS_META[deviceClass].display;
+  }
+  function resolveObservationDeviceClass(byTypeKey, opts) {
+    const key = String(byTypeKey || "");
+    if (key === "spo2" || key === "vo2Max" || key === "breathingDisturbance" || key === "wristTemperature" || key === "nightHeartRate" || key === "respiratoryRate" || key === "restingHeartRate" || key === "sleep") {
+      return "apple-watch";
+    }
+    if (key === "steps") {
+      const day = opts?.stepsDay;
+      const w = day && Number.isFinite(Number(day.watch)) ? Number(day.watch) : 0;
+      const p = day && Number.isFinite(Number(day.iphone)) ? Number(day.iphone) : 0;
+      if (w > 0 && p > 0) return "apple-health";
+      if (p > 0 && w <= 0) return "iphone";
+      if (w > 0) return "apple-watch";
+      return "apple-health";
+    }
+    if (key === "bloodPressure") return "iphone";
+    if (key === "glucose" || key === "bodyWeight") {
+      return opts?.hasHaeImport ? "hae-import" : "apple-health";
+    }
+    return "apple-health";
   }
   function buildLocalPatientResource(opts) {
     const display = opts?.display != null && String(opts.display).trim() ? String(opts.display).trim() : "Local patient";
@@ -8457,15 +8560,24 @@ List 5\u20137 working hypotheses that best fit the available data
             `Patient/${id || i} uses fixed identifier "local-patient" (merge risk; omit or use random persistent id)`
           );
         }
+      } else if (rt === "Device") {
+        if (r.status != null && r.status !== "active" && r.status !== "inactive" && r.status !== "entered-in-error") {
+          issues.push(`Device/${id || i} unexpected status ${String(r.status)}`);
+        }
+        const hasName = Array.isArray(r.deviceName) && r.deviceName.length > 0 || r.type != null || r.manufacturer != null;
+        if (!hasName) {
+          issues.push(`Device/${id || i} missing deviceName/type/manufacturer`);
+        }
       }
     }
     const patientFullUrls = /* @__PURE__ */ new Set();
+    const deviceFullUrls = /* @__PURE__ */ new Set();
     for (let i = 0; i < entry.length; i++) {
       const e = entry[i] || {};
       const r = e.resource || null;
-      if (r && r.resourceType === "Patient" && e.fullUrl != null) {
-        patientFullUrls.add(String(e.fullUrl));
-      }
+      if (!r || e.fullUrl == null) continue;
+      if (r.resourceType === "Patient") patientFullUrls.add(String(e.fullUrl));
+      if (r.resourceType === "Device") deviceFullUrls.add(String(e.fullUrl));
     }
     for (let i = 0; i < entry.length; i++) {
       const r = entry[i]?.resource || null;
@@ -8483,6 +8595,23 @@ List 5\u20137 working hypotheses that best fit the available data
       } else if (patientFullUrls.size > 0 && !patientFullUrls.has(ref)) {
         issues.push(
           `${rt}/${String(r.id || i)} subject.reference ${ref} must resolve to Patient entry fullUrl`
+        );
+      }
+    }
+    for (let i = 0; i < entry.length; i++) {
+      const r = entry[i]?.resource || null;
+      if (!r || r.resourceType !== "Observation") continue;
+      const dev = r.device;
+      if (!dev || typeof dev !== "object") continue;
+      const ref = dev.reference != null ? String(dev.reference) : "";
+      if (!ref) continue;
+      if (!fullUrls.has(ref)) {
+        issues.push(
+          `Observation/${String(r.id || i)} device.reference ${ref} does not match any entry.fullUrl`
+        );
+      } else if (deviceFullUrls.size > 0 && !deviceFullUrls.has(ref)) {
+        issues.push(
+          `Observation/${String(r.id || i)} device.reference ${ref} must resolve to Device entry fullUrl`
         );
       }
     }
@@ -8720,13 +8849,31 @@ List 5\u20137 working hypotheses that best fit the available data
     };
     const observations = [];
     const observationDomains = [];
+    const observationDeviceClasses = [];
     const domainSourceBatches = analysis.domainSourceBatches;
-    const pushObs = (obs, byTypeKey) => {
+    const includeDevices = opts.includeDevices !== false;
+    const batchesEarly = (Array.isArray(opts.importBatches) ? opts.importBatches : []).map((b) => normalizeImportBatch(b)).filter((b) => !!b);
+    const hasHaeImport = batchesEarly.some((b) => b.source === "hae");
+    const pushObs = (obs, byTypeKey, deviceHint) => {
       const domain = FHIR_OBS_TYPE_TO_DOMAIN[byTypeKey] || byTypeKey;
       attachSourceBatchExtension(obs, domain, domainSourceBatches);
       observations.push(obs);
       observationDomains.push(domain);
       byType[byTypeKey] = (byType[byTypeKey] || 0) + 1;
+      if (!includeDevices) {
+        observationDeviceClasses.push(null);
+        return;
+      }
+      if (deviceHint && deviceHint.deviceClass != null) {
+        observationDeviceClasses.push(deviceHint.deviceClass);
+        return;
+      }
+      observationDeviceClasses.push(
+        resolveObservationDeviceClass(byTypeKey, {
+          hasHaeImport,
+          stepsDay: deviceHint?.stepsDay
+        })
+      );
     };
     const bpAll = (data?.bloodPressure || []).filter(
       (r) => inWindow(r.date || getDate(r.datetime), windowStart, windowEnd)
@@ -8774,7 +8921,8 @@ List 5\u20137 working hypotheses that best fit the available data
     }
     for (let i = 0; i < stepDatesUsed.length; i++) {
       const d = stepDatesUsed[i];
-      pushObs(buildStepsObservation(d, stepsMap[d], i), "steps");
+      const stepsDay = data?.steps && data.steps[d] ? data.steps[d] : null;
+      pushObs(buildStepsObservation(d, stepsMap[d], i), "steps", { stepsDay });
     }
     const rhrMap = analysis.restingHrByDate || data?.restingHr || {};
     const rhrDates = Object.keys(rhrMap).filter((d) => inWindow(d, windowStart, windowEnd) && Number.isFinite(rhrMap[d])).sort();
@@ -8952,8 +9100,27 @@ List 5\u20137 working hypotheses that best fit the available data
         "patientDisplay ignored for subject wiring (includePatient is false; default has no identity)"
       );
     }
-    const batchesRaw = opts.importBatches;
-    const batches = (Array.isArray(batchesRaw) ? batchesRaw : []).map((b) => normalizeImportBatch(b)).filter((b) => !!b);
+    const usedDeviceClasses = /* @__PURE__ */ new Set();
+    if (includeDevices) {
+      for (const cls of observationDeviceClasses) {
+        if (cls) usedDeviceClasses.add(cls);
+      }
+    }
+    const deviceResources = [];
+    if (includeDevices && usedDeviceClasses.size > 0) {
+      for (const cls of FHIR_DEVICE_CLASSES) {
+        if (!usedDeviceClasses.has(cls)) continue;
+        deviceResources.push(buildLocalDeviceResource(cls));
+      }
+      notes.push(
+        `includeDevices: ${deviceResources.length} Device class(es) (${[...usedDeviceClasses].join(
+          ", "
+        )}); Observation.device wires to Device fullUrl`
+      );
+    } else if (!includeDevices) {
+      notes.push("includeDevices: false \u2014 no Device resources / no Observation.device");
+    }
+    const batches = batchesEarly;
     const includeProvenance = opts.includeProvenance === false ? false : opts.includeProvenance === true ? true : batches.length > 0;
     const provenances = [];
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
@@ -8971,6 +9138,22 @@ List 5\u20137 working hypotheses that best fit the available data
       }
       for (const doc of documentReferences) {
         doc.subject = subject;
+      }
+    }
+    for (const dev of deviceResources) {
+      resourceEntries.push(entryFor(dev, idToFullUrl));
+    }
+    if (includeDevices && deviceResources.length > 0) {
+      for (let i = 0; i < observations.length; i++) {
+        const cls = observationDeviceClasses[i];
+        if (!cls) continue;
+        const logical = `Device/${deviceLogicalId(cls)}`;
+        const fullUrl = idToFullUrl.get(logical);
+        if (!fullUrl) continue;
+        observations[i].device = {
+          reference: fullUrl,
+          display: deviceDisplayName(cls)
+        };
       }
     }
     for (const o of observations) {
@@ -9071,7 +9254,7 @@ List 5\u20137 working hypotheses that best fit the available data
           {
             system: "urn:health-analyzer:tag",
             code: FHIR_EXPORT_PROFILE,
-            display: "health-analyzer FHIR export profile v1.6.0"
+            display: `health-analyzer FHIR export profile ${FHIR_EXPORT_PROFILE}`
           },
           {
             system: "urn:health-analyzer:rule-version",
@@ -9097,10 +9280,11 @@ List 5\u20137 working hypotheses that best fit the available data
       provenances: provenances.length,
       documentReferences: documentReferences.length,
       patients: patientResource ? 1 : 0,
+      devices: deviceResources.length,
       byType
     };
     notes.push(
-      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Patient=${counts.patients} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, wristTemp=${byType.wristTemperature}, nightHr=${byType.nightHeartRate}, rr=${byType.respiratoryRate}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
+      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Patient=${counts.patients} Device=${counts.devices} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, wristTemp=${byType.wristTemperature}, nightHr=${byType.nightHeartRate}, rr=${byType.respiratoryRate}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
     );
     let validation;
     if (opts.validate !== false) {

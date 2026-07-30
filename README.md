@@ -177,6 +177,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.57 | FHIR 可选 Device（Apple Watch / iPhone / HAE / 聚合）+ Observation.device 引用 |
 | v1.56 | FHIR 日汇总日期精度 Period；Patient 默认无固定 identifier；birthDate 仅年 |
 | v1.55 | FHIR 可选本机伪名 Patient（默认无身份） |
 | v1.54 | FHIR 结构夹具离线自检（`npm run test:fhir`，不上送健康数据） |
