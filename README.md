@@ -177,6 +177,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.54 | FHIR 结构夹具离线自检（`npm run test:fhir`，不上送健康数据） |
 | v1.52.1 | FHIR Bundle urn:uuid fullUrl；日汇总 effectivePeriod；腕温本地编码 |
 | v1.52 | FHIR 夜心率 / 呼吸频率 Observation |
 | v1.51 | FHIR 腕温 Observation + Bundle 结构自检（非官方校验器） |

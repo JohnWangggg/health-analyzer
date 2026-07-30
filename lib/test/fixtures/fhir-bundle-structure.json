@@ -1,0 +1,127 @@
+{
+  "resourceType": "Bundle",
+  "id": "fhir-structure-fixture-v1",
+  "type": "collection",
+  "meta": {
+    "source": "urn:health-analyzer:local",
+    "tag": [
+      {
+        "system": "urn:health-analyzer:tag",
+        "code": "health-analyzer-fhir-export-v1.4.1",
+        "display": "Experimental local FHIR-shaped export (structure fixture)"
+      }
+    ]
+  },
+  "timestamp": "2026-07-10T12:00:00.000Z",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-steps-0",
+        "meta": {
+          "source": "urn:health-analyzer:local",
+          "profile": ["http://hl7.org/fhir/StructureDefinition/Observation"]
+        },
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "55423-8",
+              "display": "Number of steps in 24 hour Measured"
+            }
+          ],
+          "text": "Number of steps in 24 hour Measured"
+        },
+        "effectivePeriod": {
+          "start": "2026-07-10T00:00:00",
+          "end": "2026-07-10T23:59:59"
+        },
+        "valueQuantity": {
+          "value": 8000,
+          "unit": "/d",
+          "system": "http://unitsofmeasure.org",
+          "code": "/d"
+        },
+        "note": [
+          { "text": "local Apple Health / HAE import" },
+          { "text": "daily total steps (24h window / calendar day aggregate)" }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002",
+      "resource": {
+        "resourceType": "Observation",
+        "id": "obs-glucose-0",
+        "meta": {
+          "source": "urn:health-analyzer:local",
+          "profile": ["http://hl7.org/fhir/StructureDefinition/Observation"]
+        },
+        "status": "final",
+        "code": {
+          "coding": [
+            {
+              "system": "http://loinc.org",
+              "code": "2339-0",
+              "display": "Glucose [Moles/volume] in Blood"
+            }
+          ],
+          "text": "Glucose [Moles/volume] in Blood"
+        },
+        "effectiveDateTime": "2026-07-10T08:15:00+08:00",
+        "valueQuantity": {
+          "value": 5.5,
+          "unit": "mmol/L",
+          "system": "http://unitsofmeasure.org",
+          "code": "mmol/L"
+        },
+        "note": [{ "text": "local Apple Health / HAE import" }]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0003",
+      "resource": {
+        "resourceType": "Provenance",
+        "id": "prov-export-0",
+        "meta": {
+          "source": "urn:health-analyzer:local"
+        },
+        "target": [
+          { "reference": "urn:uuid:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0001" },
+          { "reference": "urn:uuid:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeee0002" }
+        ],
+        "recorded": "2026-07-10T12:00:00.000Z",
+        "agent": [
+          {
+            "type": {
+              "coding": [
+                {
+                  "system": "http://terminology.hl7.org/CodeSystem/provenance-participant-type",
+                  "code": "assembler",
+                  "display": "Assembler"
+                }
+              ]
+            },
+            "who": {
+              "display": "health-analyzer local FHIR export (fixture)"
+            }
+          }
+        ],
+        "entity": [
+          {
+            "role": "source",
+            "what": {
+              "identifier": {
+                "system": "urn:health-analyzer:import-batch",
+                "value": "batch_fixture_structure_v1"
+              },
+              "display": "synthetic structure fixture (no real health data)"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
