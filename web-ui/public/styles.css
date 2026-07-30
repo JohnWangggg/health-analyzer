@@ -1220,6 +1220,94 @@ body.has-results .app-toast {
   margin-top: 12px;
 }
 
+/* 事件时间线 */
+.events-form {
+  margin-top: 4px;
+}
+
+.events-form select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+}
+
+.events-form select:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+
+.events-disclaimer {
+  margin-top: 0;
+  opacity: 0.92;
+}
+
+.events-actions {
+  margin-bottom: 8px;
+}
+
+.events-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.event-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 92%, var(--primary) 8%);
+  font-size: 13px;
+}
+
+.event-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.event-item-title {
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 2px;
+  word-break: break-word;
+}
+
+.event-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  color: var(--text-light);
+  font-size: 12px;
+}
+
+.event-item-note {
+  margin: 4px 0 0;
+  color: var(--text);
+  font-size: 12px;
+  opacity: 0.9;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.event-item-actions {
+  flex-shrink: 0;
+}
+
 /* 趋势图 */
 .charts-content {
   display: flex;

@@ -526,6 +526,533 @@
     });
 
   // ============================================================
+  // 本机事件时间线（IndexedDB healthEvents；lib 可用时优先）
+  // ============================================================
+
+  const FALLBACK_EVENT_KINDS = [
+    'medication_start',
+    'medication_stop',
+    'medication_missed',
+    'medication_taken',
+    'illness',
+    'alcohol',
+    'travel',
+    'late_night',
+    'menstrual',
+    'training_change',
+    'symptom',
+    'fatigue',
+    'custom',
+  ];
+
+  /** Map pre-v1.41 UI kind aliases → lib HealthEventKind */
+  function mapLegacyEventKind(kind) {
+    const k = kind != null ? String(kind) : '';
+    if (k === 'medication_change') return 'medication_start';
+    if (k === 'training_adjust') return 'training_change';
+    if (k === 'other') return 'custom';
+    return k || 'custom';
+  }
+
+  function getHealthEventKinds() {
+    const ha = window.HealthAnalyzer;
+    if (ha && Array.isArray(ha.HEALTH_EVENT_KINDS) && ha.HEALTH_EVENT_KINDS.length) {
+      return ha.HEALTH_EVENT_KINDS.slice();
+    }
+    return FALLBACK_EVENT_KINDS.slice();
+  }
+
+  function createHealthEventIdLocal() {
+    const ha = window.HealthAnalyzer;
+    if (ha && typeof ha.createHealthEventId === 'function') {
+      try {
+        return ha.createHealthEventId();
+      } catch (e) { /* fall through */ }
+    }
+    return (
+      'hev-' +
+      Date.now().toString(36) +
+      '-' +
+      Math.random().toString(36).slice(2, 10)
+    );
+  }
+
+  function normalizeHealthEventLocal(input) {
+    const rawIn = input || {};
+    const mapped = Object.assign({}, rawIn, {
+      kind: mapLegacyEventKind(rawIn.kind),
+    });
+    const ha = window.HealthAnalyzer;
+    if (ha && typeof ha.normalizeHealthEvent === 'function') {
+      try {
+        const n = ha.normalizeHealthEvent(mapped);
+        if (n) return n;
+      } catch (e) { /* fall through */ }
+    }
+    const raw = mapped;
+    const kinds = getHealthEventKinds();
+    let kind = raw.kind != null ? String(raw.kind) : 'custom';
+    if (kinds.indexOf(kind) < 0) kind = 'custom';
+    const date = raw.date != null ? String(raw.date).slice(0, 10) : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    const endDate =
+      raw.endDate != null && String(raw.endDate).trim()
+        ? String(raw.endDate).slice(0, 10)
+        : '';
+    let intensity = null;
+    if (raw.intensity != null && raw.intensity !== '') {
+      const n = Number(raw.intensity);
+      if (Number.isFinite(n) && n >= 1 && n <= 5) intensity = Math.round(n);
+    }
+    const title =
+      raw.title != null && String(raw.title).trim()
+        ? String(raw.title).trim().slice(0, 120)
+        : kind;
+    const note =
+      raw.note != null && String(raw.note).trim()
+        ? String(raw.note).trim().slice(0, 500)
+        : '';
+    const source =
+      raw.source != null && String(raw.source).trim()
+        ? String(raw.source).trim()
+        : 'manual';
+    return {
+      id: raw.id != null && String(raw.id) ? String(raw.id) : createHealthEventIdLocal(),
+      kind,
+      date,
+      endDate,
+      title,
+      note,
+      intensity,
+      source,
+      createdAt: raw.createdAt || new Date().toISOString(),
+    };
+  }
+
+  function formatEventKindLabelLocal(kind, locale) {
+    const mapped = mapLegacyEventKind(kind);
+    const ha = window.HealthAnalyzer;
+    if (ha && typeof ha.formatEventKindLabel === 'function') {
+      try {
+        return ha.formatEventKindLabel(mapped, locale);
+      } catch (e) { /* fall through */ }
+    }
+    const key = 'events.kind.' + String(mapped || 'custom');
+    const label = t(key);
+    return label !== key ? label : String(mapped || 'custom');
+  }
+
+  function sortHealthEventsLocal(events) {
+    const ha = window.HealthAnalyzer;
+    if (ha && typeof ha.sortHealthEvents === 'function') {
+      try {
+        return ha.sortHealthEvents(events);
+      } catch (e) { /* fall through */ }
+    }
+    const arr = Array.isArray(events) ? events.slice() : [];
+    arr.sort((a, b) => {
+      const da = String((a && a.date) || '');
+      const db = String((b && b.date) || '');
+      if (db !== da) return db.localeCompare(da);
+      return String((b && b.createdAt) || '').localeCompare(String((a && a.createdAt) || ''));
+    });
+    return arr;
+  }
+
+  function filterEventsInRangeLocal(events, start, end) {
+    const ha = window.HealthAnalyzer;
+    if (ha && typeof ha.filterEventsInRange === 'function') {
+      try {
+        return ha.filterEventsInRange(events, start, end);
+      } catch (e) { /* fall through */ }
+    }
+    if (!start && !end) return Array.isArray(events) ? events.slice() : [];
+    return (Array.isArray(events) ? events : []).filter((ev) => {
+      const d = String((ev && ev.date) || '');
+      if (!d) return false;
+      if (start && d < start) {
+        // 跨日事件：若 endDate 仍在范围内则保留
+        const ed = String((ev && ev.endDate) || '');
+        if (!ed || ed < start) return false;
+      }
+      if (end && d > end) return false;
+      return true;
+    });
+  }
+
+  /**
+   * HAE JSON → medication events（lib 优先；本地兜底常见字段）
+   */
+  function parseHaeMedicationsToEventsLocal(arr) {
+    const ha = window.HealthAnalyzer;
+    if (ha && typeof ha.parseHaeMedicationsToEvents === 'function') {
+      try {
+        return ha.parseHaeMedicationsToEvents(arr) || [];
+      } catch (e) { /* fall through */ }
+    }
+    if (!Array.isArray(arr)) return [];
+    const out = [];
+    for (let i = 0; i < arr.length; i++) {
+      const m = arr[i];
+      if (!m || typeof m !== 'object') continue;
+      const name =
+        m.name ||
+        m.displayName ||
+        m.medicationName ||
+        m.drug ||
+        m.title ||
+        '';
+      if (!name) continue;
+      const startRaw =
+        m.startDate ||
+        m.start ||
+        m.date ||
+        m.fromDate ||
+        m.began ||
+        '';
+      const endRaw = m.endDate || m.end || m.toDate || m.stopped || '';
+      const dateStr = String(startRaw).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}/.test(dateStr)) continue;
+      const dose =
+        m.dosage || m.dose || m.strength || m.amount
+          ? String(m.dosage || m.dose || m.strength || m.amount)
+          : '';
+      const freq = m.frequency || m.freq || m.schedule || '';
+      const noteParts = [dose, freq, m.notes || m.note || '']
+        .map((x) => String(x || '').trim())
+        .filter(Boolean);
+      const stableKey =
+        'hae-med-' +
+        String(name).toLowerCase().replace(/\s+/g, '-') +
+        '-' +
+        dateStr +
+        (endRaw ? '-' + String(endRaw).slice(0, 10) : '');
+      const ev = normalizeHealthEventLocal({
+        id: m.id ? String(m.id) : stableKey,
+        kind: 'medication_start',
+        date: dateStr,
+        endDate: endRaw ? String(endRaw).slice(0, 10) : '',
+        title: String(name).slice(0, 120),
+        note: noteParts.join(' · ').slice(0, 500) || null,
+        source: 'apple_medication',
+      });
+      if (ev) out.push(ev);
+    }
+    return out;
+  }
+
+  function extractMedicationEventsFromHaeJsonLocal(text) {
+    const ha = window.HealthAnalyzer;
+    if (ha && typeof ha.extractMedicationEventsFromHaeJson === 'function') {
+      try {
+        return ha.extractMedicationEventsFromHaeJson(text) || [];
+      } catch (e) { /* fall through */ }
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      throw new Error(t('events.err.import', { msg: e && e.message ? e.message : String(e) }));
+    }
+    const candidates = [];
+    function walk(node, depth) {
+      if (!node || depth > 8) return;
+      if (Array.isArray(node)) {
+        // 数组元素像用药对象
+        if (
+          node.length &&
+          node.some(
+            (x) =>
+              x &&
+              typeof x === 'object' &&
+              (x.name || x.displayName || x.medicationName || x.drug)
+          )
+        ) {
+          candidates.push(node);
+        }
+        for (let i = 0; i < Math.min(node.length, 50); i++) walk(node[i], depth + 1);
+        return;
+      }
+      if (typeof node !== 'object') return;
+      const keys = Object.keys(node);
+      for (let k = 0; k < keys.length; k++) {
+        const key = keys[k];
+        const lower = key.toLowerCase();
+        if (
+          lower === 'medications' ||
+          lower === 'medication' ||
+          lower === 'meds' ||
+          lower === 'drugs' ||
+          lower.indexOf('medication') >= 0
+        ) {
+          const v = node[key];
+          if (Array.isArray(v)) candidates.push(v);
+          else if (v && typeof v === 'object' && Array.isArray(v.data)) candidates.push(v.data);
+        }
+        walk(node[key], depth + 1);
+      }
+    }
+    walk(parsed, 0);
+    const seen = new Set();
+    const all = [];
+    for (const arr of candidates) {
+      const events = parseHaeMedicationsToEventsLocal(arr);
+      for (const ev of events) {
+        if (!ev || !ev.id || seen.has(ev.id)) continue;
+        seen.add(ev.id);
+        all.push(ev);
+      }
+    }
+    return all;
+  }
+
+  function showEventsStatus(msg, isError) {
+    const el = $('events-status');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.classList.toggle('show', !!msg);
+    el.classList.toggle('is-error', !!isError);
+    if (msg) {
+      setTimeout(() => {
+        if (el.textContent === msg) {
+          el.classList.remove('show');
+          el.textContent = '';
+        }
+      }, 2800);
+    }
+  }
+
+  function formatEventSourceLabel(source) {
+    if (source === 'apple_medication') return t('events.source.apple_medication');
+    if (source === 'import') return t('events.source.import');
+    if (source === 'manual' || !source) return t('events.source.manual');
+    return String(source);
+  }
+
+  async function refreshEventsList() {
+    const list = $('events-list');
+    if (!list) return;
+    if (!window.HealthHistory || typeof window.HealthHistory.listHealthEvents !== 'function') {
+      list.innerHTML = `<p class="hint">${escapeHtml(t('events.err.module'))}</p>`;
+      return;
+    }
+    let rows = [];
+    try {
+      rows = await window.HealthHistory.listHealthEvents();
+    } catch (e) {
+      list.innerHTML = `<p class="hint">${escapeHtml(t('events.err.idb'))}</p>`;
+      return;
+    }
+    rows = sortHealthEventsLocal(rows);
+    if (!rows.length) {
+      list.innerHTML = `<p class="hint">${escapeHtml(t('events.empty'))}</p>`;
+      return;
+    }
+    const locale =
+      (window.I18n && typeof window.I18n.getLocale === 'function' && window.I18n.getLocale()) ||
+      'zh-CN';
+    list.innerHTML = rows
+      .map((ev) => {
+        const kindLabel = formatEventKindLabelLocal(ev.kind, locale);
+        const dateRange =
+          ev.endDate && ev.endDate !== ev.date
+            ? `${ev.date || '—'} → ${ev.endDate}`
+            : ev.date || '—';
+        const intensity =
+          ev.intensity != null && Number.isFinite(Number(ev.intensity))
+            ? ` · ${ev.intensity}/5`
+            : '';
+        const title =
+          (ev.title && String(ev.title).trim()) || kindLabel;
+        const note = ev.note ? String(ev.note) : '';
+        const src = formatEventSourceLabel(ev.source);
+        return `
+          <div class="event-item" data-id="${escapeHtml(ev.id)}">
+            <div class="event-item-body">
+              <p class="event-item-title">${escapeHtml(title)}</p>
+              <div class="event-item-meta">
+                <span>${escapeHtml(kindLabel)}</span>
+                <span>${escapeHtml(dateRange)}${escapeHtml(intensity)}</span>
+                <span>${escapeHtml(src)}</span>
+              </div>
+              ${note ? `<p class="event-item-note">${escapeHtml(note)}</p>` : ''}
+            </div>
+            <div class="event-item-actions">
+              <button type="button" class="btn-danger-text btn-sm" data-event-act="delete" data-id="${escapeHtml(ev.id)}">${escapeHtml(t('events.delete'))}</button>
+            </div>
+          </div>`;
+      })
+      .join('');
+  }
+
+  async function addEventFromForm() {
+    if (!window.HealthHistory || typeof window.HealthHistory.saveHealthEvent !== 'function') {
+      showEventsStatus(t('events.err.module'), true);
+      return;
+    }
+    const kindEl = $('event-kind');
+    const dateEl = $('event-date');
+    const endEl = $('event-end-date');
+    const titleEl = $('event-title');
+    const noteEl = $('event-note');
+    const intenEl = $('event-intensity');
+    const date = dateEl && dateEl.value ? dateEl.value : '';
+    if (!date) {
+      showEventsStatus(t('events.err.needDate'), true);
+      if (dateEl) dateEl.focus();
+      return;
+    }
+    const kind = mapLegacyEventKind(kindEl && kindEl.value ? kindEl.value : 'custom');
+    const titleRaw = titleEl && titleEl.value ? titleEl.value.trim() : '';
+    const locale =
+      (window.I18n && typeof window.I18n.getLocale === 'function' && window.I18n.getLocale()) ||
+      'zh-CN';
+    const title =
+      titleRaw ||
+      formatEventKindLabelLocal(kind, locale);
+    let intensity = null;
+    if (intenEl && intenEl.value !== '') {
+      const n = Number(intenEl.value);
+      if (Number.isFinite(n)) intensity = n;
+    }
+    try {
+      const event = normalizeHealthEventLocal({
+        kind,
+        date,
+        endDate: endEl && endEl.value ? endEl.value : '',
+        title,
+        note: noteEl && noteEl.value ? noteEl.value : '',
+        intensity,
+        source: 'manual',
+      });
+      if (!event) {
+        showEventsStatus(t('events.err.save', { msg: 'invalid' }), true);
+        return;
+      }
+      await window.HealthHistory.saveHealthEvent(event);
+      if (titleEl) titleEl.value = '';
+      if (noteEl) noteEl.value = '';
+      if (intenEl) intenEl.value = '';
+      if (endEl) endEl.value = '';
+      await refreshEventsList();
+      showEventsStatus(t('events.ok.saved'), false);
+    } catch (e) {
+      showEventsStatus(
+        t('events.err.save', { msg: e && e.message ? e.message : String(e) }),
+        true
+      );
+    }
+  }
+
+  async function deleteEventById(id) {
+    if (!id || !window.HealthHistory) return;
+    if (!window.confirm(t('events.confirmDelete'))) return;
+    try {
+      await window.HealthHistory.deleteHealthEvent(id);
+      await refreshEventsList();
+      showEventsStatus(t('events.ok.deleted'), false);
+    } catch (e) {
+      showEventsStatus(
+        t('events.err.delete', { msg: e && e.message ? e.message : String(e) }),
+        true
+      );
+    }
+  }
+
+  async function importHaeMedicationsFromFile(file) {
+    if (!file) return;
+    if (!window.HealthHistory || typeof window.HealthHistory.saveHealthEventsBulk !== 'function') {
+      showEventsStatus(t('events.err.module'), true);
+      return;
+    }
+    try {
+      const text = await file.text();
+      const events = extractMedicationEventsFromHaeJsonLocal(text);
+      if (!events.length) {
+        showEventsStatus(t('events.err.importEmpty'), true);
+        return;
+      }
+      // 去重：bulk put 同 id 覆盖；再按已有列表 id 也可
+      const existing = await window.HealthHistory.listHealthEvents();
+      const existingIds = new Set((existing || []).map((e) => e.id));
+      const byId = new Map();
+      for (const ev of events) {
+        if (!ev || !ev.id) continue;
+        const n = normalizeHealthEventLocal(ev);
+        if (n) byId.set(n.id, n);
+      }
+      const toSave = [...byId.values()];
+      await window.HealthHistory.saveHealthEventsBulk(toSave);
+      await refreshEventsList();
+      const newCount = toSave.filter((e) => !existingIds.has(e.id)).length;
+      const n = newCount || toSave.length;
+      showEventsStatus(t('events.ok.imported', { n }), false);
+    } catch (e) {
+      showEventsStatus(
+        t('events.err.import', { msg: e && e.message ? e.message : String(e) }),
+        true
+      );
+    }
+  }
+
+  async function loadEventsForClinicalExport() {
+    if (!window.HealthHistory || typeof window.HealthHistory.listHealthEvents !== 'function') {
+      return [];
+    }
+    try {
+      let events = await window.HealthHistory.listHealthEvents();
+      events = sortHealthEventsLocal(events);
+      if (currentAnalysis && currentAnalysis.dateRange) {
+        const start = currentAnalysis.dateRange.start || '';
+        const end = currentAnalysis.dateRange.end || '';
+        if (start || end) {
+          events = filterEventsInRangeLocal(events, start, end);
+        }
+      }
+      return events;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // 默认日期：今天
+  try {
+    const dateEl = $('event-date');
+    if (dateEl && !dateEl.value) {
+      dateEl.value = new Date().toISOString().slice(0, 10);
+    }
+  } catch (e) { /* ignore */ }
+
+  $('btn-event-add')?.addEventListener('click', () => {
+    addEventFromForm();
+  });
+  $('btn-event-refresh')?.addEventListener('click', () => {
+    refreshEventsList();
+  });
+  $('btn-event-import-meds')?.addEventListener('click', () => {
+    const input = $('event-meds-input');
+    if (input) input.click();
+  });
+  $('event-meds-input')?.addEventListener('change', (e) => {
+    const file = e.target && e.target.files && e.target.files[0];
+    if (file) {
+      importHaeMedicationsFromFile(file).finally(() => {
+        try {
+          e.target.value = '';
+        } catch (_) { /* ignore */ }
+      });
+    }
+  });
+  $('events-list')?.addEventListener('click', (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('[data-event-act]') : null;
+    if (!btn) return;
+    const act = btn.getAttribute('data-event-act');
+    const id = btn.getAttribute('data-id');
+    if (act === 'delete') deleteEventById(id);
+  });
+  refreshEventsList().catch(() => { /* ignore */ });
+
+  // ============================================================
   // Web Worker 解析（失败则回退主线程）
   // ============================================================
 
@@ -2538,11 +3065,15 @@
     });
   }
 
-  function exportClinicalReview(format) {
+  async function exportClinicalReview(format) {
     try {
       if (!currentAnalysis) throw new Error(t('export.err.needAnalysis'));
       if (!window.HealthAnalyzer) throw new Error(t('export.err.needAnalysis'));
       const opts = clinicalReportOpts();
+      const events = await loadEventsForClinicalExport();
+      if (events && events.length) {
+        opts.events = events;
+      }
       const ctx =
         opts.includeSensitiveContext && typeof getUserContextForPrompt === 'function'
           ? getUserContextForPrompt()
@@ -4519,7 +5050,7 @@
   /**
    * 一键清除所有本机健康相关数据：
    * - localStorage：个人背景、恢复权重、信号偏好、图表范围、LLM 复制确认、敏感字段勾选、洞察 coach
-   * - IndexedDB：摘要历史 + 周报历史
+   * - IndexedDB：摘要历史 + 周报历史 + 事件时间线
    * 保留：主题 (THEME_KEY)、语言 (health-analyzer-locale)、侧栏折叠、安装/更新提示等 UI 偏好
    */
   async function clearAllLocalHealthData() {
@@ -4559,6 +5090,9 @@
           if (typeof window.HealthHistory.clearWeeklyReports === 'function') {
             await window.HealthHistory.clearWeeklyReports();
           }
+          if (typeof window.HealthHistory.clearHealthEvents === 'function') {
+            await window.HealthHistory.clearHealthEvents();
+          }
         }
       }
     } catch (e) {
@@ -4573,6 +5107,7 @@
     if (cmp) cmp.innerHTML = '';
     await refreshHistorySelect();
     await refreshWeeklyReportList();
+    await refreshEventsList().catch(() => {});
     // 同时清掉当前页内存分析结果与已渲染 UI（与「重新上传」一致）
     resetResultsUi({ keepScroll: false });
     showExportStatus(t('privacy.wipeOk'));
@@ -4687,6 +5222,7 @@
         const collapsed = ta.classList.contains('is-collapsed');
         expBtn.textContent = collapsed ? t('prompt.expand') : t('prompt.collapse');
       }
+      refreshEventsList().catch(() => {});
     } catch (_) { /* ignore */ }
     if (!currentAnalysis) return;
     try {

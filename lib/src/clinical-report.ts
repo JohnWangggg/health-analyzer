@@ -26,6 +26,11 @@ import {
   SignalEvidence,
 } from './signals';
 import { formatUserContext } from './prompts/llm-prompt';
+import {
+  HealthEvent,
+  filterEventsInRange,
+  formatEventsMarkdown,
+} from './events';
 
 /** 国际共识：评估窗口 14 天；有效覆盖建议 ≥70% */
 export const CGM_REPORT_DAYS = 14;
@@ -113,6 +118,11 @@ export interface ClinicalReportOptions extends LocaleOptions {
   cgmWindowEnd?: string;
   /** 家庭血压评估天数 3|7，默认 7 */
   bpProtocolDays?: 3 | 7;
+  /**
+   * 用户本机健康事件时间线（仅时间共现复盘，不作因果/调药建议）。
+   * 提供时纳入报告（按分析 dateRange 过滤；无窗口则全部）。
+   */
+  events?: HealthEvent[] | null;
 }
 
 function mean(values: number[]): number | null {
@@ -735,6 +745,16 @@ export function generateClinicalReviewMarkdown(
       }
       lines.push('');
     });
+  }
+
+  // —— 本机事件时间线（用户提供时；仅时间共现，非因果）——
+  if (options?.events?.length) {
+    const rangeStart = analysis.dateRange?.start || null;
+    const rangeEnd = analysis.dateRange?.end || null;
+    const filtered = filterEventsInRange(options.events, rangeStart, rangeEnd);
+    const toShow = filtered.length ? filtered : options.events;
+    lines.push(formatEventsMarkdown(toShow, { locale }).trimEnd());
+    lines.push('');
   }
 
   // —— 监测摘要 ——

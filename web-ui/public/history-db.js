@@ -1,17 +1,19 @@
 /**
- * IndexedDB：本地保存分析摘要快照 + 周报历史
- * 不上传；仅存压缩 metrics / markdown，不含完整 CGM 明细
+ * IndexedDB：本地保存分析摘要快照 + 周报历史 + 事件时间线
+ * 不上传；仅存压缩 metrics / markdown / 手录事件，不含完整 CGM 明细
  */
 (function (global) {
   'use strict';
 
   const DB_NAME = 'health-analyzer-history';
-  /** v2：新增 weeklyReports object store */
-  const DB_VERSION = 2;
+  /** v3：新增 healthEvents object store */
+  const DB_VERSION = 3;
   const STORE = 'snapshots';
   const STORE_REPORTS = 'weeklyReports';
+  const STORE_EVENTS = 'healthEvents';
   const MAX_SNAPSHOTS = 30;
   const MAX_WEEKLY_REPORTS = 20;
+  const MAX_EVENTS = 500;
 
   function openDb() {
     return new Promise((resolve, reject) => {
@@ -31,7 +33,12 @@
           reports.createIndex('savedAt', 'savedAt', { unique: false });
           reports.createIndex('weekEnd', 'weekEnd', { unique: false });
         }
-        // 兼容：从 v1 升到 v2 时确保 reports store 存在
+        if (!db.objectStoreNames.contains(STORE_EVENTS)) {
+          const events = db.createObjectStore(STORE_EVENTS, { keyPath: 'id' });
+          events.createIndex('date', 'date', { unique: false });
+          events.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+        // 兼容：从 v1/v2 升到 v3 时确保各 store 存在
         void ev;
       };
       req.onsuccess = () => resolve(req.result);
@@ -145,7 +152,7 @@
   }
 
   /**
-   * 清空全部本机健康历史 store：摘要快照 + 周报历史
+   * 清空全部本机健康历史 store：摘要快照 + 周报历史 + 事件时间线
    * 供「清除所有本机健康数据」一键使用
    */
   function clearAllStores() {
@@ -155,6 +162,9 @@
           const names = [STORE];
           if (db.objectStoreNames.contains(STORE_REPORTS)) {
             names.push(STORE_REPORTS);
+          }
+          if (db.objectStoreNames.contains(STORE_EVENTS)) {
+            names.push(STORE_EVENTS);
           }
           const tx = db.transaction(names, 'readwrite');
           for (const n of names) {
@@ -338,6 +348,248 @@
     );
   }
 
+  // ---------- 事件时间线（独立 store，最多 MAX_EVENTS） ----------
+
+  /**
+   * @typedef {object} HealthEventRecord
+   * @property {string} id
+   * @property {string} kind
+   * @property {string} date YYYY-MM-DD
+   * @property {string} [endDate]
+   * @property {string} title
+   * @property {string} [note]
+   * @property {number|null} [intensity]
+   * @property {string} [source]
+   * @property {string} createdAt ISO
+   */
+
+  function eventSortKey(e) {
+    return String(e && e.date != null ? e.date : '') + '\0' + String(e && e.createdAt != null ? e.createdAt : '');
+  }
+
+  function listHealthEvents() {
+    return openDb().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          if (!db.objectStoreNames.contains(STORE_EVENTS)) {
+            db.close();
+            resolve([]);
+            return;
+          }
+          const tx = db.transaction(STORE_EVENTS, 'readonly');
+          const store = tx.objectStore(STORE_EVENTS);
+          const req = store.getAll();
+          req.onsuccess = () => {
+            const rows = (req.result || []).sort((a, b) =>
+              eventSortKey(b).localeCompare(eventSortKey(a))
+            );
+            resolve(rows);
+          };
+          req.onerror = () => reject(req.error);
+          tx.oncomplete = () => db.close();
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        })
+    );
+  }
+
+  function getHealthEvent(id) {
+    return openDb().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          if (!db.objectStoreNames.contains(STORE_EVENTS)) {
+            db.close();
+            resolve(null);
+            return;
+          }
+          const tx = db.transaction(STORE_EVENTS, 'readonly');
+          const req = tx.objectStore(STORE_EVENTS).get(id);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => reject(req.error);
+          tx.oncomplete = () => db.close();
+        })
+    );
+  }
+
+  function deleteHealthEvent(id) {
+    return openDb().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          if (!db.objectStoreNames.contains(STORE_EVENTS)) {
+            db.close();
+            resolve();
+            return;
+          }
+          const tx = db.transaction(STORE_EVENTS, 'readwrite');
+          tx.objectStore(STORE_EVENTS).delete(id);
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        })
+    );
+  }
+
+  /**
+   * 保存单条事件；超过 MAX_EVENTS 时按 date/createdAt 删最旧
+   * @param {HealthEventRecord} event
+   */
+  function saveHealthEvent(event) {
+    if (!event || !event.id) {
+      return Promise.reject(new Error('event.id 不能为空'));
+    }
+    const record = Object.assign({}, event, {
+      id: String(event.id),
+      kind: event.kind != null ? String(event.kind) : 'custom',
+      date: event.date != null ? String(event.date).slice(0, 10) : '',
+      endDate:
+        event.endDate != null && String(event.endDate).trim()
+          ? String(event.endDate).slice(0, 10)
+          : '',
+      title: event.title != null ? String(event.title) : '',
+      note: event.note != null ? String(event.note) : '',
+      intensity:
+        event.intensity != null && Number.isFinite(Number(event.intensity))
+          ? Number(event.intensity)
+          : null,
+      source: event.source != null ? String(event.source) : 'manual',
+      createdAt: event.createdAt || new Date().toISOString(),
+    });
+
+    return openDb()
+      .then(
+        (db) =>
+          new Promise((resolve, reject) => {
+            if (!db.objectStoreNames.contains(STORE_EVENTS)) {
+              db.close();
+              reject(new Error('事件时间线 store 不可用，请刷新页面'));
+              return;
+            }
+            const tx = db.transaction(STORE_EVENTS, 'readwrite');
+            tx.objectStore(STORE_EVENTS).put(record);
+            tx.oncomplete = () => {
+              db.close();
+              resolve(record);
+            };
+            tx.onerror = () => {
+              db.close();
+              reject(tx.error);
+            };
+          })
+      )
+      .then(async (saved) => {
+        const all = await listHealthEvents();
+        if (all.length > MAX_EVENTS) {
+          // list 已 date desc；最旧 = 尾部，按 date/createdAt 升序删
+          const extra = [...all]
+            .sort((a, b) => eventSortKey(a).localeCompare(eventSortKey(b)))
+            .slice(0, all.length - MAX_EVENTS);
+          for (const s of extra) {
+            await deleteHealthEvent(s.id);
+          }
+        }
+        return saved;
+      });
+  }
+
+  /**
+   * 批量写入（导入）；同 id 覆盖；写完后裁剪至 MAX_EVENTS
+   * @param {HealthEventRecord[]} events
+   */
+  function saveHealthEventsBulk(events) {
+    const list = Array.isArray(events) ? events : [];
+    if (!list.length) return Promise.resolve([]);
+
+    const now = new Date().toISOString();
+    const records = list
+      .filter((e) => e && e.id)
+      .map((event) =>
+        Object.assign({}, event, {
+          id: String(event.id),
+          kind: event.kind != null ? String(event.kind) : 'custom',
+          date: event.date != null ? String(event.date).slice(0, 10) : '',
+          endDate:
+            event.endDate != null && String(event.endDate).trim()
+              ? String(event.endDate).slice(0, 10)
+              : '',
+          title: event.title != null ? String(event.title) : '',
+          note: event.note != null ? String(event.note) : '',
+          intensity:
+            event.intensity != null && Number.isFinite(Number(event.intensity))
+              ? Number(event.intensity)
+              : null,
+          source: event.source != null ? String(event.source) : 'manual',
+          createdAt: event.createdAt || now,
+        })
+      );
+
+    return openDb()
+      .then(
+        (db) =>
+          new Promise((resolve, reject) => {
+            if (!db.objectStoreNames.contains(STORE_EVENTS)) {
+              db.close();
+              reject(new Error('事件时间线 store 不可用，请刷新页面'));
+              return;
+            }
+            const tx = db.transaction(STORE_EVENTS, 'readwrite');
+            const store = tx.objectStore(STORE_EVENTS);
+            for (const r of records) {
+              store.put(r);
+            }
+            tx.oncomplete = () => {
+              db.close();
+              resolve(records);
+            };
+            tx.onerror = () => {
+              db.close();
+              reject(tx.error);
+            };
+          })
+      )
+      .then(async (saved) => {
+        const all = await listHealthEvents();
+        if (all.length > MAX_EVENTS) {
+          const extra = [...all]
+            .sort((a, b) => eventSortKey(a).localeCompare(eventSortKey(b)))
+            .slice(0, all.length - MAX_EVENTS);
+          for (const s of extra) {
+            await deleteHealthEvent(s.id);
+          }
+        }
+        return saved;
+      });
+  }
+
+  function clearHealthEvents() {
+    return openDb().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          if (!db.objectStoreNames.contains(STORE_EVENTS)) {
+            db.close();
+            resolve();
+            return;
+          }
+          const tx = db.transaction(STORE_EVENTS, 'readwrite');
+          tx.objectStore(STORE_EVENTS).clear();
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        })
+    );
+  }
+
   global.HealthHistory = {
     saveSnapshot,
     listSnapshots,
@@ -353,5 +605,13 @@
     deleteWeeklyReport,
     clearWeeklyReports,
     MAX_WEEKLY_REPORTS,
+    // 事件时间线
+    saveHealthEvent,
+    listHealthEvents,
+    getHealthEvent,
+    deleteHealthEvent,
+    clearHealthEvents,
+    saveHealthEventsBulk,
+    MAX_EVENTS,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

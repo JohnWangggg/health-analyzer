@@ -217,6 +217,64 @@
         </div>
       </details>
 
+      <details class="advanced-box" id="events-box">
+        <summary data-i18n="events.summary">本机事件时间线</summary>
+        <p class="date-filter-hint" data-i18n="events.hint">
+          手动记录用药变更、生病、饮酒、旅行、熬夜、经期、训练调整、症状与疲劳。仅用于时间对照复盘，不作因果或调药建议。数据保存在本机 IndexedDB。
+        </p>
+        <p class="date-filter-hint events-disclaimer" data-i18n="events.disclaimer">
+          事件仅作时间轴对照，不构成诊断、因果推断或用药建议。
+        </p>
+        <div class="events-form context-grid">
+          <label class="date-field">
+            <span data-i18n="events.kind">类型</span>
+            <select id="event-kind" name="event-kind" data-i18n-aria="events.kind" aria-label="事件类型">
+              <option value="medication_start" data-i18n="events.kind.medication_start">开始用药</option>
+              <option value="medication_stop" data-i18n="events.kind.medication_stop">停药</option>
+              <option value="medication_missed" data-i18n="events.kind.medication_missed">漏服</option>
+              <option value="medication_taken" data-i18n="events.kind.medication_taken">已服用</option>
+              <option value="illness" data-i18n="events.kind.illness">生病/不适</option>
+              <option value="alcohol" data-i18n="events.kind.alcohol">饮酒</option>
+              <option value="travel" data-i18n="events.kind.travel">出行/时差</option>
+              <option value="late_night" data-i18n="events.kind.late_night">熬夜</option>
+              <option value="menstrual" data-i18n="events.kind.menstrual">月经相关</option>
+              <option value="training_change" data-i18n="events.kind.training_change">训练变化</option>
+              <option value="symptom" data-i18n="events.kind.symptom">症状</option>
+              <option value="fatigue" data-i18n="events.kind.fatigue">疲劳</option>
+              <option value="custom" data-i18n="events.kind.custom">自定义</option>
+            </select>
+          </label>
+          <label class="date-field">
+            <span data-i18n="events.date">日期</span>
+            <input type="date" id="event-date" name="event-date" data-i18n-aria="events.date" aria-label="事件日期" required>
+          </label>
+          <label class="date-field">
+            <span data-i18n="events.endDate">结束日期（可选）</span>
+            <input type="date" id="event-end-date" name="event-end-date" data-i18n-aria="events.endDate" aria-label="事件结束日期">
+          </label>
+          <label class="date-field">
+            <span data-i18n="events.intensity">强度 1–5（可选）</span>
+            <input type="number" id="event-intensity" name="event-intensity" min="1" max="5" step="1" inputmode="numeric" placeholder="1–5" autocomplete="off">
+          </label>
+          <label class="date-field context-field-wide">
+            <span data-i18n="events.title">标题</span>
+            <input type="text" id="event-title" name="event-title" maxlength="120" placeholder="" autocomplete="off" data-i18n-aria="events.title" aria-label="事件标题">
+          </label>
+          <label class="date-field context-field-wide">
+            <span data-i18n="events.note">备注</span>
+            <textarea id="event-note" name="event-note" rows="2" maxlength="500" placeholder="" data-i18n-aria="events.note" aria-label="事件备注"></textarea>
+          </label>
+        </div>
+        <div class="context-actions events-actions">
+          <button type="button" id="btn-event-add" class="btn-secondary" data-i18n="events.add">添加事件</button>
+          <button type="button" id="btn-event-refresh" class="btn-ghost" data-i18n="events.refresh">刷新列表</button>
+          <button type="button" id="btn-event-import-meds" class="btn-ghost" data-i18n="events.importMeds">导入 HAE 用药 JSON</button>
+          <input type="file" id="event-meds-input" accept=".json,application/json" hidden>
+        </div>
+        <div id="events-list" class="events-list" aria-live="polite"></div>
+        <span id="events-status" class="copy-status" aria-live="polite"></span>
+      </details>
+
       <div class="privacy-notice" role="note">
         <div class="privacy-notice-title" data-i18n="privacy.noticeTitle">隐私：健康明细默认不离开本机</div>
         <ul>
@@ -410,7 +468,7 @@
 
       <div class="privacy-wipe-panel" role="region" aria-labelledby="privacy-wipe-title">
         <h3 class="panel-subhead" id="privacy-wipe-title" data-i18n="privacy.wipeTitle">隐私与本机数据</h3>
-        <p class="hint compact-hint" data-i18n="privacy.wipeHint">清除个人背景、恢复权重、信号偏好、图表范围及 IndexedDB 摘要/周报历史。主题与界面语言会保留。</p>
+        <p class="hint compact-hint" data-i18n="privacy.wipeHint">清除个人背景、恢复权重、信号偏好、图表范围及 IndexedDB 摘要/周报历史与事件时间线。主题与界面语言会保留。</p>
         <button type="button" id="btn-clear-all-local" class="btn-danger-text" data-i18n="privacy.wipeBtn">清除所有本机健康数据</button>
       </div>
 
@@ -509,7 +567,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.18</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.41</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

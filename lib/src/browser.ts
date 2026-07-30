@@ -140,5 +140,24 @@ export type {
   HaeMergeOptions,
 } from './hae-import';
 
+export {
+  HEALTH_EVENT_KINDS,
+  isHealthEventKind,
+  createHealthEventId,
+  normalizeHealthEvent,
+  sortHealthEvents,
+  filterEventsInRange,
+  eventsNearDate,
+  formatEventKindLabel,
+  formatEventsMarkdown,
+  parseHaeMedicationsToEvents,
+  extractMedicationEventsFromHaeJson,
+} from './events';
+export type {
+  HealthEvent,
+  HealthEventKind,
+  HealthEventSource,
+} from './events';
+
 // 兼容历史 lib.js：calcBpStats 别名
 export { calcBloodPressureStats as calcBpStats } from './stats';

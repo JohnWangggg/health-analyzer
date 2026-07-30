@@ -29,6 +29,7 @@ var HealthAnalyzer = (() => {
     CGM_MIN_COVERAGE_PCT: () => CGM_MIN_COVERAGE_PCT,
     CGM_REPORT_DAYS: () => CGM_REPORT_DAYS,
     DEFAULT_RECOVERY_WEIGHTS: () => DEFAULT_RECOVERY_WEIGHTS,
+    HEALTH_EVENT_KINDS: () => HEALTH_EVENT_KINDS,
     MAIN_PROMPT_TEMPLATE: () => MAIN_PROMPT_TEMPLATE,
     MAIN_PROMPT_TEMPLATE_EN: () => MAIN_PROMPT_TEMPLATE_EN,
     MGDL_PER_MMOL: () => MGDL_PER_MMOL,
@@ -57,16 +58,22 @@ var HealthAnalyzer = (() => {
     compareSnapshots: () => compareSnapshots,
     countDaysWithData: () => countDaysWithData,
     createEmptyData: () => createEmptyData,
+    createHealthEventId: () => createHealthEventId,
     createL: () => createL,
     daysBetween: () => daysBetween,
     detectCrossSignals: () => detectCrossSignals,
     enrichEcgWithContext: () => enrichEcgWithContext,
     ensureSignalEvidence: () => ensureSignalEvidence,
+    eventsNearDate: () => eventsNearDate,
+    extractMedicationEventsFromHaeJson: () => extractMedicationEventsFromHaeJson,
     extractXmlFromZip: () => extractXmlFromZip,
+    filterEventsInRange: () => filterEventsInRange,
     finalizeCgmUnits: () => finalizeCgmUnits,
     finalizeData: () => finalizeData,
     formatAnalysisForLLM: () => formatAnalysisForLLM,
     formatCrossSignalsForLLM: () => formatCrossSignalsForLLM,
+    formatEventKindLabel: () => formatEventKindLabel,
+    formatEventsMarkdown: () => formatEventsMarkdown,
     formatInsightsForLLM: () => formatInsightsForLLM,
     formatUserContext: () => formatUserContext,
     generateClinicalReviewHtml: () => generateClinicalReviewHtml,
@@ -81,12 +88,14 @@ var HealthAnalyzer = (() => {
     getLocalToday: () => getLocalToday,
     inferGlucoseUnitFromValues: () => inferGlucoseUnitFromValues,
     isFutureDate: () => isFutureDate,
+    isHealthEventKind: () => isHealthEventKind,
     joinCsvBundle: () => joinCsvBundle,
     mergeEcgEntries: () => mergeEcgEntries,
     mergeExternalCsvIntoData: () => mergeExternalCsvIntoData,
     mergeHaeIntoData: () => mergeHaeIntoData,
     mergeHaeJsonIntoData: () => mergeHaeJsonIntoData,
     normalizeHaeMetricName: () => normalizeHaeMetricName,
+    normalizeHealthEvent: () => normalizeHealthEvent,
     normalizeLocale: () => normalizeLocale,
     normalizeRecoveryWeights: () => normalizeRecoveryWeights,
     parseAppleDate: () => parseAppleDate,
@@ -96,6 +105,7 @@ var HealthAnalyzer = (() => {
     parseHaeCsvFile: () => parseHaeCsvFile,
     parseHaeInputs: () => parseHaeInputs,
     parseHaeJson: () => parseHaeJson,
+    parseHaeMedicationsToEvents: () => parseHaeMedicationsToEvents,
     parseHealthXml: () => parseHealthXml,
     parseHealthXmlAsync: () => parseHealthXmlAsync,
     parseRecordLine: () => parseRecordLine,
@@ -107,6 +117,7 @@ var HealthAnalyzer = (() => {
     processXmlLine: () => processXmlLine,
     recomputeRecovery: () => recomputeRecovery,
     shortWorkoutType: () => shortWorkoutType,
+    sortHealthEvents: () => sortHealthEvents,
     summarizeHrvByDay: () => summarizeHrvByDay,
     toMmolL: () => toMmolL,
     toTraditionalText: () => toTraditionalText,
@@ -6062,6 +6073,297 @@ List 5\u20137 working hypotheses that best fit the available data
     return lines.join("\n");
   }
 
+  // src/events.ts
+  var HEALTH_EVENT_KINDS = [
+    "medication_start",
+    "medication_stop",
+    "medication_missed",
+    "medication_taken",
+    "illness",
+    "alcohol",
+    "travel",
+    "late_night",
+    "menstrual",
+    "training_change",
+    "symptom",
+    "fatigue",
+    "custom"
+  ];
+  var KIND_SET = new Set(HEALTH_EVENT_KINDS);
+  var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  function isHealthEventKind(s) {
+    return KIND_SET.has(s);
+  }
+  function createHealthEventId() {
+    return `ev_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  }
+  function stableHash(parts) {
+    const s = parts.join("|");
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(36);
+  }
+  function toYmd(raw) {
+    if (raw == null) return null;
+    const s = String(raw).trim();
+    if (!s) return null;
+    if (DATE_RE.test(s.slice(0, 10))) return s.slice(0, 10);
+    const t = Date.parse(s.replace(/([+-]\d{2})(\d{2})$/, "$1:$2"));
+    if (!Number.isFinite(t)) return null;
+    return new Date(t).toISOString().slice(0, 10);
+  }
+  function isValidYmd(s) {
+    if (!DATE_RE.test(s)) return false;
+    const t = Date.parse(`${s}T00:00:00Z`);
+    if (!Number.isFinite(t)) return false;
+    return new Date(t).toISOString().slice(0, 10) === s;
+  }
+  function clampIntensity(v) {
+    if (v == null || v === "") return null;
+    const n = typeof v === "number" ? v : Number(v);
+    if (!Number.isFinite(n)) return null;
+    const r = Math.round(n);
+    if (r < 1 || r > 5) return null;
+    return r;
+  }
+  function isHealthEventSource(s) {
+    return s === "manual" || s === "apple_medication" || s === "import";
+  }
+  function eventSpan(ev) {
+    const start = ev.date;
+    const end = ev.endDate && isValidYmd(ev.endDate) && ev.endDate >= start ? ev.endDate : start;
+    return { start, end };
+  }
+  function normalizeHealthEvent(input) {
+    if (!input || typeof input !== "object") return null;
+    const kindRaw = String(input.kind || "").trim();
+    if (!isHealthEventKind(kindRaw)) return null;
+    const date = toYmd(input.date);
+    if (!date || !isValidYmd(date)) return null;
+    let endDate = null;
+    if (input.endDate != null && input.endDate !== "") {
+      const ed = toYmd(input.endDate);
+      if (!ed || !isValidYmd(ed)) return null;
+      endDate = ed;
+      if (endDate < date) return null;
+    }
+    const title = input.title != null && String(input.title).trim() ? String(input.title).trim() : kindRaw;
+    const source = isHealthEventSource(input.source) ? input.source : "manual";
+    const createdAt = input.createdAt && String(input.createdAt).trim() ? String(input.createdAt).trim() : (/* @__PURE__ */ new Date()).toISOString();
+    const id = input.id && String(input.id).trim() ? String(input.id).trim() : createHealthEventId();
+    const note = input.note == null || input.note === "" ? null : String(input.note);
+    const intensity = clampIntensity(input.intensity);
+    const updatedAt = input.updatedAt == null || input.updatedAt === "" ? null : String(input.updatedAt);
+    return {
+      id,
+      kind: kindRaw,
+      date,
+      endDate,
+      title,
+      note,
+      intensity,
+      source,
+      createdAt,
+      updatedAt
+    };
+  }
+  function sortHealthEvents(events) {
+    return [...events].sort((a, b) => {
+      if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+      const ca = a.createdAt || "";
+      const cb = b.createdAt || "";
+      if (ca !== cb) return ca < cb ? 1 : -1;
+      return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+    });
+  }
+  function filterEventsInRange(events, start, end) {
+    if (!events?.length) return [];
+    const s = start && isValidYmd(start) ? start : null;
+    const e = end && isValidYmd(end) ? end : null;
+    if (!s && !e) return sortHealthEvents(events);
+    const out = [];
+    for (const ev of events) {
+      if (!ev?.date || !isValidYmd(ev.date)) continue;
+      const span = eventSpan(ev);
+      if (s && span.end < s) continue;
+      if (e && span.start > e) continue;
+      out.push(ev);
+    }
+    return sortHealthEvents(out);
+  }
+  function eventsNearDate(events, date, radiusDays = 3) {
+    const center = toYmd(date);
+    if (!center || !isValidYmd(center)) return [];
+    const r = Number.isFinite(radiusDays) ? Math.max(0, Math.floor(radiusDays)) : 3;
+    const start = addDaysIso(center, -r);
+    const end = addDaysIso(center, r);
+    return filterEventsInRange(events, start, end);
+  }
+  function formatEventKindLabel(kind, locale) {
+    const L = createL(normalizeLocale(locale));
+    switch (kind) {
+      case "medication_start":
+        return L("\u5F00\u59CB\u7528\u836F", "Medication start");
+      case "medication_stop":
+        return L("\u505C\u836F", "Medication stop");
+      case "medication_missed":
+        return L("\u6F0F\u670D", "Missed dose");
+      case "medication_taken":
+        return L("\u5DF2\u670D\u7528", "Taken");
+      case "illness":
+        return L("\u751F\u75C5/\u4E0D\u9002", "Illness");
+      case "alcohol":
+        return L("\u996E\u9152", "Alcohol");
+      case "travel":
+        return L("\u51FA\u884C/\u65F6\u5DEE", "Travel");
+      case "late_night":
+        return L("\u71AC\u591C", "Late night");
+      case "menstrual":
+        return L("\u6708\u7ECF\u76F8\u5173", "Menstrual");
+      case "training_change":
+        return L("\u8BAD\u7EC3\u53D8\u5316", "Training change");
+      case "symptom":
+        return L("\u75C7\u72B6", "Symptom");
+      case "fatigue":
+        return L("\u75B2\u52B3", "Fatigue");
+      case "custom":
+      default:
+        return L("\u81EA\u5B9A\u4E49", "Custom");
+    }
+  }
+  function formatEventsMarkdown(events, options) {
+    const locale = normalizeLocale(options?.locale);
+    const L = createL(locale);
+    const max = options?.max != null && Number.isFinite(options.max) && options.max > 0 ? Math.floor(options.max) : 50;
+    const heading = options?.title?.trim() || L("## \u4E8B\u4EF6\u65F6\u95F4\u7EBF", "## Events timeline");
+    const disclaimer = L(
+      "> \u4EC5\u8868\u793A\u65F6\u95F4\u4E0A\u540C\u65F6\u51FA\u73B0\uFF0C**\u4E0D\u4F5C\u56E0\u679C\u63A8\u65AD**\uFF0C**\u4E0D\u7ED9\u51FA\u8C03\u836F\u5EFA\u8BAE**\u3002",
+      "> Temporal co-occurrence only \u2014 **not causation**, **no medication advice**."
+    );
+    const lines = [heading, "", disclaimer, ""];
+    if (!events?.length) {
+      lines.push(L("\uFF08\u6682\u65E0\u4E8B\u4EF6\uFF09", "(No events)"));
+      lines.push("");
+      return lines.join("\n");
+    }
+    const sorted = sortHealthEvents(events).slice(0, max);
+    for (const ev of sorted) {
+      const kindLabel = formatEventKindLabel(ev.kind, locale);
+      const span = ev.endDate && ev.endDate !== ev.date ? `${ev.date} ~ ${ev.endDate}` : ev.date;
+      const intensity = ev.intensity != null ? L(` \xB7 \u5F3A\u5EA6 ${ev.intensity}/5`, ` \xB7 intensity ${ev.intensity}/5`) : "";
+      const note = ev.note ? ` \u2014 ${ev.note}` : "";
+      const src = ev.source === "apple_medication" ? L("\uFF08Apple \u7528\u836F\u65E5\u5FD7\uFF09", " (Apple medication log)") : ev.source === "import" ? L("\uFF08\u5BFC\u5165\uFF09", " (import)") : "";
+      lines.push(`- **${span}** \xB7 ${kindLabel} \xB7 ${ev.title}${intensity}${src}${note}`);
+    }
+    if (events.length > max) {
+      lines.push("");
+      lines.push(
+        L(
+          `\uFF08\u53E6\u6709 ${events.length - max} \u6761\u672A\u5217\u51FA\uFF09`,
+          `(${events.length - max} more not listed)`
+        )
+      );
+    }
+    lines.push("");
+    return lines.join("\n");
+  }
+  function medTitle(row) {
+    const d = row.displayText != null ? String(row.displayText).trim() : "";
+    if (d) return d;
+    const n = row.nickname != null ? String(row.nickname).trim() : "";
+    if (n) return n;
+    return "medication";
+  }
+  function medDate(row) {
+    return toYmd(row.scheduledDate) || toYmd(row.start) || toYmd(row.end);
+  }
+  function medNote(row) {
+    const bits = [];
+    if (row.dosage != null && String(row.dosage).trim()) bits.push(String(row.dosage).trim());
+    if (row.form != null && String(row.form).trim()) bits.push(String(row.form).trim());
+    if (row.status != null && String(row.status).trim()) bits.push(`status=${String(row.status).trim()}`);
+    return bits.length ? bits.join(" \xB7 ") : null;
+  }
+  function parseHaeMedicationsToEvents(meds, options) {
+    if (!Array.isArray(meds) || !meds.length) return [];
+    const includeTaken = !!options?.includeTaken;
+    const out = [];
+    const seen = /* @__PURE__ */ new Set();
+    const startedKeys = /* @__PURE__ */ new Set();
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    for (const raw of meds) {
+      if (!raw || typeof raw !== "object") continue;
+      const row = raw;
+      const title = medTitle(row);
+      const status = row.status != null ? String(row.status).trim() : "";
+      const statusLower = status.toLowerCase();
+      const startYmd = toYmd(row.start);
+      const date = medDate(row);
+      if (!date) continue;
+      if (startYmd) {
+        const startKey = `${title}|${startYmd}`;
+        if (!startedKeys.has(startKey)) {
+          startedKeys.add(startKey);
+          const startId = `ev_hae_${stableHash(["apple_medication", "start", title, startYmd])}`;
+          if (!seen.has(startId)) {
+            seen.add(startId);
+            const startEv = normalizeHealthEvent({
+              id: startId,
+              kind: "medication_start",
+              date: startYmd,
+              endDate: toYmd(row.end),
+              title,
+              note: medNote(row),
+              source: "apple_medication",
+              createdAt: now
+            });
+            if (startEv) out.push(startEv);
+          }
+        }
+      }
+      let kind = null;
+      if (statusLower === "skipped" || statusLower === "missed") {
+        kind = "medication_missed";
+      } else if (statusLower === "taken" || statusLower === "completed") {
+        if (includeTaken) kind = "medication_taken";
+      }
+      if (!kind) continue;
+      const idBase = row.id != null && String(row.id).trim() ? String(row.id).trim() : stableHash(["apple_medication", date, status, title, String(row.scheduledDate || row.start || "")]);
+      const id = row.id != null && String(row.id).trim() ? `ev_${String(row.id).trim()}` : `ev_hae_${idBase}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const ev = normalizeHealthEvent({
+        id,
+        kind,
+        date,
+        title,
+        note: medNote(row),
+        source: "apple_medication",
+        createdAt: now
+      });
+      if (ev) out.push(ev);
+    }
+    return sortHealthEvents(out);
+  }
+  function extractMedicationEventsFromHaeJson(text, options) {
+    if (!text || typeof text !== "string") return [];
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return [];
+    }
+    if (!parsed || typeof parsed !== "object") return [];
+    const root = parsed;
+    const data = root.data && typeof root.data === "object" ? root.data : root;
+    const meds = data.medications;
+    if (!Array.isArray(meds)) return [];
+    return parseHaeMedicationsToEvents(meds, options);
+  }
+
   // src/clinical-report.ts
   var CGM_REPORT_DAYS = 14;
   var CGM_MIN_COVERAGE_PCT = 70;
@@ -6559,6 +6861,14 @@ List 5\u20137 working hypotheses that best fit the available data
         }
         lines.push("");
       });
+    }
+    if (options?.events?.length) {
+      const rangeStart = analysis.dateRange?.start || null;
+      const rangeEnd = analysis.dateRange?.end || null;
+      const filtered = filterEventsInRange(options.events, rangeStart, rangeEnd);
+      const toShow = filtered.length ? filtered : options.events;
+      lines.push(formatEventsMarkdown(toShow, { locale }).trimEnd());
+      lines.push("");
     }
     const bullets = buildInsightBullets(analysis, { locale }).slice(0, 6);
     if (bullets.length) {
