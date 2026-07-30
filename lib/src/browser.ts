@@ -140,6 +140,8 @@ export {
   sanitizeAnonymousFhirBundle,
   isSourceNameLeakText,
   EXT_SOURCE_NAME,
+  isStrongPersistentPatientId,
+  newPersistentPatientId,
   normalizeFhirExportTier,
   normalizeFhirExchangePurpose,
   validateFhirR4ExchangeGate,

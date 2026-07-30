@@ -177,6 +177,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.63 | 个人转交伪名 ID：本机生成/持久化 UUID；门禁拒绝弱 ID；UI 生成·复制·轮换 |
 | v1.62 | 匿名分享净化：移除 sourceName 扩展/note 与导入文件名；门禁拦截泄漏 |
 | v1.61 | 逐条保留 sourceName；Device 按样本来源高置信度映射；`stripPrivateFhirExtensions` 供 HL7 校验导出 Bundle |
 | v1.60 | CI/本地可选官方 HL7 `validator_cli` 离线校验合成 fixture（`-tx n/a`，无个人数据） |

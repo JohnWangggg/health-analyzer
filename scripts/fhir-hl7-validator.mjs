@@ -294,7 +294,10 @@ function buildStrippedExportFixture() {
     exportTier: 'external-exchange',
     exchangePurpose: 'personal-handoff',
     patientDisplay: 'HL7-Fixture-Anon',
-    patientPersistentId: 'hl7-fixture-persistent-id-not-real',
+    patientPersistentId:
+      typeof HA.newPersistentPatientId === 'function'
+        ? HA.newPersistentPatientId()
+        : 'd4e5f6a7-b8c9-4012-d345-6789abcdef01',
     includeProvenance: false,
     includeDevices: true,
   });

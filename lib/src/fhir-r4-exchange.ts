@@ -36,9 +36,48 @@ export const FHIR_EXCHANGE_PURPOSES: readonly FhirExchangePurpose[] = [
 ] as const;
 
 /** Engine id for exchange gate (bump when rules change) */
-export const FHIR_EXCHANGE_GATE_ENGINE = 'health-analyzer-r4-exchange-gate-v3';
+export const FHIR_EXCHANGE_GATE_ENGINE = 'health-analyzer-r4-exchange-gate-v4';
 
 const EXT_SOURCE_NAME = 'urn:health-analyzer:extension:source-name';
+
+/**
+ * Strong local pseudonym ID for personal-handoff (v1.63).
+ * Accepts:
+ * - RFC4122 UUID (any version 1–8), with or without braces
+ * - 32 hex chars (UUID without hyphens)
+ * - `pid_` + ≥22 url-safe random chars (generated format)
+ * Rejects weak values like "1", "test", "local-patient".
+ */
+export function isStrongPersistentPatientId(raw: unknown): boolean {
+  const s = String(raw || '').trim();
+  if (!s) return false;
+  if (s === 'local-patient') return false;
+  if (s.length < 16) return false;
+  // UUID with optional braces
+  const uuid =
+    /^\{?[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\}?$/i;
+  if (uuid.test(s)) return true;
+  // UUID without hyphens
+  if (/^[0-9a-f]{32}$/i.test(s)) return true;
+  // Generated prefix form
+  if (/^pid_[A-Za-z0-9_-]{22,}$/.test(s)) return true;
+  return false;
+}
+
+/** Generate a strong local-persisted patient pseudonym id (UUID preferred). */
+export function newPersistentPatientId(): string {
+  const g = globalThis as unknown as {
+    crypto?: { randomUUID?: () => string };
+  };
+  if (g.crypto && typeof g.crypto.randomUUID === 'function') {
+    return g.crypto.randomUUID();
+  }
+  // fallback: pid_ + 24 hex
+  const hex = (n: number) => n.toString(16).padStart(2, '0');
+  const bytes = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+  return `pid_${Array.from(bytes, hex).join('').slice(0, 24)}`;
+}
 
 export interface FhirExchangeValidation {
   ok: boolean;
@@ -558,21 +597,18 @@ export function validateFhirR4ExchangeGate(
           );
         }
       }
-      // Patient must carry non-legacy persistent identifier for cross-bundle handoff
+      // Patient must carry a *strong* persistent identifier (v1.63 — reject weak ids like "1")
       for (let i = 0; i < entry.length; i++) {
         const r = (entry[i]?.resource || null) as Record<string, unknown> | null;
         if (!r || r.resourceType !== 'Patient') continue;
         const ids = Array.isArray(r.identifier) ? r.identifier : [];
-        const hasPersistent = ids.some(
-          (idObj: { value?: string }) =>
-            idObj &&
-            String(idObj.value || '').trim() &&
-            String(idObj.value || '') !== 'local-patient'
+        const strong = ids.some(
+          (idObj: { value?: string }) => idObj && isStrongPersistentPatientId(idObj.value)
         );
-        if (!hasPersistent) {
+        if (!strong) {
           pushIssue(
             issues,
-            `Patient/${String(r.id || i)} personal-handoff requires persistent identifier (random local id; not local-patient)`
+            `Patient/${String(r.id || i)} personal-handoff requires strong persistent id (UUID or pid_…; not weak values like "1" or local-patient)`
           );
         }
       }

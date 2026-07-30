@@ -344,10 +344,22 @@ test.describe('health-analyzer PWA smoke', () => {
       expect(purposeTag && purposeTag.code).toBe('anonymous-share');
     }
 
-    // --- External exchange personal-handoff without id: download blocked ---
+    // --- External exchange personal-handoff: weak id blocked ---
     await page.locator('#fhir-purpose-handoff').check();
     await page.locator('#fhir-patient-display').fill('E2E-Handoff');
-    await page.locator('#fhir-patient-persistent-id').fill('');
+    // field is readonly; inject weak id via evaluate
+    await page.evaluate(() => {
+      const el = document.getElementById('fhir-patient-persistent-id');
+      if (el) {
+        el.removeAttribute('readonly');
+        el.value = '1';
+      }
+      try {
+        localStorage.setItem('health-analyzer-fhir-patient-persistent-id', '1');
+      } catch {
+        /* ignore */
+      }
+    });
     {
       let gotDownload = false;
       page.once('download', () => {
@@ -356,13 +368,16 @@ test.describe('health-analyzer PWA smoke', () => {
       await page.locator('#btn-export-fhir').click();
       await expect
         .poll(async () => page.locator('#export-status').innerText(), { timeout: 8_000 })
-        .toMatch(/交换门禁|未下载|blocked|exchange|失败|FAIL|伪名|persistent/i);
+        .toMatch(/交换门禁|未下载|blocked|exchange|失败|FAIL|伪名|persistent|UUID|weak|弱/i);
       await page.waitForTimeout(400);
       expect(gotDownload).toBe(false);
     }
 
-    // --- personal-handoff with persistent id: download ok ---
-    await page.locator('#fhir-patient-persistent-id').fill('e2e-persistent-uuid-001');
+    // --- personal-handoff: generate strong UUID then download ok ---
+    await page.locator('#btn-fhir-pid-generate').click();
+    const generatedPid = await page.locator('#fhir-patient-persistent-id').inputValue();
+    expect(generatedPid.length).toBeGreaterThan(15);
+    expect(generatedPid).not.toBe('1');
     {
       const [download] = await Promise.all([
         page.waitForEvent('download', { timeout: 15_000 }),
@@ -376,7 +391,7 @@ test.describe('health-analyzer PWA smoke', () => {
         .find((r) => r && r.resourceType === 'Patient');
       expect(patient).toBeTruthy();
       expect(
-        (patient.identifier || []).some((id) => id && id.value === 'e2e-persistent-uuid-001')
+        (patient.identifier || []).some((id) => id && id.value === generatedPid)
       ).toBe(true);
     }
 

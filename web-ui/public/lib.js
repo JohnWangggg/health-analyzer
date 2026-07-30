@@ -110,12 +110,14 @@ var HealthAnalyzer = (() => {
     isFutureDate: () => isFutureDate,
     isHealthEventKind: () => isHealthEventKind,
     isSourceNameLeakText: () => isSourceNameLeakText,
+    isStrongPersistentPatientId: () => isStrongPersistentPatientId,
     joinCsvBundle: () => joinCsvBundle,
     mergeEcgEntries: () => mergeEcgEntries,
     mergeExternalCsvIntoData: () => mergeExternalCsvIntoData,
     mergeHaeIntoData: () => mergeHaeIntoData,
     mergeHaeJsonIntoData: () => mergeHaeJsonIntoData,
     newBundleUuid: () => newBundleUuid,
+    newPersistentPatientId: () => newPersistentPatientId,
     normalizeFhirExchangePurpose: () => normalizeFhirExchangePurpose,
     normalizeFhirExportTier: () => normalizeFhirExportTier,
     normalizeHaeMetricName: () => normalizeHaeMetricName,
@@ -7809,8 +7811,29 @@ List 5\u20137 working hypotheses that best fit the available data
     "anonymous-share",
     "personal-handoff"
   ];
-  var FHIR_EXCHANGE_GATE_ENGINE = "health-analyzer-r4-exchange-gate-v3";
+  var FHIR_EXCHANGE_GATE_ENGINE = "health-analyzer-r4-exchange-gate-v4";
   var EXT_SOURCE_NAME = "urn:health-analyzer:extension:source-name";
+  function isStrongPersistentPatientId(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return false;
+    if (s === "local-patient") return false;
+    if (s.length < 16) return false;
+    const uuid = /^\{?[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\}?$/i;
+    if (uuid.test(s)) return true;
+    if (/^[0-9a-f]{32}$/i.test(s)) return true;
+    if (/^pid_[A-Za-z0-9_-]{22,}$/.test(s)) return true;
+    return false;
+  }
+  function newPersistentPatientId() {
+    const g = globalThis;
+    if (g.crypto && typeof g.crypto.randomUUID === "function") {
+      return g.crypto.randomUUID();
+    }
+    const hex = (n) => n.toString(16).padStart(2, "0");
+    const bytes = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+    return `pid_${Array.from(bytes, hex).join("").slice(0, 24)}`;
+  }
   var URN_UUID_RE = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   var OBS_STATUS = /* @__PURE__ */ new Set([
     "registered",
@@ -8225,13 +8248,13 @@ List 5\u20137 working hypotheses that best fit the available data
           const r = entry[i]?.resource || null;
           if (!r || r.resourceType !== "Patient") continue;
           const ids = Array.isArray(r.identifier) ? r.identifier : [];
-          const hasPersistent = ids.some(
-            (idObj) => idObj && String(idObj.value || "").trim() && String(idObj.value || "") !== "local-patient"
+          const strong = ids.some(
+            (idObj) => idObj && isStrongPersistentPatientId(idObj.value)
           );
-          if (!hasPersistent) {
+          if (!strong) {
             pushIssue(
               issues,
-              `Patient/${String(r.id || i)} personal-handoff requires persistent identifier (random local id; not local-patient)`
+              `Patient/${String(r.id || i)} personal-handoff requires strong persistent id (UUID or pid_\u2026; not weak values like "1" or local-patient)`
             );
           }
         }
@@ -8246,7 +8269,7 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.9.2";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.9.3";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
@@ -8762,7 +8785,7 @@ List 5\u20137 working hypotheses that best fit the available data
       ]
     };
     const pid = opts?.persistentId != null && String(opts.persistentId).trim() ? String(opts.persistentId).trim() : "";
-    if (pid && pid !== PATIENT_IDENTIFIER_VALUE_LEGACY) {
+    if (pid && isStrongPersistentPatientId(pid)) {
       patient.identifier = [
         {
           system: PATIENT_ID_SYSTEM,
@@ -9816,7 +9839,12 @@ List 5\u20137 working hypotheses that best fit the available data
       wantPatient = true;
     }
     const persistentIdRaw = opts.patientPersistentId != null && String(opts.patientPersistentId).trim() ? String(opts.patientPersistentId).trim() : "";
-    const persistentId = persistentIdRaw && persistentIdRaw !== PATIENT_IDENTIFIER_VALUE_LEGACY ? persistentIdRaw : "";
+    const persistentId = isStrongPersistentPatientId(persistentIdRaw) ? persistentIdRaw : "";
+    if (isExchange && exchangePurpose === "personal-handoff" && persistentIdRaw && !persistentId) {
+      notes.push(
+        `personal-handoff: patientPersistentId rejected as weak ("${persistentIdRaw.slice(0, 24)}") \u2014 need UUID or pid_\u2026`
+      );
+    }
     let patientResource = null;
     let patientDisplayText = "Local patient";
     if (wantPatient) {
@@ -9825,14 +9853,15 @@ List 5\u20137 working hypotheses that best fit the available data
         display: patientDisplayText,
         gender: opts.patientGender,
         birthYear: opts.patientBirthYear,
-        persistentId: persistentId || null
+        // For handoff, only write strong id; archive may still omit identifier
+        persistentId: isExchange && exchangePurpose === "personal-handoff" ? persistentId || null : persistentIdRaw && persistentIdRaw !== PATIENT_IDENTIFIER_VALUE_LEGACY ? persistentId || null : null
       });
       notes.push(
         "includePatient: local pseudonym Patient (not verified identity); subjects wire to Patient fullUrl"
       );
       if (isExchange && exchangePurpose === "personal-handoff" && !persistentId) {
         notes.push(
-          "personal-handoff: patientPersistentId missing \u2014 exchange-gate will block (need random local id)"
+          "personal-handoff: patientPersistentId missing or weak \u2014 exchange-gate will block (generate UUID locally)"
         );
       }
     } else if (opts.patientDisplay && !(isExchange && exchangePurpose === "anonymous-share")) {

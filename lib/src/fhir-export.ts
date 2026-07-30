@@ -13,6 +13,7 @@
  *          外部交换分 anonymous-share / personal-handoff
  * - v1.61：逐条保留 sourceName；Device 优先用逐条来源；stripPrivateFhirExtensions 供 HL7 校验
  * - v1.62：匿名分享净化层 — 移除 sourceName 扩展/note、导入文件名等直接标识
+ * - v1.63：个人转交伪名 ID 须为强随机 UUID/pid_…；本机生成与持久化
  * - 项目自检 validateFhirExportBundle ≠ 官方 HL7 校验器；交换门禁为独立规则引擎
  */
 
@@ -36,6 +37,7 @@ import {
   FhirExchangePurpose,
   FhirExchangeValidation,
   FHIR_EXCHANGE_GATE_ENGINE,
+  isStrongPersistentPatientId,
   normalizeFhirExportTier,
   normalizeFhirExchangePurpose,
   validateFhirR4ExchangeGate,
@@ -51,6 +53,8 @@ export {
   FHIR_EXCHANGE_PURPOSES,
   FHIR_EXCHANGE_GATE_ENGINE,
   isValidR4DateTime,
+  isStrongPersistentPatientId,
+  newPersistentPatientId,
   normalizeFhirExportTier,
   normalizeFhirExchangePurpose,
   validateFhirR4ExchangeGate,
@@ -60,7 +64,7 @@ export {
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.9.2';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.9.3';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
@@ -931,7 +935,8 @@ export function buildLocalPatientResource(opts?: {
     opts?.persistentId != null && String(opts.persistentId).trim()
       ? String(opts.persistentId).trim()
       : '';
-  if (pid && pid !== PATIENT_IDENTIFIER_VALUE_LEGACY) {
+  // v1.63: only persist strong ids (UUID / pid_…) — never weak "1" or local-patient
+  if (pid && isStrongPersistentPatientId(pid)) {
     patient.identifier = [
       {
         system: PATIENT_ID_SYSTEM,
@@ -2284,10 +2289,20 @@ export function buildFhirExportBundle(
     opts.patientPersistentId != null && String(opts.patientPersistentId).trim()
       ? String(opts.patientPersistentId).trim()
       : '';
-  const persistentId =
-    persistentIdRaw && persistentIdRaw !== PATIENT_IDENTIFIER_VALUE_LEGACY
-      ? persistentIdRaw
-      : '';
+  // v1.63: only accept strong ids for writing Patient.identifier (UUID / pid_…)
+  const persistentId = isStrongPersistentPatientId(persistentIdRaw)
+    ? persistentIdRaw
+    : '';
+  if (
+    isExchange &&
+    exchangePurpose === 'personal-handoff' &&
+    persistentIdRaw &&
+    !persistentId
+  ) {
+    notes.push(
+      `personal-handoff: patientPersistentId rejected as weak ("${persistentIdRaw.slice(0, 24)}") — need UUID or pid_…`
+    );
+  }
 
   let patientResource: Record<string, unknown> | null = null;
   let patientDisplayText = 'Local patient';
@@ -2300,14 +2315,20 @@ export function buildFhirExportBundle(
       display: patientDisplayText,
       gender: opts.patientGender,
       birthYear: opts.patientBirthYear,
-      persistentId: persistentId || null,
+      // For handoff, only write strong id; archive may still omit identifier
+      persistentId:
+        isExchange && exchangePurpose === 'personal-handoff'
+          ? persistentId || null
+          : persistentIdRaw && persistentIdRaw !== PATIENT_IDENTIFIER_VALUE_LEGACY
+            ? persistentId || null // archive: only strong when provided
+            : null,
     });
     notes.push(
       'includePatient: local pseudonym Patient (not verified identity); subjects wire to Patient fullUrl'
     );
     if (isExchange && exchangePurpose === 'personal-handoff' && !persistentId) {
       notes.push(
-        'personal-handoff: patientPersistentId missing — exchange-gate will block (need random local id)'
+        'personal-handoff: patientPersistentId missing or weak — exchange-gate will block (generate UUID locally)'
       );
     }
   } else if (opts.patientDisplay && !(isExchange && exchangePurpose === 'anonymous-share')) {

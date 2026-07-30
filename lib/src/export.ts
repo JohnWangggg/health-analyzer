@@ -41,6 +41,8 @@ export {
   dayEffectivePeriod,
   isValidFhirDateTime,
   isValidR4DateTime,
+  isStrongPersistentPatientId,
+  newPersistentPatientId,
   shortImportBatchIdForProv,
   buildLocalPatientResource,
   buildLocalDeviceResource,

@@ -3825,7 +3825,7 @@
 
       // Patient / handoff identity
       // anonymous-share: lib forces no Patient
-      // personal-handoff: require Patient + persistent id
+      // personal-handoff: require Patient + strong local UUID (v1.63)
       const isHandoff = isExchange && exchangePurpose === 'personal-handoff';
       if (isHandoff) {
         opts.includePatient = true;
@@ -3838,12 +3838,19 @@
           raw ||
           t('export.fhir.patientDefault') ||
           'Local patient';
-        const pidEl = $('fhir-patient-persistent-id');
-        const pid =
-          pidEl && pidEl.value != null ? String(pidEl.value).trim() : '';
-        if (pid) {
-          opts.patientPersistentId = pid;
+        // Prefer field / storage strong id. Empty → auto-generate.
+        // Weak values are passed through so lib/gate can block (no silent replace).
+        let pid = getFhirPersistentIdField();
+        if (!pid) {
+          pid = loadFhirPersistentIdFromStorage();
         }
+        if (!pid) {
+          pid = ensureFhirPersistentId({ generateIfMissing: true });
+        } else if (isFhirStrongPid(pid)) {
+          saveFhirPersistentIdToStorage(pid);
+          setFhirPersistentIdField(pid);
+        }
+        if (pid) opts.patientPersistentId = pid;
       } else if ($('fhir-include-patient') && $('fhir-include-patient').checked) {
         // Optional local pseudonym Patient for archive / non-handoff only
         opts.includePatient = true;
@@ -3856,10 +3863,8 @@
           raw ||
           t('export.fhir.patientDefault') ||
           'Local patient';
-        const pidEl = $('fhir-patient-persistent-id');
-        const pid =
-          pidEl && pidEl.value != null ? String(pidEl.value).trim() : '';
-        if (pid) {
+        const pid = getFhirPersistentIdField();
+        if (pid && isFhirStrongPid(pid)) {
           opts.patientPersistentId = pid;
         }
       }
@@ -6425,6 +6430,132 @@
   $('btn-export-fhir')?.addEventListener('click', () => {
     exportFhirBundle().catch((e) => console.warn('exportFhirBundle', e));
   });
+
+  // v1.63: local persistent patient pseudonym id (UUID) lifecycle
+  const FHIR_PID_LS_KEY = 'health-analyzer-fhir-patient-persistent-id';
+
+  function isFhirStrongPid(raw) {
+    if (
+      window.HealthAnalyzer &&
+      typeof window.HealthAnalyzer.isStrongPersistentPatientId === 'function'
+    ) {
+      return !!window.HealthAnalyzer.isStrongPersistentPatientId(raw);
+    }
+    const s = String(raw || '').trim();
+    return (
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        s
+      ) || /^pid_[A-Za-z0-9_-]{22,}$/.test(s)
+    );
+  }
+
+  function mintFhirPersistentId() {
+    if (
+      window.HealthAnalyzer &&
+      typeof window.HealthAnalyzer.newPersistentPatientId === 'function'
+    ) {
+      return String(window.HealthAnalyzer.newPersistentPatientId());
+    }
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    return `pid_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 14)}`;
+  }
+
+  function getFhirPersistentIdField() {
+    const el = $('fhir-patient-persistent-id');
+    return el && el.value != null ? String(el.value).trim() : '';
+  }
+
+  function setFhirPersistentIdField(id) {
+    const el = $('fhir-patient-persistent-id');
+    if (el) el.value = id || '';
+  }
+
+  function loadFhirPersistentIdFromStorage() {
+    try {
+      return String(localStorage.getItem(FHIR_PID_LS_KEY) || '').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  function saveFhirPersistentIdToStorage(id) {
+    try {
+      if (id) localStorage.setItem(FHIR_PID_LS_KEY, id);
+      else localStorage.removeItem(FHIR_PID_LS_KEY);
+    } catch (e) {
+      console.warn('save fhir pid failed', e);
+    }
+  }
+
+  /** Load existing strong id, or generate+persist when generateIfMissing. */
+  function ensureFhirPersistentId(opts) {
+    const generateIfMissing = !opts || opts.generateIfMissing !== false;
+    let id = getFhirPersistentIdField();
+    if (!isFhirStrongPid(id)) id = loadFhirPersistentIdFromStorage();
+    if (!isFhirStrongPid(id) && generateIfMissing) {
+      id = mintFhirPersistentId();
+      saveFhirPersistentIdToStorage(id);
+    }
+    if (isFhirStrongPid(id)) {
+      setFhirPersistentIdField(id);
+      saveFhirPersistentIdToStorage(id);
+      return id;
+    }
+    setFhirPersistentIdField('');
+    return '';
+  }
+
+  function initFhirPersistentIdUi() {
+    // hydrate field from localStorage without forcing generation until handoff export
+    const stored = loadFhirPersistentIdFromStorage();
+    if (isFhirStrongPid(stored)) setFhirPersistentIdField(stored);
+
+    $('btn-fhir-pid-generate')?.addEventListener('click', () => {
+      const id = mintFhirPersistentId();
+      setFhirPersistentIdField(id);
+      saveFhirPersistentIdToStorage(id);
+      showToast(t('export.fhir.pidGenerated') || '已生成本机伪名 UUID', {
+        ok: true,
+        ms: 2200,
+      });
+    });
+
+    $('btn-fhir-pid-copy')?.addEventListener('click', async () => {
+      const id = getFhirPersistentIdField() || ensureFhirPersistentId({ generateIfMissing: true });
+      if (!id) {
+        showToast(t('export.fhir.pidEmpty') || '尚无伪名 ID', { ms: 2000 });
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(id);
+        showToast(t('export.fhir.pidCopied') || '伪名 ID 已复制', {
+          ok: true,
+          ms: 2000,
+        });
+      } catch {
+        showToast(t('export.fhir.pidCopyFail') || '复制失败', { ms: 2000 });
+      }
+    });
+
+    $('btn-fhir-pid-rotate')?.addEventListener('click', () => {
+      const ok = window.confirm(
+        t('export.fhir.pidRotateConfirm') ||
+          '轮换后旧 Bundle 将无法与新伪名 ID 关联。确定生成新 UUID？'
+      );
+      if (!ok) return;
+      const id = mintFhirPersistentId();
+      setFhirPersistentIdField(id);
+      saveFhirPersistentIdToStorage(id);
+      showToast(t('export.fhir.pidRotated') || '已轮换本机伪名 UUID', {
+        ok: true,
+        ms: 2400,
+      });
+    });
+  }
+
+  initFhirPersistentIdUi();
   $('btn-provenance-preview')?.addEventListener('click', () => {
     toggleProvenancePreview().catch((e) => console.warn('provenance preview', e));
   });

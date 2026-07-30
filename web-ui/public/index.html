@@ -518,9 +518,15 @@
             <span data-i18n="export.fhir.purposeHandoff">个人数据转交（须 Patient + 本机随机伪名 ID）</span>
           </label>
           <label class="date-field" for="fhir-patient-persistent-id">
-            <span data-i18n="export.fhir.patientPersistentId">本机伪名 ID（个人转交必填）</span>
-            <input type="text" id="fhir-patient-persistent-id" maxlength="80" placeholder="例如 本机随机 UUID" data-i18n-placeholder="export.fhir.patientPersistentIdPh" />
+            <span data-i18n="export.fhir.patientPersistentId">本机伪名 ID（个人转交必填，须 UUID）</span>
+            <input type="text" id="fhir-patient-persistent-id" maxlength="80" readonly placeholder="点击生成本机 UUID" data-i18n-placeholder="export.fhir.patientPersistentIdPh" autocomplete="off" />
           </label>
+          <div class="export-actions fhir-pid-actions">
+            <button type="button" id="btn-fhir-pid-generate" class="btn-ghost btn-sm" data-i18n="export.fhir.pidGenerate">生成</button>
+            <button type="button" id="btn-fhir-pid-copy" class="btn-ghost btn-sm" data-i18n="export.fhir.pidCopy">复制</button>
+            <button type="button" id="btn-fhir-pid-rotate" class="btn-ghost btn-sm" data-i18n="export.fhir.pidRotate">轮换</button>
+          </div>
+          <p class="hint compact-hint" data-i18n="export.fhir.pidHint">伪名 ID 仅存本机 localStorage，用于跨 Bundle 关联；勿使用弱口令。轮换后旧导出无法与新 ID 合并。</p>
         </fieldset>
         <label class="check-inline" for="fhir-include-clinical-doc">
           <input type="checkbox" id="fhir-include-clinical-doc" />
@@ -658,7 +664,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.62</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.63</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

@@ -143,15 +143,38 @@ ok(
   'gate mentions persistent id / personal-handoff'
 );
 
+const strongPid =
+  typeof HA.newPersistentPatientId === 'function'
+    ? HA.newPersistentPatientId()
+    : 'c3d4e5f6-a7b8-4901-c234-56789abcdef0';
+ok(
+  typeof HA.isStrongPersistentPatientId === 'function'
+    ? HA.isStrongPersistentPatientId(strongPid)
+    : true,
+  'strong pid helper accepts generated id'
+);
+ok(
+  typeof HA.isStrongPersistentPatientId !== 'function' ||
+    !HA.isStrongPersistentPatientId('1'),
+  'strong pid helper rejects weak "1"'
+);
 const handoffOk = HA.buildFhirExportBundle(analysis, {
   exportTier: 'external-exchange',
   exchangePurpose: 'personal-handoff',
   patientDisplay: 'X',
-  patientPersistentId: 'pid-exchange-check-1',
+  patientPersistentId: strongPid,
   includeProvenance: false,
 });
-ok(handoffOk.exchangeReady === true, 'handoff with persistent id passes');
+ok(handoffOk.exchangeReady === true, 'handoff with strong UUID passes');
 ok(handoffOk.counts.patients === 1, 'handoff has Patient');
+const handoffWeak = HA.buildFhirExportBundle(analysis, {
+  exportTier: 'external-exchange',
+  exchangePurpose: 'personal-handoff',
+  patientDisplay: 'X',
+  patientPersistentId: '1',
+  includeProvenance: false,
+});
+ok(handoffWeak.exchangeReady === false, 'handoff with weak id "1" is blocked');
 
 // Independent gate rejects bad fullUrl
 console.log('\nexchange-gate rejects non-urn fullUrl');
