@@ -118,8 +118,17 @@ export {
   generateClinicalReviewHtml,
   CGM_REPORT_DAYS,
   CGM_MIN_COVERAGE_PCT,
+  FHIR_EXPORT_PROFILE,
+  FHIR_R4,
+  toIsoDateTime,
+  buildFhirExportBundle,
 } from './export';
-export type { WeeklyReportOptions, ClinicalReportOptions } from './export';
+export type {
+  WeeklyReportOptions,
+  ClinicalReportOptions,
+  FhirExportOptions,
+  FhirExportResult,
+} from './export';
 
 export {
   parseWeightScaleCsv,

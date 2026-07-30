@@ -28,6 +28,13 @@ export type {
   HomeBpMode,
   ClinicalReportOptions,
 } from './clinical-report';
+export {
+  FHIR_EXPORT_PROFILE,
+  FHIR_R4,
+  toIsoDateTime,
+  buildFhirExportBundle,
+} from './fhir-export';
+export type { FhirExportOptions, FhirExportResult } from './fhir-export';
 
 function csvEscape(value: unknown): string {
   if (value == null) return '';

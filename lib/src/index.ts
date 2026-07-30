@@ -19,3 +19,4 @@ export * from './csv-import';
 export * from './hae-import';
 export * from './events';
 export * from './provenance';
+export * from './fhir-export';

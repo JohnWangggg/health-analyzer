@@ -29,6 +29,8 @@ var HealthAnalyzer = (() => {
     CGM_MIN_COVERAGE_PCT: () => CGM_MIN_COVERAGE_PCT,
     CGM_REPORT_DAYS: () => CGM_REPORT_DAYS,
     DEFAULT_RECOVERY_WEIGHTS: () => DEFAULT_RECOVERY_WEIGHTS,
+    FHIR_EXPORT_PROFILE: () => FHIR_EXPORT_PROFILE,
+    FHIR_R4: () => FHIR_R4,
     HEALTH_EVENT_KINDS: () => HEALTH_EVENT_KINDS,
     MAIN_PROMPT_TEMPLATE: () => MAIN_PROMPT_TEMPLATE,
     MAIN_PROMPT_TEMPLATE_EN: () => MAIN_PROMPT_TEMPLATE_EN,
@@ -45,6 +47,7 @@ var HealthAnalyzer = (() => {
     buildAnalysisSnapshot: () => buildAnalysisSnapshot,
     buildCgm14DayReport: () => buildCgm14DayReport,
     buildExportBundle: () => buildExportBundle,
+    buildFhirExportBundle: () => buildFhirExportBundle,
     buildInsightBullets: () => buildInsightBullets,
     calcBloodPressureStats: () => calcBloodPressureStats,
     calcBpStats: () => calcBloodPressureStats,
@@ -125,6 +128,7 @@ var HealthAnalyzer = (() => {
     shortWorkoutType: () => shortWorkoutType,
     sortHealthEvents: () => sortHealthEvents,
     summarizeHrvByDay: () => summarizeHrvByDay,
+    toIsoDateTime: () => toIsoDateTime,
     toMmolL: () => toMmolL,
     toTraditionalText: () => toTraditionalText,
     toTraditionalTitle: () => toTraditionalTitle,
@@ -2174,9 +2178,9 @@ var HealthAnalyzer = (() => {
     const sessions = [...workouts].sort((a, b) => a.startDate.localeCompare(b.startDate));
     const last = sessions[sessions.length - 1];
     const latestDate = referenceDate && /^\d{4}-\d{2}-\d{2}$/.test(referenceDate) ? referenceDate : last.date;
-    const inWindow = (s, days) => daysBetween(s.date, latestDate) <= days - 1 && s.date <= latestDate;
-    const s30 = sessions.filter((s) => inWindow(s, 30));
-    const s7 = sessions.filter((s) => inWindow(s, 7));
+    const inWindow2 = (s, days) => daysBetween(s.date, latestDate) <= days - 1 && s.date <= latestDate;
+    const s30 = sessions.filter((s) => inWindow2(s, 30));
+    const s7 = sessions.filter((s) => inWindow2(s, 7));
     const sumDur = (list) => list.reduce((a, s) => a + (s.durationMin || 0), 0);
     const sumKcal = (list) => list.reduce((a, s) => a + (s.activeKcal != null && Number.isFinite(s.activeKcal) ? s.activeKcal : 0), 0);
     const byTypeMap = /* @__PURE__ */ new Map();
@@ -7760,6 +7764,435 @@ List 5\u20137 working hypotheses that best fit the available data
     flushList();
     flushTable();
     return out.join("\n");
+  }
+
+  // src/fhir-export.ts
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1";
+  var FHIR_R4 = "http://hl7.org/fhir";
+  var LOINC = "http://loinc.org";
+  var UCUM = "http://unitsofmeasure.org";
+  var META_SOURCE = "urn:health-analyzer:local";
+  var DEVICE_NOTE = "local Apple Health / HAE import";
+  var DEFAULT_MAX_CGM = 2e3;
+  var DEFAULT_MAX_BP = 500;
+  var DEFAULT_MAX_WEIGHT = 500;
+  var DEFAULT_MAX_STEPS_DAYS = 366;
+  var DEFAULT_MAX_RESTING_HR_DAYS = 366;
+  function toIsoDateTime(appleDt) {
+    if (appleDt == null) return "";
+    const s = String(appleDt).trim();
+    if (!s) return "";
+    if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+      const withColonTz = s.replace(/([+-]\d{2})(\d{2})$/, "$1:$2");
+      const ms2 = Date.parse(withColonTz);
+      if (Number.isFinite(ms2)) return new Date(ms2).toISOString();
+      return withColonTz;
+    }
+    const m = s.match(
+      /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\s*([+-]\d{2}):?(\d{2}))?/
+    );
+    if (m) {
+      const date = m[1];
+      const time = m[2];
+      if (m[3] != null && m[4] != null) {
+        const iso = `${date}T${time}${m[3]}:${m[4]}`;
+        const ms3 = Date.parse(iso);
+        if (Number.isFinite(ms3)) return new Date(ms3).toISOString();
+        return iso;
+      }
+      const localish = `${date}T${time}`;
+      const ms2 = Date.parse(localish);
+      if (Number.isFinite(ms2)) return new Date(ms2).toISOString();
+      return localish;
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+      return `${s}T00:00:00.000Z`;
+    }
+    const ms = Date.parse(s.replace(/([+-]\d{2})(\d{2})$/, "$1:$2"));
+    if (Number.isFinite(ms)) return new Date(ms).toISOString();
+    return s;
+  }
+  function inWindow(dateYmd, start, end) {
+    if (!dateYmd || dateYmd.length < 10) return false;
+    const d = dateYmd.slice(0, 10);
+    if (start && d < start) return false;
+    if (end && d > end) return false;
+    return true;
+  }
+  function sampleEvenly(items, max) {
+    if (max <= 0) return [];
+    if (items.length <= max) return items.slice();
+    if (max === 1) return [items[0]];
+    const out = [];
+    const last = items.length - 1;
+    for (let i = 0; i < max; i++) {
+      const idx = Math.round(i * last / (max - 1));
+      out.push(items[idx]);
+    }
+    const deduped = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (let i = 0; i < out.length; i++) {
+      const idx = Math.round(i * last / (max - 1));
+      if (seen.has(idx)) continue;
+      seen.add(idx);
+      deduped.push(out[i]);
+    }
+    if (deduped.length < max) {
+      for (let i = 0; i < items.length && deduped.length < max; i++) {
+        if (!seen.has(i)) {
+          seen.add(i);
+          deduped.push(items[i]);
+        }
+      }
+    }
+    return deduped;
+  }
+  function loincCoding(code, display) {
+    return {
+      coding: [
+        {
+          system: LOINC,
+          code,
+          display
+        }
+      ],
+      text: display
+    };
+  }
+  function quantity(value, unit, code, system = UCUM) {
+    return {
+      value,
+      unit,
+      system,
+      code
+    };
+  }
+  function baseObservation(id, code, effectiveDateTime) {
+    return {
+      resourceType: "Observation",
+      id,
+      meta: {
+        source: META_SOURCE,
+        profile: [`${FHIR_R4}/StructureDefinition/Observation`],
+        tag: [
+          {
+            system: "urn:health-analyzer:tag",
+            code: FHIR_EXPORT_PROFILE,
+            display: "Experimental local FHIR-shaped export"
+          }
+        ]
+      },
+      status: "final",
+      code,
+      effectiveDateTime,
+      note: [{ text: DEVICE_NOTE }]
+    };
+  }
+  function entryFor(resource) {
+    const rt = String(resource.resourceType || "Resource");
+    const id = String(resource.id || "");
+    const fullUrl = id ? `${rt}/${id}` : `urn:uuid:${rt}-${Math.random().toString(36).slice(2, 10)}`;
+    return { fullUrl, resource };
+  }
+  function batchDisplay(b) {
+    const fileNames = (b.files || []).map((f) => f.name).filter(Boolean);
+    const filesPart = fileNames.length === 0 ? "no-files" : fileNames.length <= 3 ? fileNames.join(", ") : `${fileNames.slice(0, 3).join(", ")} +${fileNames.length - 3}`;
+    return `${b.source}: ${filesPart}`;
+  }
+  function buildBpObservation(r, index) {
+    const id = `obs-bp-${index}`;
+    const effective = toIsoDateTime(r.datetime || r.date);
+    const obs = baseObservation(id, loincCoding("85354-9", "Blood pressure panel"), effective);
+    obs.component = [
+      {
+        code: loincCoding("8480-6", "Systolic blood pressure"),
+        valueQuantity: quantity(r.systolic, "mmHg", "mm[Hg]")
+      },
+      {
+        code: loincCoding("8462-4", "Diastolic blood pressure"),
+        valueQuantity: quantity(r.diastolic, "mmHg", "mm[Hg]")
+      }
+    ];
+    return obs;
+  }
+  function buildWeightObservation(r, index) {
+    const id = `obs-weight-${index}`;
+    const effective = toIsoDateTime(r.datetime || r.date);
+    const obs = baseObservation(id, loincCoding("29463-7", "Body weight"), effective);
+    obs.valueQuantity = quantity(r.value, "kg", "kg");
+    return obs;
+  }
+  function buildGlucoseObservation(p, index) {
+    const id = `obs-glucose-${index}`;
+    const effective = toIsoDateTime(p.datetime);
+    const obs = baseObservation(id, loincCoding("2339-0", "Glucose [Moles/volume] in Blood"), effective);
+    obs.valueQuantity = quantity(p.value, "mmol/L", "mmol/L");
+    return obs;
+  }
+  function buildStepsObservation(date, steps, index) {
+    const id = `obs-steps-${index}`;
+    const effective = toIsoDateTime(date);
+    const obs = baseObservation(
+      id,
+      loincCoding("55423-8", "Number of steps in 24 hour Measured"),
+      effective
+    );
+    obs.valueQuantity = quantity(steps, "/d", "/d");
+    return obs;
+  }
+  function buildRestingHrObservation(date, bpm, index) {
+    const id = `obs-resting-hr-${index}`;
+    const effective = toIsoDateTime(date);
+    const obs = baseObservation(id, loincCoding("8867-4", "Heart rate"), effective);
+    obs.valueQuantity = quantity(bpm, "beats/min", "/min");
+    obs.note.push({ text: "resting heart rate (daily summary)" });
+    return obs;
+  }
+  function buildFhirExportBundle(analysis, options) {
+    const notes = [];
+    notes.push(
+      "experimental FHIR R4-shaped local export; not for unvalidated clinical submission"
+    );
+    notes.push(
+      "Not a certified FHIR implementation; resources are trial-use shaped for personal archive only."
+    );
+    notes.push("Local-only JSON; no hospital system integration or remote POST.");
+    const opts = options || {};
+    const maxCgm = Math.max(0, opts.maxCgm ?? DEFAULT_MAX_CGM);
+    const maxBp = Math.max(0, opts.maxBp ?? DEFAULT_MAX_BP);
+    const maxWeight = Math.max(0, opts.maxWeight ?? DEFAULT_MAX_WEIGHT);
+    const maxStepsDays = Math.max(0, opts.maxStepsDays ?? DEFAULT_MAX_STEPS_DAYS);
+    const maxRestingHrDays = DEFAULT_MAX_RESTING_HR_DAYS;
+    const range = analysis.dateRange || { start: "", end: "" };
+    const windowStart = (opts.windowStart != null && opts.windowStart !== "" ? String(opts.windowStart).slice(0, 10) : range.start || "").slice(0, 10);
+    const windowEnd = (opts.windowEnd != null && opts.windowEnd !== "" ? String(opts.windowEnd).slice(0, 10) : range.end || "").slice(0, 10);
+    if (windowStart || windowEnd) {
+      notes.push(
+        `analysis window filter: ${windowStart || "\u2026"} .. ${windowEnd || "\u2026"} (inclusive YYYY-MM-DD)`
+      );
+    }
+    const data = analysis.data;
+    const byType = {
+      bloodPressure: 0,
+      bodyWeight: 0,
+      glucose: 0,
+      steps: 0,
+      restingHeartRate: 0
+    };
+    const observations = [];
+    const bpAll = (data?.bloodPressure || []).filter(
+      (r) => inWindow(r.date || getDate(r.datetime), windowStart, windowEnd)
+    );
+    let bp = bpAll;
+    if (bpAll.length > maxBp) {
+      bp = sampleEvenly(bpAll, maxBp);
+      notes.push(`BP capped: ${bpAll.length} \u2192 ${bp.length} (maxBp=${maxBp}, even sample)`);
+    }
+    for (let i = 0; i < bp.length; i++) {
+      observations.push(buildBpObservation(bp[i], i));
+      byType.bloodPressure += 1;
+    }
+    const wtAll = (data?.weight || []).filter(
+      (r) => inWindow(r.date || getDate(r.datetime), windowStart, windowEnd)
+    );
+    let wt = wtAll;
+    if (wtAll.length > maxWeight) {
+      wt = sampleEvenly(wtAll, maxWeight);
+      notes.push(
+        `Weight capped: ${wtAll.length} \u2192 ${wt.length} (maxWeight=${maxWeight}, even sample)`
+      );
+    }
+    for (let i = 0; i < wt.length; i++) {
+      observations.push(buildWeightObservation(wt[i], i));
+      byType.bodyWeight += 1;
+    }
+    const cgmAll = (data?.cgm || []).filter(
+      (p) => inWindow(getDate(p.datetime), windowStart, windowEnd)
+    );
+    let cgm = cgmAll;
+    if (cgmAll.length > maxCgm) {
+      cgm = sampleEvenly(cgmAll, maxCgm);
+      notes.push(`CGM capped: ${cgmAll.length} \u2192 ${cgm.length} (maxCgm=${maxCgm}, even sample)`);
+    }
+    for (let i = 0; i < cgm.length; i++) {
+      observations.push(buildGlucoseObservation(cgm[i], i));
+      byType.glucose += 1;
+    }
+    const stepsMap = analysis.stepsByDate || {};
+    const stepDates = Object.keys(stepsMap).filter((d) => inWindow(d, windowStart, windowEnd) && Number.isFinite(stepsMap[d])).sort();
+    let stepDatesUsed = stepDates;
+    if (stepDates.length > maxStepsDays) {
+      stepDatesUsed = sampleEvenly(stepDates, maxStepsDays);
+      notes.push(
+        `Steps days capped: ${stepDates.length} \u2192 ${stepDatesUsed.length} (maxStepsDays=${maxStepsDays})`
+      );
+    }
+    for (let i = 0; i < stepDatesUsed.length; i++) {
+      const d = stepDatesUsed[i];
+      observations.push(buildStepsObservation(d, stepsMap[d], i));
+      byType.steps += 1;
+    }
+    const rhrMap = analysis.restingHrByDate || data?.restingHr || {};
+    const rhrDates = Object.keys(rhrMap).filter((d) => inWindow(d, windowStart, windowEnd) && Number.isFinite(rhrMap[d])).sort();
+    let rhrDatesUsed = rhrDates;
+    if (rhrDates.length > maxRestingHrDays) {
+      rhrDatesUsed = sampleEvenly(rhrDates, maxRestingHrDays);
+      notes.push(
+        `Resting HR days capped: ${rhrDates.length} \u2192 ${rhrDatesUsed.length} (max=${maxRestingHrDays})`
+      );
+    }
+    for (let i = 0; i < rhrDatesUsed.length; i++) {
+      const d = rhrDatesUsed[i];
+      observations.push(buildRestingHrObservation(d, rhrMap[d], i));
+      byType.restingHeartRate += 1;
+    }
+    if (opts.patientDisplay) {
+      const subject = {
+        display: String(opts.patientDisplay),
+        reference: "Patient/local-patient"
+      };
+      for (const obs of observations) {
+        obs.subject = subject;
+      }
+    }
+    const batchesRaw = opts.importBatches;
+    const batches = (Array.isArray(batchesRaw) ? batchesRaw : []).map((b) => normalizeImportBatch(b)).filter((b) => !!b);
+    const includeProvenance = opts.includeProvenance === false ? false : opts.includeProvenance === true ? true : batches.length > 0;
+    const provenances = [];
+    if (includeProvenance) {
+      const recorded = (/* @__PURE__ */ new Date()).toISOString();
+      const target = observations.map((o) => ({
+        reference: `Observation/${o.id}`
+      }));
+      const entities = batches.map((b) => ({
+        role: "source",
+        what: {
+          identifier: {
+            system: "urn:health-analyzer:import-batch",
+            value: b.id
+          },
+          display: batchDisplay(b)
+        }
+      }));
+      const prov = {
+        resourceType: "Provenance",
+        id: "prov-export-1",
+        meta: {
+          source: META_SOURCE,
+          tag: [
+            {
+              system: "urn:health-analyzer:tag",
+              code: FHIR_EXPORT_PROFILE,
+              display: "Experimental local FHIR-shaped export"
+            },
+            {
+              system: "urn:health-analyzer:rule-version",
+              code: PROVENANCE_RULE_VERSION,
+              display: PROVENANCE_RULE_VERSION
+            }
+          ]
+        },
+        target,
+        recorded,
+        activity: {
+          coding: [
+            {
+              system: "http://terminology.hl7.org/CodeSystem/v3-DataOperation",
+              code: "CREATE",
+              display: "create"
+            }
+          ],
+          text: "assemble local Observations from Apple Health / HAE import"
+        },
+        agent: [
+          {
+            type: {
+              coding: [
+                {
+                  system: "http://terminology.hl7.org/CodeSystem/provenance-participant-type",
+                  code: "assembler",
+                  display: "Assembler"
+                }
+              ],
+              text: "assembler"
+            },
+            who: {
+              display: "Health Analyzer",
+              identifier: {
+                system: "urn:health-analyzer:software",
+                value: FHIR_EXPORT_PROFILE
+              }
+            }
+          }
+        ],
+        reason: [
+          {
+            text: "Local processing and personal archive only; not clinical authentication or certified FHIR submission."
+          }
+        ],
+        // R4 Provenance.reason is CodeableConcept[]; also put narrative in extension for clarity
+        extension: [
+          {
+            url: "urn:health-analyzer:extension:export-disclaimer",
+            valueString: "Local processing only; not clinical authentication. Experimental FHIR R4-shaped export."
+          }
+        ]
+      };
+      if (entities.length) {
+        prov.entity = entities;
+      } else {
+        notes.push(
+          "Provenance included without import batch entities (no importBatches provided)."
+        );
+      }
+      provenances.push(prov);
+    }
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    const entries = [
+      ...observations.map(entryFor),
+      ...provenances.map(entryFor)
+    ];
+    const bundle = {
+      resourceType: "Bundle",
+      id: `hae-fhir-export-${timestamp.slice(0, 10)}`,
+      meta: {
+        lastUpdated: timestamp,
+        source: META_SOURCE,
+        tag: [
+          {
+            system: "urn:health-analyzer:tag",
+            code: FHIR_EXPORT_PROFILE,
+            display: "health-analyzer FHIR export profile v1"
+          },
+          {
+            system: "urn:health-analyzer:rule-version",
+            code: PROVENANCE_RULE_VERSION,
+            display: PROVENANCE_RULE_VERSION
+          },
+          {
+            system: "urn:health-analyzer:export-kind",
+            code: "local-collection",
+            display: "Local collection (not transaction/submission)"
+          }
+        ],
+        // profile is informal — not a published IG
+        profile: [`urn:health-analyzer:StructureDefinition/${FHIR_EXPORT_PROFILE}`]
+      },
+      type: "collection",
+      timestamp,
+      total: entries.length,
+      entry: entries
+    };
+    const counts = {
+      observations: observations.length,
+      provenances: provenances.length,
+      byType
+    };
+    notes.push(
+      `exported Observations=${counts.observations} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate})`
+    );
+    const json = JSON.stringify(bundle, null, 2);
+    return { bundle, json, counts, notes };
   }
 
   // src/export.ts
