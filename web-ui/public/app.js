@@ -1784,6 +1784,7 @@
           notes,
         });
         syncAnalysisSourceBatchIds(currentAnalysis);
+        refreshProvenancePreviewIfOpen();
       } catch (e) {
         console.warn('import provenance record skipped', e);
       }
@@ -3372,6 +3373,133 @@
     return out;
   }
 
+  function provenanceSourceLabel(source) {
+    const key = 'export.provenance.source.' + String(source || 'other');
+    const labeled = t(key);
+    return labeled && labeled !== key ? labeled : String(source || 'other');
+  }
+
+  function formatProvenanceWhen(iso) {
+    if (!iso) return '—';
+    const s = String(iso);
+    if (s.length >= 16) return s.slice(0, 16).replace('T', ' ');
+    return s.slice(0, 10) || '—';
+  }
+
+  /**
+   * 导出前预览「本分析」关联的导入批次（sourceBatchIds），非全部 IDB 历史。
+   */
+  async function renderProvenancePreview() {
+    const host = $('provenance-preview');
+    if (!host) return;
+
+    if (!currentAnalysis) {
+      host.innerHTML =
+        `<p class="provenance-preview-empty">${escapeHtml(t('export.err.needAnalysis'))}</p>`;
+      host.classList.remove('hidden');
+      return;
+    }
+
+    const range = currentAnalysis.dateRange || {};
+    const start = range.start || '—';
+    const end = range.end || '—';
+    const HA = window.HealthAnalyzer || {};
+    const ruleVersion =
+      (typeof HA.PROVENANCE_RULE_VERSION === 'string' && HA.PROVENANCE_RULE_VERSION) ||
+      'health-analyzer-v1.46.1';
+
+    let batches = [];
+    try {
+      batches = (await loadImportBatchesForExport()) || [];
+    } catch (e) {
+      console.warn('renderProvenancePreview load failed', e);
+      batches = [];
+    }
+
+    const linkedIds =
+      (Array.isArray(currentAnalysis.sourceBatchIds) && currentAnalysis.sourceBatchIds.length
+        ? currentAnalysis.sourceBatchIds
+        : analysisSourceBatchIds) || [];
+    const batchCount = Math.max(batches.length, linkedIds.length);
+
+    const head =
+      `<div class="provenance-preview-head">` +
+      `<strong>${escapeHtml(t('export.provenance.title'))}</strong>` +
+      `</div>` +
+      `<div class="provenance-preview-meta">` +
+      `<span>${escapeHtml(t('export.provenance.window', { start, end }))}</span>` +
+      `<span>${escapeHtml(t('export.provenance.rule', { version: ruleVersion }))}</span>` +
+      `<span>${escapeHtml(t('export.provenance.batch', { n: batchCount }))}</span>` +
+      `</div>` +
+      `<p class="provenance-preview-note">${escapeHtml(t('export.provenance.linkedOnly'))}</p>`;
+
+    if (!batches.length) {
+      host.innerHTML =
+        head +
+        `<p class="provenance-preview-empty">${escapeHtml(t('export.provenance.empty'))}</p>`;
+      host.classList.remove('hidden');
+      return;
+    }
+
+    const items = batches
+      .map((b) => {
+        if (!b) return '';
+        const idShort = shortImportBatchId(b.id);
+        const source = provenanceSourceLabel(b.source);
+        const when = formatProvenanceWhen(b.createdAt);
+        const stats = b.stats || {};
+        const added = Number(stats.totalAdded) || 0;
+        const updated = Number(stats.totalUpdated) || 0;
+        const skipped = Number(stats.totalSkipped) || 0;
+        const fileCount = Array.isArray(b.files) ? b.files.length : 0;
+        const cancelled = !!b.cancelled;
+        const cancelBadge = cancelled
+          ? ` <span class="pb-cancelled">${escapeHtml(t('export.provenance.cancelled'))}</span>`
+          : '';
+        return (
+          `<li class="provenance-batch-item">` +
+          `<div class="pb-title">` +
+          `<code title="${escapeHtml(String(b.id || ''))}">${escapeHtml(idShort)}</code>` +
+          `<span>${escapeHtml(source)}</span>` +
+          cancelBadge +
+          `</div>` +
+          `<div class="pb-meta">` +
+          `${escapeHtml(t('export.provenance.createdAt', { when }))}` +
+          ` · ${escapeHtml(t('export.provenance.stats', { added, updated, skipped }))}` +
+          ` · ${escapeHtml(t('export.provenance.files', { n: fileCount }))}` +
+          `</div>` +
+          `</li>`
+        );
+      })
+      .filter(Boolean)
+      .join('');
+
+    host.innerHTML =
+      head + `<ul class="provenance-batch-list">${items}</ul>`;
+    host.classList.remove('hidden');
+  }
+
+  /** 预览面板已打开时刷新（导入成功后可选调用） */
+  async function refreshProvenancePreviewIfOpen() {
+    const host = $('provenance-preview');
+    if (!host || host.classList.contains('hidden')) return;
+    try {
+      await renderProvenancePreview();
+    } catch (e) {
+      console.warn('refreshProvenancePreviewIfOpen failed', e);
+    }
+  }
+
+  async function toggleProvenancePreview() {
+    const host = $('provenance-preview');
+    if (!host) return;
+    if (!host.classList.contains('hidden') && host.innerHTML) {
+      host.classList.add('hidden');
+      return;
+    }
+    await renderProvenancePreview();
+  }
+
   /**
    * 生成周报 Markdown。默认不含事件；仅当 #weekly-include-events 勾选时加载并附带。
    * 与 clinical-include-events / ctx-include-events 相互独立。
@@ -4895,6 +5023,7 @@
       });
       syncAnalysisSourceBatchIds(currentAnalysis);
       const batchId = savedBatch && savedBatch.id ? savedBatch.id : null;
+      refreshProvenancePreviewIfOpen();
 
       renderHaeImportResult(result, { capNote, fileCount: processedFiles, batchId });
       renderHaeUnknownMetrics(result.unknownMetrics || []);
@@ -4927,6 +5056,7 @@
           });
           syncAnalysisSourceBatchIds(currentAnalysis);
           const batchId = savedBatch && savedBatch.id ? savedBatch.id : null;
+          refreshProvenancePreviewIfOpen();
           renderHaeImportResult(result, { capNote, fileCount: processedFiles, batchId });
           renderHaeUnknownMetrics(result.unknownMetrics || []);
         } catch (analyzeErr) {
@@ -5968,6 +6098,9 @@
   $('btn-export-visit')?.addEventListener('click', exportVisitSummary);
   $('btn-export-clinical-html')?.addEventListener('click', () => exportClinicalReview('html'));
   $('btn-export-clinical-md')?.addEventListener('click', () => exportClinicalReview('md'));
+  $('btn-provenance-preview')?.addEventListener('click', () => {
+    toggleProvenancePreview().catch((e) => console.warn('provenance preview', e));
+  });
 
   // 有结果时 ⌘/Ctrl+Shift+C 复制完整提示词
   window.addEventListener('keydown', (e) => {

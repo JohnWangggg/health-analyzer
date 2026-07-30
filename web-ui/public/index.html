@@ -485,6 +485,8 @@
           <input type="checkbox" id="clinical-include-provenance" />
           <span data-i18n="export.clinical.includeProvenance">包含导入来源可追溯附录（本机批次）</span>
         </label>
+        <button type="button" id="btn-provenance-preview" class="btn-ghost btn-sm" data-i18n="export.provenance.preview">预览本报告来源</button>
+        <div id="provenance-preview" class="provenance-preview hidden" aria-live="polite"></div>
         <div class="export-actions clinical-export-btns">
           <button type="button" id="btn-export-clinical-html" class="btn-secondary" data-i18n="export.clinical.html">导出 HTML（可打印）</button>
           <button type="button" id="btn-export-clinical-md" class="btn-ghost" data-i18n="export.clinical.md">导出 Markdown</button>

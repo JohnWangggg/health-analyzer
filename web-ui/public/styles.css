@@ -1730,6 +1730,100 @@ body.has-results .app-toast {
   margin-bottom: 0;
 }
 
+.clinical-export-opts #btn-provenance-preview {
+  margin: 4px 0 0;
+}
+
+/* 本报告来源预览（仅关联 sourceBatchIds） */
+.provenance-preview {
+  margin: 8px 0 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--chart-bg, var(--surface));
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.provenance-preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+
+.provenance-preview-head strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.provenance-preview-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+  color: var(--text-light);
+  font-size: 12px;
+}
+
+.provenance-preview-note {
+  margin: 0 0 8px;
+  color: var(--text-light);
+  font-size: 12px;
+}
+
+.provenance-preview-empty {
+  margin: 0;
+  color: var(--text-light);
+  font-size: 13px;
+}
+
+.provenance-batch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.provenance-batch-item {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2, var(--surface));
+}
+
+.provenance-batch-item .pb-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  margin-bottom: 2px;
+}
+
+.provenance-batch-item .pb-title code {
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text);
+}
+
+.provenance-batch-item .pb-meta {
+  color: var(--text-light);
+  font-size: 12px;
+}
+
+.provenance-batch-item .pb-cancelled {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--danger, #b45309);
+  background: color-mix(in srgb, var(--danger, #b45309) 12%, transparent);
+}
+
 .history-panel {
   margin-top: 8px;
   padding-top: 12px;
