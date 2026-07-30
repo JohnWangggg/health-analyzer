@@ -7768,7 +7768,7 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.3";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.4";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
@@ -7784,6 +7784,8 @@ List 5\u20137 working hypotheses that best fit the available data
   var DEFAULT_MAX_VO2_DAYS = 366;
   var DEFAULT_MAX_BREATHING_DAYS = 366;
   var DEFAULT_MAX_WRIST_TEMP_DAYS = 366;
+  var DEFAULT_MAX_NIGHT_HR_DAYS = 366;
+  var DEFAULT_MAX_RR_DAYS = 366;
   var DEFAULT_MAX_CLINICAL_DOC_CHARS = 4e5;
   function toIsoDateTime(appleDt) {
     if (appleDt == null) return "";
@@ -8047,6 +8049,30 @@ List 5\u20137 working hypotheses that best fit the available data
     };
     obs.note.push({
       text: "wrist temperature daily mean; may be relative delta depending on source; experimental"
+    });
+    return obs;
+  }
+  function buildNightHrObservation(date, bpm, index) {
+    const id = `obs-night-hr-${index}`;
+    const effective = toIsoDateTime(date);
+    const obs = baseObservation(id, loincCoding("8867-4", "Heart rate"), effective);
+    obs.valueQuantity = quantity(bpm, "beats/min", "/min");
+    obs.note.push({
+      text: "night-time heart rate mean (Watch night window summary); not resting HR"
+    });
+    return obs;
+  }
+  function buildRespiratoryRateObservation(date, rate, index) {
+    const id = `obs-rr-${index}`;
+    const effective = toIsoDateTime(date);
+    const obs = baseObservation(
+      id,
+      loincCoding("9279-1", "Respiratory rate"),
+      effective
+    );
+    obs.valueQuantity = quantity(rate, "/min", "/min");
+    obs.note.push({
+      text: "respiratory rate daily mean (Watch summary)"
     });
     return obs;
   }
@@ -8330,6 +8356,8 @@ List 5\u20137 working hypotheses that best fit the available data
     const maxVo2Days = Math.max(0, opts.maxVo2Days ?? DEFAULT_MAX_VO2_DAYS);
     const maxBreathingDays = Math.max(0, opts.maxBreathingDays ?? DEFAULT_MAX_BREATHING_DAYS);
     const maxWristTempDays = Math.max(0, opts.maxWristTempDays ?? DEFAULT_MAX_WRIST_TEMP_DAYS);
+    const maxNightHrDays = Math.max(0, opts.maxNightHrDays ?? DEFAULT_MAX_NIGHT_HR_DAYS);
+    const maxRrDays = Math.max(0, opts.maxRrDays ?? DEFAULT_MAX_RR_DAYS);
     const maxClinicalDocChars = Math.max(
       1e3,
       opts.maxClinicalDocChars ?? DEFAULT_MAX_CLINICAL_DOC_CHARS
@@ -8354,6 +8382,8 @@ List 5\u20137 working hypotheses that best fit the available data
       vo2Max: 0,
       breathingDisturbance: 0,
       wristTemperature: 0,
+      nightHeartRate: 0,
+      respiratoryRate: 0,
       clinicalDocument: 0,
       agpSvg: 0
     };
@@ -8504,6 +8534,36 @@ List 5\u20137 working hypotheses that best fit the available data
       const d = wtTempUsed[i];
       observations.push(buildWristTempObservation(d.date, d.wristTempMean, i));
       byType.wristTemperature += 1;
+    }
+    const nightHrDays = watchDays.filter(
+      (d) => d && d.date && inWindow(d.date, windowStart, windowEnd) && d.nightHrMean != null && Number.isFinite(d.nightHrMean)
+    ).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    let nightHrUsed = nightHrDays;
+    if (nightHrDays.length > maxNightHrDays) {
+      nightHrUsed = sampleEvenly(nightHrDays, maxNightHrDays);
+      notes.push(
+        `Night HR days capped: ${nightHrDays.length} \u2192 ${nightHrUsed.length} (maxNightHrDays=${maxNightHrDays})`
+      );
+    }
+    for (let i = 0; i < nightHrUsed.length; i++) {
+      const d = nightHrUsed[i];
+      observations.push(buildNightHrObservation(d.date, d.nightHrMean, i));
+      byType.nightHeartRate += 1;
+    }
+    const rrDays = watchDays.filter(
+      (d) => d && d.date && inWindow(d.date, windowStart, windowEnd) && d.rrMean != null && Number.isFinite(d.rrMean)
+    ).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    let rrUsed = rrDays;
+    if (rrDays.length > maxRrDays) {
+      rrUsed = sampleEvenly(rrDays, maxRrDays);
+      notes.push(
+        `Respiratory rate days capped: ${rrDays.length} \u2192 ${rrUsed.length} (maxRrDays=${maxRrDays})`
+      );
+    }
+    for (let i = 0; i < rrUsed.length; i++) {
+      const d = rrUsed[i];
+      observations.push(buildRespiratoryRateObservation(d.date, d.rrMean, i));
+      byType.respiratoryRate += 1;
     }
     if (opts.patientDisplay) {
       const subject = {
@@ -8679,7 +8739,7 @@ List 5\u20137 working hypotheses that best fit the available data
           {
             system: "urn:health-analyzer:tag",
             code: FHIR_EXPORT_PROFILE,
-            display: "health-analyzer FHIR export profile v1.1"
+            display: "health-analyzer FHIR export profile v1.4"
           },
           {
             system: "urn:health-analyzer:rule-version",
@@ -8707,7 +8767,7 @@ List 5\u20137 working hypotheses that best fit the available data
       byType
     };
     notes.push(
-      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, wristTemp=${byType.wristTemperature}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
+      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, wristTemp=${byType.wristTemperature}, nightHr=${byType.nightHeartRate}, rr=${byType.respiratoryRate}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
     );
     let validation;
     if (opts.validate !== false) {

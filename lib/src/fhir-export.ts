@@ -1,5 +1,5 @@
 /**
- * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference 导出（试验性 v1.51）
+ * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference 导出（试验性 v1.52）
  *
  * - 仅生成本地可下载 JSON Bundle；非医院系统对接、非 FHIR 认证提交
  * - 资源为 experimental / trial-use 形状，供个人归档与互操作试验
@@ -28,7 +28,7 @@ import { buildAgpSvg, buildCgm14DayReport } from './clinical-report';
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.3';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.4';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
@@ -46,6 +46,8 @@ const DEFAULT_MAX_SLEEP_DAYS = 366;
 const DEFAULT_MAX_VO2_DAYS = 366;
 const DEFAULT_MAX_BREATHING_DAYS = 366;
 const DEFAULT_MAX_WRIST_TEMP_DAYS = 366;
+const DEFAULT_MAX_NIGHT_HR_DAYS = 366;
+const DEFAULT_MAX_RR_DAYS = 366;
 /** Clinical document attachment size cap (UTF-8 chars) */
 const DEFAULT_MAX_CLINICAL_DOC_CHARS = 400_000;
 
@@ -64,6 +66,8 @@ export interface FhirExportOptions {
   maxVo2Days?: number; // default 366
   maxBreathingDays?: number; // default 366
   maxWristTempDays?: number; // default 366
+  maxNightHrDays?: number; // default 366
+  maxRrDays?: number; // default 366
   includeProvenance?: boolean; // default true when batches provided
   importBatches?: ImportBatchRecord[] | null; // from provenance.ts
   patientDisplay?: string | null; // optional "local-patient" display only
@@ -456,6 +460,42 @@ function buildWristTempObservation(
   return obs;
 }
 
+/** Night heart rate mean (Watch night window) — LOINC 8867-4 with night note */
+function buildNightHrObservation(
+  date: string,
+  bpm: number,
+  index: number
+): Record<string, unknown> {
+  const id = `obs-night-hr-${index}`;
+  const effective = toIsoDateTime(date);
+  const obs = baseObservation(id, loincCoding('8867-4', 'Heart rate'), effective);
+  obs.valueQuantity = quantity(bpm, 'beats/min', '/min');
+  (obs.note as { text: string }[]).push({
+    text: 'night-time heart rate mean (Watch night window summary); not resting HR',
+  });
+  return obs;
+}
+
+/** Respiratory rate mean — LOINC 9279-1 */
+function buildRespiratoryRateObservation(
+  date: string,
+  rate: number,
+  index: number
+): Record<string, unknown> {
+  const id = `obs-rr-${index}`;
+  const effective = toIsoDateTime(date);
+  const obs = baseObservation(
+    id,
+    loincCoding('9279-1', 'Respiratory rate'),
+    effective
+  );
+  obs.valueQuantity = quantity(rate, '/min', '/min');
+  (obs.note as { text: string }[]).push({
+    text: 'respiratory rate daily mean (Watch summary)',
+  });
+  return obs;
+}
+
 /**
  * Lightweight structural self-check for local Bundle (NOT official FHIR validator).
  * Catches missing resourceType/id/status/target wiring; does not guarantee IG compliance.
@@ -791,6 +831,8 @@ export function buildFhirExportBundle(
   const maxVo2Days = Math.max(0, opts.maxVo2Days ?? DEFAULT_MAX_VO2_DAYS);
   const maxBreathingDays = Math.max(0, opts.maxBreathingDays ?? DEFAULT_MAX_BREATHING_DAYS);
   const maxWristTempDays = Math.max(0, opts.maxWristTempDays ?? DEFAULT_MAX_WRIST_TEMP_DAYS);
+  const maxNightHrDays = Math.max(0, opts.maxNightHrDays ?? DEFAULT_MAX_NIGHT_HR_DAYS);
+  const maxRrDays = Math.max(0, opts.maxRrDays ?? DEFAULT_MAX_RR_DAYS);
   const maxClinicalDocChars = Math.max(
     1000,
     opts.maxClinicalDocChars ?? DEFAULT_MAX_CLINICAL_DOC_CHARS
@@ -824,6 +866,8 @@ export function buildFhirExportBundle(
     vo2Max: 0,
     breathingDisturbance: 0,
     wristTemperature: 0,
+    nightHeartRate: 0,
+    respiratoryRate: 0,
     clinicalDocument: 0,
     agpSvg: 0,
   };
@@ -1030,6 +1074,54 @@ export function buildFhirExportBundle(
     byType.wristTemperature += 1;
   }
 
+  // --- Night heart rate mean ---
+  const nightHrDays = watchDays
+    .filter(
+      (d) =>
+        d &&
+        d.date &&
+        inWindow(d.date, windowStart, windowEnd) &&
+        d.nightHrMean != null &&
+        Number.isFinite(d.nightHrMean)
+    )
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  let nightHrUsed = nightHrDays;
+  if (nightHrDays.length > maxNightHrDays) {
+    nightHrUsed = sampleEvenly(nightHrDays, maxNightHrDays);
+    notes.push(
+      `Night HR days capped: ${nightHrDays.length} → ${nightHrUsed.length} (maxNightHrDays=${maxNightHrDays})`
+    );
+  }
+  for (let i = 0; i < nightHrUsed.length; i++) {
+    const d = nightHrUsed[i];
+    observations.push(buildNightHrObservation(d.date, d.nightHrMean as number, i));
+    byType.nightHeartRate += 1;
+  }
+
+  // --- Respiratory rate mean ---
+  const rrDays = watchDays
+    .filter(
+      (d) =>
+        d &&
+        d.date &&
+        inWindow(d.date, windowStart, windowEnd) &&
+        d.rrMean != null &&
+        Number.isFinite(d.rrMean)
+    )
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  let rrUsed = rrDays;
+  if (rrDays.length > maxRrDays) {
+    rrUsed = sampleEvenly(rrDays, maxRrDays);
+    notes.push(
+      `Respiratory rate days capped: ${rrDays.length} → ${rrUsed.length} (maxRrDays=${maxRrDays})`
+    );
+  }
+  for (let i = 0; i < rrUsed.length; i++) {
+    const d = rrUsed[i];
+    observations.push(buildRespiratoryRateObservation(d.date, d.rrMean as number, i));
+    byType.respiratoryRate += 1;
+  }
+
   // Optional subject display on each observation
   if (opts.patientDisplay) {
     const subject = {
@@ -1230,7 +1322,7 @@ export function buildFhirExportBundle(
         {
           system: 'urn:health-analyzer:tag',
           code: FHIR_EXPORT_PROFILE,
-          display: 'health-analyzer FHIR export profile v1.1',
+          display: 'health-analyzer FHIR export profile v1.4',
         },
         {
           system: 'urn:health-analyzer:rule-version',
@@ -1265,7 +1357,8 @@ export function buildFhirExportBundle(
       `(bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, ` +
       `steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, ` +
       `sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, ` +
-      `wristTemp=${byType.wristTemperature}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
+      `wristTemp=${byType.wristTemperature}, nightHr=${byType.nightHeartRate}, rr=${byType.respiratoryRate}, ` +
+      `clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
   );
 
   let validation: FhirExportValidation | undefined;

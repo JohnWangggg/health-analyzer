@@ -177,6 +177,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.52 | FHIR 夜心率 / 呼吸频率 Observation |
 | v1.51 | FHIR 腕温 Observation + Bundle 结构自检（非官方校验器） |
 | v1.50 | FHIR 增加 VO₂/呼吸紊乱；可选 AGP SVG DocumentReference |
 | v1.49 | FHIR 导出扩展 SpO2/睡眠 + 可选就诊文档 DocumentReference |
