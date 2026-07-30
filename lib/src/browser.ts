@@ -122,12 +122,14 @@ export {
   FHIR_R4,
   toIsoDateTime,
   buildFhirExportBundle,
+  validateFhirExportBundle,
 } from './export';
 export type {
   WeeklyReportOptions,
   ClinicalReportOptions,
   FhirExportOptions,
   FhirExportResult,
+  FhirExportValidation,
 } from './export';
 
 export {

@@ -3753,6 +3753,18 @@
         : result.notes
           ? [String(result.notes)]
           : [];
+      if (result.validation) {
+        if (result.validation.ok) {
+          statusMsg = statusMsg + ' · ' + t('export.fhir.validateOk');
+        } else {
+          const nIss =
+            (result.validation.issues && result.validation.issues.length) || 0;
+          statusMsg =
+            statusMsg +
+            ' · ' +
+            t('export.fhir.validateWarn', { n: nIss });
+        }
+      }
       if (notes.length) {
         statusMsg = statusMsg + ' · ' + notes.slice(0, 2).join(' · ');
       }

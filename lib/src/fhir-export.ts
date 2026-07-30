@@ -1,10 +1,11 @@
 /**
- * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference 导出（试验性 v1.50）
+ * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference 导出（试验性 v1.51）
  *
  * - 仅生成本地可下载 JSON Bundle；非医院系统对接、非 FHIR 认证提交
  * - 资源为 experimental / trial-use 形状，供个人归档与互操作试验
  * - 不产出诊断、用药建议或临床认证声明
  * - 默认由调用方/UI 选择导出；本模块仅在被调用时构建
+ * - 含结构自检 validateFhirExportBundle（非官方 FHIR 校验器）
  */
 
 import {
@@ -27,7 +28,7 @@ import { buildAgpSvg, buildCgm14DayReport } from './clinical-report';
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.2';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.3';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
@@ -44,6 +45,7 @@ const DEFAULT_MAX_SPO2_DAYS = 366;
 const DEFAULT_MAX_SLEEP_DAYS = 366;
 const DEFAULT_MAX_VO2_DAYS = 366;
 const DEFAULT_MAX_BREATHING_DAYS = 366;
+const DEFAULT_MAX_WRIST_TEMP_DAYS = 366;
 /** Clinical document attachment size cap (UTF-8 chars) */
 const DEFAULT_MAX_CLINICAL_DOC_CHARS = 400_000;
 
@@ -61,6 +63,7 @@ export interface FhirExportOptions {
   maxSleepDays?: number; // default 366
   maxVo2Days?: number; // default 366
   maxBreathingDays?: number; // default 366
+  maxWristTempDays?: number; // default 366
   includeProvenance?: boolean; // default true when batches provided
   importBatches?: ImportBatchRecord[] | null; // from provenance.ts
   patientDisplay?: string | null; // optional "local-patient" display only
@@ -78,6 +81,14 @@ export interface FhirExportOptions {
    */
   includeAgpSvg?: boolean;
   agpSvg?: string | null;
+  /** run lightweight structure self-check (default true) */
+  validate?: boolean;
+}
+
+export interface FhirExportValidation {
+  ok: boolean;
+  issues: string[];
+  resourceCounts: Record<string, number>;
 }
 
 export interface FhirExportResult {
@@ -90,6 +101,7 @@ export interface FhirExportResult {
     byType: Record<string, number>;
   };
   notes: string[];
+  validation?: FhirExportValidation;
 }
 
 // ============================================================
@@ -418,6 +430,147 @@ function buildBreathingDisturbanceObservation(
   return obs;
 }
 
+/**
+ * Wrist temperature (°C) — LOINC 8310-5 Body temperature with wrist note.
+ * Apple values may be relative offsets on some OS versions; stored as device reports.
+ */
+function buildWristTempObservation(
+  date: string,
+  celsius: number,
+  index: number
+): Record<string, unknown> {
+  const id = `obs-wrist-temp-${index}`;
+  const effective = toIsoDateTime(date);
+  const obs = baseObservation(
+    id,
+    loincCoding('8310-5', 'Body temperature'),
+    effective
+  );
+  obs.valueQuantity = quantity(celsius, 'Cel', 'Cel');
+  obs.method = {
+    text: 'wrist temperature (Apple Watch sleeping wrist temperature)',
+  };
+  (obs.note as { text: string }[]).push({
+    text: 'wrist temperature daily mean; may be relative delta depending on source; experimental',
+  });
+  return obs;
+}
+
+/**
+ * Lightweight structural self-check for local Bundle (NOT official FHIR validator).
+ * Catches missing resourceType/id/status/target wiring; does not guarantee IG compliance.
+ */
+export function validateFhirExportBundle(
+  bundle: Record<string, unknown> | null | undefined
+): FhirExportValidation {
+  const issues: string[] = [];
+  const resourceCounts: Record<string, number> = {};
+  if (!bundle || typeof bundle !== 'object') {
+    return { ok: false, issues: ['bundle missing or not an object'], resourceCounts };
+  }
+  if (bundle.resourceType !== 'Bundle') {
+    issues.push(`resourceType expected Bundle, got ${String(bundle.resourceType)}`);
+  }
+  if (bundle.type !== 'collection') {
+    issues.push(`Bundle.type expected collection, got ${String(bundle.type)}`);
+  }
+  const entry = Array.isArray(bundle.entry) ? (bundle.entry as Record<string, unknown>[]) : [];
+  if (!entry.length) {
+    issues.push('Bundle.entry is empty');
+  }
+  const ids = new Set<string>();
+  const obsIds = new Set<string>();
+  const docIds = new Set<string>();
+
+  for (let i = 0; i < entry.length; i++) {
+    const e = entry[i] || {};
+    const r = (e.resource || null) as Record<string, unknown> | null;
+    if (!r || typeof r !== 'object') {
+      issues.push(`entry[${i}] missing resource`);
+      continue;
+    }
+    const rt = String(r.resourceType || '');
+    resourceCounts[rt] = (resourceCounts[rt] || 0) + 1;
+    const id = r.id != null ? String(r.id) : '';
+    if (!rt) issues.push(`entry[${i}] resource missing resourceType`);
+    if (!id) issues.push(`entry[${i}] ${rt || 'Resource'} missing id`);
+    else {
+      const key = `${rt}/${id}`;
+      if (ids.has(key)) issues.push(`duplicate resource id ${key}`);
+      ids.add(key);
+    }
+
+    if (rt === 'Observation') {
+      if (id) obsIds.add(id);
+      if (r.status !== 'final' && r.status !== 'preliminary' && r.status !== 'amended') {
+        issues.push(`Observation/${id || i} unexpected status ${String(r.status)}`);
+      }
+      if (!r.code) issues.push(`Observation/${id || i} missing code`);
+      if (!r.effectiveDateTime && !r.effectivePeriod) {
+        issues.push(`Observation/${id || i} missing effectiveDateTime`);
+      }
+      const hasValue =
+        r.valueQuantity != null ||
+        r.valueString != null ||
+        (Array.isArray(r.component) && r.component.length > 0);
+      if (!hasValue) issues.push(`Observation/${id || i} missing value/component`);
+    } else if (rt === 'Provenance') {
+      if (!r.recorded) issues.push(`Provenance/${id || i} missing recorded`);
+      if (!Array.isArray(r.agent) || !r.agent.length) {
+        issues.push(`Provenance/${id || i} missing agent`);
+      }
+      if (!Array.isArray(r.target) || !r.target.length) {
+        issues.push(`Provenance/${id || i} missing target`);
+      } else {
+        for (const t of r.target as { reference?: string }[]) {
+          const ref = String((t && t.reference) || '');
+          if (!ref.includes('/')) {
+            issues.push(`Provenance/${id || i} target not a Resource/id ref: ${ref}`);
+            continue;
+          }
+          const [tRt, tId] = ref.split('/');
+          if (tRt === 'Observation' && tId && !obsIds.has(tId)) {
+            // targets may be listed before we finish — re-check later
+          }
+        }
+      }
+    } else if (rt === 'DocumentReference') {
+      if (id) docIds.add(id);
+      if (r.status !== 'current' && r.status !== 'superseded' && r.status !== 'entered-in-error') {
+        issues.push(`DocumentReference/${id || i} unexpected status ${String(r.status)}`);
+      }
+      if (!Array.isArray(r.content) || !r.content.length) {
+        issues.push(`DocumentReference/${id || i} missing content`);
+      } else {
+        const att = (r.content[0] as { attachment?: { data?: string; contentType?: string } })
+          ?.attachment;
+        if (!att || !att.data) {
+          issues.push(`DocumentReference/${id || i} content[0].attachment.data missing`);
+        }
+      }
+    }
+  }
+
+  // Provenance target resolution (second pass with full id sets)
+  for (let i = 0; i < entry.length; i++) {
+    const r = (entry[i]?.resource || null) as Record<string, unknown> | null;
+    if (!r || r.resourceType !== 'Provenance') continue;
+    const pid = String(r.id || i);
+    for (const t of (Array.isArray(r.target) ? r.target : []) as { reference?: string }[]) {
+      const ref = String((t && t.reference) || '');
+      const [tRt, tId] = ref.split('/');
+      if (tRt === 'Observation' && tId && !obsIds.has(tId)) {
+        issues.push(`Provenance/${pid} target Observation/${tId} not in Bundle`);
+      }
+      if (tRt === 'DocumentReference' && tId && !docIds.has(tId)) {
+        issues.push(`Provenance/${pid} target DocumentReference/${tId} not in Bundle`);
+      }
+    }
+  }
+
+  return { ok: issues.length === 0, issues, resourceCounts };
+}
+
 function buildAgpSvgDocumentReference(
   svg: string,
   notes: string[]
@@ -637,6 +790,7 @@ export function buildFhirExportBundle(
   const maxSleepDays = Math.max(0, opts.maxSleepDays ?? DEFAULT_MAX_SLEEP_DAYS);
   const maxVo2Days = Math.max(0, opts.maxVo2Days ?? DEFAULT_MAX_VO2_DAYS);
   const maxBreathingDays = Math.max(0, opts.maxBreathingDays ?? DEFAULT_MAX_BREATHING_DAYS);
+  const maxWristTempDays = Math.max(0, opts.maxWristTempDays ?? DEFAULT_MAX_WRIST_TEMP_DAYS);
   const maxClinicalDocChars = Math.max(
     1000,
     opts.maxClinicalDocChars ?? DEFAULT_MAX_CLINICAL_DOC_CHARS
@@ -669,6 +823,7 @@ export function buildFhirExportBundle(
     sleep: 0,
     vo2Max: 0,
     breathingDisturbance: 0,
+    wristTemperature: 0,
     clinicalDocument: 0,
     agpSvg: 0,
   };
@@ -849,6 +1004,30 @@ export function buildFhirExportBundle(
       buildBreathingDisturbanceObservation(d.date, d.breathingDisturbance as number, i)
     );
     byType.breathingDisturbance += 1;
+  }
+
+  // --- Wrist temperature (°C) ---
+  const wtTempDays = watchDays
+    .filter(
+      (d) =>
+        d &&
+        d.date &&
+        inWindow(d.date, windowStart, windowEnd) &&
+        d.wristTempMean != null &&
+        Number.isFinite(d.wristTempMean)
+    )
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  let wtTempUsed = wtTempDays;
+  if (wtTempDays.length > maxWristTempDays) {
+    wtTempUsed = sampleEvenly(wtTempDays, maxWristTempDays);
+    notes.push(
+      `Wrist temp days capped: ${wtTempDays.length} → ${wtTempUsed.length} (maxWristTempDays=${maxWristTempDays})`
+    );
+  }
+  for (let i = 0; i < wtTempUsed.length; i++) {
+    const d = wtTempUsed[i];
+    observations.push(buildWristTempObservation(d.date, d.wristTempMean as number, i));
+    byType.wristTemperature += 1;
   }
 
   // Optional subject display on each observation
@@ -1086,10 +1265,24 @@ export function buildFhirExportBundle(
       `(bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, ` +
       `steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, ` +
       `sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, ` +
-      `clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
+      `wristTemp=${byType.wristTemperature}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
   );
+
+  let validation: FhirExportValidation | undefined;
+  if (opts.validate !== false) {
+    validation = validateFhirExportBundle(bundle);
+    if (validation.ok) {
+      notes.push('structure self-check: ok (not official FHIR validator)');
+    } else {
+      notes.push(
+        `structure self-check: ${validation.issues.length} issue(s) — ${validation.issues
+          .slice(0, 3)
+          .join('; ')}`
+      );
+    }
+  }
 
   const json = JSON.stringify(bundle, null, 2);
 
-  return { bundle, json, counts, notes };
+  return { bundle, json, counts, notes, validation };
 }

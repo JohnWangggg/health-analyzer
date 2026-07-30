@@ -33,8 +33,13 @@ export {
   FHIR_R4,
   toIsoDateTime,
   buildFhirExportBundle,
+  validateFhirExportBundle,
 } from './fhir-export';
-export type { FhirExportOptions, FhirExportResult } from './fhir-export';
+export type {
+  FhirExportOptions,
+  FhirExportResult,
+  FhirExportValidation,
+} from './fhir-export';
 
 function csvEscape(value: unknown): string {
   if (value == null) return '';

@@ -134,6 +134,7 @@ var HealthAnalyzer = (() => {
     toTraditionalTitle: () => toTraditionalTitle,
     traditionalizeAnalysisCopy: () => traditionalizeAnalysisCopy,
     traditionalizeMarkdownHeadings: () => traditionalizeMarkdownHeadings,
+    validateFhirExportBundle: () => validateFhirExportBundle,
     workoutTypeLabel: () => workoutTypeLabel,
     xmlAttr: () => xmlAttr
   });
@@ -7767,7 +7768,7 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.2";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.3";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
@@ -7782,6 +7783,7 @@ List 5\u20137 working hypotheses that best fit the available data
   var DEFAULT_MAX_SLEEP_DAYS = 366;
   var DEFAULT_MAX_VO2_DAYS = 366;
   var DEFAULT_MAX_BREATHING_DAYS = 366;
+  var DEFAULT_MAX_WRIST_TEMP_DAYS = 366;
   var DEFAULT_MAX_CLINICAL_DOC_CHARS = 4e5;
   function toIsoDateTime(appleDt) {
     if (appleDt == null) return "";
@@ -8031,6 +8033,121 @@ List 5\u20137 working hypotheses that best fit the available data
     });
     return obs;
   }
+  function buildWristTempObservation(date, celsius, index) {
+    const id = `obs-wrist-temp-${index}`;
+    const effective = toIsoDateTime(date);
+    const obs = baseObservation(
+      id,
+      loincCoding("8310-5", "Body temperature"),
+      effective
+    );
+    obs.valueQuantity = quantity(celsius, "Cel", "Cel");
+    obs.method = {
+      text: "wrist temperature (Apple Watch sleeping wrist temperature)"
+    };
+    obs.note.push({
+      text: "wrist temperature daily mean; may be relative delta depending on source; experimental"
+    });
+    return obs;
+  }
+  function validateFhirExportBundle(bundle) {
+    const issues = [];
+    const resourceCounts = {};
+    if (!bundle || typeof bundle !== "object") {
+      return { ok: false, issues: ["bundle missing or not an object"], resourceCounts };
+    }
+    if (bundle.resourceType !== "Bundle") {
+      issues.push(`resourceType expected Bundle, got ${String(bundle.resourceType)}`);
+    }
+    if (bundle.type !== "collection") {
+      issues.push(`Bundle.type expected collection, got ${String(bundle.type)}`);
+    }
+    const entry = Array.isArray(bundle.entry) ? bundle.entry : [];
+    if (!entry.length) {
+      issues.push("Bundle.entry is empty");
+    }
+    const ids = /* @__PURE__ */ new Set();
+    const obsIds = /* @__PURE__ */ new Set();
+    const docIds = /* @__PURE__ */ new Set();
+    for (let i = 0; i < entry.length; i++) {
+      const e = entry[i] || {};
+      const r = e.resource || null;
+      if (!r || typeof r !== "object") {
+        issues.push(`entry[${i}] missing resource`);
+        continue;
+      }
+      const rt = String(r.resourceType || "");
+      resourceCounts[rt] = (resourceCounts[rt] || 0) + 1;
+      const id = r.id != null ? String(r.id) : "";
+      if (!rt) issues.push(`entry[${i}] resource missing resourceType`);
+      if (!id) issues.push(`entry[${i}] ${rt || "Resource"} missing id`);
+      else {
+        const key = `${rt}/${id}`;
+        if (ids.has(key)) issues.push(`duplicate resource id ${key}`);
+        ids.add(key);
+      }
+      if (rt === "Observation") {
+        if (id) obsIds.add(id);
+        if (r.status !== "final" && r.status !== "preliminary" && r.status !== "amended") {
+          issues.push(`Observation/${id || i} unexpected status ${String(r.status)}`);
+        }
+        if (!r.code) issues.push(`Observation/${id || i} missing code`);
+        if (!r.effectiveDateTime && !r.effectivePeriod) {
+          issues.push(`Observation/${id || i} missing effectiveDateTime`);
+        }
+        const hasValue = r.valueQuantity != null || r.valueString != null || Array.isArray(r.component) && r.component.length > 0;
+        if (!hasValue) issues.push(`Observation/${id || i} missing value/component`);
+      } else if (rt === "Provenance") {
+        if (!r.recorded) issues.push(`Provenance/${id || i} missing recorded`);
+        if (!Array.isArray(r.agent) || !r.agent.length) {
+          issues.push(`Provenance/${id || i} missing agent`);
+        }
+        if (!Array.isArray(r.target) || !r.target.length) {
+          issues.push(`Provenance/${id || i} missing target`);
+        } else {
+          for (const t of r.target) {
+            const ref = String(t && t.reference || "");
+            if (!ref.includes("/")) {
+              issues.push(`Provenance/${id || i} target not a Resource/id ref: ${ref}`);
+              continue;
+            }
+            const [tRt, tId] = ref.split("/");
+            if (tRt === "Observation" && tId && !obsIds.has(tId)) {
+            }
+          }
+        }
+      } else if (rt === "DocumentReference") {
+        if (id) docIds.add(id);
+        if (r.status !== "current" && r.status !== "superseded" && r.status !== "entered-in-error") {
+          issues.push(`DocumentReference/${id || i} unexpected status ${String(r.status)}`);
+        }
+        if (!Array.isArray(r.content) || !r.content.length) {
+          issues.push(`DocumentReference/${id || i} missing content`);
+        } else {
+          const att = r.content[0]?.attachment;
+          if (!att || !att.data) {
+            issues.push(`DocumentReference/${id || i} content[0].attachment.data missing`);
+          }
+        }
+      }
+    }
+    for (let i = 0; i < entry.length; i++) {
+      const r = entry[i]?.resource || null;
+      if (!r || r.resourceType !== "Provenance") continue;
+      const pid = String(r.id || i);
+      for (const t of Array.isArray(r.target) ? r.target : []) {
+        const ref = String(t && t.reference || "");
+        const [tRt, tId] = ref.split("/");
+        if (tRt === "Observation" && tId && !obsIds.has(tId)) {
+          issues.push(`Provenance/${pid} target Observation/${tId} not in Bundle`);
+        }
+        if (tRt === "DocumentReference" && tId && !docIds.has(tId)) {
+          issues.push(`Provenance/${pid} target DocumentReference/${tId} not in Bundle`);
+        }
+      }
+    }
+    return { ok: issues.length === 0, issues, resourceCounts };
+  }
   function buildAgpSvgDocumentReference(svg, notes) {
     const body = String(svg || "").trim();
     if (!body.startsWith("<svg") && !body.includes("<svg")) {
@@ -8212,6 +8329,7 @@ List 5\u20137 working hypotheses that best fit the available data
     const maxSleepDays = Math.max(0, opts.maxSleepDays ?? DEFAULT_MAX_SLEEP_DAYS);
     const maxVo2Days = Math.max(0, opts.maxVo2Days ?? DEFAULT_MAX_VO2_DAYS);
     const maxBreathingDays = Math.max(0, opts.maxBreathingDays ?? DEFAULT_MAX_BREATHING_DAYS);
+    const maxWristTempDays = Math.max(0, opts.maxWristTempDays ?? DEFAULT_MAX_WRIST_TEMP_DAYS);
     const maxClinicalDocChars = Math.max(
       1e3,
       opts.maxClinicalDocChars ?? DEFAULT_MAX_CLINICAL_DOC_CHARS
@@ -8235,6 +8353,7 @@ List 5\u20137 working hypotheses that best fit the available data
       sleep: 0,
       vo2Max: 0,
       breathingDisturbance: 0,
+      wristTemperature: 0,
       clinicalDocument: 0,
       agpSvg: 0
     };
@@ -8370,6 +8489,21 @@ List 5\u20137 working hypotheses that best fit the available data
         buildBreathingDisturbanceObservation(d.date, d.breathingDisturbance, i)
       );
       byType.breathingDisturbance += 1;
+    }
+    const wtTempDays = watchDays.filter(
+      (d) => d && d.date && inWindow(d.date, windowStart, windowEnd) && d.wristTempMean != null && Number.isFinite(d.wristTempMean)
+    ).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    let wtTempUsed = wtTempDays;
+    if (wtTempDays.length > maxWristTempDays) {
+      wtTempUsed = sampleEvenly(wtTempDays, maxWristTempDays);
+      notes.push(
+        `Wrist temp days capped: ${wtTempDays.length} \u2192 ${wtTempUsed.length} (maxWristTempDays=${maxWristTempDays})`
+      );
+    }
+    for (let i = 0; i < wtTempUsed.length; i++) {
+      const d = wtTempUsed[i];
+      observations.push(buildWristTempObservation(d.date, d.wristTempMean, i));
+      byType.wristTemperature += 1;
     }
     if (opts.patientDisplay) {
       const subject = {
@@ -8573,10 +8707,21 @@ List 5\u20137 working hypotheses that best fit the available data
       byType
     };
     notes.push(
-      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
+      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, wristTemp=${byType.wristTemperature}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
     );
+    let validation;
+    if (opts.validate !== false) {
+      validation = validateFhirExportBundle(bundle);
+      if (validation.ok) {
+        notes.push("structure self-check: ok (not official FHIR validator)");
+      } else {
+        notes.push(
+          `structure self-check: ${validation.issues.length} issue(s) \u2014 ${validation.issues.slice(0, 3).join("; ")}`
+        );
+      }
+    }
     const json = JSON.stringify(bundle, null, 2);
-    return { bundle, json, counts, notes };
+    return { bundle, json, counts, notes, validation };
   }
 
   // src/export.ts
