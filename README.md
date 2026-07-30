@@ -50,6 +50,7 @@ cd ../..
 npm install
 npx playwright install chromium   # 首次
 npm run smoke                     # i18n / 静态资源 / lib.js 语言
+npm run perf:parse                # 解析/analyzeAll 本地耗时基线（默认小 fixture；大文件自备 --file= 且勿提交）
 npm run test:e2e                  # 页面加载、语言切换、最小 XML 解析
 
 # 5. 部署：推送 main 后 GitHub Actions 先跑测试再部署 Pages
