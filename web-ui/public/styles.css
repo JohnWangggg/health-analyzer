@@ -560,6 +560,31 @@ body.has-results .result-bottom-nav:not(.hidden) {
   color: var(--text);
 }
 
+.warehouse-cgm-bulk-actions {
+  margin: 8px 0 6px;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.warehouse-cgm-bulk-actions .check-inline {
+  min-height: 36px;
+  margin: 0;
+}
+
+.wh-month-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  min-height: 36px;
+}
+
+.wh-month-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
 .warehouse-cgm-month-list {
   list-style: none;
   margin: 8px 0 0;

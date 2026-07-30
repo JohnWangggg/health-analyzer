@@ -1725,17 +1725,72 @@
     );
   }
 
+  function normalizeCgmMonths(months) {
+    const out = [];
+    const seen = {};
+    (Array.isArray(months) ? months : [months]).forEach((raw) => {
+      const m = String(raw || '').slice(0, 7);
+      if (/^\d{4}-\d{2}$/.test(m) && !seen[m]) {
+        seen[m] = true;
+        out.push(m);
+      }
+    });
+    return out;
+  }
+
+  function recomputeMetaAfterCgmDeletes(meta, remaining, note) {
+    const now = new Date().toISOString();
+    let next = Object.assign(defaultWarehouseMeta(), meta, { id: WH_META_ID });
+    const assembled = reassembleFromChunks(remaining);
+    if (assembled && assembled.data) {
+      next.totalApproxBytes = remaining.reduce((s, c) => s + (c.approxBytes || 0), 0);
+      next.totalRecordCount = countHealthRecords(assembled.data);
+      next.dateRange = inferDateRange(assembled.data);
+      next.domainStats = buildDomainStats(assembled.data);
+      next.layout = assembled.legacy ? 'legacy-full' : 'sharded-v1';
+      next.cgmMonths = remaining
+        .filter((c) => c && c.domain === 'cgm')
+        .map((c) => c.shard)
+        .filter(Boolean)
+        .sort();
+    } else {
+      const core = remaining.find((c) => c && (c.id === WH_CHUNK_CORE || c.domain === 'core'));
+      if (core && core.payload) {
+        const data = clonePlain(core.payload);
+        data.cgm = [];
+        next.totalApproxBytes = core.approxBytes || approxJsonBytes(core.payload);
+        next.totalRecordCount = countHealthRecords(data);
+        next.dateRange = inferDateRange(data);
+        next.domainStats = buildDomainStats(data);
+        next.layout = 'sharded-v1';
+        next.cgmMonths = [];
+      } else {
+        next.totalApproxBytes = 0;
+        next.totalRecordCount = 0;
+        next.dateRange = null;
+        next.domainStats = {};
+        next.cgmMonths = [];
+      }
+    }
+    next.lastWrittenAt = now;
+    next.notes = note ? [note] : [];
+    return next;
+  }
+
   /**
-   * Delete one CGM monthly shard (id cgm|YYYY-MM). Recomputes warehouse meta totals.
-   * @param {string} month e.g. '2026-07'
-   * @returns {Promise<{ ok: boolean, reason?: string, month?: string, meta?: object }>}
+   * Delete one or more CGM monthly shards (id cgm|YYYY-MM). Recomputes warehouse meta.
+   * @param {string|string[]} months e.g. '2026-07' or ['2026-06','2026-07']
+   * @returns {Promise<{ ok: boolean, reason?: string, months?: string[], deleted?: string[], meta?: object }>}
    */
-  function deleteCgmMonthShard(month) {
-    const m = String(month || '').slice(0, 7);
-    if (!/^\d{4}-\d{2}$/.test(m)) {
+  function deleteCgmMonthShards(months) {
+    const list = normalizeCgmMonths(months);
+    if (!list.length) {
       return Promise.resolve({ ok: false, reason: 'invalid_month' });
     }
-    const chunkId = 'cgm|' + m;
+    const idSet = {};
+    list.forEach((m) => {
+      idSet['cgm|' + m] = m;
+    });
     return getWarehouseMeta().then((meta) => {
       if (!meta.consent || !meta.consent.granted) {
         return { ok: false, reason: 'no_consent' };
@@ -1750,76 +1805,31 @@
             }
             const tx = db.transaction([STORE_WH_CHUNKS, STORE_WH_META], 'readwrite');
             const store = tx.objectStore(STORE_WH_CHUNKS);
-            const getReq = store.get(chunkId);
-            getReq.onsuccess = () => {
-              const existing = getReq.result;
-              if (!existing) {
-                // still refresh meta from remaining
-              } else {
-                store.delete(chunkId);
-              }
-              // Also remove legacy blob? no — only month shard
-              const allReq = store.getAll();
-              allReq.onsuccess = () => {
-                const all = allReq.result || [];
-                // After delete, getAll may still include deleted in same tx depending on browser —
-                // filter out chunkId explicitly
-                const remaining = all.filter((c) => c && c.id !== chunkId);
-                const assembled = reassembleFromChunks(remaining);
-                const now = new Date().toISOString();
-                let next = Object.assign(defaultWarehouseMeta(), meta, { id: WH_META_ID });
-                if (assembled && assembled.data) {
-                  next.totalApproxBytes = remaining.reduce((s, c) => s + (c.approxBytes || 0), 0);
-                  next.totalRecordCount = countHealthRecords(assembled.data);
-                  next.dateRange = inferDateRange(assembled.data);
-                  next.domainStats = buildDomainStats(assembled.data);
-                  next.layout = assembled.legacy ? 'legacy-full' : 'sharded-v1';
-                  next.cgmMonths = remaining
-                    .filter((c) => c && c.domain === 'cgm')
-                    .map((c) => c.shard)
-                    .filter(Boolean)
-                    .sort();
-                } else {
-                  // Only core left or empty
-                  const core = remaining.find((c) => c && (c.id === WH_CHUNK_CORE || c.domain === 'core'));
-                  if (core && core.payload) {
-                    const data = clonePlain(core.payload);
-                    data.cgm = [];
-                    next.totalApproxBytes = core.approxBytes || approxJsonBytes(core.payload);
-                    next.totalRecordCount = countHealthRecords(data);
-                    next.dateRange = inferDateRange(data);
-                    next.domainStats = buildDomainStats(data);
-                    next.layout = 'sharded-v1';
-                    next.cgmMonths = [];
-                  } else {
-                    next.totalApproxBytes = 0;
-                    next.totalRecordCount = 0;
-                    next.dateRange = null;
-                    next.domainStats = {};
-                    next.cgmMonths = [];
-                  }
-                }
-                next.lastWrittenAt = now;
-                next.notes = ['cgm_month_deleted:' + m];
-                tx.objectStore(STORE_WH_META).put(next);
-                tx.oncomplete = () => {
-                  db.close();
-                  resolve({
-                    ok: true,
-                    month: m,
-                    deleted: !!existing,
-                    meta: next,
-                  });
-                };
-              };
-              allReq.onerror = () => {
+            Object.keys(idSet).forEach((id) => store.delete(id));
+            const allReq = store.getAll();
+            allReq.onsuccess = () => {
+              const all = allReq.result || [];
+              const remaining = all.filter((c) => c && !idSet[c.id]);
+              const deleted = list.slice();
+              const note =
+                deleted.length === 1
+                  ? 'cgm_month_deleted:' + deleted[0]
+                  : 'cgm_months_deleted:' + deleted.join(',');
+              const next = recomputeMetaAfterCgmDeletes(meta, remaining, note);
+              tx.objectStore(STORE_WH_META).put(next);
+              tx.oncomplete = () => {
                 db.close();
-                reject(allReq.error);
+                resolve({
+                  ok: true,
+                  months: deleted,
+                  deleted,
+                  meta: next,
+                });
               };
             };
-            getReq.onerror = () => {
+            allReq.onerror = () => {
               db.close();
-              reject(getReq.error);
+              reject(allReq.error);
             };
             tx.onerror = () => {
               db.close();
@@ -1827,6 +1837,22 @@
             };
           })
       );
+    });
+  }
+
+  /**
+   * Delete one CGM monthly shard (id cgm|YYYY-MM).
+   * @param {string} month e.g. '2026-07'
+   */
+  function deleteCgmMonthShard(month) {
+    return deleteCgmMonthShards([month]).then((res) => {
+      if (!res || !res.ok) return res;
+      return {
+        ok: true,
+        month: res.months && res.months[0],
+        deleted: !!(res.deleted && res.deleted.length),
+        meta: res.meta,
+      };
     });
   }
 
@@ -1871,6 +1897,7 @@
     clearWarehouseOnly,
     clearWarehousePayloadKeepConsent,
     deleteCgmMonthShard,
+    deleteCgmMonthShards,
     buildDomainStats,
     trimCgmForSoftQuota,
     persistHealthDataWarehouse,

@@ -7421,6 +7421,8 @@
 
       // CGM monthly shards (newest first for readability)
       const details = Array.isArray(st.cgmMonthDetails) ? st.cgmMonthDetails.slice() : [];
+      const selectAll = $('warehouse-cgm-select-all');
+      if (selectAll) selectAll.checked = false;
       if (monthsWrap && monthsList && details.length) {
         details.sort((a, b) => String(b.month || '').localeCompare(String(a.month || '')));
         monthsWrap.classList.remove('hidden');
@@ -7432,7 +7434,8 @@
             const b = escapeHtml(formatBytes(row.approxBytes || 0));
             const delLabel = escapeHtml(t('warehouse.cgmMonthDelete'));
             return `<li class="wh-month-row">`
-              + `<span class="wh-month">${m}</span>`
+              + `<label class="wh-month-check"><input type="checkbox" class="wh-month-cb" data-cgm-month="${escapeHtml(rawM)}" />`
+              + `<span class="wh-month">${m}</span></label>`
               + `<span class="wh-month-meta">${n} · ${b}</span>`
               + `<button type="button" class="btn-danger-text btn-sm wh-month-del" data-cgm-month="${escapeHtml(rawM)}" aria-label="${delLabel} ${m}">${delLabel}</button>`
               + `</li>`;
@@ -7464,40 +7467,101 @@
     }
   }
 
-  async function deleteCgmMonthShardUi(month) {
-    const HH = window.HealthHistory;
-    if (!HH || typeof HH.deleteCgmMonthShard !== 'function') return;
-    if (!window.confirm(t('warehouse.cgmMonthDeleteConfirm', { month: String(month) }))) return;
+  function filterAnalysisCgmMonths(months) {
+    if (!currentAnalysis || !currentAnalysis.data || !Array.isArray(currentAnalysis.data.cgm)) return;
+    const prefixes = (months || []).map((m) => String(m).slice(0, 7)).filter(Boolean);
+    if (!prefixes.length) return;
+    currentAnalysis.data.cgm = currentAnalysis.data.cgm.filter((p) => {
+      const dt = String(p && p.datetime || '');
+      return !prefixes.some((pre) => dt.startsWith(pre));
+    });
     try {
-      const res = await HH.deleteCgmMonthShard(month);
+      recoveryWeights = loadRecoveryWeights();
+      currentAnalysis = window.HealthAnalyzer.analyzeAll(currentAnalysis.data, {
+        recoveryWeights,
+        locale: getAnalysisLocale(),
+      });
+      renderResults(currentAnalysis);
+    } catch (e) {
+      console.warn('re-analyze after month delete', e);
+    }
+  }
+
+  async function deleteCgmMonthShardsUi(months, confirmMsg) {
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.deleteCgmMonthShards !== 'function') return;
+    const list = (months || []).map((m) => String(m).slice(0, 7)).filter((m) => /^\d{4}-\d{2}$/.test(m));
+    if (!list.length) {
+      showToast(t('warehouse.cgmNoneSelected'), { ms: 2200 });
+      return;
+    }
+    if (!window.confirm(confirmMsg || t('warehouse.cgmDeleteSelectedConfirm', { n: String(list.length) }))) {
+      return;
+    }
+    try {
+      const res = await HH.deleteCgmMonthShards(list);
       if (!res || !res.ok) {
         showToast(t('warehouse.err', { msg: (res && res.reason) || 'fail' }), { ms: 2800 });
         return;
       }
-      showToast(t('warehouse.cgmMonthDeleted', { month: String(month) }), { ok: true, ms: 2400 });
-      showWarehouseStatusMsg(t('warehouse.cgmMonthDeleted', { month: String(month) }));
-      // If current analysis is loaded from warehouse, filter CGM points for that month in memory
-      if (currentAnalysis && currentAnalysis.data && Array.isArray(currentAnalysis.data.cgm)) {
-        const prefix = String(month).slice(0, 7);
-        currentAnalysis.data.cgm = currentAnalysis.data.cgm.filter(
-          (p) => !String(p && p.datetime || '').startsWith(prefix)
-        );
-        try {
-          recoveryWeights = loadRecoveryWeights();
-          currentAnalysis = window.HealthAnalyzer.analyzeAll(currentAnalysis.data, {
-            recoveryWeights,
-            locale: getAnalysisLocale(),
-          });
-          renderResults(currentAnalysis);
-        } catch (e) {
-          console.warn('re-analyze after month delete', e);
-        }
-      }
+      const msg =
+        list.length === 1
+          ? t('warehouse.cgmMonthDeleted', { month: list[0] })
+          : t('warehouse.cgmMonthsDeleted', { n: String(list.length) });
+      showToast(msg, { ok: true, ms: 2400 });
+      showWarehouseStatusMsg(msg);
+      filterAnalysisCgmMonths(list);
       await refreshWarehousePanel();
     } catch (e) {
       showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
     }
   }
+
+  async function deleteCgmMonthShardUi(month) {
+    await deleteCgmMonthShardsUi(
+      [month],
+      t('warehouse.cgmMonthDeleteConfirm', { month: String(month) })
+    );
+  }
+
+  function getSelectedCgmMonthsFromUi() {
+    return Array.from(document.querySelectorAll('#warehouse-cgm-month-list .wh-month-cb:checked'))
+      .map((el) => el.getAttribute('data-cgm-month'))
+      .filter(Boolean);
+  }
+
+  $('warehouse-cgm-select-all')?.addEventListener('change', (e) => {
+    const on = !!(e.target && e.target.checked);
+    document.querySelectorAll('#warehouse-cgm-month-list .wh-month-cb').forEach((cb) => {
+      cb.checked = on;
+    });
+  });
+  $('btn-warehouse-cgm-delete-selected')?.addEventListener('click', () => {
+    deleteCgmMonthShardsUi(getSelectedCgmMonthsFromUi());
+  });
+  $('btn-warehouse-cgm-keep-recent')?.addEventListener('click', async () => {
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.getWarehouseStatus !== 'function') return;
+    try {
+      const st = await HH.getWarehouseStatus();
+      const months = (st.cgmMonths || (st.cgmMonthDetails || []).map((d) => d.month) || [])
+        .slice()
+        .filter(Boolean)
+        .sort();
+      if (months.length <= 6) {
+        showToast(t('warehouse.cgmKeepRecentNone'), { ms: 2200 });
+        return;
+      }
+      const keep = months.slice(-6); // oldest..newest → keep newest 6
+      const drop = months.filter((m) => keep.indexOf(m) < 0);
+      await deleteCgmMonthShardsUi(
+        drop,
+        t('warehouse.cgmKeepRecentConfirm', { n: String(drop.length), keep: '6' })
+      );
+    } catch (e) {
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+    }
+  });
 
   async function maybePersistWarehouse(analysis, opts) {
     opts = opts || {};

@@ -626,7 +626,15 @@
         <ul id="warehouse-domain-list" class="warehouse-domain-list hidden" aria-label="domain breakdown"></ul>
         <div id="warehouse-cgm-months" class="warehouse-cgm-months hidden" role="region" aria-labelledby="warehouse-cgm-months-title">
           <h4 class="warehouse-cgm-months-title" id="warehouse-cgm-months-title" data-i18n="warehouse.cgmMonthsTitle">CGM 月分片</h4>
-          <p class="hint compact-hint" data-i18n="warehouse.cgmMonthsHint">按月存储；超配额时优先淘汰最旧月份。非诊断。</p>
+          <p class="hint compact-hint" data-i18n="warehouse.cgmMonthsHint">按月存储；超配额时优先淘汰最旧月份。可多选批量删除。非诊断。</p>
+          <div class="warehouse-cgm-bulk-actions export-actions">
+            <label class="check-inline" for="warehouse-cgm-select-all">
+              <input type="checkbox" id="warehouse-cgm-select-all" />
+              <span data-i18n="warehouse.cgmSelectAll">全选</span>
+            </label>
+            <button type="button" id="btn-warehouse-cgm-delete-selected" class="btn-danger-text btn-sm" data-i18n="warehouse.cgmDeleteSelected">删除所选</button>
+            <button type="button" id="btn-warehouse-cgm-keep-recent" class="btn-ghost btn-sm" data-i18n="warehouse.cgmKeepRecent6">仅保留近 6 个月</button>
+          </div>
           <ul id="warehouse-cgm-month-list" class="warehouse-cgm-month-list" aria-label="CGM months"></ul>
         </div>
         <label class="date-field warehouse-pass-field" for="warehouse-backup-pass">
@@ -777,7 +785,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.77</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.78</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

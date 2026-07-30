@@ -214,15 +214,16 @@ test.describe('v1.68 raw warehouse', () => {
     await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
   });
 
-  test('deleteCgmMonthShard API removes month and updates status', async ({ page }) => {
+  test('deleteCgmMonthShards bulk removes months and updates status', async ({ page }) => {
     await waitAppReady(page);
-    // Seed warehouse with two synthetic months via API
+    // Seed warehouse with three synthetic months via API
     await page.evaluate(async () => {
       const HA = window.HealthAnalyzer;
       const HH = window.HealthHistory;
       await HH.grantWarehouseConsent();
       const data = HA.createEmptyData();
       data.cgm = [
+        { datetime: '2026-05-10T08:00:00', value: 5.2 },
         { datetime: '2026-06-15T08:00:00', value: 5.5 },
         { datetime: '2026-06-16T08:00:00', value: 5.6 },
         { datetime: '2026-07-10T08:00:00', value: 6.0 },
@@ -233,19 +234,11 @@ test.describe('v1.68 raw warehouse', () => {
       await HH.persistHealthDataWarehouse(data);
     });
 
-    const before = await page.evaluate(async () => {
-      const st = await window.HealthHistory.getWarehouseStatus();
-      return {
-        months: st.cgmMonths || [],
-        details: (st.cgmMonthDetails || []).map((d) => d.month),
-      };
+    const bulk = await page.evaluate(async () => {
+      return window.HealthHistory.deleteCgmMonthShards(['2026-05', '2026-06']);
     });
-    expect(before.months.length + before.details.length).toBeGreaterThan(0);
-
-    const del = await page.evaluate(async () => {
-      return window.HealthHistory.deleteCgmMonthShard('2026-06');
-    });
-    expect(del.ok).toBe(true);
+    expect(bulk.ok).toBe(true);
+    expect(bulk.deleted).toEqual(expect.arrayContaining(['2026-05', '2026-06']));
 
     const after = await page.evaluate(async () => {
       const st = await window.HealthHistory.getWarehouseStatus();
@@ -253,16 +246,16 @@ test.describe('v1.68 raw warehouse', () => {
       const cgm = (loaded && loaded.data && loaded.data.cgm) || [];
       return {
         months: st.cgmMonths || [],
-        details: (st.cgmMonthDetails || []).map((d) => d.month),
+        hasMay: cgm.some((p) => String(p.datetime || '').startsWith('2026-05')),
         hasJune: cgm.some((p) => String(p.datetime || '').startsWith('2026-06')),
         hasJuly: cgm.some((p) => String(p.datetime || '').startsWith('2026-07')),
       };
     });
+    expect(after.months).not.toContain('2026-05');
     expect(after.months).not.toContain('2026-06');
-    expect(after.details).not.toContain('2026-06');
+    expect(after.hasMay).toBe(false);
     expect(after.hasJune).toBe(false);
-    // July may remain if fixture months were stored
-    expect(after.hasJuly || after.months.includes('2026-07') || after.details.includes('2026-07') || true).toBe(true);
+    expect(after.hasJuly).toBe(true);
   });
 
   test('encrypted backup roundtrip with passphrase', async ({ page }) => {
