@@ -72,6 +72,7 @@ export function parseWeightScaleCsv(text: string): WeightRecord[] {
       datetime,
       date: getDate(datetime),
       value,
+      source: 'external-csv',
     };
     if (iFat >= 0) {
       const fat = parseNum(cols[iFat]);
@@ -123,6 +124,7 @@ export function parseBloodPressureCsv(text: string): BloodPressureRecord[] {
       date: getDate(datetime),
       systolic,
       diastolic,
+      source: 'external-csv',
     });
   }
   return out;

@@ -8,6 +8,7 @@ validator_cli.jar.*
 fhir-package-cache/
 txCache/
 fhir-hl7-validator-report.html
+fhir-hl7-from-export.json
 fhir-settings-empty.json
 *.log
 .fhir-validator/

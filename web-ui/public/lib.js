@@ -67,6 +67,7 @@ var HealthAnalyzer = (() => {
     calcWorkoutStats: () => calcWorkoutStats,
     calendarWindowEndInclusive: () => calendarWindowEndInclusive,
     classifyGlucoseUnit: () => classifyGlucoseUnit,
+    classifySourceNameToDevice: () => classifySourceNameToDevice,
     compareSnapshots: () => compareSnapshots,
     countDaysWithData: () => countDaysWithData,
     createEmptyData: () => createEmptyData,
@@ -143,6 +144,7 @@ var HealthAnalyzer = (() => {
     shortImportBatchIdForProv: () => shortImportBatchIdForProv,
     shortWorkoutType: () => shortWorkoutType,
     sortHealthEvents: () => sortHealthEvents,
+    stripPrivateFhirExtensions: () => stripPrivateFhirExtensions,
     summarizeHrvByDay: () => summarizeHrvByDay,
     toIsoDateTime: () => toIsoDateTime,
     toMmolL: () => toMmolL,
@@ -413,7 +415,8 @@ var HealthAnalyzer = (() => {
             datetime: rdate,
             value: numericValue,
             originalUnit: rec.unit,
-            originalValue: numericValue
+            originalValue: numericValue,
+            source: rec.source || void 0
           });
           meta.mmolCount += 1;
         } else if (kind === "mg/dL") {
@@ -421,7 +424,8 @@ var HealthAnalyzer = (() => {
             datetime: rdate,
             value: toMmolL(numericValue, "mg/dL"),
             originalUnit: rec.unit,
-            originalValue: numericValue
+            originalValue: numericValue,
+            source: rec.source || void 0
           });
           meta.convertedMgDlCount += 1;
         } else {
@@ -430,7 +434,8 @@ var HealthAnalyzer = (() => {
             value: numericValue,
             originalUnit: rec.unit || "",
             originalValue: numericValue,
-            unitPending: true
+            unitPending: true,
+            source: rec.source || void 0
           });
           meta.unknownUnitCount += 1;
         }
@@ -440,15 +445,22 @@ var HealthAnalyzer = (() => {
       const map = getBpMap(data);
       const record = map.get(rdate) ?? { datetime: rdate, date, systolic: 0, diastolic: 0 };
       record.systolic = numericValue;
+      if (rec.source && !record.source) record.source = rec.source;
       map.set(rdate, record);
       data.dataAvailability.hasBloodPressure = true;
     } else if (rec.type === "HKQuantityTypeIdentifierBloodPressureDiastolic") {
       const map = getBpMap(data);
       const record = map.get(rdate) ?? { datetime: rdate, date, systolic: 0, diastolic: 0 };
       record.diastolic = numericValue;
+      if (rec.source && !record.source) record.source = rec.source;
       map.set(rdate, record);
     } else if (rec.type === "HKQuantityTypeIdentifierBodyMass") {
-      data.weight.push({ datetime: rdate, date, value: numericValue });
+      data.weight.push({
+        datetime: rdate,
+        date,
+        value: numericValue,
+        source: rec.source || void 0
+      });
       data.dataAvailability.hasWeight = true;
     } else if (rec.type === "HKQuantityTypeIdentifierBodyFatPercentage") {
       const pct = numericValue <= 1 ? numericValue * 100 : numericValue;
@@ -778,6 +790,7 @@ var HealthAnalyzer = (() => {
         };
         if (r.systolic > 0) cur.systolic = r.systolic;
         if (r.diastolic > 0) cur.diastolic = r.diastolic;
+        if (r.source && !cur.source) cur.source = r.source;
         byDt.set(r.datetime, cur);
       }
       data.bloodPressure = [...byDt.values()].filter((r) => r.systolic > 0 && r.diastolic > 0);
@@ -8195,7 +8208,7 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.9.0";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.9.1";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
@@ -8203,6 +8216,7 @@ List 5\u20137 working hypotheses that best fit the available data
   var META_SOURCE = "urn:health-analyzer:local";
   var DEVICE_NOTE = "local Apple Health / HAE import";
   var EXT_SOURCE_BATCH_IDS = "urn:health-analyzer:extension:source-batch-ids";
+  var EXT_SOURCE_NAME = "urn:health-analyzer:extension:source-name";
   var EXT_BIRTH_YEAR_ONLY = "urn:health-analyzer:extension:birth-year-only";
   var EXT_PATIENT_DISCLAIMER = "urn:health-analyzer:extension:patient-disclaimer";
   var EXT_DEVICE_CLASS = "urn:health-analyzer:extension:device-class";
@@ -8499,8 +8513,40 @@ List 5\u20137 working hypotheses that best fit the available data
   function deviceDisplayName(deviceClass) {
     return DEVICE_CLASS_META[deviceClass].display;
   }
+  function classifySourceNameToDevice(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return null;
+    const lower = s.toLowerCase();
+    if (lower === "hae" || lower.startsWith("hae") || lower.includes("health auto export") || lower === "external-csv" || lower.includes("external-csv")) {
+      return null;
+    }
+    if (lower.includes("watch") || /腕表|手表/.test(s)) {
+      return "apple-watch";
+    }
+    if (lower.includes("iphone") || lower.includes("i phone")) {
+      return "iphone";
+    }
+    return null;
+  }
   function resolveObservationDevice(byTypeKey, opts) {
     const key = String(byTypeKey || "");
+    if (opts?.sampleSource != null && String(opts.sampleSource).trim()) {
+      const fromSample = classifySourceNameToDevice(opts.sampleSource);
+      if (fromSample) {
+        return {
+          deviceClass: fromSample,
+          confidence: "high",
+          reason: "per-sample-sourceName"
+        };
+      }
+      if (key === "bloodPressure" || key === "glucose" || key === "bodyWeight") {
+        return {
+          deviceClass: null,
+          confidence: "none",
+          reason: "per-sample-source-not-measurement-device"
+        };
+      }
+    }
     if (HIGH_CONFIDENCE_WATCH_TYPES.has(key)) {
       return {
         deviceClass: "apple-watch",
@@ -8531,13 +8577,65 @@ List 5\u20137 working hypotheses that best fit the available data
       return {
         deviceClass: null,
         confidence: "none",
-        reason: "per-sample-source-not-retained"
+        reason: opts?.sampleSource ? "per-sample-source-not-measurement-device" : "per-sample-source-missing"
       };
     }
     return { deviceClass: null, confidence: "none", reason: "no-high-confidence-mapping" };
   }
   function resolveObservationDeviceClass(byTypeKey, opts) {
     return resolveObservationDevice(byTypeKey, opts).deviceClass;
+  }
+  function attachSourceNameMeta(obs, source) {
+    const s = source != null ? String(source).trim() : "";
+    if (!s) return;
+    const ext = Array.isArray(obs.extension) ? obs.extension : [];
+    ext.push({ url: EXT_SOURCE_NAME, valueString: s });
+    obs.extension = ext;
+    const notes = Array.isArray(obs.note) ? obs.note : [];
+    notes.push({ text: `sourceName: ${s}` });
+    obs.note = notes;
+  }
+  function stripPrivateFhirExtensions(bundle) {
+    if (!bundle || typeof bundle !== "object") {
+      return { resourceType: "Bundle", type: "collection", entry: [] };
+    }
+    const cloned = JSON.parse(JSON.stringify(bundle));
+    const isPrivateUrl = (u) => {
+      const s = String(u || "");
+      return s.startsWith("urn:health-analyzer:");
+    };
+    const stripMeta = (obj) => {
+      if (Array.isArray(obj.extension)) {
+        obj.extension = obj.extension.filter(
+          (x) => x && !isPrivateUrl(x.url)
+        );
+        if (!obj.extension.length) delete obj.extension;
+      }
+      if (obj.meta && typeof obj.meta === "object") {
+        const meta = obj.meta;
+        if (Array.isArray(meta.tag)) {
+          meta.tag = meta.tag.filter((t) => t && !isPrivateUrl(t.system));
+          if (!meta.tag.length) delete meta.tag;
+        }
+        if (Array.isArray(meta.profile)) {
+          meta.profile = meta.profile.filter((p) => p && !isPrivateUrl(p));
+          if (!meta.profile.length) delete meta.profile;
+        }
+        if (!Object.keys(meta).length) delete obj.meta;
+      }
+    };
+    stripMeta(cloned);
+    if (cloned.type === "collection" && cloned.total != null) {
+      delete cloned.total;
+    }
+    const entry = Array.isArray(cloned.entry) ? cloned.entry : [];
+    for (const e of entry) {
+      if (!e || typeof e !== "object") continue;
+      const r = e.resource;
+      if (!r || typeof r !== "object") continue;
+      stripMeta(r);
+    }
+    return cloned;
   }
   function buildLocalPatientResource(opts) {
     const display = opts?.display != null && String(opts.display).trim() ? String(opts.display).trim() : "Local patient";
@@ -8769,9 +8867,15 @@ List 5\u20137 working hypotheses that best fit the available data
   }
   function buildSpo2Observation(date, spo2Pct, index) {
     const id = `obs-spo2-${index}`;
+    const code = loincCoding("2708-6", "Oxygen saturation in Arterial blood");
+    code.coding.push({
+      system: LOINC,
+      code: "59408-5",
+      display: "Oxygen saturation in Arterial blood by Pulse oximetry"
+    });
     const obs = baseObservation(
       id,
-      loincCoding("59408-5", "Oxygen saturation in Arterial blood by Pulse oximetry"),
+      code,
       dailyPeriod(date, "daily mean SpO\u2082 (Watch summary aggregate)")
     );
     obs.valueQuantity = quantity(spo2Pct, "%", "%");
@@ -9338,6 +9442,9 @@ List 5\u20137 working hypotheses that best fit the available data
       const domain = FHIR_OBS_TYPE_TO_DOMAIN[byTypeKey] || byTypeKey;
       attachObservationCategory(obs, byTypeKey);
       attachSourceBatchExtension(obs, domain, domainSourceBatches);
+      if (deviceHint?.sampleSource) {
+        attachSourceNameMeta(obs, deviceHint.sampleSource);
+      }
       observations.push(obs);
       observationDomains.push(domain);
       byType[byTypeKey] = (byType[byTypeKey] || 0) + 1;
@@ -9350,7 +9457,8 @@ List 5\u20137 working hypotheses that best fit the available data
         return;
       }
       const resolved = resolveObservationDevice(byTypeKey, {
-        stepsDay: deviceHint?.stepsDay
+        stepsDay: deviceHint?.stepsDay,
+        sampleSource: deviceHint?.sampleSource
       });
       observationDeviceClasses.push(
         resolved.confidence === "high" ? resolved.deviceClass : null
@@ -9365,7 +9473,9 @@ List 5\u20137 working hypotheses that best fit the available data
       notes.push(`BP capped: ${bpAll.length} \u2192 ${bp.length} (maxBp=${maxBp}, even sample)`);
     }
     for (let i = 0; i < bp.length; i++) {
-      pushObs(buildBpObservation(bp[i], i), "bloodPressure");
+      pushObs(buildBpObservation(bp[i], i), "bloodPressure", {
+        sampleSource: bp[i].source || null
+      });
     }
     const wtAll = (data?.weight || []).filter(
       (r) => inWindow(r.date || getDate(r.datetime), windowStart, windowEnd)
@@ -9378,7 +9488,9 @@ List 5\u20137 working hypotheses that best fit the available data
       );
     }
     for (let i = 0; i < wt.length; i++) {
-      pushObs(buildWeightObservation(wt[i], i), "bodyWeight");
+      pushObs(buildWeightObservation(wt[i], i), "bodyWeight", {
+        sampleSource: wt[i].source || null
+      });
     }
     const cgmAll = (data?.cgm || []).filter(
       (p) => inWindow(getDate(p.datetime), windowStart, windowEnd)
@@ -9389,7 +9501,9 @@ List 5\u20137 working hypotheses that best fit the available data
       notes.push(`CGM capped: ${cgmAll.length} \u2192 ${cgm.length} (maxCgm=${maxCgm}, even sample)`);
     }
     for (let i = 0; i < cgm.length; i++) {
-      pushObs(buildGlucoseObservation(cgm[i], i), "glucose");
+      pushObs(buildGlucoseObservation(cgm[i], i), "glucose", {
+        sampleSource: cgm[i].source || null
+      });
     }
     const stepsMap = analysis.stepsByDate || {};
     const stepDates = Object.keys(stepsMap).filter((d) => inWindow(d, windowStart, windowEnd) && Number.isFinite(stepsMap[d])).sort();
@@ -10236,7 +10350,8 @@ ${f.content}`).join("\n");
       const rec = {
         datetime,
         date: getDate(datetime),
-        value
+        value,
+        source: "external-csv"
       };
       if (iFat >= 0) {
         const fat = parseNum(cols[iFat]);
@@ -10282,7 +10397,8 @@ ${f.content}`).join("\n");
         datetime,
         date: getDate(datetime),
         systolic,
-        diastolic
+        diastolic,
+        source: "external-csv"
       });
     }
     return out;
@@ -10920,7 +11036,9 @@ ${f.content}`).join("\n");
         datetime,
         value,
         originalUnit: units,
-        originalValue
+        originalValue,
+        // HAE is an import channel — retained for provenance; not a measurement Device
+        source: "hae"
       };
       if (unitPending) rec.unitPending = true;
       data.cgm.push(rec);
@@ -10959,7 +11077,13 @@ ${f.content}`).join("\n");
         bump(stats, "bloodPressure", "skipped");
         continue;
       }
-      const rec = { datetime, date, systolic: sys, diastolic: dia };
+      const rec = {
+        datetime,
+        date,
+        systolic: sys,
+        diastolic: dia,
+        source: "hae"
+      };
       data.bloodPressure.push(rec);
       minutes.add(mk);
       dateSysDia.add(dsd);
@@ -11031,7 +11155,7 @@ ${f.content}`).join("\n");
         else bump(stats, "weight", "skipped");
         continue;
       }
-      const rec = { datetime, date, value };
+      const rec = { datetime, date, value, source: "hae" };
       if (bodyFat != null && bodyFat > 0 && bodyFat < 80) rec.bodyFat = bodyFat;
       if (bmi != null) rec.bmi = bmi;
       data.weight.push(rec);

@@ -177,6 +177,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.61 | 逐条保留 sourceName；Device 按样本来源高置信度映射；`stripPrivateFhirExtensions` 供 HL7 校验导出 Bundle |
 | v1.60 | CI/本地可选官方 HL7 `validator_cli` 离线校验合成 fixture（`-tx n/a`，无个人数据） |
 | v1.59 | Device 仅高置信度 Watch/iPhone；外部交换分匿名分享/个人转交；门禁拒绝误标 Device |
 | v1.58 | FHIR 导出分档：本地归档 / 外部交换；后者经独立 R4 交换门禁（非 HL7 Java 校验器） |

@@ -24,12 +24,15 @@
  *
  * Usage:
  *   node scripts/fhir-hl7-validator.mjs
+ *   node scripts/fhir-hl7-validator.mjs --from-export
+ *     (build exchange Bundle from e2e minimal XML, strip private extensions, validate)
  *   npm run test:fhir:hl7
  *   FHIR_HL7_REQUIRED=1 npm run test:fhir:hl7
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { createContext, runInContext } from 'node:vm';
 import { fileURLToPath } from 'node:url';
 import https from 'node:https';
 import http from 'node:http';
@@ -42,7 +45,11 @@ const fixturePath = path.join(
   root,
   'lib/test/fixtures/fhir-hl7-r4-minimal.json'
 );
+const sampleXmlPath = path.join(root, 'e2e/fixtures/minimal-export.xml');
+const libJsPath = path.join(root, 'web-ui/public/lib.js');
 const packageCache = path.join(toolsDir, 'fhir-package-cache');
+const FROM_EXPORT =
+  process.argv.includes('--from-export') || process.env.FHIR_HL7_FROM_EXPORT === '1';
 
 /** Prefer a pin-friendly "latest" URL; override with FHIR_VALIDATOR_URL */
 const DEFAULT_JAR_URL =
@@ -260,23 +267,81 @@ function summarizeOutcome(stdout, stderr) {
   return { hasError, summary: summary && summary[0] };
 }
 
+function buildStrippedExportFixture() {
+  if (!fs.existsSync(libJsPath)) {
+    throw new Error(`lib.js missing: ${libJsPath} (run npm run build:lib)`);
+  }
+  if (!fs.existsSync(sampleXmlPath)) {
+    throw new Error(`sample XML missing: ${sampleXmlPath}`);
+  }
+  const code = fs.readFileSync(libJsPath, 'utf8');
+  const ctx = createContext({ console });
+  runInContext(code + '\nthis.HA = HealthAnalyzer;', ctx);
+  const HA = ctx.HA;
+  if (!HA || typeof HA.buildFhirExportBundle !== 'function') {
+    throw new Error('HealthAnalyzer.buildFhirExportBundle unavailable');
+  }
+  if (typeof HA.stripPrivateFhirExtensions !== 'function') {
+    throw new Error('HealthAnalyzer.stripPrivateFhirExtensions unavailable (rebuild lib)');
+  }
+  const xml = fs.readFileSync(sampleXmlPath, 'utf8');
+  const data = HA.parseHealthXml(xml);
+  const analysis = HA.analyzeAll(data);
+  // Use personal-handoff + synthetic persistent id so LOINC-matched vital-sign
+  // profiles (bp / bodyweight) that require Observation.subject can pass Base R4.
+  // Fixture patient is not a real identity (local random id only).
+  const out = HA.buildFhirExportBundle(analysis, {
+    exportTier: 'external-exchange',
+    exchangePurpose: 'personal-handoff',
+    patientDisplay: 'HL7-Fixture-Anon',
+    patientPersistentId: 'hl7-fixture-persistent-id-not-real',
+    includeProvenance: false,
+    includeDevices: true,
+  });
+  if (!out.exchangeReady) {
+    throw new Error(
+      `exchange gate blocked export: ${(out.exchangeValidation && out.exchangeValidation.issues) || []}`
+    );
+  }
+  // stripPrivateFhirExtensions also drops private tags/profiles and collection Bundle.total (bdl-1)
+  const stripped = HA.stripPrivateFhirExtensions(out.bundle);
+  const outPath = path.join(toolsDir, 'fhir-hl7-from-export.json');
+  fs.mkdirSync(toolsDir, { recursive: true });
+  fs.writeFileSync(outPath, JSON.stringify(stripped, null, 2));
+  return outPath;
+}
+
 async function main() {
-  log('\nHL7 FHIR Validator CLI (official, offline-oriented, synthetic fixture only)');
-  log('  fixture: lib/test/fixtures/fhir-hl7-r4-minimal.json (no personal data)');
+  log('\nHL7 FHIR Validator CLI (official, offline-oriented, no personal data)');
 
   if (FORCE_SKIP) {
     softSkip('FHIR_HL7_SKIP=1');
   }
 
-  if (!fs.existsSync(fixturePath)) {
-    fail(`fixture missing: ${fixturePath}`);
+  let targetPath = fixturePath;
+  if (FROM_EXPORT) {
+    log('  mode: --from-export (build + stripPrivateFhirExtensions)');
+    try {
+      targetPath = buildStrippedExportFixture();
+      log(`  ✓ wrote stripped export: ${path.relative(root, targetPath)}`);
+    } catch (e) {
+      const msg = `from-export prepare failed: ${e.message || e}`;
+      if (REQUIRED) fail(msg);
+      softSkip(msg);
+    }
+  } else {
+    log('  fixture: lib/test/fixtures/fhir-hl7-r4-minimal.json');
+    if (!fs.existsSync(fixturePath)) {
+      fail(`fixture missing: ${fixturePath}`);
+    }
   }
+
   // Sanity: no personal-looking content
-  const raw = fs.readFileSync(fixturePath, 'utf8');
+  const raw = fs.readFileSync(targetPath, 'utf8');
   if (/@gmail\.|身份证|patient-name|John Doe/i.test(raw)) {
     fail('fixture appears to contain personal data — abort');
   }
-  log('  ✓ fixture exists and passes personal-data smoke scan');
+  log('  ✓ target exists and passes personal-data smoke scan');
 
   const java = findJava();
   if (!java) {
@@ -304,7 +369,7 @@ async function main() {
     softSkip(msg);
   }
 
-  const result = runValidator(java, jarPath, fixturePath);
+  const result = runValidator(java, jarPath, targetPath);
   if (result.error) {
     const msg = `failed to spawn validator: ${result.error.message}`;
     if (REQUIRED) fail(msg);

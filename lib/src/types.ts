@@ -31,6 +31,11 @@ export interface CgmPoint {
   originalValue?: number;
   /** unit 缺失/未知，待 finalize 推断 */
   unitPending?: boolean;
+  /**
+   * 原始来源名（Apple Health sourceName / HAE / CSV 通道标签）。
+   * v1.61：供 FHIR Device 高置信度映射；导入通道（hae）不是测量 Device。
+   */
+  source?: string;
 }
 
 export interface BloodPressureRecord {
@@ -38,6 +43,8 @@ export interface BloodPressureRecord {
   date: string;
   systolic: number;
   diastolic: number;
+  /** 原始来源名（Apple Health sourceName 等） */
+  source?: string;
 }
 
 export interface WeightRecord {
@@ -47,6 +54,8 @@ export interface WeightRecord {
   bodyFat?: number; // %
   muscleMass?: number;
   bmi?: number;
+  /** 原始来源名（Apple Health sourceName / 外部 CSV 等） */
+  source?: string;
 }
 
 /** 体脂独立点（解析后与体重按日合并） */

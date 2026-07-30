@@ -10,6 +10,7 @@
     "test:fhir:structure": "node scripts/fhir-structure-check.mjs",
     "test:fhir:exchange": "node scripts/fhir-exchange-check.mjs",
     "test:fhir:hl7": "node scripts/fhir-hl7-validator.mjs",
+    "test:fhir:hl7:export": "node scripts/fhir-hl7-validator.mjs --from-export",
     "test:fhir:hl7:required": "FHIR_HL7_REQUIRED=1 node scripts/fhir-hl7-validator.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",

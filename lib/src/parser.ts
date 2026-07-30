@@ -302,6 +302,7 @@ export function processRecord(
           value: numericValue,
           originalUnit: rec.unit,
           originalValue: numericValue,
+          source: rec.source || undefined,
         });
         meta.mmolCount += 1;
       } else if (kind === 'mg/dL') {
@@ -310,6 +311,7 @@ export function processRecord(
           value: toMmolL(numericValue, 'mg/dL'),
           originalUnit: rec.unit,
           originalValue: numericValue,
+          source: rec.source || undefined,
         });
         meta.convertedMgDlCount += 1;
       } else {
@@ -320,6 +322,7 @@ export function processRecord(
           originalUnit: rec.unit || '',
           originalValue: numericValue,
           unitPending: true,
+          source: rec.source || undefined,
         });
         meta.unknownUnitCount += 1;
       }
@@ -329,15 +332,22 @@ export function processRecord(
     const map = getBpMap(data);
     const record = map.get(rdate) ?? { datetime: rdate, date, systolic: 0, diastolic: 0 };
     record.systolic = numericValue;
+    if (rec.source && !record.source) record.source = rec.source;
     map.set(rdate, record);
     data.dataAvailability.hasBloodPressure = true;
   } else if (rec.type === 'HKQuantityTypeIdentifierBloodPressureDiastolic') {
     const map = getBpMap(data);
     const record = map.get(rdate) ?? { datetime: rdate, date, systolic: 0, diastolic: 0 };
     record.diastolic = numericValue;
+    if (rec.source && !record.source) record.source = rec.source;
     map.set(rdate, record);
   } else if (rec.type === 'HKQuantityTypeIdentifierBodyMass') {
-    data.weight.push({ datetime: rdate, date, value: numericValue });
+    data.weight.push({
+      datetime: rdate,
+      date,
+      value: numericValue,
+      source: rec.source || undefined,
+    });
     data.dataAvailability.hasWeight = true;
   } else if (rec.type === 'HKQuantityTypeIdentifierBodyFatPercentage') {
     // Apple Health 常以 0–1 小数存储；若 >1 则视为已是百分数
@@ -730,6 +740,7 @@ export function finalizeData(data: HealthData): void {
       };
       if (r.systolic > 0) cur.systolic = r.systolic;
       if (r.diastolic > 0) cur.diastolic = r.diastolic;
+      if (r.source && !cur.source) cur.source = r.source;
       byDt.set(r.datetime, cur);
     }
     data.bloodPressure = [...byDt.values()].filter((r) => r.systolic > 0 && r.diastolic > 0);

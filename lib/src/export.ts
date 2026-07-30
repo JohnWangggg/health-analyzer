@@ -48,6 +48,8 @@ export {
   deviceDisplayName,
   resolveObservationDevice,
   resolveObservationDeviceClass,
+  classifySourceNameToDevice,
+  stripPrivateFhirExtensions,
   normalizeFhirExportTier,
   normalizeFhirExchangePurpose,
   validateFhirR4ExchangeGate,

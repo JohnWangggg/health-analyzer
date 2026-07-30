@@ -11,6 +11,7 @@
  * - v1.58：导出档位 local-archive / external-exchange；后者须独立 R4 交换门禁校验
  * - v1.59：Device 仅高置信度测量设备（Watch/iPhone）；HAE/聚合不进 device；
  *          外部交换分 anonymous-share / personal-handoff
+ * - v1.61：逐条保留 sourceName；Device 优先用逐条来源；stripPrivateFhirExtensions 供 HL7 校验
  * - 项目自检 validateFhirExportBundle ≠ 官方 HL7 校验器；交换门禁为独立规则引擎
  */
 
@@ -58,7 +59,7 @@ export {
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.9.0';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.9.1';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
@@ -69,6 +70,8 @@ const META_SOURCE = 'urn:health-analyzer:local';
 const DEVICE_NOTE = 'local Apple Health / HAE import';
 /** Observation extension: comma-separated import batch ids for this domain */
 const EXT_SOURCE_BATCH_IDS = 'urn:health-analyzer:extension:source-batch-ids';
+/** Observation extension: raw sourceName / import channel label (v1.61) */
+const EXT_SOURCE_NAME = 'urn:health-analyzer:extension:source-name';
 /** Patient extension: year-only birthDate is approximate */
 const EXT_BIRTH_YEAR_ONLY = 'urn:health-analyzer:extension:birth-year-only';
 /** Patient extension: local pseudonym disclaimer */
@@ -592,20 +595,77 @@ export function deviceDisplayName(deviceClass: FhirDeviceClass): string {
 }
 
 /**
- * v1.59 high-confidence device resolution for Observation.device.
+ * Map a raw Apple Health sourceName / channel label to a measurement Device class.
+ * Returns null for import channels (hae, external-csv) and unknown sensors (Scale, CGM, …).
+ */
+export function classifySourceNameToDevice(
+  raw: string | null | undefined
+): FhirDeviceClass | null {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  const lower = s.toLowerCase();
+  // Import channels — never Observation.device
+  if (
+    lower === 'hae' ||
+    lower.startsWith('hae') ||
+    lower.includes('health auto export') ||
+    lower === 'external-csv' ||
+    lower.includes('external-csv')
+  ) {
+    return null;
+  }
+  // Watch first (handles "John的Apple Watch")
+  if (lower.includes('watch') || /腕表|手表/.test(s)) {
+    return 'apple-watch';
+  }
+  if (lower.includes('iphone') || lower.includes('i phone')) {
+    return 'iphone';
+  }
+  return null;
+}
+
+/**
+ * v1.59–1.61 high-confidence device resolution for Observation.device.
  * - Only apple-watch / iphone (measurement devices)
  * - Never HAE / Apple Health aggregate (import channels → Provenance)
- * - BP / CGM / weight: no per-record source retained → omit device
+ * - Per-sample sourceName preferred when retained (v1.61)
  */
 export function resolveObservationDevice(
   byTypeKey: string,
   opts?: {
     stepsDay?: { watch?: number; iphone?: number; max?: number } | null;
-    /** ignored for device mapping (v1.59); kept for call-site compatibility */
+    /** ignored for global device invention; kept for call-site compatibility */
     hasHaeImport?: boolean;
+    /** per-sample sourceName / channel (v1.61) */
+    sampleSource?: string | null;
   }
 ): FhirDeviceResolution {
   const key = String(byTypeKey || '');
+
+  // Per-sample source wins when classifiable as Watch/iPhone
+  if (opts?.sampleSource != null && String(opts.sampleSource).trim()) {
+    const fromSample = classifySourceNameToDevice(opts.sampleSource);
+    if (fromSample) {
+      return {
+        deviceClass: fromSample,
+        confidence: 'high',
+        reason: 'per-sample-sourceName',
+      };
+    }
+    // Explicit source that is not a measurement device we support (Scale, CGM, hae…)
+    if (
+      key === 'bloodPressure' ||
+      key === 'glucose' ||
+      key === 'bodyWeight'
+    ) {
+      return {
+        deviceClass: null,
+        confidence: 'none',
+        reason: 'per-sample-source-not-measurement-device',
+      };
+    }
+  }
+
   if (HIGH_CONFIDENCE_WATCH_TYPES.has(key)) {
     return {
       deviceClass: 'apple-watch',
@@ -632,12 +692,14 @@ export function resolveObservationDevice(
     }
     return { deviceClass: null, confidence: 'none', reason: 'steps-source-unknown' };
   }
-  // BP / glucose / weight: sourceName not retained on records — do not invent Device
+  // BP / glucose / weight without classifiable sampleSource → omit device
   if (key === 'bloodPressure' || key === 'glucose' || key === 'bodyWeight') {
     return {
       deviceClass: null,
       confidence: 'none',
-      reason: 'per-sample-source-not-retained',
+      reason: opts?.sampleSource
+        ? 'per-sample-source-not-measurement-device'
+        : 'per-sample-source-missing',
     };
   }
   return { deviceClass: null, confidence: 'none', reason: 'no-high-confidence-mapping' };
@@ -651,9 +713,83 @@ export function resolveObservationDeviceClass(
   opts?: {
     hasHaeImport?: boolean;
     stepsDay?: { watch?: number; iphone?: number; max?: number } | null;
+    sampleSource?: string | null;
   }
 ): FhirDeviceClass | null {
   return resolveObservationDevice(byTypeKey, opts).deviceClass;
+}
+
+function attachSourceNameMeta(obs: Record<string, unknown>, source: string | null | undefined): void {
+  const s = source != null ? String(source).trim() : '';
+  if (!s) return;
+  const ext = Array.isArray(obs.extension)
+    ? (obs.extension as Record<string, unknown>[])
+    : [];
+  ext.push({ url: EXT_SOURCE_NAME, valueString: s });
+  obs.extension = ext;
+  const notes = Array.isArray(obs.note) ? (obs.note as { text: string }[]) : [];
+  notes.push({ text: `sourceName: ${s}` });
+  obs.note = notes;
+}
+
+/**
+ * Deep-clone Bundle and strip project-private extensions / tags so the
+ * official HL7 Base R4 validator can run without a private IG.
+ * Does not upload data; pure local transform.
+ */
+export function stripPrivateFhirExtensions(
+  bundle: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  if (!bundle || typeof bundle !== 'object') {
+    return { resourceType: 'Bundle', type: 'collection', entry: [] };
+  }
+  const cloned = JSON.parse(JSON.stringify(bundle)) as Record<string, unknown>;
+
+  const isPrivateUrl = (u: unknown): boolean => {
+    const s = String(u || '');
+    return s.startsWith('urn:health-analyzer:');
+  };
+
+  const stripMeta = (obj: Record<string, unknown>): void => {
+    if (Array.isArray(obj.extension)) {
+      obj.extension = (obj.extension as { url?: string }[]).filter(
+        (x) => x && !isPrivateUrl(x.url)
+      );
+      if (!(obj.extension as unknown[]).length) delete obj.extension;
+    }
+    if (obj.meta && typeof obj.meta === 'object') {
+      const meta = obj.meta as {
+        tag?: { system?: string }[];
+        source?: string;
+        profile?: string[];
+      };
+      if (Array.isArray(meta.tag)) {
+        meta.tag = meta.tag.filter((t) => t && !isPrivateUrl(t.system));
+        if (!meta.tag.length) delete meta.tag;
+      }
+      if (Array.isArray(meta.profile)) {
+        // Drop informal / private profiles so Base R4 validation does not fetch them
+        meta.profile = meta.profile.filter((p) => p && !isPrivateUrl(p));
+        if (!meta.profile.length) delete meta.profile;
+      }
+      if (!Object.keys(meta).length) delete obj.meta;
+    }
+  };
+
+  stripMeta(cloned);
+  // bdl-1: total only when type is searchset or history
+  if (cloned.type === 'collection' && cloned.total != null) {
+    delete cloned.total;
+  }
+
+  const entry = Array.isArray(cloned.entry) ? (cloned.entry as Record<string, unknown>[]) : [];
+  for (const e of entry) {
+    if (!e || typeof e !== 'object') continue;
+    const r = e.resource as Record<string, unknown> | undefined;
+    if (!r || typeof r !== 'object') continue;
+    stripMeta(r);
+  }
+  return cloned;
 }
 
 /**
@@ -960,12 +1096,21 @@ function buildRestingHrObservation(
   return obs;
 }
 
-/** Daily SpO2 mean from Watch day view — LOINC 59408-5 */
+/**
+ * Daily SpO2 mean from Watch day view.
+ * LOINC 2708-6 is the vitals / oxygensat "magic" code; 59408-6 kept as additional coding.
+ */
 function buildSpo2Observation(date: string, spo2Pct: number, index: number): Record<string, unknown> {
   const id = `obs-spo2-${index}`;
+  const code = loincCoding('2708-6', 'Oxygen saturation in Arterial blood');
+  (code.coding as Record<string, unknown>[]).push({
+    system: LOINC,
+    code: '59408-5',
+    display: 'Oxygen saturation in Arterial blood by Pulse oximetry',
+  });
   const obs = baseObservation(
     id,
-    loincCoding('59408-5', 'Oxygen saturation in Arterial blood by Pulse oximetry'),
+    code,
     dailyPeriod(date, 'daily mean SpO₂ (Watch summary aggregate)')
   );
   obs.valueQuantity = quantity(spo2Pct, '%', '%');
@@ -1675,11 +1820,15 @@ export function buildFhirExportBundle(
     deviceHint?: {
       stepsDay?: { watch?: number; iphone?: number; max?: number } | null;
       deviceClass?: FhirDeviceClass | null;
+      sampleSource?: string | null;
     }
   ): void => {
     const domain = FHIR_OBS_TYPE_TO_DOMAIN[byTypeKey] || byTypeKey;
     attachObservationCategory(obs, byTypeKey);
     attachSourceBatchExtension(obs, domain, domainSourceBatches);
+    if (deviceHint?.sampleSource) {
+      attachSourceNameMeta(obs, deviceHint.sampleSource);
+    }
     observations.push(obs);
     observationDomains.push(domain);
     byType[byTypeKey] = (byType[byTypeKey] || 0) + 1;
@@ -1693,6 +1842,7 @@ export function buildFhirExportBundle(
     }
     const resolved = resolveObservationDevice(byTypeKey, {
       stepsDay: deviceHint?.stepsDay,
+      sampleSource: deviceHint?.sampleSource,
     });
     observationDeviceClasses.push(
       resolved.confidence === 'high' ? resolved.deviceClass : null
@@ -1709,7 +1859,9 @@ export function buildFhirExportBundle(
     notes.push(`BP capped: ${bpAll.length} → ${bp.length} (maxBp=${maxBp}, even sample)`);
   }
   for (let i = 0; i < bp.length; i++) {
-    pushObs(buildBpObservation(bp[i], i), 'bloodPressure');
+    pushObs(buildBpObservation(bp[i], i), 'bloodPressure', {
+      sampleSource: bp[i].source || null,
+    });
   }
 
   // --- Weight ---
@@ -1724,7 +1876,9 @@ export function buildFhirExportBundle(
     );
   }
   for (let i = 0; i < wt.length; i++) {
-    pushObs(buildWeightObservation(wt[i], i), 'bodyWeight');
+    pushObs(buildWeightObservation(wt[i], i), 'bodyWeight', {
+      sampleSource: wt[i].source || null,
+    });
   }
 
   // --- CGM / glucose ---
@@ -1737,7 +1891,9 @@ export function buildFhirExportBundle(
     notes.push(`CGM capped: ${cgmAll.length} → ${cgm.length} (maxCgm=${maxCgm}, even sample)`);
   }
   for (let i = 0; i < cgm.length; i++) {
-    pushObs(buildGlucoseObservation(cgm[i], i), 'glucose');
+    pushObs(buildGlucoseObservation(cgm[i], i), 'glucose', {
+      sampleSource: cgm[i].source || null,
+    });
   }
 
   // --- Steps daily ---

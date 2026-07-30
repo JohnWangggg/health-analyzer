@@ -260,12 +260,14 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 | `npm run test:fhir:structure` | 项目结构自检（夹具 + `validateFhirExportBundle`） | 否 |
 | `npm run test:fhir:exchange` | 独立 R4 交换门禁（`validateFhirR4ExchangeGate`） | 否（自定义规则） |
 | `npm run test:fhir:hl7` | 官方 `validator_cli.jar` 校验合成 fixture（`-tx n/a`） | **是** |
+| `npm run test:fhir:hl7:export` | 从样例 XML 生成交换 Bundle → `stripPrivateFhirExtensions` → 官方校验 | **是** |
 
-- `npm run test:fhir` 会依次跑三层；无 Java 时 HL7 层 **软跳过**（exit 0）。
+- `npm run test:fhir` 会依次跑 structure + exchange + hl7 合成夹具；无 Java 时 HL7 层 **软跳过**（exit 0）。
 - 严格 CI 可设 `FHIR_HL7_REQUIRED=1` 或运行 `npm run test:fhir:hl7:required`。
 - 夹具：`lib/test/fixtures/fhir-hl7-r4-minimal.json`（合成数据，无个人身份）。
 - Jar 下载到 `tools/validator_cli.jar`（gitignore，不提交）。
 - 本机需要 JDK（如 `brew install openjdk@21`），并将 `JAVA_HOME`/`PATH` 指向该 JDK。
+- v1.61：解析保留逐条 `sourceName`；Device 仅在 Watch/iPhone 高置信度时接线。
 
 ## 许可
 

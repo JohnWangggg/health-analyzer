@@ -821,6 +821,8 @@ function mergeCgm(
       value,
       originalUnit: units,
       originalValue,
+      // HAE is an import channel — retained for provenance; not a measurement Device
+      source: 'hae',
     };
     if (unitPending) rec.unitPending = true;
     data.cgm.push(rec);
@@ -866,7 +868,13 @@ function mergeBloodPressure(
       bump(stats, 'bloodPressure', 'skipped');
       continue;
     }
-    const rec: BloodPressureRecord = { datetime, date, systolic: sys, diastolic: dia };
+    const rec: BloodPressureRecord = {
+      datetime,
+      date,
+      systolic: sys,
+      diastolic: dia,
+      source: 'hae',
+    };
     data.bloodPressure.push(rec);
     minutes.add(mk);
     dateSysDia.add(dsd);
@@ -953,7 +961,7 @@ function mergeWeight(
       continue;
     }
 
-    const rec: WeightRecord = { datetime, date, value };
+    const rec: WeightRecord = { datetime, date, value, source: 'hae' };
     if (bodyFat != null && bodyFat > 0 && bodyFat < 80) rec.bodyFat = bodyFat;
     if (bmi != null) rec.bmi = bmi;
     data.weight.push(rec);
