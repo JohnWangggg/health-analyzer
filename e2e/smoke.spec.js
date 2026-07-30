@@ -92,4 +92,51 @@ test.describe('health-analyzer PWA smoke', () => {
       expect(recoveryText).not.toMatch(/恢复|负荷/);
     }
   });
+
+  test('after parse, buildFhirExportBundle returns Observation Bundle (v1.48)', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          typeof window.HealthAnalyzer.parseHealthXml === 'function' &&
+          typeof window.HealthAnalyzer.analyzeAll === 'function' &&
+          typeof window.HealthAnalyzer.buildFhirExportBundle === 'function'
+        )
+    );
+
+    const xml = require('fs').readFileSync(FIXTURE, 'utf8');
+    const result = await page.evaluate((xmlText) => {
+      const HA = window.HealthAnalyzer;
+      const data = HA.parseHealthXml(xmlText);
+      const analysis = HA.analyzeAll(data);
+      const out = HA.buildFhirExportBundle(analysis, {
+        includeProvenance: false,
+      });
+      const entries = (out.bundle && out.bundle.entry) || [];
+      const obs = entries.filter(
+        (e) => e && e.resource && e.resource.resourceType === 'Observation'
+      );
+      const prov = entries.filter(
+        (e) => e && e.resource && e.resource.resourceType === 'Provenance'
+      );
+      return {
+        resourceType: out.bundle && out.bundle.resourceType,
+        type: out.bundle && out.bundle.type,
+        obsCount: obs.length,
+        provCount: prov.length,
+        countsObs: out.counts && out.counts.observations,
+        hasJson: typeof out.json === 'string' && out.json.includes('Bundle'),
+        hasBtn: !!document.getElementById('btn-export-fhir'),
+      };
+    }, xml);
+
+    expect(result.resourceType).toBe('Bundle');
+    expect(result.type).toBe('collection');
+    expect(result.obsCount).toBeGreaterThan(0);
+    expect(result.provCount).toBe(0);
+    expect(result.countsObs).toBeGreaterThan(0);
+    expect(result.hasJson).toBe(true);
+    expect(result.hasBtn).toBe(true);
+  });
 });

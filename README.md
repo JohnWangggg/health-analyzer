@@ -177,7 +177,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
-| v1.48 | 试验性本机 FHIR Bundle 导出入口（UI；依赖 lib buildFhirExportBundle） |
+| v1.48 | 试验性本机 FHIR Observation+Provenance Bundle 导出 |
 | v1.47 | 本报告来源预览；HAE 取消导入 E2E |
 | v1.46.1 | 报告附录仅关联本分析 sourceBatchIds；哈希标明 full/前1MiB |
 | v1.46 | HAE 分批/总量上限/可取消；本机导入批次可追溯；HAE UI E2E |
