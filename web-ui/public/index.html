@@ -693,6 +693,11 @@
           </div>
           <ul id="warehouse-weight-year-list" class="warehouse-cgm-month-list" aria-label="Weight years"></ul>
         </div>
+        <label class="check-inline warehouse-auto-trim-row" for="warehouse-auto-trim">
+          <input type="checkbox" id="warehouse-auto-trim" />
+          <span data-i18n="warehouse.autoTrim">保存后自动按保留窗口裁剪</span>
+        </label>
+        <p class="hint compact-hint" data-i18n="warehouse.autoTrimHint">开启后，每次写入本机仓会按当前「CGM 保留月数」与「年分片保留年数」静默删除更旧分片（可备份恢复）。默认关闭。非诊断。</p>
         <label class="date-field warehouse-pass-field" for="warehouse-backup-pass">
           <span data-i18n="warehouse.backupPass">备份口令（可选，导出加密 / 导入解密）</span>
           <input type="password" id="warehouse-backup-pass" maxlength="128" autocomplete="new-password" placeholder="留空则明文备份" data-i18n-placeholder="warehouse.backupPassPh" />
@@ -841,7 +846,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.82</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.83</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

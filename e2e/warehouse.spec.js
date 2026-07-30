@@ -733,6 +733,64 @@ test.describe('v1.68 raw warehouse', () => {
     await expect(page.locator('#warehouse-weight-year-list li')).toHaveCount(2);
   });
 
+  test('auto-trim after save: keep 3 CGM months drops older on hydrate re-persist', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+    await page.evaluate(async () => {
+      localStorage.setItem('health-analyzer-warehouse-auto-trim', '1');
+      localStorage.setItem('health-analyzer-cgm-keep-months', '3');
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.cgm = [
+        { datetime: '2026-03-10T08:00:00', value: 5.0 },
+        { datetime: '2026-04-10T08:00:00', value: 5.1 },
+        { datetime: '2026-05-10T08:00:00', value: 5.2 },
+        { datetime: '2026-06-15T08:00:00', value: 5.5 },
+        { datetime: '2026-07-10T08:00:00', value: 6.0 },
+      ];
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasCgm = true;
+      await HH.persistHealthDataWarehouse(data);
+    });
+
+    const before = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      return (st.cgmMonths || []).slice().sort();
+    });
+    expect(before).toEqual(['2026-03', '2026-04', '2026-05', '2026-06', '2026-07']);
+
+    // Hydrate → renderResults → maybePersist → auto-trim
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const st = await window.HealthHistory.getWarehouseStatus();
+            return (st.cgmMonths || []).slice().sort();
+          }),
+        { timeout: 12_000 }
+      )
+      .toEqual(['2026-05', '2026-06', '2026-07']);
+
+    await setWorkspace(page, 'more');
+    await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+    await expect(page.locator('#warehouse-auto-trim')).toBeChecked();
+  });
+
   test('encrypted backup roundtrip with passphrase', async ({ page }) => {
     await waitAppReady(page);
     await selectXmlOnly(page);

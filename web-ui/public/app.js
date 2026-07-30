@@ -93,6 +93,13 @@
   const YEAR_KEEP_YEARS_KEY = 'health-analyzer-year-keep-years';
   const YEAR_KEEP_YEARS_OPTIONS = [1, 2, 3, 5];
   const YEAR_KEEP_YEARS_DEFAULT = 3;
+  /** 保存到仓后是否自动按 keep-N 裁剪 CGM 月 + BP/体重年（默认关） */
+  const WAREHOUSE_AUTO_TRIM_KEY = 'health-analyzer-warehouse-auto-trim';
+
+  /** Guard re-entry: auto-trim → reanalyze → maybePersist must not trim again nested. */
+  let warehouseAutoTrimRunning = false;
+  /** When true, next renderResults skips auto maybePersist (auto-trim already applied). */
+  let skipNextWarehouseAutoPersist = false;
   /**
    * 健康相关 localStorage 键（一键清除会删这些）。
    * 刻意保留：THEME_KEY、health-analyzer-locale、侧栏折叠、安装/更新提示等 UI 偏好。
@@ -111,6 +118,7 @@
     INCLUDE_SENSITIVE_KEY,
     CGM_KEEP_MONTHS_KEY,
     YEAR_KEEP_YEARS_KEY,
+    WAREHOUSE_AUTO_TRIM_KEY,
     'health-analyzer-insight-coach',
   ];
 
@@ -2555,7 +2563,12 @@
     showInsightCoachOnce();
 
     // v1.68: auto-persist working set when user has granted warehouse consent
-    maybePersistWarehouse(analysis).catch(() => { /* ignore */ });
+    // v1.83: skip when auto-trim already wrote / is about to re-persist trimmed data
+    if (!skipNextWarehouseAutoPersist) {
+      maybePersistWarehouse(analysis).catch(() => { /* ignore */ });
+    } else {
+      skipNextWarehouseAutoPersist = false;
+    }
     refreshWarehousePanel().catch(() => { /* ignore */ });
     refreshWarehouseHomeBanner().catch(() => { /* ignore */ });
 
@@ -7373,6 +7386,7 @@
       const weightSelectAll = $('warehouse-weight-select-all');
       if (bpSelectAll) bpSelectAll.checked = false;
       if (weightSelectAll) weightSelectAll.checked = false;
+      syncWarehouseAutoTrimUi();
 
       if (!statusEl) {
         await refreshWarehouseHomeBanner();
@@ -7931,6 +7945,144 @@
     }
   });
 
+  function isWarehouseAutoTrimEnabled() {
+    try {
+      return window.localStorage.getItem(WAREHOUSE_AUTO_TRIM_KEY) === '1';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function setWarehouseAutoTrimEnabled(on) {
+    try {
+      window.localStorage.setItem(WAREHOUSE_AUTO_TRIM_KEY, on ? '1' : '0');
+    } catch (e) { /* ignore */ }
+    return !!on;
+  }
+
+  function syncWarehouseAutoTrimUi() {
+    const el = $('warehouse-auto-trim');
+    if (!el) return;
+    const on = isWarehouseAutoTrimEnabled();
+    if (el.checked !== on) {
+      el.dataset.syncing = '1';
+      el.checked = on;
+      setTimeout(() => {
+        try {
+          delete el.dataset.syncing;
+        } catch (e) { /* ignore */ }
+      }, 0);
+    }
+  }
+
+
+  /**
+   * After a successful warehouse write, silently drop shards outside keep-N windows.
+   * Uses CGM keep-months + year keep-years prefs. Does not confirm (opt-in checkbox).
+   */
+  async function applyWarehouseAutoTrimAfterPersist(opts) {
+    opts = opts || {};
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.getWarehouseStatus !== 'function') return null;
+    if (warehouseAutoTrimRunning) return null;
+    warehouseAutoTrimRunning = true;
+    try {
+      const st = await HH.getWarehouseStatus();
+      if (!st || !st.granted) return null;
+
+      const keepM = getCgmKeepMonths();
+      const keepY = getYearKeepYears();
+      const months = (st.cgmMonths || []).slice().filter(Boolean).map(String).sort();
+      const bpYears = (st.bpYears || []).slice().filter(Boolean).map(String).sort();
+      const wtYears = (st.weightYears || []).slice().filter(Boolean).map(String).sort();
+
+      const monthDrop =
+        months.length > keepM ? months.slice(0, months.length - keepM) : [];
+      const bpDrop = yearsToDropForKeepN(bpYears, keepY).drop;
+      const wtDrop = yearsToDropForKeepN(wtYears, keepY).drop;
+
+      if (!monthDrop.length && !bpDrop.length && !wtDrop.length) {
+        return { monthDrop, bpDrop, wtDrop, changed: false };
+      }
+
+      if (monthDrop.length && typeof HH.deleteCgmMonthShards === 'function') {
+        const r = await HH.deleteCgmMonthShards(monthDrop);
+        if (!r || !r.ok) {
+          showToast(t('warehouse.err', { msg: (r && r.reason) || 'cgm_auto_trim' }), { ms: 2800 });
+          return { monthDrop, bpDrop, wtDrop, changed: false, error: true };
+        }
+      }
+      if (bpDrop.length && typeof HH.deleteBloodPressureYearShards === 'function') {
+        const r = await HH.deleteBloodPressureYearShards(bpDrop);
+        if (!r || !r.ok) {
+          showToast(t('warehouse.err', { msg: (r && r.reason) || 'bp_auto_trim' }), { ms: 2800 });
+          return { monthDrop, bpDrop, wtDrop, changed: false, error: true };
+        }
+      }
+      if (wtDrop.length && typeof HH.deleteWeightYearShards === 'function') {
+        const r = await HH.deleteWeightYearShards(wtDrop);
+        if (!r || !r.ok) {
+          showToast(t('warehouse.err', { msg: (r && r.reason) || 'weight_auto_trim' }), { ms: 2800 });
+          return { monthDrop, bpDrop, wtDrop, changed: false, error: true };
+        }
+      }
+
+      // Filter in-memory analysis once, then reanalyze without a second auto-persist.
+      if (currentAnalysis && currentAnalysis.data) {
+        const data = currentAnalysis.data;
+        if (monthDrop.length && Array.isArray(data.cgm)) {
+          const prefixes = monthDrop.map((m) => String(m).slice(0, 7));
+          data.cgm = data.cgm.filter((p) => {
+            const dt = String((p && p.datetime) || '');
+            return !prefixes.some((pre) => dt.startsWith(pre));
+          });
+        }
+        if (bpDrop.length && Array.isArray(data.bloodPressure)) {
+          data.bloodPressure = data.bloodPressure.filter(
+            (p) => !bpDrop.some((y) => String((p && p.datetime) || '').startsWith(y))
+          );
+        }
+        if (wtDrop.length) {
+          if (Array.isArray(data.weight)) {
+            data.weight = data.weight.filter(
+              (p) => !wtDrop.some((y) => String((p && p.datetime) || '').startsWith(y))
+            );
+          }
+          if (Array.isArray(data.bodyFat)) {
+            data.bodyFat = data.bodyFat.filter(
+              (p) => !wtDrop.some((y) => String((p && p.datetime) || '').startsWith(y))
+            );
+          }
+        }
+        skipNextWarehouseAutoPersist = true;
+        reanalyzeAfterWarehouseTrim();
+        // Persist trimmed working set once (skip nested auto-trim via warehouseAutoTrimRunning).
+        await maybePersistWarehouse(currentAnalysis, {
+          skipAutoTrim: true,
+          toast: false,
+        });
+      }
+
+      if (opts.toast !== false) {
+        showToast(
+          t('warehouse.autoTrimDone', {
+            months: String(monthDrop.length),
+            bp: String(bpDrop.length),
+            weight: String(wtDrop.length),
+          }),
+          { ok: true, ms: 3200 }
+        );
+      }
+      return { monthDrop, bpDrop, wtDrop, changed: true };
+    } catch (e) {
+      console.warn('warehouse auto-trim', e);
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+      return null;
+    } finally {
+      warehouseAutoTrimRunning = false;
+    }
+  }
+
   async function maybePersistWarehouse(analysis, opts) {
     opts = opts || {};
     const HH = window.HealthHistory;
@@ -7960,6 +8112,16 @@
           );
         } else if (res.softWarn) {
           showToast(t('warehouse.softQuota'), { ms: 3200 });
+        }
+        // v1.83: opt-in silent keep-N trim after successful write
+        if (
+          !opts.skipAutoTrim &&
+          !warehouseAutoTrimRunning &&
+          isWarehouseAutoTrimEnabled()
+        ) {
+          await applyWarehouseAutoTrimAfterPersist({
+            toast: opts.toast !== false || opts.toast === true,
+          });
         }
       } else if (res && res.reason === 'quota_hard') {
         showToast(t('warehouse.hardQuota'), { ms: 3600 });
@@ -8058,6 +8220,12 @@
   $('warehouse-consent')?.addEventListener('change', () => {
     onWarehouseConsentChange();
   });
+  $('warehouse-auto-trim')?.addEventListener('change', (e) => {
+    const el = e && e.target;
+    if (!el || el.dataset.syncing === '1') return;
+    setWarehouseAutoTrimEnabled(!!el.checked);
+  });
+  syncWarehouseAutoTrimUi();
   $('btn-warehouse-persist')?.addEventListener('click', async () => {
     if (!currentAnalysis) {
       showToast(t('common.needAnalysis') || t('warehouse.needAnalysis'), { ms: 2200 });

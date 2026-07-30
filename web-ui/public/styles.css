@@ -598,6 +598,15 @@ body.has-results .result-bottom-nav:not(.hidden) {
   margin: 0;
 }
 
+.warehouse-auto-trim-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0 4px;
+  min-height: 36px;
+  max-width: 42rem;
+}
+
 .warehouse-cgm-keep-label select {
   min-height: 32px;
   min-width: 4.5em;
