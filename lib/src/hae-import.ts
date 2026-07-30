@@ -244,8 +244,31 @@ function sameMinute(a: string, b: string): boolean {
   return a.slice(0, 16) === b.slice(0, 16);
 }
 
+/** datetime 前 16 位：`YYYY-MM-DD HH:MM`，用于分钟级去重索引 */
+function minuteKey(dt: string): string {
+  return dt.slice(0, 16);
+}
+
 function approxEq(a: number, b: number, eps = 0.05): boolean {
   return Math.abs(a - b) < eps;
+}
+
+/** 在分钟桶内查找近似相等数值（列表通常很短） */
+function hasApproxInList(values: number[] | undefined, value: number, eps: number): boolean {
+  if (!values || values.length === 0) return false;
+  for (let i = 0; i < values.length; i++) {
+    if (approxEq(values[i], value, eps)) return true;
+  }
+  return false;
+}
+
+function pushToMinuteValues(map: Map<string, number[]>, key: string, value: number): void {
+  let arr = map.get(key);
+  if (!arr) {
+    arr = [];
+    map.set(key, arr);
+  }
+  arr.push(value);
 }
 
 function parseNum(v: unknown): number | null {
@@ -751,6 +774,12 @@ function mergeCgm(
     inferred = inferGlucoseUnitFromValues(raws);
   }
 
+  // 分钟 → 已有 value 列表；避免 data.cgm.find O(n) 导致大批量 O(n²)
+  const byMinute = new Map<string, number[]>();
+  for (const c of data.cgm) {
+    pushToMinuteValues(byMinute, minuteKey(c.datetime), c.value);
+  }
+
   for (const pt of points) {
     const datetime = datetimeFromPoint(pt);
     const qty = qtyFromPoint(pt);
@@ -782,10 +811,8 @@ function mergeCgm(
       meta.unknownUnitCount += 1;
     }
 
-    const hit = data.cgm.find(
-      (c) => sameMinute(c.datetime, datetime) && approxEq(c.value, value, 0.02)
-    );
-    if (hit) {
+    const mk = minuteKey(datetime);
+    if (hasApproxInList(byMinute.get(mk), value, 0.02)) {
       bump(stats, 'cgm', 'skipped');
       continue;
     }
@@ -797,6 +824,7 @@ function mergeCgm(
     };
     if (unitPending) rec.unitPending = true;
     data.cgm.push(rec);
+    pushToMinuteValues(byMinute, mk, value);
     data.dataAvailability.hasCgm = true;
     bump(stats, 'cgm', 'added');
   }
@@ -807,6 +835,14 @@ function mergeBloodPressure(
   points: Record<string, unknown>[],
   stats: HaeImportStats
 ): void {
+  // 同分钟 或 同日同收缩/舒张压 → skip
+  const minutes = new Set<string>();
+  const dateSysDia = new Set<string>();
+  for (const b of data.bloodPressure) {
+    minutes.add(minuteKey(b.datetime));
+    dateSysDia.add(`${b.date}|${b.systolic}|${b.diastolic}`);
+  }
+
   for (const pt of points) {
     const datetime = datetimeFromPoint(pt);
     if (!datetime) {
@@ -824,17 +860,16 @@ function mergeBloodPressure(
       bump(stats, 'bloodPressure', 'skipped');
       continue;
     }
-    const hit = data.bloodPressure.find(
-      (b) =>
-        sameMinute(b.datetime, datetime) ||
-        (b.date === date && b.systolic === sys && b.diastolic === dia)
-    );
-    if (hit) {
+    const mk = minuteKey(datetime);
+    const dsd = `${date}|${sys}|${dia}`;
+    if (minutes.has(mk) || dateSysDia.has(dsd)) {
       bump(stats, 'bloodPressure', 'skipped');
       continue;
     }
     const rec: BloodPressureRecord = { datetime, date, systolic: sys, diastolic: dia };
     data.bloodPressure.push(rec);
+    minutes.add(mk);
+    dateSysDia.add(dsd);
     data.dataAvailability.hasBloodPressure = true;
     bump(stats, 'bloodPressure', 'added');
   }
@@ -846,6 +881,17 @@ function mergeWeight(
   stats: HaeImportStats,
   mode: 'mass' | 'bmi'
 ): void {
+  // 按日索引：同日条目通常很少，查找仍为线性但不再扫全量 weight
+  const byDate = new Map<string, WeightRecord[]>();
+  for (const w of data.weight) {
+    let arr = byDate.get(w.date);
+    if (!arr) {
+      arr = [];
+      byDate.set(w.date, arr);
+    }
+    arr.push(w);
+  }
+
   for (const pt of points) {
     const datetime = datetimeFromPoint(pt);
     if (!datetime) {
@@ -861,7 +907,7 @@ function mergeWeight(
         continue;
       }
       // 尝试填到同日体重
-      const sameDay = data.weight.filter((w) => w.date === date);
+      const sameDay = byDate.get(date) || [];
       if (sameDay.length) {
         let updated = false;
         for (const w of sameDay) {
@@ -887,8 +933,10 @@ function mergeWeight(
     const bodyFat = parseNum(pt.bodyFat ?? pt.body_fat ?? pt.fat);
     const bmi = parseNum(pt.bmi ?? pt.BMI);
 
-    const hit = data.weight.find(
-      (w) => sameMinute(w.datetime, datetime) || (w.date === date && approxEq(w.value, value, 0.05))
+    // sameMinute 隐含同日（YYYY-MM-DD HH:MM），在日桶内保持与 find 相同的首次命中语义
+    const dayList = byDate.get(date);
+    const hit = dayList?.find(
+      (w) => sameMinute(w.datetime, datetime) || approxEq(w.value, value, 0.05)
     );
     if (hit) {
       let updated = false;
@@ -909,6 +957,12 @@ function mergeWeight(
     if (bodyFat != null && bodyFat > 0 && bodyFat < 80) rec.bodyFat = bodyFat;
     if (bmi != null) rec.bmi = bmi;
     data.weight.push(rec);
+    let arr = byDate.get(date);
+    if (!arr) {
+      arr = [];
+      byDate.set(date, arr);
+    }
+    arr.push(rec);
     data.dataAvailability.hasWeight = true;
     if (rec.bodyFat != null) data.dataAvailability.hasBodyFat = true;
     bump(stats, 'weight', 'added');
@@ -920,6 +974,22 @@ function mergeBodyFat(
   points: Record<string, unknown>[],
   stats: HaeImportStats
 ): void {
+  // 同日体重：sameMinute || same date → 日桶内首次命中（与 find 一致）
+  const weightByDate = new Map<string, WeightRecord[]>();
+  for (const w of data.weight) {
+    let arr = weightByDate.get(w.date);
+    if (!arr) {
+      arr = [];
+      weightByDate.set(w.date, arr);
+    }
+    arr.push(w);
+  }
+  // 独立体脂点：分钟 → values
+  const bodyFatByMinute = new Map<string, number[]>();
+  for (const b of data.bodyFat) {
+    pushToMinuteValues(bodyFatByMinute, minuteKey(b.datetime), b.value);
+  }
+
   for (const pt of points) {
     const datetime = datetimeFromPoint(pt);
     if (!datetime) {
@@ -939,8 +1009,9 @@ function mergeBodyFat(
       continue;
     }
 
-    // 优先合并到同日/同分钟体重
-    const weightHit = data.weight.find(
+    // 优先合并到同日/同分钟体重（日桶内 find：sameMinute 或任意同日）
+    const dayWeights = weightByDate.get(date);
+    const weightHit = dayWeights?.find(
       (w) => sameMinute(w.datetime, datetime) || w.date === date
     );
     if (weightHit) {
@@ -952,13 +1023,12 @@ function mergeBodyFat(
         bump(stats, 'bodyFat', 'skipped');
       } else {
         // 已有不同体脂：写独立点
-        const exists = data.bodyFat.some(
-          (b) => sameMinute(b.datetime, datetime) && approxEq(b.value, value, 0.2)
-        );
-        if (exists) {
+        const mk = minuteKey(datetime);
+        if (hasApproxInList(bodyFatByMinute.get(mk), value, 0.2)) {
           bump(stats, 'bodyFat', 'skipped');
         } else {
           data.bodyFat.push({ datetime, date, value, source: 'hae' });
+          pushToMinuteValues(bodyFatByMinute, mk, value);
           data.dataAvailability.hasBodyFat = true;
           bump(stats, 'bodyFat', 'added');
         }
@@ -966,15 +1036,14 @@ function mergeBodyFat(
       continue;
     }
 
-    const exists = data.bodyFat.some(
-      (b) => sameMinute(b.datetime, datetime) && approxEq(b.value, value, 0.2)
-    );
-    if (exists) {
+    const mk = minuteKey(datetime);
+    if (hasApproxInList(bodyFatByMinute.get(mk), value, 0.2)) {
       bump(stats, 'bodyFat', 'skipped');
       continue;
     }
     const rec: BodyFatPoint = { datetime, date, value, source: 'hae' };
     data.bodyFat.push(rec);
+    pushToMinuteValues(bodyFatByMinute, mk, value);
     data.dataAvailability.hasBodyFat = true;
     bump(stats, 'bodyFat', 'added');
   }
@@ -1332,6 +1401,13 @@ function mergeWorkouts(
   stats: HaeImportStats
 ): void {
   if (!data.workouts) data.workouts = [];
+  // key = `${minuteKey}|${activityType}` → 已有 durationMin 列表
+  const byStartAct = new Map<string, number[]>();
+  for (const w of data.workouts) {
+    const k = `${minuteKey(w.startDate)}|${w.activityType}`;
+    pushToMinuteValues(byStartAct, k, w.durationMin);
+  }
+
   for (const wo of workouts) {
     const startRaw =
       wo.startDate ?? wo.start ?? (wo as { start_date?: string }).start_date;
@@ -1370,13 +1446,8 @@ function mergeWorkouts(
       durationMin = durationMin / 60;
     }
 
-    const dup = data.workouts.find(
-      (w) =>
-        sameMinute(w.startDate, startDate) &&
-        w.activityType === activityType &&
-        approxEq(w.durationMin, durationMin!, 0.5)
-    );
-    if (dup) {
+    const idxKey = `${minuteKey(startDate)}|${activityType}`;
+    if (hasApproxInList(byStartAct.get(idxKey), durationMin, 0.5)) {
       bump(stats, 'workouts', 'skipped');
       continue;
     }
@@ -1412,6 +1483,7 @@ function mergeWorkouts(
     if (typeof wo.indoor === 'boolean') session.indoor = wo.indoor;
 
     data.workouts.push(session);
+    pushToMinuteValues(byStartAct, idxKey, durationMin);
     data.dataAvailability.hasWorkouts = true;
     bump(stats, 'workouts', 'added');
   }
