@@ -12,6 +12,8 @@
  * - Reject HAE / Apple Health aggregate as Observation.device targets
  * v1.62 additions:
  * - anonymous-share must not contain raw sourceName extensions / "sourceName:" notes
+ * v1.65 additions:
+ * - anonymous-share batch ids must be opaque batch_anon_* (no personal custom ids)
  *
  * This is still NOT a certified HL7 FHIR Validator substitute.
  */
@@ -36,9 +38,25 @@ export const FHIR_EXCHANGE_PURPOSES: readonly FhirExchangePurpose[] = [
 ] as const;
 
 /** Engine id for exchange gate (bump when rules change) */
-export const FHIR_EXCHANGE_GATE_ENGINE = 'health-analyzer-r4-exchange-gate-v4';
+export const FHIR_EXCHANGE_GATE_ENGINE = 'health-analyzer-r4-exchange-gate-v5';
 
 const EXT_SOURCE_NAME = 'urn:health-analyzer:extension:source-name';
+const EXT_SOURCE_BATCH_IDS = 'urn:health-analyzer:extension:source-batch-ids';
+
+/** Anonymous-safe remapped batch id */
+function isOpaqueAnonBatchId(raw: unknown): boolean {
+  return /^batch_anon_[0-9a-f]{16,64}$/i.test(String(raw || '').trim());
+}
+
+function batchIdLooksPersonal(raw: unknown): boolean {
+  const s = String(raw || '').trim();
+  if (!s) return false;
+  if (isOpaqueAnonBatchId(s)) return false;
+  if (/[\u3400-\u9fff\uf900-\ufaff]/.test(s)) return true; // CJK
+  // Default machine ids: batch_<timestamp>_<rand>
+  if (/^batch_\d{10,}_[a-z0-9]+$/i.test(s)) return false;
+  return true; // custom free-text batch ids not allowed on anonymous share
+}
 
 /**
  * Strong local pseudonym ID for personal-handoff (v1.63).
@@ -536,11 +554,28 @@ export function validateFhirR4ExchangeGate(
       // v1.62 privacy: raw Apple sourceName must not leave the device on anonymous share
       if (Array.isArray(r.extension)) {
         for (const ext of r.extension as { url?: string; valueString?: string }[]) {
-          if (ext && String(ext.url || '') === EXT_SOURCE_NAME) {
+          if (!ext) continue;
+          const url = String(ext.url || '');
+          if (url === EXT_SOURCE_NAME) {
             pushIssue(
               issues,
               `${rt}/${id} anonymous-share must not include source-name extension (raw sourceName may re-identify)`
             );
+          }
+          // v1.65: source-batch-ids must be opaque remapped ids only
+          if (url === EXT_SOURCE_BATCH_IDS) {
+            const parts = String(ext.valueString || '')
+              .split(',')
+              .map((p) => p.trim())
+              .filter(Boolean);
+            for (const bid of parts) {
+              if (batchIdLooksPersonal(bid) || !isOpaqueAnonBatchId(bid)) {
+                pushIssue(
+                  issues,
+                  `${rt}/${id} anonymous-share source-batch-ids must use opaque batch_anon_* ids (got ${bid.slice(0, 48)})`
+                );
+              }
+            }
           }
         }
       }
@@ -556,15 +591,27 @@ export function validateFhirR4ExchangeGate(
         }
       }
 
-      // Provenance must not embed import file names (often contain personal tokens)
+      // Provenance must not embed import file names or personal batch ids
       if (rt === 'Provenance' && Array.isArray(r.entity)) {
-        for (const ent of r.entity as { what?: { display?: string } }[]) {
+        for (const ent of r.entity as {
+          what?: { display?: string; identifier?: { value?: string } };
+        }[]) {
           const disp = ent && ent.what && ent.what.display != null ? String(ent.what.display) : '';
           // Channel-only is "hae" or "apple_xml"; file lists contain ": " + name or ".json"/".zip"
           if (/\.(json|xml|zip|csv)\b/i.test(disp) || /:\s+.+\./.test(disp)) {
             pushIssue(
               issues,
               `Provenance/${id} anonymous-share entity display must not include import file names (${disp.slice(0, 60)})`
+            );
+          }
+          const bid =
+            ent && ent.what && ent.what.identifier && ent.what.identifier.value != null
+              ? String(ent.what.identifier.value)
+              : '';
+          if (bid && (batchIdLooksPersonal(bid) || !isOpaqueAnonBatchId(bid))) {
+            pushIssue(
+              issues,
+              `Provenance/${id} anonymous-share entity identifier must be opaque batch_anon_* (got ${bid.slice(0, 48)})`
             );
           }
         }

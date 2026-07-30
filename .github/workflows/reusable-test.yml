@@ -34,7 +34,7 @@ jobs:
           path: |
             tools/validator_cli.jar
             ~/.fhir/packages
-          key: fhir-hl7-validator-${{ runner.os }}-v1
+          key: fhir-hl7-validator-${{ runner.os }}-6.9.12-v1
           restore-keys: |
             fhir-hl7-validator-${{ runner.os }}-
 

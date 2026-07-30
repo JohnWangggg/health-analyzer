@@ -31,6 +31,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { createContext, runInContext } from 'node:vm';
 import { fileURLToPath } from 'node:url';
@@ -51,10 +52,19 @@ const packageCache = path.join(toolsDir, 'fhir-package-cache');
 const FROM_EXPORT =
   process.argv.includes('--from-export') || process.env.FHIR_HL7_FROM_EXPORT === '1';
 
-/** Prefer a pin-friendly "latest" URL; override with FHIR_VALIDATOR_URL */
+/**
+ * Pin validator_cli release for reproducible CI/release (v1.65).
+ * Override with FHIR_VALIDATOR_URL / FHIR_VALIDATOR_SHA256 if needed.
+ * Hash is SHA-256 of the 6.9.12 fat jar (hapifhir/org.hl7.fhir.core).
+ */
+const PINNED_VALIDATOR_VERSION = '6.9.12';
 const DEFAULT_JAR_URL =
   process.env.FHIR_VALIDATOR_URL ||
-  'https://github.com/hapifhir/org.hl7.fhir.core/releases/latest/download/validator_cli.jar';
+  `https://github.com/hapifhir/org.hl7.fhir.core/releases/download/${PINNED_VALIDATOR_VERSION}/validator_cli.jar`;
+/** SHA-256 of pinned validator_cli.jar @ 6.9.12 */
+const DEFAULT_JAR_SHA256 =
+  process.env.FHIR_VALIDATOR_SHA256 ||
+  '0e53ab1d1a6f1e35f505255c0b8ce10a35fcf27e6e96b503640f784cd07e5ad6';
 
 const FHIR_VERSION = process.env.FHIR_VALIDATOR_VERSION || '4.0.1';
 const REQUIRED = process.env.FHIR_HL7_REQUIRED === '1';
@@ -190,17 +200,61 @@ function downloadFile(url, dest) {
   });
 }
 
+function sha256File(filePath) {
+  const h = crypto.createHash('sha256');
+  h.update(fs.readFileSync(filePath));
+  return h.digest('hex');
+}
+
+function verifyJarSha(jarPath) {
+  if (!DEFAULT_JAR_SHA256) return true;
+  const actual = sha256File(jarPath);
+  if (actual.toLowerCase() !== String(DEFAULT_JAR_SHA256).toLowerCase()) {
+    throw new Error(
+      `validator jar SHA-256 mismatch\n  expected: ${DEFAULT_JAR_SHA256}\n  actual:   ${actual}\n  path: ${jarPath}`
+    );
+  }
+  log(`  ✓ jar SHA-256 ok (${actual.slice(0, 12)}… @ ${PINNED_VALIDATOR_VERSION})`);
+  return true;
+}
+
 async function ensureJar(jarPath) {
-  if (fs.existsSync(jarPath) && fs.statSync(jarPath).size > 1_000_000) {
-    log(`  ✓ jar present: ${path.relative(root, jarPath)} (${fs.statSync(jarPath).size} bytes)`);
+  const needDownload = () => {
+    if (!fs.existsSync(jarPath) || fs.statSync(jarPath).size < 1_000_000) return true;
+    try {
+      verifyJarSha(jarPath);
+      return false;
+    } catch {
+      // corrupt / wrong version → re-download
+      return true;
+    }
+  };
+
+  if (!needDownload()) {
+    log(
+      `  ✓ jar present: ${path.relative(root, jarPath)} (${fs.statSync(jarPath).size} bytes)`
+    );
     return jarPath;
   }
+
   if (NO_DOWNLOAD) {
+    if (fs.existsSync(jarPath)) {
+      // still verify when present
+      verifyJarSha(jarPath);
+      return jarPath;
+    }
     return null;
   }
-  log(`  · downloading validator_cli.jar …`);
+
+  log(`  · downloading pinned validator_cli.jar (${PINNED_VALIDATOR_VERSION}) …`);
   log(`    ${DEFAULT_JAR_URL}`);
   fs.mkdirSync(path.dirname(jarPath), { recursive: true });
+  // remove stale jar before replace
+  try {
+    if (fs.existsSync(jarPath)) fs.unlinkSync(jarPath);
+  } catch {
+    /* ignore */
+  }
   await downloadFile(DEFAULT_JAR_URL, jarPath);
   const size = fs.statSync(jarPath).size;
   if (size < 1_000_000) {
@@ -211,6 +265,7 @@ async function ensureJar(jarPath) {
     }
     throw new Error(`downloaded jar too small (${size} bytes)`);
   }
+  verifyJarSha(jarPath);
   log(`  ✓ downloaded: ${path.relative(root, jarPath)} (${size} bytes)`);
   return jarPath;
 }

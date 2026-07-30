@@ -14,6 +14,7 @@
  * - v1.61：逐条保留 sourceName；Device 优先用逐条来源；stripPrivateFhirExtensions 供 HL7 校验
  * - v1.62：匿名分享净化层 — 移除 sourceName 扩展/note、导入文件名等直接标识
  * - v1.63：个人转交伪名 ID 须为强随机 UUID/pid_…；本机生成与持久化
+ * - v1.65：匿名分享将导入批次 ID 重映射为不透明 hash；门禁拦截姓名型 batch id
  * - 项目自检 validateFhirExportBundle ≠ 官方 HL7 校验器；交换门禁为独立规则引擎
  */
 
@@ -64,7 +65,7 @@ export {
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.9.3';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.9.4';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
@@ -74,9 +75,11 @@ const OBS_CATEGORY_SYSTEM = 'http://terminology.hl7.org/CodeSystem/observation-c
 const META_SOURCE = 'urn:health-analyzer:local';
 const DEVICE_NOTE = 'local Apple Health / HAE import';
 /** Observation extension: comma-separated import batch ids for this domain */
-const EXT_SOURCE_BATCH_IDS = 'urn:health-analyzer:extension:source-batch-ids';
+export const EXT_SOURCE_BATCH_IDS = 'urn:health-analyzer:extension:source-batch-ids';
 /** Observation extension: raw sourceName / import channel label (v1.61; scrubbed in anonymous-share) */
 export const EXT_SOURCE_NAME = 'urn:health-analyzer:extension:source-name';
+/** Anonymous export: remapped batch id prefix (opaque, no personal tokens) */
+export const ANON_BATCH_ID_PREFIX = 'batch_anon_';
 /** Patient extension: year-only birthDate is approximate */
 const EXT_BIRTH_YEAR_ONLY = 'urn:health-analyzer:extension:birth-year-only';
 /** Patient extension: local pseudonym disclaimer */
@@ -747,10 +750,58 @@ export function isSourceNameLeakText(text: unknown): boolean {
 }
 
 /**
- * v1.62 anonymous-share sanitizer.
+ * Stable opaque batch id for anonymous export (v1.65).
+ * Deterministic from raw id so multi-resource links stay consistent within a Bundle.
+ * Never embeds the original string (may contain personal names).
+ */
+export function opaqueImportBatchId(raw: string): string {
+  const s = String(raw || '').trim();
+  if (!s) return `${ANON_BATCH_ID_PREFIX}empty`;
+  if (isOpaqueAnonymousBatchId(s)) return s;
+  // FNV-1a 64-bit style fold to 16 hex (portable, no Node crypto dependency)
+  let h = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  for (let i = 0; i < s.length; i++) {
+    h ^= BigInt(s.charCodeAt(i));
+    h = (h * prime) & 0xffffffffffffffffn;
+  }
+  // second mix pass with length for avalanche
+  h ^= BigInt(s.length);
+  h = (h * prime) & 0xffffffffffffffffn;
+  const hex = h.toString(16).padStart(16, '0');
+  return `${ANON_BATCH_ID_PREFIX}${hex}`;
+}
+
+/** Anonymous-safe batch id shape: batch_anon_ + hex */
+export function isOpaqueAnonymousBatchId(raw: unknown): boolean {
+  return /^batch_anon_[0-9a-f]{16,64}$/i.test(String(raw || '').trim());
+}
+
+/**
+ * True if a batch id may re-identify a person (CJK, spaces with names, custom free text).
+ * Opaque remapped ids always return false.
+ */
+export function isPersonalLookingBatchId(raw: unknown): boolean {
+  const s = String(raw || '').trim();
+  if (!s) return false;
+  if (isOpaqueAnonymousBatchId(s)) return false;
+  // CJK unified ideographs / common full-width name tokens
+  if (/[\u3400-\u9fff\uf900-\ufaff]/.test(s)) return true;
+  // Custom free-text batch ids that are not our default machine form
+  // Default createImportBatchId: batch_${timestamp}_${rand}
+  if (/^batch_\d{10,}_[a-z0-9]+$/i.test(s)) return false;
+  // Anything else with letters beyond hex/rand is suspicious for anonymous share
+  if (/[^a-zA-Z0-9._-]/i.test(s)) return true;
+  if (s.length > 8 && /[a-zA-Z]{3,}/.test(s) && !/^batch_/i.test(s)) return true;
+  return false;
+}
+
+/**
+ * v1.62–v1.65 anonymous-share sanitizer.
  * Removes direct identifiers that must not leave the device on anonymous export:
  * - source-name extensions and "sourceName: …" notes (often contain "张三的 iPhone")
  * - Provenance entity displays that embed import file names
+ * - Import batch ids remapped to batch_anon_* (v1.65)
  * - DocumentReference free-text that may re-identify (defensive)
  * Device class display stays generic ("Apple Watch" / "iPhone"), never personalized names.
  */
@@ -762,6 +813,12 @@ export function sanitizeAnonymousFhirBundle(
   }
   const cloned = JSON.parse(JSON.stringify(bundle)) as Record<string, unknown>;
   const entry = Array.isArray(cloned.entry) ? (cloned.entry as Record<string, unknown>[]) : [];
+  const idMap = new Map<string, string>();
+  const mapId = (raw: string): string => {
+    const key = String(raw || '');
+    if (!idMap.has(key)) idMap.set(key, opaqueImportBatchId(key));
+    return idMap.get(key)!;
+  };
 
   for (const e of entry) {
     if (!e || typeof e !== 'object') continue;
@@ -769,12 +826,30 @@ export function sanitizeAnonymousFhirBundle(
     if (!r || typeof r !== 'object') continue;
     const rt = String(r.resourceType || '');
 
-    // Strip source-name extensions everywhere
+    // Strip source-name extensions; remap source-batch-ids to opaque form
     if (Array.isArray(r.extension)) {
-      r.extension = (r.extension as { url?: string; valueString?: string }[]).filter(
-        (x) => x && String(x.url || '') !== EXT_SOURCE_NAME
-      );
-      if (!(r.extension as unknown[]).length) delete r.extension;
+      const next: Record<string, unknown>[] = [];
+      for (const x of r.extension as { url?: string; valueString?: string }[]) {
+        if (!x) continue;
+        const url = String(x.url || '');
+        if (url === EXT_SOURCE_NAME) continue; // drop
+        if (url === EXT_SOURCE_BATCH_IDS) {
+          const raw = String(x.valueString || '');
+          const parts = raw
+            .split(',')
+            .map((p) => p.trim())
+            .filter(Boolean);
+          if (!parts.length) continue;
+          next.push({
+            url: EXT_SOURCE_BATCH_IDS,
+            valueString: parts.map(mapId).join(','),
+          });
+          continue;
+        }
+        next.push(x as Record<string, unknown>);
+      }
+      r.extension = next;
+      if (!next.length) delete r.extension;
     }
 
     // Strip sourceName notes (and any note that embeds the marker)
@@ -795,7 +870,15 @@ export function sanitizeAnonymousFhirBundle(
           const channel = d.split(':')[0].trim();
           what.display = channel || 'import-batch';
         }
-        // identifier.value is batch id (opaque) — keep
+        // Remap identifier.value (may be custom personal batch id)
+        const ident = what.identifier as { system?: string; value?: string } | undefined;
+        if (ident && ident.value != null) {
+          ident.value = mapId(String(ident.value));
+        }
+      }
+      // Remap provenance resource id if it embeds raw batch suffix
+      if (r.id != null && String(r.id).startsWith('prov-batch-')) {
+        r.id = `prov-batch-${mapId(String(r.id).replace(/^prov-batch-/, ''))}`.slice(0, 64);
       }
     }
 
@@ -1002,13 +1085,17 @@ function hasDomainSourceBatches(
 function attachSourceBatchExtension(
   obs: Record<string, unknown>,
   domain: string,
-  domainSourceBatches: Record<string, string[]> | undefined
+  domainSourceBatches: Record<string, string[]> | undefined,
+  opts?: { remapIds?: boolean }
 ): void {
   if (!domainSourceBatches) return;
   const raw = domainSourceBatches[domain];
   if (!Array.isArray(raw) || !raw.length) return;
-  const ids = raw.map((x) => String(x)).filter(Boolean);
+  let ids = raw.map((x) => String(x)).filter(Boolean);
   if (!ids.length) return;
+  if (opts?.remapIds) {
+    ids = ids.map((id) => opaqueImportBatchId(id));
+  }
   const ext = Array.isArray(obs.extension)
     ? (obs.extension as Record<string, unknown>[])
     : [];
@@ -1098,14 +1185,15 @@ function buildAssemblerProvenance(params: {
 
 function entityForBatch(
   b: ImportBatchRecord,
-  opts?: { redactFileNames?: boolean }
+  opts?: { redactFileNames?: boolean; remapBatchId?: boolean }
 ): Record<string, unknown> {
+  const id = opts?.remapBatchId ? opaqueImportBatchId(String(b.id || '')) : String(b.id || '');
   return {
     role: 'source',
     what: {
       identifier: {
         system: 'urn:health-analyzer:import-batch',
-        value: b.id,
+        value: id,
       },
       display: batchDisplay(b, opts),
     },
@@ -1938,7 +2026,10 @@ export function buildFhirExportBundle(
   ): void => {
     const domain = FHIR_OBS_TYPE_TO_DOMAIN[byTypeKey] || byTypeKey;
     attachObservationCategory(obs, byTypeKey);
-    attachSourceBatchExtension(obs, domain, domainSourceBatches);
+    // v1.65: anonymous remaps batch ids to batch_anon_* (no personal tokens)
+    attachSourceBatchExtension(obs, domain, domainSourceBatches, {
+      remapIds: isAnonymousShare,
+    });
     // v1.62: never attach raw sourceName on anonymous-share (may contain "张三的 iPhone")
     if (deviceHint?.sampleSource && !isAnonymousShare) {
       attachSourceNameMeta(obs, deviceHint.sampleSource);
@@ -2469,9 +2560,16 @@ export function buildFhirExportBundle(
         linkedAny = true;
         provenances.push(
           buildAssemblerProvenance({
-            id: `prov-batch-${shortImportBatchIdForProv(bid)}`,
+            id: isAnonymousShare
+              ? `prov-${opaqueImportBatchId(bid)}`
+              : `prov-batch-${shortImportBatchIdForProv(bid)}`,
             target: targets,
-            entities: [entityForBatch(b, { redactFileNames: isAnonymousShare })],
+            entities: [
+              entityForBatch(b, {
+                redactFileNames: isAnonymousShare,
+                remapBatchId: isAnonymousShare,
+              }),
+            ],
             recorded,
           })
         );
@@ -2482,7 +2580,10 @@ export function buildFhirExportBundle(
           'domain map available but no batch-observation links; coarse provenance fallback'
         );
         const entities = batches.map((b) =>
-          entityForBatch(b, { redactFileNames: isAnonymousShare })
+          entityForBatch(b, {
+            redactFileNames: isAnonymousShare,
+            remapBatchId: isAnonymousShare,
+          })
         );
         provenances.push(
           buildAssemblerProvenance({
@@ -2499,7 +2600,10 @@ export function buildFhirExportBundle(
         notes.push('domain map unavailable; coarse provenance');
       }
       const entities = batches.map((b) =>
-        entityForBatch(b, { redactFileNames: isAnonymousShare })
+        entityForBatch(b, {
+          redactFileNames: isAnonymousShare,
+          remapBatchId: isAnonymousShare,
+        })
       );
       if (!entities.length) {
         notes.push(
@@ -2569,11 +2673,11 @@ export function buildFhirExportBundle(
     entry: entries,
   };
 
-  // v1.62: final anonymous scrub (defense in depth — even if a path leaked earlier)
+  // v1.62–v1.65: final anonymous scrub (defense in depth — even if a path leaked earlier)
   if (isAnonymousShare) {
     bundle = sanitizeAnonymousFhirBundle(bundle);
     notes.push(
-      'anonymous-share sanitizer applied: removed sourceName extensions/notes and import file displays'
+      'anonymous-share sanitizer applied: removed sourceName, remapped batch ids to batch_anon_*, redacted import file displays'
     );
   }
 

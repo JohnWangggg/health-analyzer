@@ -273,6 +273,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - v1.62：**匿名分享**会净化 raw `sourceName` / 导入文件名；门禁拦截泄漏后的 Bundle。
 - v1.63：**个人转交**伪名 ID 须 UUID/`pid_…`；本机生成·复制·轮换（localStorage）；拒绝弱 ID。
 - v1.64：CI/release **强制**官方 HL7 校验。
+- v1.65：匿名分享将 import-batch id 重映射为 `batch_anon_*`；门禁拦截姓名型 batch id；`validator_cli` **固定 6.9.12 + SHA-256**。
 
 ## 许可
 

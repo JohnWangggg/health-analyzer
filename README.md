@@ -177,6 +177,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.65 | 匿名分享批次 ID 不透明重映射；门禁拦截姓名型 batch id；HL7 jar 固定版本+SHA-256 |
 | v1.64 | CI/release 强制官方 HL7 校验（`test:fhir:ci` / `test:release`；Java 21 + validator_cli） |
 | v1.63 | 个人转交伪名 ID：本机生成/持久化 UUID；门禁拒绝弱 ID；UI 生成·复制·轮换 |
 | v1.62 | 匿名分享净化：移除 sourceName 扩展/note 与导入文件名；门禁拦截泄漏 |

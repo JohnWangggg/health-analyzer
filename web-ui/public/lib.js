@@ -26,9 +26,11 @@ var HealthAnalyzer = (() => {
   // src/browser.ts
   var browser_exports = {};
   __export(browser_exports, {
+    ANON_BATCH_ID_PREFIX: () => ANON_BATCH_ID_PREFIX,
     CGM_MIN_COVERAGE_PCT: () => CGM_MIN_COVERAGE_PCT,
     CGM_REPORT_DAYS: () => CGM_REPORT_DAYS,
     DEFAULT_RECOVERY_WEIGHTS: () => DEFAULT_RECOVERY_WEIGHTS,
+    EXT_SOURCE_BATCH_IDS: () => EXT_SOURCE_BATCH_IDS2,
     EXT_SOURCE_NAME: () => EXT_SOURCE_NAME2,
     FHIR_DEVICE_CLASSES: () => FHIR_DEVICE_CLASSES,
     FHIR_EXCHANGE_GATE_ENGINE: () => FHIR_EXCHANGE_GATE_ENGINE,
@@ -109,6 +111,8 @@ var HealthAnalyzer = (() => {
     inferGlucoseUnitFromValues: () => inferGlucoseUnitFromValues,
     isFutureDate: () => isFutureDate,
     isHealthEventKind: () => isHealthEventKind,
+    isOpaqueAnonymousBatchId: () => isOpaqueAnonymousBatchId,
+    isPersonalLookingBatchId: () => isPersonalLookingBatchId,
     isSourceNameLeakText: () => isSourceNameLeakText,
     isStrongPersistentPatientId: () => isStrongPersistentPatientId,
     joinCsvBundle: () => joinCsvBundle,
@@ -125,6 +129,7 @@ var HealthAnalyzer = (() => {
     normalizeImportBatch: () => normalizeImportBatch,
     normalizeLocale: () => normalizeLocale,
     normalizeRecoveryWeights: () => normalizeRecoveryWeights,
+    opaqueImportBatchId: () => opaqueImportBatchId,
     parseAppleDate: () => parseAppleDate,
     parseBloodPressureCsv: () => parseBloodPressureCsv,
     parseBytesStream: () => parseBytesStream,
@@ -7811,8 +7816,20 @@ List 5\u20137 working hypotheses that best fit the available data
     "anonymous-share",
     "personal-handoff"
   ];
-  var FHIR_EXCHANGE_GATE_ENGINE = "health-analyzer-r4-exchange-gate-v4";
+  var FHIR_EXCHANGE_GATE_ENGINE = "health-analyzer-r4-exchange-gate-v5";
   var EXT_SOURCE_NAME = "urn:health-analyzer:extension:source-name";
+  var EXT_SOURCE_BATCH_IDS = "urn:health-analyzer:extension:source-batch-ids";
+  function isOpaqueAnonBatchId(raw) {
+    return /^batch_anon_[0-9a-f]{16,64}$/i.test(String(raw || "").trim());
+  }
+  function batchIdLooksPersonal(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return false;
+    if (isOpaqueAnonBatchId(s)) return false;
+    if (/[\u3400-\u9fff\uf900-\ufaff]/.test(s)) return true;
+    if (/^batch_\d{10,}_[a-z0-9]+$/i.test(s)) return false;
+    return true;
+  }
   function isStrongPersistentPatientId(raw) {
     const s = String(raw || "").trim();
     if (!s) return false;
@@ -8188,11 +8205,24 @@ List 5\u20137 working hypotheses that best fit the available data
         }
         if (Array.isArray(r.extension)) {
           for (const ext of r.extension) {
-            if (ext && String(ext.url || "") === EXT_SOURCE_NAME) {
+            if (!ext) continue;
+            const url = String(ext.url || "");
+            if (url === EXT_SOURCE_NAME) {
               pushIssue(
                 issues,
                 `${rt}/${id} anonymous-share must not include source-name extension (raw sourceName may re-identify)`
               );
+            }
+            if (url === EXT_SOURCE_BATCH_IDS) {
+              const parts = String(ext.valueString || "").split(",").map((p) => p.trim()).filter(Boolean);
+              for (const bid of parts) {
+                if (batchIdLooksPersonal(bid) || !isOpaqueAnonBatchId(bid)) {
+                  pushIssue(
+                    issues,
+                    `${rt}/${id} anonymous-share source-batch-ids must use opaque batch_anon_* ids (got ${bid.slice(0, 48)})`
+                  );
+                }
+              }
             }
           }
         }
@@ -8214,6 +8244,13 @@ List 5\u20137 working hypotheses that best fit the available data
               pushIssue(
                 issues,
                 `Provenance/${id} anonymous-share entity display must not include import file names (${disp.slice(0, 60)})`
+              );
+            }
+            const bid = ent && ent.what && ent.what.identifier && ent.what.identifier.value != null ? String(ent.what.identifier.value) : "";
+            if (bid && (batchIdLooksPersonal(bid) || !isOpaqueAnonBatchId(bid))) {
+              pushIssue(
+                issues,
+                `Provenance/${id} anonymous-share entity identifier must be opaque batch_anon_* (got ${bid.slice(0, 48)})`
               );
             }
           }
@@ -8269,15 +8306,16 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.9.3";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.9.4";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
   var OBS_CATEGORY_SYSTEM = "http://terminology.hl7.org/CodeSystem/observation-category";
   var META_SOURCE = "urn:health-analyzer:local";
   var DEVICE_NOTE = "local Apple Health / HAE import";
-  var EXT_SOURCE_BATCH_IDS = "urn:health-analyzer:extension:source-batch-ids";
+  var EXT_SOURCE_BATCH_IDS2 = "urn:health-analyzer:extension:source-batch-ids";
   var EXT_SOURCE_NAME2 = "urn:health-analyzer:extension:source-name";
+  var ANON_BATCH_ID_PREFIX = "batch_anon_";
   var EXT_BIRTH_YEAR_ONLY = "urn:health-analyzer:extension:birth-year-only";
   var EXT_PATIENT_DISCLAIMER = "urn:health-analyzer:extension:patient-disclaimer";
   var EXT_DEVICE_CLASS = "urn:health-analyzer:extension:device-class";
@@ -8663,22 +8701,71 @@ List 5\u20137 working hypotheses that best fit the available data
     if (s.includes("sourceName:")) return true;
     return false;
   }
+  function opaqueImportBatchId(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return `${ANON_BATCH_ID_PREFIX}empty`;
+    if (isOpaqueAnonymousBatchId(s)) return s;
+    let h = 0xcbf29ce484222325n;
+    const prime = 0x100000001b3n;
+    for (let i = 0; i < s.length; i++) {
+      h ^= BigInt(s.charCodeAt(i));
+      h = h * prime & 0xffffffffffffffffn;
+    }
+    h ^= BigInt(s.length);
+    h = h * prime & 0xffffffffffffffffn;
+    const hex = h.toString(16).padStart(16, "0");
+    return `${ANON_BATCH_ID_PREFIX}${hex}`;
+  }
+  function isOpaqueAnonymousBatchId(raw) {
+    return /^batch_anon_[0-9a-f]{16,64}$/i.test(String(raw || "").trim());
+  }
+  function isPersonalLookingBatchId(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return false;
+    if (isOpaqueAnonymousBatchId(s)) return false;
+    if (/[\u3400-\u9fff\uf900-\ufaff]/.test(s)) return true;
+    if (/^batch_\d{10,}_[a-z0-9]+$/i.test(s)) return false;
+    if (/[^a-zA-Z0-9._-]/i.test(s)) return true;
+    if (s.length > 8 && /[a-zA-Z]{3,}/.test(s) && !/^batch_/i.test(s)) return true;
+    return false;
+  }
   function sanitizeAnonymousFhirBundle(bundle) {
     if (!bundle || typeof bundle !== "object") {
       return { resourceType: "Bundle", type: "collection", entry: [] };
     }
     const cloned = JSON.parse(JSON.stringify(bundle));
     const entry = Array.isArray(cloned.entry) ? cloned.entry : [];
+    const idMap = /* @__PURE__ */ new Map();
+    const mapId = (raw) => {
+      const key = String(raw || "");
+      if (!idMap.has(key)) idMap.set(key, opaqueImportBatchId(key));
+      return idMap.get(key);
+    };
     for (const e of entry) {
       if (!e || typeof e !== "object") continue;
       const r = e.resource;
       if (!r || typeof r !== "object") continue;
       const rt = String(r.resourceType || "");
       if (Array.isArray(r.extension)) {
-        r.extension = r.extension.filter(
-          (x) => x && String(x.url || "") !== EXT_SOURCE_NAME2
-        );
-        if (!r.extension.length) delete r.extension;
+        const next = [];
+        for (const x of r.extension) {
+          if (!x) continue;
+          const url = String(x.url || "");
+          if (url === EXT_SOURCE_NAME2) continue;
+          if (url === EXT_SOURCE_BATCH_IDS2) {
+            const raw = String(x.valueString || "");
+            const parts = raw.split(",").map((p) => p.trim()).filter(Boolean);
+            if (!parts.length) continue;
+            next.push({
+              url: EXT_SOURCE_BATCH_IDS2,
+              valueString: parts.map(mapId).join(",")
+            });
+            continue;
+          }
+          next.push(x);
+        }
+        r.extension = next;
+        if (!next.length) delete r.extension;
       }
       if (Array.isArray(r.note)) {
         r.note = r.note.filter((n) => n && !isSourceNameLeakText(n.text));
@@ -8694,6 +8781,13 @@ List 5\u20137 working hypotheses that best fit the available data
             const channel = d.split(":")[0].trim();
             what.display = channel || "import-batch";
           }
+          const ident = what.identifier;
+          if (ident && ident.value != null) {
+            ident.value = mapId(String(ident.value));
+          }
+        }
+        if (r.id != null && String(r.id).startsWith("prov-batch-")) {
+          r.id = `prov-batch-${mapId(String(r.id).replace(/^prov-batch-/, ""))}`.slice(0, 64);
         }
       }
       if (rt === "DocumentReference") {
@@ -8828,15 +8922,18 @@ List 5\u20137 working hypotheses that best fit the available data
     if (!map || typeof map !== "object") return false;
     return Object.keys(map).some((k) => Array.isArray(map[k]) && map[k].length > 0);
   }
-  function attachSourceBatchExtension(obs, domain, domainSourceBatches) {
+  function attachSourceBatchExtension(obs, domain, domainSourceBatches, opts) {
     if (!domainSourceBatches) return;
     const raw = domainSourceBatches[domain];
     if (!Array.isArray(raw) || !raw.length) return;
-    const ids = raw.map((x) => String(x)).filter(Boolean);
+    let ids = raw.map((x) => String(x)).filter(Boolean);
     if (!ids.length) return;
+    if (opts?.remapIds) {
+      ids = ids.map((id) => opaqueImportBatchId(id));
+    }
     const ext = Array.isArray(obs.extension) ? obs.extension : [];
     ext.push({
-      url: EXT_SOURCE_BATCH_IDS,
+      url: EXT_SOURCE_BATCH_IDS2,
       valueString: ids.join(",")
     });
     obs.extension = ext;
@@ -8911,12 +9008,13 @@ List 5\u20137 working hypotheses that best fit the available data
     return prov;
   }
   function entityForBatch(b, opts) {
+    const id = opts?.remapBatchId ? opaqueImportBatchId(String(b.id || "")) : String(b.id || "");
     return {
       role: "source",
       what: {
         identifier: {
           system: "urn:health-analyzer:import-batch",
-          value: b.id
+          value: id
         },
         display: batchDisplay(b, opts)
       }
@@ -9574,7 +9672,9 @@ List 5\u20137 working hypotheses that best fit the available data
     const pushObs = (obs, byTypeKey, deviceHint) => {
       const domain = FHIR_OBS_TYPE_TO_DOMAIN[byTypeKey] || byTypeKey;
       attachObservationCategory(obs, byTypeKey);
-      attachSourceBatchExtension(obs, domain, domainSourceBatches);
+      attachSourceBatchExtension(obs, domain, domainSourceBatches, {
+        remapIds: isAnonymousShare
+      });
       if (deviceHint?.sampleSource && !isAnonymousShare) {
         attachSourceNameMeta(obs, deviceHint.sampleSource);
       }
@@ -9974,9 +10074,14 @@ List 5\u20137 working hypotheses that best fit the available data
           linkedAny = true;
           provenances.push(
             buildAssemblerProvenance({
-              id: `prov-batch-${shortImportBatchIdForProv(bid)}`,
+              id: isAnonymousShare ? `prov-${opaqueImportBatchId(bid)}` : `prov-batch-${shortImportBatchIdForProv(bid)}`,
               target: targets,
-              entities: [entityForBatch(b, { redactFileNames: isAnonymousShare })],
+              entities: [
+                entityForBatch(b, {
+                  redactFileNames: isAnonymousShare,
+                  remapBatchId: isAnonymousShare
+                })
+              ],
               recorded
             })
           );
@@ -9986,7 +10091,10 @@ List 5\u20137 working hypotheses that best fit the available data
             "domain map available but no batch-observation links; coarse provenance fallback"
           );
           const entities = batches.map(
-            (b) => entityForBatch(b, { redactFileNames: isAnonymousShare })
+            (b) => entityForBatch(b, {
+              redactFileNames: isAnonymousShare,
+              remapBatchId: isAnonymousShare
+            })
           );
           provenances.push(
             buildAssemblerProvenance({
@@ -10002,7 +10110,10 @@ List 5\u20137 working hypotheses that best fit the available data
           notes.push("domain map unavailable; coarse provenance");
         }
         const entities = batches.map(
-          (b) => entityForBatch(b, { redactFileNames: isAnonymousShare })
+          (b) => entityForBatch(b, {
+            redactFileNames: isAnonymousShare,
+            remapBatchId: isAnonymousShare
+          })
         );
         if (!entities.length) {
           notes.push(
@@ -10064,7 +10175,7 @@ List 5\u20137 working hypotheses that best fit the available data
     if (isAnonymousShare) {
       bundle = sanitizeAnonymousFhirBundle(bundle);
       notes.push(
-        "anonymous-share sanitizer applied: removed sourceName extensions/notes and import file displays"
+        "anonymous-share sanitizer applied: removed sourceName, remapped batch ids to batch_anon_*, redacted import file displays"
       );
     }
     const counts = {
