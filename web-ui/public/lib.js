@@ -66,6 +66,7 @@ var HealthAnalyzer = (() => {
     createHealthEventId: () => createHealthEventId,
     createImportBatchId: () => createImportBatchId,
     createL: () => createL,
+    dayEffectivePeriod: () => dayEffectivePeriod,
     daysBetween: () => daysBetween,
     detectCrossSignals: () => detectCrossSignals,
     enrichEcgWithContext: () => enrichEcgWithContext,
@@ -102,6 +103,7 @@ var HealthAnalyzer = (() => {
     mergeExternalCsvIntoData: () => mergeExternalCsvIntoData,
     mergeHaeIntoData: () => mergeHaeIntoData,
     mergeHaeJsonIntoData: () => mergeHaeJsonIntoData,
+    newBundleUuid: () => newBundleUuid,
     normalizeHaeMetricName: () => normalizeHaeMetricName,
     normalizeHealthEvent: () => normalizeHealthEvent,
     normalizeImportBatch: () => normalizeImportBatch,
@@ -7768,7 +7770,7 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.4";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.4.1";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
@@ -7876,8 +7878,28 @@ List 5\u20137 working hypotheses that best fit the available data
       code
     };
   }
-  function baseObservation(id, code, effectiveDateTime) {
+  function newBundleUuid() {
+    const g = globalThis;
+    if (g.crypto && typeof g.crypto.randomUUID === "function") {
+      return g.crypto.randomUUID();
+    }
+    const hex = (n) => n.toString(16).padStart(2, "0");
+    const bytes = new Uint8Array(16);
+    for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+    bytes[6] = bytes[6] & 15 | 64;
+    bytes[8] = bytes[8] & 63 | 128;
+    const h = Array.from(bytes, hex).join("");
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  }
+  function dayEffectivePeriod(dateYmd) {
+    const d = String(dateYmd || "").slice(0, 10);
     return {
+      start: `${d}T00:00:00`,
+      end: `${d}T23:59:59`
+    };
+  }
+  function baseObservation(id, code, effective) {
+    const obs = {
       resourceType: "Observation",
       id,
       meta: {
@@ -7893,14 +7915,25 @@ List 5\u20137 working hypotheses that best fit the available data
       },
       status: "final",
       code,
-      effectiveDateTime,
       note: [{ text: DEVICE_NOTE }]
     };
+    if (effective.kind === "instant") {
+      obs.effectiveDateTime = effective.value;
+    } else {
+      obs.effectivePeriod = { start: effective.start, end: effective.end };
+      if (effective.summaryNote) {
+        obs.note.push({ text: effective.summaryNote });
+      }
+    }
+    return obs;
   }
-  function entryFor(resource) {
+  function entryFor(resource, idToFullUrl) {
     const rt = String(resource.resourceType || "Resource");
     const id = String(resource.id || "");
-    const fullUrl = id ? `${rt}/${id}` : `urn:uuid:${rt}-${Math.random().toString(36).slice(2, 10)}`;
+    const fullUrl = `urn:uuid:${newBundleUuid()}`;
+    if (id) {
+      idToFullUrl.set(`${rt}/${id}`, fullUrl);
+    }
     return { fullUrl, resource };
   }
   function batchDisplay(b) {
@@ -7910,7 +7943,12 @@ List 5\u20137 working hypotheses that best fit the available data
   }
   function buildBpObservation(r, index) {
     const id = `obs-bp-${index}`;
-    const effective = toIsoDateTime(r.datetime || r.date);
+    const hasTime = r.datetime && /\d{2}:\d{2}/.test(r.datetime);
+    const effective = hasTime ? { kind: "instant", value: toIsoDateTime(r.datetime || r.date) } : {
+      kind: "period",
+      ...dayEffectivePeriod(r.date || getDate(r.datetime)),
+      summaryNote: "blood pressure (date-only; period = calendar day)"
+    };
     const obs = baseObservation(id, loincCoding("85354-9", "Blood pressure panel"), effective);
     obs.component = [
       {
@@ -7926,56 +7964,69 @@ List 5\u20137 working hypotheses that best fit the available data
   }
   function buildWeightObservation(r, index) {
     const id = `obs-weight-${index}`;
-    const effective = toIsoDateTime(r.datetime || r.date);
+    const hasTime = r.datetime && /\d{2}:\d{2}/.test(r.datetime);
+    const effective = hasTime ? { kind: "instant", value: toIsoDateTime(r.datetime || r.date) } : {
+      kind: "period",
+      ...dayEffectivePeriod(r.date || getDate(r.datetime)),
+      summaryNote: "body weight (date-only; period = calendar day)"
+    };
     const obs = baseObservation(id, loincCoding("29463-7", "Body weight"), effective);
     obs.valueQuantity = quantity(r.value, "kg", "kg");
     return obs;
   }
   function buildGlucoseObservation(p, index) {
     const id = `obs-glucose-${index}`;
-    const effective = toIsoDateTime(p.datetime);
+    const effective = {
+      kind: "instant",
+      value: toIsoDateTime(p.datetime)
+    };
     const obs = baseObservation(id, loincCoding("2339-0", "Glucose [Moles/volume] in Blood"), effective);
     obs.valueQuantity = quantity(p.value, "mmol/L", "mmol/L");
     return obs;
   }
+  function dailyPeriod(date, summaryNote) {
+    return {
+      kind: "period",
+      ...dayEffectivePeriod(date),
+      summaryNote
+    };
+  }
   function buildStepsObservation(date, steps, index) {
     const id = `obs-steps-${index}`;
-    const effective = toIsoDateTime(date);
     const obs = baseObservation(
       id,
       loincCoding("55423-8", "Number of steps in 24 hour Measured"),
-      effective
+      dailyPeriod(date, "daily total steps (24h window / calendar day aggregate)")
     );
     obs.valueQuantity = quantity(steps, "/d", "/d");
     return obs;
   }
   function buildRestingHrObservation(date, bpm, index) {
     const id = `obs-resting-hr-${index}`;
-    const effective = toIsoDateTime(date);
-    const obs = baseObservation(id, loincCoding("8867-4", "Heart rate"), effective);
+    const obs = baseObservation(
+      id,
+      loincCoding("8867-4", "Heart rate"),
+      dailyPeriod(date, "resting heart rate (daily summary aggregate, not a single midnight sample)")
+    );
     obs.valueQuantity = quantity(bpm, "beats/min", "/min");
-    obs.note.push({ text: "resting heart rate (daily summary)" });
     return obs;
   }
   function buildSpo2Observation(date, spo2Pct, index) {
     const id = `obs-spo2-${index}`;
-    const effective = toIsoDateTime(date);
     const obs = baseObservation(
       id,
       loincCoding("59408-5", "Oxygen saturation in Arterial blood by Pulse oximetry"),
-      effective
+      dailyPeriod(date, "daily mean SpO\u2082 (Watch summary aggregate)")
     );
     obs.valueQuantity = quantity(spo2Pct, "%", "%");
-    obs.note.push({ text: "daily mean SpO\u2082 (Watch summary)" });
     return obs;
   }
   function buildSleepObservation(date, sleep, index) {
     const id = `obs-sleep-${index}`;
-    const effective = toIsoDateTime(date);
     const obs = baseObservation(
       id,
       loincCoding("93832-4", "Sleep duration"),
-      effective
+      dailyPeriod(date, "daily sleep summary (total + stages when present); overnight/window aggregate")
     );
     if (sleep.total != null && Number.isFinite(sleep.total)) {
       obs.valueQuantity = quantity(sleep.total, "h", "h");
@@ -7993,28 +8044,20 @@ List 5\u20137 working hypotheses that best fit the available data
     stage("93831-6", "Light/core sleep duration", sleep.core);
     stage("93828-2", "Awake duration in sleep period", sleep.awake);
     if (components.length) obs.component = components;
-    obs.note.push({
-      text: "daily sleep summary (total + stages when present); experimental mapping"
-    });
     return obs;
   }
   function buildVo2Observation(date, vo2, index) {
     const id = `obs-vo2-${index}`;
-    const effective = toIsoDateTime(date);
     const obs = baseObservation(
       id,
       loincCoding("19916-4", "Oxygen consumption"),
-      effective
+      dailyPeriod(date, "VO\u2082 max estimate from Watch / fitness (device estimate, not CPET); daily summary")
     );
     obs.valueQuantity = quantity(vo2, "mL/kg/min", "mL/kg/min");
-    obs.note.push({
-      text: "VO\u2082 max estimate from Watch / fitness (device estimate, not CPET)"
-    });
     return obs;
   }
   function buildBreathingDisturbanceObservation(date, value, index) {
     const id = `obs-breathing-${index}`;
-    const effective = toIsoDateTime(date);
     const obs = baseObservation(
       id,
       {
@@ -8027,55 +8070,79 @@ List 5\u20137 working hypotheses that best fit the available data
         ],
         text: "Sleep breathing disturbances (device index)"
       },
-      effective
+      dailyPeriod(
+        date,
+        "Apple Watch sleeping breathing disturbances index; overnight summary; not a diagnosis"
+      )
     );
     obs.valueQuantity = quantity(value, "1", "1");
-    obs.note.push({
-      text: "Apple Watch sleeping breathing disturbances index; experimental local mapping, not a diagnosis"
-    });
     return obs;
   }
   function buildWristTempObservation(date, celsius, index) {
     const id = `obs-wrist-temp-${index}`;
-    const effective = toIsoDateTime(date);
     const obs = baseObservation(
       id,
-      loincCoding("8310-5", "Body temperature"),
-      effective
+      {
+        coding: [
+          {
+            system: "urn:health-analyzer:metric",
+            code: "apple_sleeping_wrist_temperature",
+            display: "Sleeping wrist temperature (device; may be relative delta)"
+          }
+        ],
+        text: "Sleeping wrist temperature (device; may be relative delta)"
+      },
+      dailyPeriod(
+        date,
+        "wrist temperature daily mean; value may be absolute \xB0C or relative baseline delta depending on OS/source \u2014 not confirmed absolute body temperature"
+      )
     );
-    obs.valueQuantity = quantity(celsius, "Cel", "Cel");
+    const looksAbsolute = celsius >= 30 && celsius <= 45;
+    if (looksAbsolute) {
+      obs.valueQuantity = quantity(celsius, "Cel", "Cel");
+      obs.note.push({
+        text: "value in plausible absolute \xB0C range; still experimental wrist reading"
+      });
+    } else {
+      obs.valueQuantity = {
+        value: celsius,
+        unit: "device-unit",
+        system: "urn:health-analyzer:unit",
+        code: "wrist-temp-delta-or-raw"
+      };
+      obs.note.push({
+        text: "value outside typical absolute body-temp range; treated as device raw/relative unit, not LOINC 8310-5 body temperature"
+      });
+    }
     obs.method = {
-      text: "wrist temperature (Apple Watch sleeping wrist temperature)"
+      text: "Apple Watch sleeping wrist temperature"
     };
-    obs.note.push({
-      text: "wrist temperature daily mean; may be relative delta depending on source; experimental"
-    });
     return obs;
   }
   function buildNightHrObservation(date, bpm, index) {
     const id = `obs-night-hr-${index}`;
-    const effective = toIsoDateTime(date);
-    const obs = baseObservation(id, loincCoding("8867-4", "Heart rate"), effective);
+    const obs = baseObservation(
+      id,
+      loincCoding("8867-4", "Heart rate"),
+      dailyPeriod(
+        date,
+        "night-time heart rate mean (Watch night window summary aggregate); not resting HR; not a midnight instant"
+      )
+    );
     obs.valueQuantity = quantity(bpm, "beats/min", "/min");
-    obs.note.push({
-      text: "night-time heart rate mean (Watch night window summary); not resting HR"
-    });
     return obs;
   }
   function buildRespiratoryRateObservation(date, rate, index) {
     const id = `obs-rr-${index}`;
-    const effective = toIsoDateTime(date);
     const obs = baseObservation(
       id,
       loincCoding("9279-1", "Respiratory rate"),
-      effective
+      dailyPeriod(date, "respiratory rate daily mean (Watch summary aggregate)")
     );
     obs.valueQuantity = quantity(rate, "/min", "/min");
-    obs.note.push({
-      text: "respiratory rate daily mean (Watch summary)"
-    });
     return obs;
   }
+  var URN_UUID_RE = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   function validateFhirExportBundle(bundle) {
     const issues = [];
     const resourceCounts = {};
@@ -8092,11 +8159,32 @@ List 5\u20137 working hypotheses that best fit the available data
     if (!entry.length) {
       issues.push("Bundle.entry is empty");
     }
-    const ids = /* @__PURE__ */ new Set();
-    const obsIds = /* @__PURE__ */ new Set();
-    const docIds = /* @__PURE__ */ new Set();
+    const logicalIds = /* @__PURE__ */ new Set();
+    const fullUrls = /* @__PURE__ */ new Set();
+    const fullUrlList = [];
     for (let i = 0; i < entry.length; i++) {
       const e = entry[i] || {};
+      const fullUrl = e.fullUrl != null ? String(e.fullUrl) : "";
+      if (!fullUrl) {
+        issues.push(`entry[${i}] missing fullUrl`);
+      } else {
+        const isUri = URN_UUID_RE.test(fullUrl) || /^https?:\/\//i.test(fullUrl) || /^urn:/i.test(fullUrl);
+        if (!isUri) {
+          issues.push(`entry[${i}] fullUrl is not a URI: ${fullUrl}`);
+        }
+        if (!URN_UUID_RE.test(fullUrl) && !/^https?:\/\//i.test(fullUrl)) {
+          if (/^[A-Za-z]+\/[\w.-]+$/.test(fullUrl)) {
+            issues.push(
+              `entry[${i}] fullUrl looks like relative Resource/id (${fullUrl}); prefer urn:uuid:`
+            );
+          }
+        }
+        if (fullUrls.has(fullUrl)) {
+          issues.push(`duplicate fullUrl ${fullUrl}`);
+        }
+        fullUrls.add(fullUrl);
+        fullUrlList.push(fullUrl);
+      }
       const r = e.resource || null;
       if (!r || typeof r !== "object") {
         issues.push(`entry[${i}] missing resource`);
@@ -8109,17 +8197,22 @@ List 5\u20137 working hypotheses that best fit the available data
       if (!id) issues.push(`entry[${i}] ${rt || "Resource"} missing id`);
       else {
         const key = `${rt}/${id}`;
-        if (ids.has(key)) issues.push(`duplicate resource id ${key}`);
-        ids.add(key);
+        if (logicalIds.has(key)) issues.push(`duplicate resource id ${key}`);
+        logicalIds.add(key);
       }
       if (rt === "Observation") {
-        if (id) obsIds.add(id);
         if (r.status !== "final" && r.status !== "preliminary" && r.status !== "amended") {
           issues.push(`Observation/${id || i} unexpected status ${String(r.status)}`);
         }
         if (!r.code) issues.push(`Observation/${id || i} missing code`);
         if (!r.effectiveDateTime && !r.effectivePeriod) {
-          issues.push(`Observation/${id || i} missing effectiveDateTime`);
+          issues.push(`Observation/${id || i} missing effectiveDateTime/effectivePeriod`);
+        }
+        if (r.effectivePeriod && typeof r.effectivePeriod === "object") {
+          const p = r.effectivePeriod;
+          if (!p.start || !p.end) {
+            issues.push(`Observation/${id || i} effectivePeriod needs start and end`);
+          }
         }
         const hasValue = r.valueQuantity != null || r.valueString != null || Array.isArray(r.component) && r.component.length > 0;
         if (!hasValue) issues.push(`Observation/${id || i} missing value/component`);
@@ -8130,20 +8223,8 @@ List 5\u20137 working hypotheses that best fit the available data
         }
         if (!Array.isArray(r.target) || !r.target.length) {
           issues.push(`Provenance/${id || i} missing target`);
-        } else {
-          for (const t of r.target) {
-            const ref = String(t && t.reference || "");
-            if (!ref.includes("/")) {
-              issues.push(`Provenance/${id || i} target not a Resource/id ref: ${ref}`);
-              continue;
-            }
-            const [tRt, tId] = ref.split("/");
-            if (tRt === "Observation" && tId && !obsIds.has(tId)) {
-            }
-          }
         }
       } else if (rt === "DocumentReference") {
-        if (id) docIds.add(id);
         if (r.status !== "current" && r.status !== "superseded" && r.status !== "entered-in-error") {
           issues.push(`DocumentReference/${id || i} unexpected status ${String(r.status)}`);
         }
@@ -8163,12 +8244,14 @@ List 5\u20137 working hypotheses that best fit the available data
       const pid = String(r.id || i);
       for (const t of Array.isArray(r.target) ? r.target : []) {
         const ref = String(t && t.reference || "");
-        const [tRt, tId] = ref.split("/");
-        if (tRt === "Observation" && tId && !obsIds.has(tId)) {
-          issues.push(`Provenance/${pid} target Observation/${tId} not in Bundle`);
+        if (!ref) {
+          issues.push(`Provenance/${pid} target missing reference`);
+          continue;
         }
-        if (tRt === "DocumentReference" && tId && !docIds.has(tId)) {
-          issues.push(`Provenance/${pid} target DocumentReference/${tId} not in Bundle`);
+        if (!fullUrls.has(ref)) {
+          issues.push(
+            `Provenance/${pid} target ${ref} does not match any entry.fullUrl (use urn:uuid: identities)`
+          );
         }
       }
     }
@@ -8630,14 +8713,20 @@ List 5\u20137 working hypotheses that best fit the available data
     const batches = (Array.isArray(batchesRaw) ? batchesRaw : []).map((b) => normalizeImportBatch(b)).filter((b) => !!b);
     const includeProvenance = opts.includeProvenance === false ? false : opts.includeProvenance === true ? true : batches.length > 0;
     const provenances = [];
+    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+    const idToFullUrl = /* @__PURE__ */ new Map();
+    const resourceEntries = [
+      ...observations.map((o) => entryFor(o, idToFullUrl)),
+      ...documentReferences.map((d) => entryFor(d, idToFullUrl))
+    ];
     if (includeProvenance) {
       const recorded = (/* @__PURE__ */ new Date()).toISOString();
       const target = [
         ...observations.map((o) => ({
-          reference: `Observation/${o.id}`
+          reference: idToFullUrl.get(`Observation/${o.id}`) || `Observation/${o.id}`
         })),
         ...documentReferences.map((d) => ({
-          reference: `DocumentReference/${d.id}`
+          reference: idToFullUrl.get(`DocumentReference/${d.id}`) || `DocumentReference/${d.id}`
         }))
       ];
       const entities = batches.map((b) => ({
@@ -8723,11 +8812,9 @@ List 5\u20137 working hypotheses that best fit the available data
       }
       provenances.push(prov);
     }
-    const timestamp = (/* @__PURE__ */ new Date()).toISOString();
     const entries = [
-      ...observations.map(entryFor),
-      ...documentReferences.map(entryFor),
-      ...provenances.map(entryFor)
+      ...resourceEntries,
+      ...provenances.map((p) => entryFor(p, idToFullUrl))
     ];
     const bundle = {
       resourceType: "Bundle",
@@ -8739,7 +8826,7 @@ List 5\u20137 working hypotheses that best fit the available data
           {
             system: "urn:health-analyzer:tag",
             code: FHIR_EXPORT_PROFILE,
-            display: "health-analyzer FHIR export profile v1.4"
+            display: "health-analyzer FHIR export profile v1.4.1"
           },
           {
             system: "urn:health-analyzer:rule-version",

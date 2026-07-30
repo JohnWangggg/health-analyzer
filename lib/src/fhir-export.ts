@@ -1,10 +1,9 @@
 /**
- * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference 导出（试验性 v1.52）
+ * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference 导出（试验性 v1.52.1）
  *
  * - 仅生成本地可下载 JSON Bundle；非医院系统对接、非 FHIR 认证提交
- * - 资源为 experimental / trial-use 形状，供个人归档与互操作试验
- * - 不产出诊断、用药建议或临床认证声明
- * - 默认由调用方/UI 选择导出；本模块仅在被调用时构建
+ * - Bundle entry.fullUrl 使用 urn:uuid:；Provenance.target 与之匹配
+ * - 日汇总用 effectivePeriod；瞬时测点用 effectiveDateTime
  * - 含结构自检 validateFhirExportBundle（非官方 FHIR 校验器）
  */
 
@@ -28,7 +27,7 @@ import { buildAgpSvg, buildCgm14DayReport } from './clinical-report';
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.4';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.4.1';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
@@ -223,12 +222,43 @@ function quantity(
   };
 }
 
+/** RFC4122-ish UUID for Bundle fullUrl (crypto.randomUUID when available) */
+export function newBundleUuid(): string {
+  const g = globalThis as unknown as {
+    crypto?: { randomUUID?: () => string };
+  };
+  if (g.crypto && typeof g.crypto.randomUUID === 'function') {
+    return g.crypto.randomUUID();
+  }
+  // fallback: not crypto-strong, adequate for local export identity
+  const hex = (n: number) => n.toString(16).padStart(2, '0');
+  const bytes = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const h = Array.from(bytes, hex).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+type EffectiveSpec =
+  | { kind: 'instant'; value: string }
+  | { kind: 'period'; start: string; end: string; summaryNote?: string };
+
+/** Calendar-day period for daily aggregates (local wall date, no false Z claim). */
+export function dayEffectivePeriod(dateYmd: string): { start: string; end: string } {
+  const d = String(dateYmd || '').slice(0, 10);
+  return {
+    start: `${d}T00:00:00`,
+    end: `${d}T23:59:59`,
+  };
+}
+
 function baseObservation(
   id: string,
   code: Record<string, unknown>,
-  effectiveDateTime: string
+  effective: EffectiveSpec
 ): Record<string, unknown> {
-  return {
+  const obs: Record<string, unknown> = {
     resourceType: 'Observation',
     id,
     meta: {
@@ -244,15 +274,33 @@ function baseObservation(
     },
     status: 'final',
     code,
-    effectiveDateTime,
     note: [{ text: DEVICE_NOTE }],
   };
+  if (effective.kind === 'instant') {
+    obs.effectiveDateTime = effective.value;
+  } else {
+    obs.effectivePeriod = { start: effective.start, end: effective.end };
+    if (effective.summaryNote) {
+      (obs.note as { text: string }[]).push({ text: effective.summaryNote });
+    }
+  }
+  return obs;
 }
 
-function entryFor(resource: Record<string, unknown>): Record<string, unknown> {
+/**
+ * Bundle entry with FHIR-compliant fullUrl identity (urn:uuid:...).
+ * Logical resource.id retained for human debugging; internal refs use fullUrl.
+ */
+function entryFor(
+  resource: Record<string, unknown>,
+  idToFullUrl: Map<string, string>
+): Record<string, unknown> {
   const rt = String(resource.resourceType || 'Resource');
   const id = String(resource.id || '');
-  const fullUrl = id ? `${rt}/${id}` : `urn:uuid:${rt}-${Math.random().toString(36).slice(2, 10)}`;
+  const fullUrl = `urn:uuid:${newBundleUuid()}`;
+  if (id) {
+    idToFullUrl.set(`${rt}/${id}`, fullUrl);
+  }
   return { fullUrl, resource };
 }
 
@@ -273,7 +321,15 @@ function batchDisplay(b: ImportBatchRecord): string {
 
 function buildBpObservation(r: BloodPressureRecord, index: number): Record<string, unknown> {
   const id = `obs-bp-${index}`;
-  const effective = toIsoDateTime(r.datetime || r.date);
+  // Prefer precise datetime; date-only falls back to day period
+  const hasTime = r.datetime && /\d{2}:\d{2}/.test(r.datetime);
+  const effective: EffectiveSpec = hasTime
+    ? { kind: 'instant', value: toIsoDateTime(r.datetime || r.date) }
+    : {
+        kind: 'period',
+        ...dayEffectivePeriod(r.date || getDate(r.datetime)),
+        summaryNote: 'blood pressure (date-only; period = calendar day)',
+      };
   const obs = baseObservation(id, loincCoding('85354-9', 'Blood pressure panel'), effective);
   obs.component = [
     {
@@ -290,7 +346,14 @@ function buildBpObservation(r: BloodPressureRecord, index: number): Record<strin
 
 function buildWeightObservation(r: WeightRecord, index: number): Record<string, unknown> {
   const id = `obs-weight-${index}`;
-  const effective = toIsoDateTime(r.datetime || r.date);
+  const hasTime = r.datetime && /\d{2}:\d{2}/.test(r.datetime);
+  const effective: EffectiveSpec = hasTime
+    ? { kind: 'instant', value: toIsoDateTime(r.datetime || r.date) }
+    : {
+        kind: 'period',
+        ...dayEffectivePeriod(r.date || getDate(r.datetime)),
+        summaryNote: 'body weight (date-only; period = calendar day)',
+      };
   const obs = baseObservation(id, loincCoding('29463-7', 'Body weight'), effective);
   obs.valueQuantity = quantity(r.value, 'kg', 'kg');
   return obs;
@@ -298,21 +361,31 @@ function buildWeightObservation(r: WeightRecord, index: number): Record<string, 
 
 function buildGlucoseObservation(p: CgmPoint, index: number): Record<string, unknown> {
   const id = `obs-glucose-${index}`;
-  const effective = toIsoDateTime(p.datetime);
+  const effective: EffectiveSpec = {
+    kind: 'instant',
+    value: toIsoDateTime(p.datetime),
+  };
   // 2339-0 Glucose [Moles/volume] in Blood; mmol/L canonical in this app
   const obs = baseObservation(id, loincCoding('2339-0', 'Glucose [Moles/volume] in Blood'), effective);
   obs.valueQuantity = quantity(p.value, 'mmol/L', 'mmol/L');
   return obs;
 }
 
+function dailyPeriod(date: string, summaryNote: string): EffectiveSpec {
+  return {
+    kind: 'period',
+    ...dayEffectivePeriod(date),
+    summaryNote,
+  };
+}
+
 function buildStepsObservation(date: string, steps: number, index: number): Record<string, unknown> {
   const id = `obs-steps-${index}`;
-  const effective = toIsoDateTime(date);
-  // 55423-8 Number of steps in 24 hour Measured
+  // 55423-8 Number of steps in 24 hour Measured — daily total, not midnight instant
   const obs = baseObservation(
     id,
     loincCoding('55423-8', 'Number of steps in 24 hour Measured'),
-    effective
+    dailyPeriod(date, 'daily total steps (24h window / calendar day aggregate)')
   );
   obs.valueQuantity = quantity(steps, '/d', '/d');
   return obs;
@@ -324,25 +397,24 @@ function buildRestingHrObservation(
   index: number
 ): Record<string, unknown> {
   const id = `obs-resting-hr-${index}`;
-  const effective = toIsoDateTime(date);
-  const obs = baseObservation(id, loincCoding('8867-4', 'Heart rate'), effective);
+  const obs = baseObservation(
+    id,
+    loincCoding('8867-4', 'Heart rate'),
+    dailyPeriod(date, 'resting heart rate (daily summary aggregate, not a single midnight sample)')
+  );
   obs.valueQuantity = quantity(bpm, 'beats/min', '/min');
-  // Clarify resting via category/text extension note
-  (obs.note as { text: string }[]).push({ text: 'resting heart rate (daily summary)' });
   return obs;
 }
 
 /** Daily SpO2 mean from Watch day view — LOINC 59408-5 */
 function buildSpo2Observation(date: string, spo2Pct: number, index: number): Record<string, unknown> {
   const id = `obs-spo2-${index}`;
-  const effective = toIsoDateTime(date);
   const obs = baseObservation(
     id,
     loincCoding('59408-5', 'Oxygen saturation in Arterial blood by Pulse oximetry'),
-    effective
+    dailyPeriod(date, 'daily mean SpO₂ (Watch summary aggregate)')
   );
   obs.valueQuantity = quantity(spo2Pct, '%', '%');
-  (obs.note as { text: string }[]).push({ text: 'daily mean SpO₂ (Watch summary)' });
   return obs;
 }
 
@@ -356,11 +428,10 @@ function buildSleepObservation(
   index: number
 ): Record<string, unknown> {
   const id = `obs-sleep-${index}`;
-  const effective = toIsoDateTime(date);
   const obs = baseObservation(
     id,
     loincCoding('93832-4', 'Sleep duration'),
-    effective
+    dailyPeriod(date, 'daily sleep summary (total + stages when present); overnight/window aggregate')
   );
   if (sleep.total != null && Number.isFinite(sleep.total)) {
     obs.valueQuantity = quantity(sleep.total, 'h', 'h');
@@ -383,25 +454,18 @@ function buildSleepObservation(
   stage('93831-6', 'Light/core sleep duration', sleep.core);
   stage('93828-2', 'Awake duration in sleep period', sleep.awake);
   if (components.length) obs.component = components;
-  (obs.note as { text: string }[]).push({
-    text: 'daily sleep summary (total + stages when present); experimental mapping',
-  });
   return obs;
 }
 
 /** VO2 max (mL/kg/min) — LOINC 19916-4 Oxygen consumption */
 function buildVo2Observation(date: string, vo2: number, index: number): Record<string, unknown> {
   const id = `obs-vo2-${index}`;
-  const effective = toIsoDateTime(date);
   const obs = baseObservation(
     id,
     loincCoding('19916-4', 'Oxygen consumption'),
-    effective
+    dailyPeriod(date, 'VO₂ max estimate from Watch / fitness (device estimate, not CPET); daily summary')
   );
   obs.valueQuantity = quantity(vo2, 'mL/kg/min', 'mL/kg/min');
-  (obs.note as { text: string }[]).push({
-    text: 'VO₂ max estimate from Watch / fitness (device estimate, not CPET)',
-  });
   return obs;
 }
 
@@ -412,7 +476,6 @@ function buildBreathingDisturbanceObservation(
   index: number
 ): Record<string, unknown> {
   const id = `obs-breathing-${index}`;
-  const effective = toIsoDateTime(date);
   const obs = baseObservation(
     id,
     {
@@ -425,18 +488,18 @@ function buildBreathingDisturbanceObservation(
       ],
       text: 'Sleep breathing disturbances (device index)',
     },
-    effective
+    dailyPeriod(
+      date,
+      'Apple Watch sleeping breathing disturbances index; overnight summary; not a diagnosis'
+    )
   );
   obs.valueQuantity = quantity(value, '1', '1');
-  (obs.note as { text: string }[]).push({
-    text: 'Apple Watch sleeping breathing disturbances index; experimental local mapping, not a diagnosis',
-  });
   return obs;
 }
 
 /**
- * Wrist temperature (°C) — LOINC 8310-5 Body temperature with wrist note.
- * Apple values may be relative offsets on some OS versions; stored as device reports.
+ * Wrist temperature — NOT LOINC body temperature when value may be a relative baseline delta.
+ * Uses experimental local coding to avoid misreading +0.3 as 0.3°C absolute.
  */
 function buildWristTempObservation(
   date: string,
@@ -444,19 +507,44 @@ function buildWristTempObservation(
   index: number
 ): Record<string, unknown> {
   const id = `obs-wrist-temp-${index}`;
-  const effective = toIsoDateTime(date);
   const obs = baseObservation(
     id,
-    loincCoding('8310-5', 'Body temperature'),
-    effective
+    {
+      coding: [
+        {
+          system: 'urn:health-analyzer:metric',
+          code: 'apple_sleeping_wrist_temperature',
+          display: 'Sleeping wrist temperature (device; may be relative delta)',
+        },
+      ],
+      text: 'Sleeping wrist temperature (device; may be relative delta)',
+    },
+    dailyPeriod(
+      date,
+      'wrist temperature daily mean; value may be absolute °C or relative baseline delta depending on OS/source — not confirmed absolute body temperature'
+    )
   );
-  obs.valueQuantity = quantity(celsius, 'Cel', 'Cel');
+  // UCUM Cel only if value looks like absolute body temp; else unitless experimental
+  const looksAbsolute = celsius >= 30 && celsius <= 45;
+  if (looksAbsolute) {
+    obs.valueQuantity = quantity(celsius, 'Cel', 'Cel');
+    (obs.note as { text: string }[]).push({
+      text: 'value in plausible absolute °C range; still experimental wrist reading',
+    });
+  } else {
+    obs.valueQuantity = {
+      value: celsius,
+      unit: 'device-unit',
+      system: 'urn:health-analyzer:unit',
+      code: 'wrist-temp-delta-or-raw',
+    };
+    (obs.note as { text: string }[]).push({
+      text: 'value outside typical absolute body-temp range; treated as device raw/relative unit, not LOINC 8310-5 body temperature',
+    });
+  }
   obs.method = {
-    text: 'wrist temperature (Apple Watch sleeping wrist temperature)',
+    text: 'Apple Watch sleeping wrist temperature',
   };
-  (obs.note as { text: string }[]).push({
-    text: 'wrist temperature daily mean; may be relative delta depending on source; experimental',
-  });
   return obs;
 }
 
@@ -467,12 +555,15 @@ function buildNightHrObservation(
   index: number
 ): Record<string, unknown> {
   const id = `obs-night-hr-${index}`;
-  const effective = toIsoDateTime(date);
-  const obs = baseObservation(id, loincCoding('8867-4', 'Heart rate'), effective);
+  const obs = baseObservation(
+    id,
+    loincCoding('8867-4', 'Heart rate'),
+    dailyPeriod(
+      date,
+      'night-time heart rate mean (Watch night window summary aggregate); not resting HR; not a midnight instant'
+    )
+  );
   obs.valueQuantity = quantity(bpm, 'beats/min', '/min');
-  (obs.note as { text: string }[]).push({
-    text: 'night-time heart rate mean (Watch night window summary); not resting HR',
-  });
   return obs;
 }
 
@@ -483,16 +574,12 @@ function buildRespiratoryRateObservation(
   index: number
 ): Record<string, unknown> {
   const id = `obs-rr-${index}`;
-  const effective = toIsoDateTime(date);
   const obs = baseObservation(
     id,
     loincCoding('9279-1', 'Respiratory rate'),
-    effective
+    dailyPeriod(date, 'respiratory rate daily mean (Watch summary aggregate)')
   );
   obs.valueQuantity = quantity(rate, '/min', '/min');
-  (obs.note as { text: string }[]).push({
-    text: 'respiratory rate daily mean (Watch summary)',
-  });
   return obs;
 }
 
@@ -500,6 +587,9 @@ function buildRespiratoryRateObservation(
  * Lightweight structural self-check for local Bundle (NOT official FHIR validator).
  * Catches missing resourceType/id/status/target wiring; does not guarantee IG compliance.
  */
+const URN_UUID_RE =
+  /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export function validateFhirExportBundle(
   bundle: Record<string, unknown> | null | undefined
 ): FhirExportValidation {
@@ -518,12 +608,38 @@ export function validateFhirExportBundle(
   if (!entry.length) {
     issues.push('Bundle.entry is empty');
   }
-  const ids = new Set<string>();
-  const obsIds = new Set<string>();
-  const docIds = new Set<string>();
+  const logicalIds = new Set<string>();
+  const fullUrls = new Set<string>();
+  const fullUrlList: string[] = [];
 
   for (let i = 0; i < entry.length; i++) {
     const e = entry[i] || {};
+    const fullUrl = e.fullUrl != null ? String(e.fullUrl) : '';
+    if (!fullUrl) {
+      issues.push(`entry[${i}] missing fullUrl`);
+    } else {
+      const isUri =
+        URN_UUID_RE.test(fullUrl) ||
+        /^https?:\/\//i.test(fullUrl) ||
+        /^urn:/i.test(fullUrl);
+      if (!isUri) {
+        issues.push(`entry[${i}] fullUrl is not a URI: ${fullUrl}`);
+      }
+      if (!URN_UUID_RE.test(fullUrl) && !/^https?:\/\//i.test(fullUrl)) {
+        // warn-level: relative Resource/id is not preferred for collection identity
+        if (/^[A-Za-z]+\/[\w.-]+$/.test(fullUrl)) {
+          issues.push(
+            `entry[${i}] fullUrl looks like relative Resource/id (${fullUrl}); prefer urn:uuid:`
+          );
+        }
+      }
+      if (fullUrls.has(fullUrl)) {
+        issues.push(`duplicate fullUrl ${fullUrl}`);
+      }
+      fullUrls.add(fullUrl);
+      fullUrlList.push(fullUrl);
+    }
+
     const r = (e.resource || null) as Record<string, unknown> | null;
     if (!r || typeof r !== 'object') {
       issues.push(`entry[${i}] missing resource`);
@@ -536,18 +652,23 @@ export function validateFhirExportBundle(
     if (!id) issues.push(`entry[${i}] ${rt || 'Resource'} missing id`);
     else {
       const key = `${rt}/${id}`;
-      if (ids.has(key)) issues.push(`duplicate resource id ${key}`);
-      ids.add(key);
+      if (logicalIds.has(key)) issues.push(`duplicate resource id ${key}`);
+      logicalIds.add(key);
     }
 
     if (rt === 'Observation') {
-      if (id) obsIds.add(id);
       if (r.status !== 'final' && r.status !== 'preliminary' && r.status !== 'amended') {
         issues.push(`Observation/${id || i} unexpected status ${String(r.status)}`);
       }
       if (!r.code) issues.push(`Observation/${id || i} missing code`);
       if (!r.effectiveDateTime && !r.effectivePeriod) {
-        issues.push(`Observation/${id || i} missing effectiveDateTime`);
+        issues.push(`Observation/${id || i} missing effectiveDateTime/effectivePeriod`);
+      }
+      if (r.effectivePeriod && typeof r.effectivePeriod === 'object') {
+        const p = r.effectivePeriod as { start?: string; end?: string };
+        if (!p.start || !p.end) {
+          issues.push(`Observation/${id || i} effectivePeriod needs start and end`);
+        }
       }
       const hasValue =
         r.valueQuantity != null ||
@@ -561,21 +682,8 @@ export function validateFhirExportBundle(
       }
       if (!Array.isArray(r.target) || !r.target.length) {
         issues.push(`Provenance/${id || i} missing target`);
-      } else {
-        for (const t of r.target as { reference?: string }[]) {
-          const ref = String((t && t.reference) || '');
-          if (!ref.includes('/')) {
-            issues.push(`Provenance/${id || i} target not a Resource/id ref: ${ref}`);
-            continue;
-          }
-          const [tRt, tId] = ref.split('/');
-          if (tRt === 'Observation' && tId && !obsIds.has(tId)) {
-            // targets may be listed before we finish — re-check later
-          }
-        }
       }
     } else if (rt === 'DocumentReference') {
-      if (id) docIds.add(id);
       if (r.status !== 'current' && r.status !== 'superseded' && r.status !== 'entered-in-error') {
         issues.push(`DocumentReference/${id || i} unexpected status ${String(r.status)}`);
       }
@@ -591,19 +699,21 @@ export function validateFhirExportBundle(
     }
   }
 
-  // Provenance target resolution (second pass with full id sets)
+  // Provenance targets must resolve to entry fullUrl (Bundle-local identity)
   for (let i = 0; i < entry.length; i++) {
     const r = (entry[i]?.resource || null) as Record<string, unknown> | null;
     if (!r || r.resourceType !== 'Provenance') continue;
     const pid = String(r.id || i);
     for (const t of (Array.isArray(r.target) ? r.target : []) as { reference?: string }[]) {
       const ref = String((t && t.reference) || '');
-      const [tRt, tId] = ref.split('/');
-      if (tRt === 'Observation' && tId && !obsIds.has(tId)) {
-        issues.push(`Provenance/${pid} target Observation/${tId} not in Bundle`);
+      if (!ref) {
+        issues.push(`Provenance/${pid} target missing reference`);
+        continue;
       }
-      if (tRt === 'DocumentReference' && tId && !docIds.has(tId)) {
-        issues.push(`Provenance/${pid} target DocumentReference/${tId} not in Bundle`);
+      if (!fullUrls.has(ref)) {
+        issues.push(
+          `Provenance/${pid} target ${ref} does not match any entry.fullUrl (use urn:uuid: identities)`
+        );
       }
     }
   }
@@ -1203,14 +1313,24 @@ export function buildFhirExportBundle(
 
   const provenances: Record<string, unknown>[] = [];
 
+  // --- Bundle entries with urn:uuid fullUrl (identity for collection) ---
+  const timestamp = new Date().toISOString();
+  const idToFullUrl = new Map<string, string>();
+  const resourceEntries: Record<string, unknown>[] = [
+    ...observations.map((o) => entryFor(o, idToFullUrl)),
+    ...documentReferences.map((d) => entryFor(d, idToFullUrl)),
+  ];
+
   if (includeProvenance) {
     const recorded = new Date().toISOString();
+    // Targets must match entry.fullUrl (urn:uuid:), not relative Resource/id
     const target = [
       ...observations.map((o) => ({
-        reference: `Observation/${o.id}`,
+        reference: idToFullUrl.get(`Observation/${o.id}`) || `Observation/${o.id}`,
       })),
       ...documentReferences.map((d) => ({
-        reference: `DocumentReference/${d.id}`,
+        reference:
+          idToFullUrl.get(`DocumentReference/${d.id}`) || `DocumentReference/${d.id}`,
       })),
     ];
 
@@ -1304,12 +1424,9 @@ export function buildFhirExportBundle(
     provenances.push(prov);
   }
 
-  // --- Bundle ---
-  const timestamp = new Date().toISOString();
   const entries = [
-    ...observations.map(entryFor),
-    ...documentReferences.map(entryFor),
-    ...provenances.map(entryFor),
+    ...resourceEntries,
+    ...provenances.map((p) => entryFor(p, idToFullUrl)),
   ];
 
   const bundle: Record<string, unknown> = {
@@ -1322,7 +1439,7 @@ export function buildFhirExportBundle(
         {
           system: 'urn:health-analyzer:tag',
           code: FHIR_EXPORT_PROFILE,
-          display: 'health-analyzer FHIR export profile v1.4',
+          display: 'health-analyzer FHIR export profile v1.4.1',
         },
         {
           system: 'urn:health-analyzer:rule-version',

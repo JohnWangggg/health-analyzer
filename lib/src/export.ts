@@ -32,6 +32,8 @@ export {
   FHIR_EXPORT_PROFILE,
   FHIR_R4,
   toIsoDateTime,
+  newBundleUuid,
+  dayEffectivePeriod,
   buildFhirExportBundle,
   validateFhirExportBundle,
 } from './fhir-export';
