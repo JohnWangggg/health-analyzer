@@ -340,55 +340,33 @@
       </ol>
     </section>
 
-    <!-- 结果区顶栏导航（有结果时显示；移动端 / 窄屏） -->
-    <nav id="result-sticky-nav" class="result-sticky-nav hidden" data-i18n-aria="nav.aria" aria-label="结果分区">
-      <a href="#step-overview" class="result-nav-link" data-i18n="nav.overview">概览</a>
-      <a href="#step-summary" class="result-nav-link" data-i18n="nav.summary">明细</a>
-      <a href="#step-signals" class="result-nav-link" data-i18n="nav.signals">提示</a>
-      <a href="#step-events-review" class="result-nav-link" data-i18n="nav.eventsReview">事件</a>
-      <a href="#step-charts" class="result-nav-link" data-i18n="nav.charts">图表</a>
-      <a href="#step-export" class="result-nav-link" data-i18n="nav.export">导出</a>
-      <a href="#step-prompt" class="result-nav-link" data-i18n="nav.prompt">提示词</a>
-    </nav>
-
-    <!-- 桌面左侧结果分区导航（≥1100px + has-results；CSS 控制可见性） -->
-    <aside id="result-side-nav" class="result-side-nav hidden" data-i18n-aria="nav.aria" aria-label="结果分区">
+    <!-- 桌面左侧工作区导航（≥1100px + has-results；CSS 控制可见性） -->
+    <aside id="result-side-nav" class="result-side-nav hidden" data-i18n-aria="nav.aria" aria-label="健康工作区">
       <button type="button" id="side-nav-toggle" class="side-nav-toggle" data-i18n-aria="nav.toggle.aria" aria-expanded="true" aria-controls="result-side-nav">
         <span class="toggle-icon" aria-hidden="true">◀</span>
         <span class="toggle-text" data-i18n="nav.collapse">收起</span>
       </button>
-      <a href="#step-overview" class="result-nav-link">
+      <button type="button" class="result-nav-link is-active" data-workspace="today" aria-current="page">
         <span class="nav-icon" aria-hidden="true">🏠</span>
-        <span class="nav-text" data-i18n="nav.overview">概览</span>
-      </a>
-      <a href="#step-summary" class="result-nav-link">
-        <span class="nav-icon" aria-hidden="true">📋</span>
-        <span class="nav-text" data-i18n="nav.summary">明细</span>
-      </a>
-      <a href="#step-signals" class="result-nav-link">
-        <span class="nav-icon" aria-hidden="true">⚡</span>
-        <span class="nav-text" data-i18n="nav.signals">提示</span>
-      </a>
-      <a href="#step-events-review" class="result-nav-link">
-        <span class="nav-icon" aria-hidden="true">📅</span>
-        <span class="nav-text" data-i18n="nav.eventsReview">事件</span>
-      </a>
-      <a href="#step-charts" class="result-nav-link">
+        <span class="nav-text" data-i18n="nav.today">今日</span>
+      </button>
+      <button type="button" class="result-nav-link" data-workspace="trends">
         <span class="nav-icon" aria-hidden="true">📈</span>
-        <span class="nav-text" data-i18n="nav.charts">图表</span>
-      </a>
-      <a href="#step-export" class="result-nav-link">
-        <span class="nav-icon" aria-hidden="true">💾</span>
-        <span class="nav-text" data-i18n="nav.export">导出</span>
-      </a>
-      <a href="#step-prompt" class="result-nav-link">
-        <span class="nav-icon" aria-hidden="true">🤖</span>
-        <span class="nav-text" data-i18n="nav.prompt">提示词</span>
-      </a>
+        <span class="nav-text" data-i18n="nav.trends">趋势</span>
+      </button>
+      <button type="button" class="result-nav-link" data-workspace="reports">
+        <span class="nav-icon" aria-hidden="true">📄</span>
+        <span class="nav-text" data-i18n="nav.reports">报告</span>
+      </button>
+      <button type="button" class="result-nav-link" data-workspace="more">
+        <span class="nav-icon" aria-hidden="true">⚙️</span>
+        <span class="nav-text" data-i18n="nav.more">更多</span>
+      </button>
     </aside>
 
     <div class="results-layout">
-    <!-- 结果概览（分析后主屏） -->
+    <!-- 工作区：今日（概览 + 提示） -->
+    <div id="ws-today" class="workspace is-active" data-workspace="today" hidden>
     <section id="step-overview" class="card hidden result-hero">
       <div class="result-hero-top">
         <div>
@@ -412,7 +390,8 @@
 
       <div class="hero-actions">
         <button type="button" id="btn-copy-hero" class="btn-primary btn-block" data-i18n="hero.copy">复制完整提示词</button>
-        <button type="button" id="btn-scroll-prompt" class="btn-secondary btn-block" data-i18n="hero.openPrompt">打开提示词区</button>
+        <button type="button" id="btn-open-reports" class="btn-secondary btn-block" data-i18n="hero.openReports">打开报告与提示词</button>
+        <button type="button" id="btn-open-trends" class="btn-ghost btn-block" data-i18n="hero.openTrends">查看趋势</button>
       </div>
 
       <div id="import-hints" class="import-hints hidden" aria-live="polite"></div>
@@ -423,25 +402,15 @@
       </details>
     </section>
 
-    <div class="results-secondary">
-    <section id="step-summary" class="card hidden result-section">
-      <h2 data-i18n="summary.title">统计明细</h2>
-      <p class="hint compact-hint" data-i18n="summary.hint">各维度可展开。体重为晨起趋势；CGM 优先看稳定期；血压含晨晚分层。</p>
-      <div id="summary-content"></div>
-    </section>
-
     <section id="step-signals" class="card hidden result-section">
       <h2 data-i18n="signals.title">跨维度提示</h2>
       <p class="hint compact-hint" data-i18n="signals.hint">规则线索，非诊断；已写入完整提示词。</p>
       <div id="signals-content"></div>
     </section>
+    </div><!-- /#ws-today -->
 
-    <section id="step-events-review" class="card hidden result-section">
-      <h2 data-i18n="events.review.title">事件时间对照</h2>
-      <p class="hint" data-i18n="events.review.hint">仅时间共现复盘，不作因果或调药建议。数据来自本机事件时间线。</p>
-      <div id="events-review-content"></div>
-    </section>
-
+    <!-- 工作区：趋势（图表 + 事件 + 明细） -->
+    <div id="ws-trends" class="workspace" data-workspace="trends" hidden>
     <section id="step-charts" class="card hidden result-section">
       <h2 data-i18n="charts.title">趋势图</h2>
       <p class="hint compact-hint" data-i18n="charts.hint">本地绘制。在图上滑动可读数；体重为晨起趋势。</p>
@@ -454,18 +423,70 @@
       <div id="charts-content" class="charts-content"></div>
     </section>
 
-    <section id="step-export" class="card hidden result-section">
-      <h2 data-i18n="export.title">导出与历史</h2>
-      <p class="hint compact-hint" data-i18n="export.hint">均在本机。历史只存摘要指标（最多 30 条）。</p>
+    <section id="step-events-review" class="card hidden result-section">
+      <h2 data-i18n="events.review.title">事件时间对照</h2>
+      <p class="hint" data-i18n="events.review.hint">仅时间共现复盘，不作因果或调药建议。数据来自本机事件时间线。</p>
+      <div id="events-review-content"></div>
+    </section>
+
+    <section id="step-summary" class="card hidden result-section">
+      <h2 data-i18n="summary.title">统计明细</h2>
+      <p class="hint compact-hint" data-i18n="summary.hint">各维度可展开。体重为晨起趋势；CGM 优先看稳定期；血压含晨晚分层。</p>
+      <div id="summary-content"></div>
+    </section>
+    </div><!-- /#ws-trends -->
+
+    <!-- 工作区：报告（提示词 + 就诊/周报导出） -->
+    <div id="ws-reports" class="workspace" data-workspace="reports" hidden>
+    <section id="step-prompt" class="card hidden result-section">
+      <h2 data-i18n="prompt.title">大模型提示词</h2>
+      <p class="hint compact-hint" data-i18n="prompt.hint">
+        一键复制到豆包 / ChatGPT / Claude / Gemini。无数据维度会跳过。
+      </p>
+
+      <div class="prompt-trust" id="prompt-trust" aria-live="polite">
+        <span class="trust-badge" id="prompt-trust-badge" data-i18n="prompt.badge">已含自动摘要</span>
+        <span class="trust-meta" id="prompt-trust-meta">约 — 字</span>
+        <span class="trust-tip" data-i18n="prompt.tip">含：监测摘要 · 稳定期 CGM · 晨重 · 晨晚血压 · 跨维度提示</span>
+      </div>
+
+      <div class="prompt-tabs" role="tablist">
+        <button type="button" class="tab-btn active" data-tab="full" role="tab" aria-selected="true" data-i18n="prompt.tab.full">完整提示词</button>
+        <button type="button" class="tab-btn" data-tab="data" role="tab" aria-selected="false" data-i18n="prompt.tab.data">仅数据摘要</button>
+        <button type="button" class="tab-btn" data-tab="system" role="tab" aria-selected="false" data-i18n="prompt.tab.system">简短系统提示</button>
+      </div>
+
+      <div class="prompt-container">
+        <textarea id="prompt-output" class="prompt-output is-collapsed" readonly aria-label="prompt"></textarea>
+        <button type="button" id="btn-prompt-expand" class="btn-ghost btn-prompt-expand" data-i18n="prompt.expand">展开全部预览</button>
+        <div class="prompt-actions">
+          <button type="button" id="btn-copy" class="btn-primary" data-i18n="prompt.copy">复制到剪贴板</button>
+          <button type="button" id="btn-copy-insights" class="btn-secondary" data-i18n="prompt.copyInsights">只复制摘要</button>
+          <button type="button" id="btn-download" class="btn-secondary" data-i18n="prompt.download">下载 .md</button>
+          <span id="copy-status" class="copy-status" aria-live="polite"></span>
+        </div>
+      </div>
+
+      <details class="help-box">
+        <summary data-i18n="prompt.help">使用建议</summary>
+        <ul>
+          <li data-i18n="prompt.help.1">国产模型对中文医学语境通常更贴切</li>
+          <li data-i18n="prompt.help.2">粘贴后可补充「请额外关注 XX」</li>
+          <li data-i18n="prompt.help.3">报告需与原始数据交叉核对，尤其是边界值</li>
+        </ul>
+      </details>
+    </section>
+
+    <section id="step-reports" class="card hidden result-section">
+      <h2 data-i18n="reports.title">就诊与周报</h2>
+      <p class="hint compact-hint" data-i18n="reports.hint">本机生成就诊一页纸、周报与规范化复盘报告；不上传。</p>
 
       <div class="export-actions">
-        <button type="button" id="btn-export-json" class="btn-secondary" data-i18n="export.json">导出 JSON</button>
-        <button type="button" id="btn-export-csv" class="btn-secondary" data-i18n="export.csv">导出 CSV 包</button>
-        <button type="button" id="btn-export-snapshot" class="btn-secondary" data-i18n="export.snapshot">导出摘要快照</button>
         <button type="button" id="btn-export-weekly" class="btn-secondary" data-i18n="export.weekly">导出本周报告</button>
         <button type="button" id="btn-export-visit" class="btn-secondary" data-i18n="export.visit">导出门诊一页纸</button>
-        <span id="export-status" class="copy-status" aria-live="polite"></span>
+        <span id="export-status-reports" class="copy-status" aria-live="polite"></span>
       </div>
+
       <div class="clinical-export-opts" role="group" aria-labelledby="clinical-export-opts-label">
         <h3 class="panel-subhead" id="clinical-export-opts-label" data-i18n="export.clinical.title">规范化就诊复盘报告</h3>
         <p class="hint compact-hint" data-i18n="export.clinical.optsHint">含 CGM 14 天质量门槛、家庭血压流程判断与信号证据。默认脱敏（不含用药/病史、事件时间线与原始样本）；导出 HTML 后可用浏览器打印为 PDF。</p>
@@ -493,6 +514,45 @@
         </div>
       </div>
 
+      <div class="weekly-report-panel history-panel">
+        <h3 class="panel-subhead" data-i18n="weekly.title">本周报告历史</h3>
+        <p class="hint compact-hint" data-i18n="weekly.hint">下载后可选保存 Markdown 到本机 IndexedDB（最多 20 条，不上传）。默认不含事件；可勾选附带本机事件时间线。</p>
+        <label class="check-inline weekly-include-events" for="weekly-include-events">
+          <input type="checkbox" id="weekly-include-events" />
+          <span data-i18n="weekly.includeEvents">周报包含本机事件时间线</span>
+        </label>
+        <label class="check-inline weekly-include-provenance" for="weekly-include-provenance">
+          <input type="checkbox" id="weekly-include-provenance" />
+          <span data-i18n="weekly.includeProvenance">周报包含导入来源可追溯附录</span>
+        </label>
+        <div class="history-save-row">
+          <label class="date-field history-name-field">
+            <span data-i18n="weekly.label">周报备注（可选）</span>
+            <input type="text" id="weekly-report-label" maxlength="80" placeholder="例如 训练周 / 出差周" autocomplete="off">
+          </label>
+          <button type="button" id="btn-weekly-save" class="btn-secondary" data-i18n="weekly.save">保存到本机历史</button>
+          <button type="button" id="btn-weekly-refresh" class="btn-ghost" data-i18n="weekly.refresh">刷新</button>
+        </div>
+        <div id="weekly-report-list" class="weekly-report-list" aria-label="weekly reports"></div>
+      </div>
+    </section>
+    </div><!-- /#ws-reports -->
+
+    <!-- 工作区：更多（数据导出 / FHIR / 历史 / 隐私） -->
+    <div id="ws-more" class="workspace" data-workspace="more" hidden>
+    <section id="step-export" class="card hidden result-section">
+      <h2 data-i18n="export.title">数据管理</h2>
+      <p class="hint compact-hint" data-i18n="export.hint">均在本机。历史只存摘要指标（最多 30 条）。FHIR 为试验性高级导出。</p>
+
+      <div class="export-actions">
+        <button type="button" id="btn-export-json" class="btn-secondary" data-i18n="export.json">导出 JSON</button>
+        <button type="button" id="btn-export-csv" class="btn-secondary" data-i18n="export.csv">导出 CSV 包</button>
+        <button type="button" id="btn-export-snapshot" class="btn-secondary" data-i18n="export.snapshot">导出摘要快照</button>
+        <span id="export-status" class="copy-status" aria-live="polite"></span>
+      </div>
+
+      <details class="fhir-export-fold" id="fhir-export-fold">
+        <summary data-i18n="export.fhir.fold">高级：试验性 FHIR 导出</summary>
       <div class="fhir-export-panel" role="region" aria-labelledby="fhir-export-title">
         <h3 class="panel-subhead" id="fhir-export-title" data-i18n="export.fhir.title">试验性 FHIR 导出</h3>
         <p class="hint compact-hint" data-i18n="export.fhir.hint">本机生成 R4 形 Observation Bundle JSON。两档：本地归档（自检）与外部交换（独立 R4 交换门禁，非 HL7 Java 校验器）。默认可含 Device；默认不含 Patient。不上传、非医院对接、非医疗认证。</p>
@@ -552,6 +612,7 @@
           <button type="button" id="btn-export-fhir" class="btn-secondary" data-i18n="export.fhir.btn">导出 FHIR Bundle JSON</button>
         </div>
       </div>
+      </details>
 
       <p class="hint compact-hint export-shortcut-hint" data-i18n="export.shortcutHint">有结果时可用 ⌘/Ctrl+Shift+C 复制完整提示词。</p>
 
@@ -559,28 +620,6 @@
         <h3 class="panel-subhead" id="privacy-wipe-title" data-i18n="privacy.wipeTitle">隐私与本机数据</h3>
         <p class="hint compact-hint" data-i18n="privacy.wipeHint">清除个人背景、恢复权重、信号偏好、图表范围及 IndexedDB 摘要/周报历史、事件时间线与导入批次。主题与界面语言会保留。</p>
         <button type="button" id="btn-clear-all-local" class="btn-danger-text" data-i18n="privacy.wipeBtn">清除所有本机健康数据</button>
-      </div>
-
-      <div class="weekly-report-panel history-panel">
-        <h3 class="panel-subhead" data-i18n="weekly.title">本周报告历史</h3>
-        <p class="hint compact-hint" data-i18n="weekly.hint">下载后可选保存 Markdown 到本机 IndexedDB（最多 20 条，不上传）。默认不含事件；可勾选附带本机事件时间线。</p>
-        <label class="check-inline weekly-include-events" for="weekly-include-events">
-          <input type="checkbox" id="weekly-include-events" />
-          <span data-i18n="weekly.includeEvents">周报包含本机事件时间线</span>
-        </label>
-        <label class="check-inline weekly-include-provenance" for="weekly-include-provenance">
-          <input type="checkbox" id="weekly-include-provenance" />
-          <span data-i18n="weekly.includeProvenance">周报包含导入来源可追溯附录</span>
-        </label>
-        <div class="history-save-row">
-          <label class="date-field history-name-field">
-            <span data-i18n="weekly.label">周报备注（可选）</span>
-            <input type="text" id="weekly-report-label" maxlength="80" placeholder="例如 训练周 / 出差周" autocomplete="off">
-          </label>
-          <button type="button" id="btn-weekly-save" class="btn-secondary" data-i18n="weekly.save">保存到本机历史</button>
-          <button type="button" id="btn-weekly-refresh" class="btn-ghost" data-i18n="weekly.refresh">刷新</button>
-        </div>
-        <div id="weekly-report-list" class="weekly-report-list" aria-label="weekly reports"></div>
       </div>
 
       <div class="history-panel">
@@ -603,47 +642,28 @@
         <div id="history-compare" class="history-compare"></div>
       </div>
     </section>
-
-    <section id="step-prompt" class="card hidden result-section">
-      <h2 data-i18n="prompt.title">大模型提示词</h2>
-      <p class="hint compact-hint" data-i18n="prompt.hint">
-        一键复制到豆包 / ChatGPT / Claude / Gemini。无数据维度会跳过。
-      </p>
-
-      <div class="prompt-trust" id="prompt-trust" aria-live="polite">
-        <span class="trust-badge" id="prompt-trust-badge" data-i18n="prompt.badge">已含自动摘要</span>
-        <span class="trust-meta" id="prompt-trust-meta">约 — 字</span>
-        <span class="trust-tip" data-i18n="prompt.tip">含：监测摘要 · 稳定期 CGM · 晨重 · 晨晚血压 · 跨维度提示</span>
-      </div>
-
-      <div class="prompt-tabs" role="tablist">
-        <button type="button" class="tab-btn active" data-tab="full" role="tab" aria-selected="true" data-i18n="prompt.tab.full">完整提示词</button>
-        <button type="button" class="tab-btn" data-tab="data" role="tab" aria-selected="false" data-i18n="prompt.tab.data">仅数据摘要</button>
-        <button type="button" class="tab-btn" data-tab="system" role="tab" aria-selected="false" data-i18n="prompt.tab.system">简短系统提示</button>
-      </div>
-
-      <div class="prompt-container">
-        <textarea id="prompt-output" class="prompt-output is-collapsed" readonly aria-label="prompt"></textarea>
-        <button type="button" id="btn-prompt-expand" class="btn-ghost btn-prompt-expand" data-i18n="prompt.expand">展开全部预览</button>
-        <div class="prompt-actions">
-          <button type="button" id="btn-copy" class="btn-primary" data-i18n="prompt.copy">复制到剪贴板</button>
-          <button type="button" id="btn-copy-insights" class="btn-secondary" data-i18n="prompt.copyInsights">只复制摘要</button>
-          <button type="button" id="btn-download" class="btn-secondary" data-i18n="prompt.download">下载 .md</button>
-          <span id="copy-status" class="copy-status" aria-live="polite"></span>
-        </div>
-      </div>
-
-      <details class="help-box">
-        <summary data-i18n="prompt.help">使用建议</summary>
-        <ul>
-          <li data-i18n="prompt.help.1">国产模型对中文医学语境通常更贴切</li>
-          <li data-i18n="prompt.help.2">粘贴后可补充「请额外关注 XX」</li>
-          <li data-i18n="prompt.help.3">报告需与原始数据交叉核对，尤其是边界值</li>
-        </ul>
-      </details>
-    </section>
-    </div><!-- /.results-secondary -->
+    </div><!-- /#ws-more -->
     </div><!-- /.results-layout -->
+
+    <!-- 手机/平板底部工作区导航（有结果时显示；桌面端 CSS 隐藏） -->
+    <nav id="result-bottom-nav" class="result-bottom-nav hidden" data-i18n-aria="nav.aria" aria-label="健康工作区">
+      <button type="button" class="result-nav-link is-active" data-workspace="today" aria-current="page">
+        <span class="nav-icon" aria-hidden="true">🏠</span>
+        <span class="nav-text" data-i18n="nav.today">今日</span>
+      </button>
+      <button type="button" class="result-nav-link" data-workspace="trends">
+        <span class="nav-icon" aria-hidden="true">📈</span>
+        <span class="nav-text" data-i18n="nav.trends">趋势</span>
+      </button>
+      <button type="button" class="result-nav-link" data-workspace="reports">
+        <span class="nav-icon" aria-hidden="true">📄</span>
+        <span class="nav-text" data-i18n="nav.reports">报告</span>
+      </button>
+      <button type="button" class="result-nav-link" data-workspace="more">
+        <span class="nav-icon" aria-hidden="true">⚙️</span>
+        <span class="nav-text" data-i18n="nav.more">更多</span>
+      </button>
+    </nav>
 
     <details class="card privacy privacy-fold">
       <summary><strong data-i18n="privacy.fold">隐私声明（本地优先，点开查看）</strong></summary>
@@ -653,7 +673,7 @@
         <li data-i18n="privacy.f3">可选：个人背景 → localStorage；摘要快照 → IndexedDB（可清空）</li>
         <li data-i18n="privacy.f4">PWA 缓存仅保存网页程序，不自动保存完整健康导出</li>
         <li data-i18n="privacy.f5">复制提示词后，是否发给第三方大模型由您决定</li>
-        <li data-i18n="privacy.f6">可在「导出与历史」一键清除本机健康相关存储（主题/语言可保留）</li>
+        <li data-i18n="privacy.f6">可在「更多 → 数据管理」一键清除本机健康相关存储（主题/语言可保留）</li>
       </ul>
       <p class="privacy-wipe-inline">
         <button type="button" id="btn-clear-all-local-fold" class="btn-danger-text" data-i18n="privacy.wipeBtn">清除所有本机健康数据</button>
@@ -664,7 +684,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.65</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.66</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

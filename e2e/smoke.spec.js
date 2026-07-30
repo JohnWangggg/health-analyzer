@@ -2,6 +2,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
+const { setWorkspace, goToFhirExport } = require('./helpers');
 
 const FIXTURE = path.join(__dirname, 'fixtures/minimal-export.xml');
 
@@ -65,11 +66,21 @@ test.describe('health-analyzer PWA smoke', () => {
     const hasInsights = await page.locator('#insight-list .insight-item, #insight-list li').count();
     expect(hasKpi + hasInsights).toBeGreaterThan(0);
 
-    // Summary section un-hidden
-    await expect(page.locator('#step-summary')).toBeVisible();
+    // v1.66: Today workspace shows overview + signals
     await expect(page.locator('#step-signals')).toBeVisible();
+    await expect(page.locator('#result-bottom-nav, #result-side-nav').first()).toBeVisible();
+
+    // Trends / Reports / More sections exist and become visible via workspace switch
+    await setWorkspace(page, 'trends');
     await expect(page.locator('#step-charts')).toBeVisible();
+    await expect(page.locator('#step-summary')).toBeVisible();
+
+    await setWorkspace(page, 'reports');
     await expect(page.locator('#step-prompt')).toBeVisible();
+    await expect(page.locator('#step-reports')).toBeVisible();
+
+    await setWorkspace(page, 'more');
+    await expect(page.locator('#step-export')).toBeVisible();
   });
 
   test('after parse, English locale refreshes analysis chrome', async ({ page }) => {
@@ -225,7 +236,7 @@ test.describe('health-analyzer PWA smoke', () => {
     await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
     await expect(page.locator('body')).toHaveClass(/has-results/);
 
-    await page.locator('#step-export').scrollIntoViewIfNeeded();
+    await goToFhirExport(page);
     await expect(page.locator('#btn-export-fhir')).toBeVisible({ timeout: 10_000 });
     // v1.58 tiers
     await expect(page.locator('#fhir-tier-archive')).toBeAttached();

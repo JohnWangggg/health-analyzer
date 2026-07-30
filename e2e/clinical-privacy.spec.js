@@ -6,6 +6,7 @@
 const { test, expect } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
+const { setWorkspace, goToReports } = require('./helpers');
 
 const FIXTURE = path.join(__dirname, 'fixtures/minimal-export.xml');
 const HAE_MINI = path.join(__dirname, 'fixtures/hae-mini.json');
@@ -164,7 +165,7 @@ test.describe('clinical privacy: includeEvents UI checkbox', () => {
     await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
     await expect(page.locator('body')).toHaveClass(/has-results/);
 
-    await page.locator('#step-export').scrollIntoViewIfNeeded();
+    await goToReports(page);
     await expect(page.locator('#btn-export-clinical-md')).toBeVisible({ timeout: 10_000 });
 
     const eventsCb = page.locator('#clinical-include-events');
@@ -223,6 +224,7 @@ test.describe('clinical privacy: clear-all removes events', () => {
     const wipeBtn = page.locator('#btn-clear-all-local');
     test.skip(!(await wipeBtn.count()), 'btn-clear-all-local not in DOM');
 
+    await setWorkspace(page, 'more');
     await page.locator('#step-export').scrollIntoViewIfNeeded();
     await expect(wipeBtn).toBeVisible({ timeout: 10_000 });
 
@@ -247,6 +249,7 @@ test.describe('clinical privacy: clear-all removes events', () => {
     await page.locator('#file-input').setInputFiles(FIXTURE);
     await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
 
+    await goToReports(page);
     await page.locator('#clinical-include-events').check();
     const [download] = await Promise.all([
       page.waitForEvent('download', { timeout: 15_000 }),

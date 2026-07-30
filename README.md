@@ -177,6 +177,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.66 | 信息架构：今日/趋势/报告/更多工作区；桌面侧栏 + 手机底栏；FHIR/历史移入「更多」 |
 | v1.65 | 匿名分享批次 ID 不透明重映射；门禁拦截姓名型 batch id；HL7 jar 固定版本+SHA-256 |
 | v1.64 | CI/release 强制官方 HL7 校验（`test:fhir:ci` / `test:release`；Java 21 + validator_cli） |
 | v1.63 | 个人转交伪名 ID：本机生成/持久化 UUID；门禁拒绝弱 ID；UI 生成·复制·轮换 |

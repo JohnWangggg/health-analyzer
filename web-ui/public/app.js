@@ -2264,82 +2264,95 @@
   // 结果渲染
   // ============================================================
 
-  /** Result section ids used by sticky top nav + desktop side rail */
-  const RESULT_SECTION_IDS = [
-    'step-overview',
-    'step-summary',
-    'step-signals',
-    'step-events-review',
-    'step-charts',
-    'step-export',
-    'step-prompt',
-  ];
+  /** v1.66 workspaces: today / trends / reports / more */
+  const WORKSPACE_IDS = ['today', 'trends', 'reports', 'more'];
+  const WORKSPACE_SECTIONS = {
+    today: ['step-overview', 'step-signals'],
+    trends: ['step-charts', 'step-events-review', 'step-summary'],
+    reports: ['step-prompt', 'step-reports'],
+    more: ['step-export'],
+  };
+  const SECTION_TO_WORKSPACE = (() => {
+    /** @type {Record<string, string>} */
+    const map = {};
+    Object.keys(WORKSPACE_SECTIONS).forEach((ws) => {
+      WORKSPACE_SECTIONS[ws].forEach((sid) => { map[sid] = ws; });
+    });
+    return map;
+  })();
 
-  let resultNavObserver = null;
+  let activeWorkspace = 'today';
 
-  function setResultNavActive(sectionId) {
-    if (!sectionId) return;
-    const href = '#' + sectionId;
-    document.querySelectorAll('.result-nav-link').forEach((a) => {
-      a.classList.toggle('is-active', a.getAttribute('href') === href);
+  function setWorkspaceNavActive(workspaceId) {
+    if (!workspaceId) return;
+    document.querySelectorAll('.result-nav-link[data-workspace]').forEach((btn) => {
+      const on = btn.getAttribute('data-workspace') === workspaceId;
+      btn.classList.toggle('is-active', on);
+      if (on) btn.setAttribute('aria-current', 'page');
+      else btn.removeAttribute('aria-current');
     });
   }
 
-  function teardownResultNavSpy() {
-    if (resultNavObserver) {
-      resultNavObserver.disconnect();
-      resultNavObserver = null;
-    }
-    document.querySelectorAll('.result-nav-link.is-active').forEach((a) => {
-      a.classList.remove('is-active');
-    });
-  }
+  /**
+   * Switch result workspace. Sections stay in DOM; inactive workspaces are hidden.
+   * @param {string} workspaceId
+   * @param {{ scroll?: boolean, focusSectionId?: string }} [opts]
+   */
+  function setActiveWorkspace(workspaceId, opts) {
+    const ws = WORKSPACE_IDS.includes(workspaceId) ? workspaceId : 'today';
+    activeWorkspace = ws;
+    setWorkspaceNavActive(ws);
 
-  function setupResultNavSpy() {
-    teardownResultNavSpy();
-    if (typeof IntersectionObserver === 'undefined') return;
-
-    const sections = RESULT_SECTION_IDS
-      .map((id) => document.getElementById(id))
-      .filter((el) => el && !el.classList.contains('hidden'));
-    if (!sections.length) return;
-
-    // Track which sections are in view; pick the top-most intersecting one
-    const visible = new Map();
-    resultNavObserver = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) visible.set(entry.target.id, entry);
-          else visible.delete(entry.target.id);
+    WORKSPACE_IDS.forEach((id) => {
+      const panel = document.getElementById('ws-' + id);
+      if (!panel) return;
+      const on = id === ws;
+      panel.classList.toggle('is-active', on);
+      panel.hidden = !on;
+      // When results are showing, reveal this workspace's sections
+      const sectionIds = WORKSPACE_SECTIONS[id] || [];
+      sectionIds.forEach((sid) => {
+        const el = document.getElementById(sid);
+        if (!el) return;
+        if (on && document.body.classList.contains('has-results')) {
+          el.classList.remove('hidden');
         }
-        let bestId = null;
-        let bestTop = Infinity;
-        visible.forEach((entry, id) => {
-          const top = entry.boundingClientRect.top;
-          if (top < bestTop) {
-            bestTop = top;
-            bestId = id;
-          }
+      });
+    });
+
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const focusId = opts && opts.focusSectionId;
+    const scroll = !opts || opts.scroll !== false;
+    if (scroll) {
+      const target = (focusId && document.getElementById(focusId))
+        || document.getElementById('ws-' + ws)
+        || document.getElementById((WORKSPACE_SECTIONS[ws] || [])[0]);
+      if (target) {
+        requestAnimationFrame(() => {
+          target.scrollIntoView({
+            behavior: reduceMotion ? 'auto' : 'smooth',
+            block: 'start',
+          });
         });
-        if (bestId) setResultNavActive(bestId);
-      },
-      {
-        /* Prefer section near upper third of viewport */
-        root: null,
-        rootMargin: '-15% 0px -55% 0px',
-        threshold: [0, 0.1, 0.25, 0.5],
+      } else {
+        window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
       }
-    );
-    sections.forEach((el) => resultNavObserver.observe(el));
+    }
+
+    // Charts may need a redraw after becoming visible
+    if (ws === 'trends' && currentAnalysis) {
+      requestAnimationFrame(() => {
+        try { renderCharts(currentAnalysis); } catch (e) { /* ignore */ }
+      });
+    }
   }
 
   function setResultsVisible(visible) {
     document.body.classList.toggle('has-results', !!visible);
     const sticky = $('sticky-cta');
     if (sticky) sticky.classList.toggle('hidden', !visible);
-    // Sticky top nav (mobile/tablet) + desktop left rail (CSS hides each at wrong breakpoints)
-    const nav = $('result-sticky-nav');
-    if (nav) nav.classList.toggle('hidden', !visible);
+    const bottomNav = $('result-bottom-nav');
+    if (bottomNav) bottomNav.classList.toggle('hidden', !visible);
     const sideNav = $('result-side-nav');
     if (sideNav) sideNav.classList.toggle('hidden', !visible);
     // 有结果后收起上传区，降低干扰
@@ -2349,10 +2362,17 @@
       else source.classList.remove('source-collapsed');
     }
     if (visible) {
-      // Defer until result sections are un-hidden by renderResults
-      requestAnimationFrame(() => setupResultNavSpy());
+      setActiveWorkspace(activeWorkspace || 'today', { scroll: false });
     } else {
-      teardownResultNavSpy();
+      WORKSPACE_IDS.forEach((id) => {
+        const panel = document.getElementById('ws-' + id);
+        if (panel) {
+          panel.hidden = true;
+          panel.classList.remove('is-active');
+        }
+      });
+      activeWorkspace = 'today';
+      setWorkspaceNavActive('today');
     }
   }
 
@@ -2383,16 +2403,19 @@
   }
 
   function initResultNavKeyboard() {
-    [$('result-sticky-nav'), $('result-side-nav')].forEach((nav) => {
+    [$('result-bottom-nav'), $('result-side-nav')].forEach((nav) => {
       if (!nav) return;
       nav.addEventListener('keydown', (e) => {
-        const links = Array.from(nav.querySelectorAll('.result-nav-link'));
+        const links = Array.from(nav.querySelectorAll('.result-nav-link[data-workspace]'));
         const idx = links.indexOf(document.activeElement);
-        if (e.key === 'ArrowDown') {
+        const isSide = nav.id === 'result-side-nav';
+        const nextKey = isSide ? 'ArrowDown' : 'ArrowRight';
+        const prevKey = isSide ? 'ArrowUp' : 'ArrowLeft';
+        if (e.key === nextKey) {
           e.preventDefault();
           const next = links[(idx + 1) % links.length];
           next?.focus();
-        } else if (e.key === 'ArrowUp') {
+        } else if (e.key === prevKey) {
           e.preventDefault();
           const prev = links[(idx - 1 + links.length) % links.length];
           prev?.focus();
@@ -2402,7 +2425,24 @@
         } else if (e.key === 'End') {
           e.preventDefault();
           links[links.length - 1]?.focus();
+        } else if (e.key === 'Enter' || e.key === ' ') {
+          const el = document.activeElement;
+          if (el && el.classList && el.classList.contains('result-nav-link')) {
+            e.preventDefault();
+            const ws = el.getAttribute('data-workspace');
+            if (ws) setActiveWorkspace(ws);
+          }
         }
+      });
+    });
+  }
+
+  function initWorkspaceNavClicks() {
+    document.querySelectorAll('.result-nav-link[data-workspace]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const ws = btn.getAttribute('data-workspace');
+        if (ws) setActiveWorkspace(ws);
       });
     });
   }
@@ -2411,6 +2451,9 @@
   applySideNavCollapsed(loadSideNavCollapsed());
   $('side-nav-toggle')?.addEventListener('click', toggleSideNav);
   initResultNavKeyboard();
+  initWorkspaceNavClicks();
+  // Expose for e2e / debugging
+  try { window.__setWorkspace = setActiveWorkspace; } catch (e) { /* ignore */ }
 
   function maybeShowImportHints(analysis) {
     const host = $('import-hints');
@@ -2432,14 +2475,12 @@
   }
 
   function renderResults(analysis) {
-    show('step-overview');
-    show('step-summary');
-    show('step-signals');
-    show('step-events-review');
-    show('step-charts');
-    show('step-export');
-    show('step-prompt');
+    // Un-hide all result sections first; workspace layer controls which are shown
+    ['step-overview', 'step-summary', 'step-signals', 'step-events-review',
+      'step-charts', 'step-export', 'step-prompt', 'step-reports'].forEach((id) => show(id));
+    activeWorkspace = 'today';
     setResultsVisible(true);
+    setActiveWorkspace('today', { scroll: false });
 
     renderAvailability(analysis);
     maybeShowImportHints(analysis);
@@ -2630,6 +2671,8 @@
       'charts-workout': { section: 'step-charts', chart: 'workout' },
       'charts-recovery': { section: 'step-charts', chart: 'recovery' },
       prompt: { section: 'step-prompt' },
+      reports: { section: 'step-reports' },
+      export: { section: 'step-export' },
     };
     const target = map[anchor] || map.summary;
     // prefer: 'chart' | 'summary' | undefined
@@ -2637,6 +2680,9 @@
     const sectionId = goChart && target.chart ? 'step-charts' : target.section;
     const section = $(sectionId);
     if (!section) return;
+
+    const ws = SECTION_TO_WORKSPACE[sectionId] || 'today';
+    setActiveWorkspace(ws, { scroll: false, focusSectionId: sectionId });
     section.classList.remove('hidden');
 
     if (!goChart && target.panel) {
@@ -2651,7 +2697,6 @@
 
     // 跳图表：保持当前 range chip（默认不改）；若图表区尚未渲染则补一次
     if (goChart && target.chart && currentAnalysis) {
-      const chartSec = $('step-charts');
       const host = $('charts-content');
       const hasBlock = host && host.querySelector(`[data-chart="${target.chart}"]`);
       if (host && (!hasBlock || !host.querySelector('.chart-block'))) {
@@ -2662,7 +2707,6 @@
         const d = Number(btn.getAttribute('data-days'));
         btn.classList.toggle('is-active', d === chartRangeDays);
       });
-      if (chartSec) chartSec.classList.remove('hidden');
     }
 
     section.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3266,6 +3310,14 @@
 
   function showExportStatus(msg) {
     const el = $('export-status');
+    const elReports = $('export-status-reports');
+    if (elReports) {
+      elReports.textContent = msg || '';
+      if (msg) {
+        elReports.classList.add('show');
+        setTimeout(() => elReports.classList.remove('show'), 2800);
+      }
+    }
     if (!el) return;
     el.textContent = msg;
     el.classList.add('show');
@@ -6399,11 +6451,18 @@
   // 主 CTA / 吸底：始终复制完整提示词
   $('btn-copy-hero')?.addEventListener('click', () => copyFullPrompt($('copy-status')));
   $('btn-copy-sticky')?.addEventListener('click', () => copyFullPrompt($('copy-status')));
+  $('btn-open-reports')?.addEventListener('click', () => {
+    setActiveWorkspace('reports', { focusSectionId: 'step-prompt' });
+  });
+  // Back-compat alias if any old markup still references btn-scroll-prompt
   $('btn-scroll-prompt')?.addEventListener('click', () => {
-    $('step-prompt')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setActiveWorkspace('reports', { focusSectionId: 'step-prompt' });
+  });
+  $('btn-open-trends')?.addEventListener('click', () => {
+    setActiveWorkspace('trends', { focusSectionId: 'step-charts' });
   });
   $('btn-sticky-top')?.addEventListener('click', () => {
-    $('step-overview')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setActiveWorkspace('today', { focusSectionId: 'step-overview' });
   });
 
   $('btn-download')?.addEventListener('click', () => {
@@ -6683,6 +6742,7 @@
     hide('step-charts');
     hide('step-export');
     hide('step-prompt');
+    hide('step-reports');
     const charts = $('charts-content');
     if (charts) charts.innerHTML = '';
     const signals = $('signals-content');
@@ -6726,24 +6786,6 @@
 
   $('history-select')?.addEventListener('change', (e) => {
     renderHistoryCompare(e.target.value);
-  });
-
-  // 结果区内锚点平滑滚动（顶栏 + 桌面侧栏共用 .result-nav-link）
-  document.querySelectorAll('.result-nav-link').forEach((a) => {
-    a.addEventListener('click', (e) => {
-      const href = a.getAttribute('href');
-      if (!href || href.charAt(0) !== '#') return;
-      const target = document.querySelector(href);
-      if (!target) return;
-      e.preventDefault();
-      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-      target.scrollIntoView({
-        behavior: reduceMotion ? 'auto' : 'smooth',
-        block: 'start',
-      });
-      const id = href.slice(1);
-      if (id) setResultNavActive(id);
-    });
   });
 
   $('btn-reset')?.addEventListener('click', () => {

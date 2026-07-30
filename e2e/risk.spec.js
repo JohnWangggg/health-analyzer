@@ -5,6 +5,7 @@
  */
 const { test, expect } = require('@playwright/test');
 const path = require('path');
+const { setWorkspace } = require('./helpers');
 
 const FIXTURE = path.join(__dirname, 'fixtures/minimal-export.xml');
 const EMPTY_XML = path.join(__dirname, 'fixtures/empty-export.xml');
@@ -153,7 +154,10 @@ test.describe('risk: history clear UI', () => {
       await selectXmlOnly(page);
       await page.locator('#file-input').setInputFiles(FIXTURE);
       await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+      await setWorkspace(page, 'more');
       await expect(page.locator('#step-export')).toBeVisible();
+    } else {
+      await setWorkspace(page, 'more');
     }
 
     test.skip(!(await clearBtn.count()), 'btn-history-clear not in DOM on this branch');
@@ -185,12 +189,12 @@ test.describe('risk: history clear UI', () => {
     await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
     await expect(page.locator('body')).toHaveClass(/has-results/);
 
-    // Ensure prompt area has content when visible
+    await setWorkspace(page, 'reports');
     await page.locator('#step-prompt').scrollIntoViewIfNeeded().catch(() => {});
     const wipeBtn = page.locator('#btn-clear-all-local');
     test.skip(!(await wipeBtn.count()), 'btn-clear-all-local not in DOM');
 
-    // Export section may be below fold; force show path
+    await setWorkspace(page, 'more');
     await page.locator('#step-export').scrollIntoViewIfNeeded();
     await expect(wipeBtn).toBeVisible({ timeout: 10_000 });
 
