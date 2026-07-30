@@ -369,6 +369,228 @@ export function buildCgm14DayReport(
 }
 
 /**
+ * 打印友好 AGP 分位带 SVG（p5–p95 外带、p25–p75 IQR、p50 中位线）。
+ * 无有效分位数据时返回空串；路径内仅含数字，无外部 CSS 依赖。
+ */
+export function buildAgpSvg(
+  cgm14: Cgm14DayReport,
+  options?: { width?: number; height?: number; locale?: AppLocale | string }
+): string {
+  const W = options?.width ?? 720;
+  const H = options?.height ?? 220;
+  const bins = (cgm14.hourlyProfile || [])
+    .filter((b) => b != null && Number.isFinite(b.p50 as number))
+    .slice()
+    .sort((a, b) => a.hour - b.hour);
+  if (!bins.length) return '';
+
+  const pad = { top: 16, right: 16, bottom: 32, left: 48 };
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+  if (plotW <= 0 || plotH <= 0) return '';
+
+  const ys: number[] = [];
+  for (const b of bins) {
+    for (const k of ['p5', 'p25', 'p50', 'p75', 'p95'] as const) {
+      const v = b[k];
+      if (v != null && Number.isFinite(v)) ys.push(v);
+    }
+  }
+  if (!ys.length) return '';
+
+  const thresholds = [3.9, 7.8, 10.0];
+  let yMin = Math.min(...ys, ...thresholds);
+  let yMax = Math.max(...ys, ...thresholds);
+  if (yMin === yMax) {
+    yMin -= 1;
+    yMax += 1;
+  }
+  const yPad = (yMax - yMin) * 0.08;
+  yMin -= yPad;
+  yMax += yPad;
+
+  const n2 = (n: number) => {
+    const r = Math.round(n * 100) / 100;
+    return Number.isInteger(r) ? String(r) : String(r);
+  };
+  const xAt = (hour: number) => pad.left + (hour / 23) * plotW;
+  const yAt = (v: number) => pad.top + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+
+  type LoKey = 'p5' | 'p25';
+  type HiKey = 'p95' | 'p75';
+
+  /** Consecutive-hour segments where both lo/hi are finite */
+  function bandSegments(loKey: LoKey, hiKey: HiKey): CgmHourlyBin[][] {
+    const segs: CgmHourlyBin[][] = [];
+    let cur: CgmHourlyBin[] = [];
+    for (const b of bins) {
+      const lo = b[loKey];
+      const hi = b[hiKey];
+      const ok = lo != null && hi != null && Number.isFinite(lo) && Number.isFinite(hi);
+      if (ok) {
+        if (cur.length && b.hour !== cur[cur.length - 1].hour + 1) {
+          segs.push(cur);
+          cur = [];
+        }
+        cur.push(b);
+      } else if (cur.length) {
+        segs.push(cur);
+        cur = [];
+      }
+    }
+    if (cur.length) segs.push(cur);
+    return segs;
+  }
+
+  function bandPathD(loKey: LoKey, hiKey: HiKey): string {
+    const parts: string[] = [];
+    for (const seg of bandSegments(loKey, hiKey)) {
+      if (!seg.length) continue;
+      let d = `M${n2(xAt(seg[0].hour))},${n2(yAt(seg[0][hiKey]!))}`;
+      for (let i = 1; i < seg.length; i++) {
+        d += `L${n2(xAt(seg[i].hour))},${n2(yAt(seg[i][hiKey]!))}`;
+      }
+      for (let i = seg.length - 1; i >= 0; i--) {
+        d += `L${n2(xAt(seg[i].hour))},${n2(yAt(seg[i][loKey]!))}`;
+      }
+      d += 'Z';
+      parts.push(d);
+    }
+    return parts.join('');
+  }
+
+  function medianPathD(): string {
+    const segs: CgmHourlyBin[][] = [];
+    let cur: CgmHourlyBin[] = [];
+    for (const b of bins) {
+      if (Number.isFinite(b.p50 as number)) {
+        if (cur.length && b.hour !== cur[cur.length - 1].hour + 1) {
+          segs.push(cur);
+          cur = [];
+        }
+        cur.push(b);
+      } else if (cur.length) {
+        segs.push(cur);
+        cur = [];
+      }
+    }
+    if (cur.length) segs.push(cur);
+    return segs
+      .filter((s) => s.length >= 1)
+      .map((seg) => {
+        let d = `M${n2(xAt(seg[0].hour))},${n2(yAt(seg[0].p50!))}`;
+        for (let i = 1; i < seg.length; i++) {
+          d += `L${n2(xAt(seg[i].hour))},${n2(yAt(seg[i].p50!))}`;
+        }
+        return d;
+      })
+      .join('');
+  }
+
+  const outerD = bandPathD('p5', 'p95');
+  const iqrD = bandPathD('p25', 'p75');
+  const medD = medianPathD();
+  if (!medD && !outerD && !iqrD) return '';
+
+  // Y ticks: ~4 steps between rounded bounds
+  const span = yMax - yMin;
+  const roughStep = span / 4;
+  const niceSteps = [0.25, 0.5, 1, 1.5, 2, 2.5, 5];
+  let step = niceSteps[niceSteps.length - 1];
+  for (const s of niceSteps) {
+    if (s >= roughStep * 0.6) {
+      step = s;
+      break;
+    }
+  }
+  const yTicks: number[] = [];
+  const tickStart = Math.ceil(yMin / step) * step;
+  for (let t = tickStart; t <= yMax + 1e-9; t += step) {
+    yTicks.push(Math.round(t * 100) / 100);
+  }
+
+  const thrDefs: { y: number; color: string; label: string }[] = [
+    { y: 3.9, color: '#0369a1', label: '3.9' },
+    { y: 7.8, color: '#ca8a04', label: '7.8' },
+    { y: 10.0, color: '#c2410c', label: '10.0' },
+  ];
+
+  const parts: string[] = [];
+  parts.push(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="AGP">`
+  );
+  // Plot background
+  parts.push(
+    `<rect x="${n2(pad.left)}" y="${n2(pad.top)}" width="${n2(plotW)}" height="${n2(plotH)}" fill="#fafbfc" stroke="#e2e8f0" stroke-width="1"/>`
+  );
+  // Grid + y labels
+  for (const t of yTicks) {
+    const y = yAt(t);
+    if (y < pad.top - 0.5 || y > pad.top + plotH + 0.5) continue;
+    parts.push(
+      `<line x1="${n2(pad.left)}" y1="${n2(y)}" x2="${n2(pad.left + plotW)}" y2="${n2(y)}" stroke="#e2e8f0" stroke-width="1"/>`
+    );
+    parts.push(
+      `<text x="${n2(pad.left - 6)}" y="${n2(y + 3.5)}" text-anchor="end" font-size="10" fill="#64748b" font-family="system-ui,sans-serif">${n2(t)}</text>`
+    );
+  }
+  // Threshold dashed lines
+  for (const thr of thrDefs) {
+    const y = yAt(thr.y);
+    if (y < pad.top || y > pad.top + plotH) continue;
+    parts.push(
+      `<line x1="${n2(pad.left)}" y1="${n2(y)}" x2="${n2(pad.left + plotW)}" y2="${n2(y)}" stroke="${thr.color}" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/>`
+    );
+  }
+  // Bands + median
+  if (outerD) {
+    parts.push(`<path d="${outerD}" fill="rgba(41,128,185,0.18)" stroke="none"/>`);
+  }
+  if (iqrD) {
+    parts.push(`<path d="${iqrD}" fill="rgba(41,128,185,0.38)" stroke="none"/>`);
+  }
+  if (medD) {
+    parts.push(
+      `<path d="${medD}" fill="none" stroke="#1a6a9a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`
+    );
+  }
+  // X labels
+  for (const h of [0, 6, 12, 18, 23]) {
+    const x = xAt(h);
+    parts.push(
+      `<text x="${n2(x)}" y="${n2(H - 10)}" text-anchor="middle" font-size="10" fill="#64748b" font-family="system-ui,sans-serif">${h}</text>`
+    );
+  }
+  // Axis title
+  parts.push(
+    `<text x="12" y="${n2(pad.top + plotH / 2)}" text-anchor="middle" font-size="10" fill="#64748b" font-family="system-ui,sans-serif" transform="rotate(-90 12 ${n2(pad.top + plotH / 2)})">mmol/L</text>`
+  );
+  // Compact legend
+  const legY = 10;
+  const legX = pad.left + 4;
+  parts.push(
+    `<rect x="${legX}" y="${legY - 6}" width="10" height="8" fill="rgba(41,128,185,0.18)" stroke="none"/>`
+  );
+  parts.push(
+    `<text x="${legX + 14}" y="${legY + 1}" font-size="9" fill="#475569" font-family="system-ui,sans-serif">P5–P95</text>`
+  );
+  parts.push(
+    `<rect x="${legX + 62}" y="${legY - 6}" width="10" height="8" fill="rgba(41,128,185,0.38)" stroke="none"/>`
+  );
+  parts.push(
+    `<text x="${legX + 76}" y="${legY + 1}" font-size="9" fill="#475569" font-family="system-ui,sans-serif">P25–P75</text>`
+  );
+  parts.push(
+    `<line x1="${legX + 128}" y1="${legY - 2}" x2="${legX + 142}" y2="${legY - 2}" stroke="#1a6a9a" stroke-width="2"/>`
+  );
+  parts.push(
+    `<text x="${legX + 146}" y="${legY + 1}" font-size="9" fill="#475569" font-family="system-ui,sans-serif">P50</text>`
+  );
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+/**
  * AHA 家庭血压：同一次测量取两次读数，间隔约 1 分钟。
  * 仅当相邻两条间隔在 [BP_DOUBLE_MIN_GAP_MS, BP_DOUBLE_MAX_GAP_MS] 内记为「双次」。
  * 同日同时段任意两条、或相隔数小时，不得记为规范双测。
@@ -691,8 +913,8 @@ export function generateClinicalReviewMarkdown(
       lines.push('');
       lines.push(
         L(
-          '非图形 AGP；表格为各小时 P5–P95 与中位，单位 mmol/L。样本过少的小时不报分位。',
-          'Non-graphical AGP; table shows hourly P5–P95 and median in mmol/L. Hours with too few samples omit percentiles.'
+          '表格为各小时 P5–P95 与中位，单位 mmol/L。样本过少的小时不报分位。HTML 导出版另附可打印 AGP 分位带 SVG。',
+          'Table shows hourly P5–P95 and median in mmol/L. Hours with too few samples omit percentiles. HTML export also embeds a printable AGP percentile-band SVG.'
         )
       );
       lines.push('');
@@ -916,6 +1138,30 @@ export function generateClinicalReviewMarkdown(
 }
 
 /**
+ * 将 AGP figure 插到首个 AGP 相关 h3 后的表格之后；无表则贴在 h3 后；再否则文末。
+ */
+function injectAgpFigure(htmlBody: string, figureHtml: string): string {
+  if (!figureHtml) return htmlBody;
+  const h3Match = htmlBody.match(/<h3>[^<]*AGP[^<]*<\/h3>/i);
+  if (!h3Match || h3Match.index == null) {
+    return htmlBody + '\n' + figureHtml;
+  }
+  const h3Idx = h3Match.index;
+  const afterH3 = htmlBody.slice(h3Idx);
+  const tableEndRel = afterH3.search(/<\/table>/i);
+  if (tableEndRel >= 0) {
+    const insertAt = h3Idx + tableEndRel + '</table>'.length;
+    return htmlBody.slice(0, insertAt) + '\n' + figureHtml + htmlBody.slice(insertAt);
+  }
+  const h3Close = htmlBody.indexOf('</h3>', h3Idx);
+  if (h3Close >= 0) {
+    const insertAt = h3Close + '</h3>'.length;
+    return htmlBody.slice(0, insertAt) + '\n' + figureHtml + htmlBody.slice(insertAt);
+  }
+  return htmlBody + '\n' + figureHtml;
+}
+
+/**
  * 打印友好 HTML（可另存或浏览器打印为 PDF）
  */
 export function generateClinicalReviewHtml(
@@ -930,7 +1176,26 @@ export function generateClinicalReviewHtml(
       ? 'Structured health review / clinic report'
       : '规范化健康复盘 / 就诊报告';
   // 极简 Markdown → HTML（标题/表格/列表/引用/粗体）
-  const body = markdownToPrintableHtml(md);
+  let body = markdownToPrintableHtml(md);
+
+  // 打印用 AGP 分位 SVG（仅覆盖充分时；Markdown 仍为表-only）
+  const cgm14 = buildCgm14DayReport(analysis, {
+    locale,
+    windowEnd: options?.cgmWindowEnd,
+  });
+  const agpSvg = cgm14?.sufficient ? buildAgpSvg(cgm14, { locale }) : '';
+  if (agpSvg) {
+    const caption =
+      locale === 'en'
+        ? 'Printable AGP schematic (14-day hourly percentiles)'
+        : '打印用 AGP 示意（14 日按小时分位）';
+    const figure = `<figure class="agp-figure">
+  <figcaption>${escapeHtml(caption)}</figcaption>
+  ${agpSvg}
+</figure>`;
+    body = injectAgpFigure(body, figure);
+  }
+
   return `<!DOCTYPE html>
 <html lang="${locale === 'en' ? 'en' : locale === 'zh-TW' ? 'zh-TW' : 'zh-CN'}">
 <head>
@@ -950,10 +1215,15 @@ export function generateClinicalReviewHtml(
     blockquote { margin: 0.6em 0; padding: 8px 12px; background: #f8fafc; border-left: 3px solid #0f766e; color: #475569; }
     hr { border: none; border-top: 1px solid #e2e8f0; margin: 1.5em 0; }
     .meta { color: #64748b; font-size: 12px; margin-bottom: 1em; }
+    .agp-figure { margin: 0.8em 0 1.2em; padding: 0; page-break-inside: avoid; }
+    .agp-figure figcaption { font-size: 12px; color: #64748b; margin-bottom: 6px; }
+    .agp-figure svg { max-width: 100%; height: auto; display: block; }
     @media print {
       body { padding: 0; max-width: none; font-size: 11pt; }
       h2 { page-break-after: avoid; }
       table { page-break-inside: avoid; }
+      .agp-figure { page-break-inside: avoid; }
+      .agp-figure svg { max-width: 100%; }
       .no-print { display: none !important; }
     }
   </style>

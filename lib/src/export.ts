@@ -13,6 +13,7 @@ export {
   CGM_MIN_COVERAGE_PCT,
   percentile,
   buildCgm14DayReport,
+  buildAgpSvg,
   assessHomeBpProtocol,
   ensureSignalEvidence,
   generateClinicalReviewMarkdown,

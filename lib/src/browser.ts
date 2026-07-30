@@ -110,6 +110,7 @@ export {
   generateWeeklyReportMarkdown,
   generateVisitSummaryMarkdown,
   buildCgm14DayReport,
+  buildAgpSvg,
   assessHomeBpProtocol,
   ensureSignalEvidence,
   generateClinicalReviewMarkdown,

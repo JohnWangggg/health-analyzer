@@ -40,6 +40,7 @@ var HealthAnalyzer = (() => {
     analyzeAll: () => analyzeAll,
     assessHomeBpProtocol: () => assessHomeBpProtocol,
     attachRecoveryBaseline: () => attachRecoveryBaseline,
+    buildAgpSvg: () => buildAgpSvg,
     buildAnalysisSnapshot: () => buildAnalysisSnapshot,
     buildCgm14DayReport: () => buildCgm14DayReport,
     buildExportBundle: () => buildExportBundle,
@@ -6553,6 +6554,191 @@ List 5\u20137 working hypotheses that best fit the available data
       hourlyProfile
     };
   }
+  function buildAgpSvg(cgm14, options) {
+    const W = options?.width ?? 720;
+    const H = options?.height ?? 220;
+    const bins = (cgm14.hourlyProfile || []).filter((b) => b != null && Number.isFinite(b.p50)).slice().sort((a, b) => a.hour - b.hour);
+    if (!bins.length) return "";
+    const pad = { top: 16, right: 16, bottom: 32, left: 48 };
+    const plotW = W - pad.left - pad.right;
+    const plotH = H - pad.top - pad.bottom;
+    if (plotW <= 0 || plotH <= 0) return "";
+    const ys = [];
+    for (const b of bins) {
+      for (const k of ["p5", "p25", "p50", "p75", "p95"]) {
+        const v = b[k];
+        if (v != null && Number.isFinite(v)) ys.push(v);
+      }
+    }
+    if (!ys.length) return "";
+    const thresholds = [3.9, 7.8, 10];
+    let yMin = Math.min(...ys, ...thresholds);
+    let yMax = Math.max(...ys, ...thresholds);
+    if (yMin === yMax) {
+      yMin -= 1;
+      yMax += 1;
+    }
+    const yPad = (yMax - yMin) * 0.08;
+    yMin -= yPad;
+    yMax += yPad;
+    const n2 = (n) => {
+      const r = Math.round(n * 100) / 100;
+      return Number.isInteger(r) ? String(r) : String(r);
+    };
+    const xAt = (hour) => pad.left + hour / 23 * plotW;
+    const yAt = (v) => pad.top + plotH - (v - yMin) / (yMax - yMin) * plotH;
+    function bandSegments(loKey, hiKey) {
+      const segs = [];
+      let cur = [];
+      for (const b of bins) {
+        const lo = b[loKey];
+        const hi = b[hiKey];
+        const ok = lo != null && hi != null && Number.isFinite(lo) && Number.isFinite(hi);
+        if (ok) {
+          if (cur.length && b.hour !== cur[cur.length - 1].hour + 1) {
+            segs.push(cur);
+            cur = [];
+          }
+          cur.push(b);
+        } else if (cur.length) {
+          segs.push(cur);
+          cur = [];
+        }
+      }
+      if (cur.length) segs.push(cur);
+      return segs;
+    }
+    function bandPathD(loKey, hiKey) {
+      const parts2 = [];
+      for (const seg of bandSegments(loKey, hiKey)) {
+        if (!seg.length) continue;
+        let d = `M${n2(xAt(seg[0].hour))},${n2(yAt(seg[0][hiKey]))}`;
+        for (let i = 1; i < seg.length; i++) {
+          d += `L${n2(xAt(seg[i].hour))},${n2(yAt(seg[i][hiKey]))}`;
+        }
+        for (let i = seg.length - 1; i >= 0; i--) {
+          d += `L${n2(xAt(seg[i].hour))},${n2(yAt(seg[i][loKey]))}`;
+        }
+        d += "Z";
+        parts2.push(d);
+      }
+      return parts2.join("");
+    }
+    function medianPathD() {
+      const segs = [];
+      let cur = [];
+      for (const b of bins) {
+        if (Number.isFinite(b.p50)) {
+          if (cur.length && b.hour !== cur[cur.length - 1].hour + 1) {
+            segs.push(cur);
+            cur = [];
+          }
+          cur.push(b);
+        } else if (cur.length) {
+          segs.push(cur);
+          cur = [];
+        }
+      }
+      if (cur.length) segs.push(cur);
+      return segs.filter((s) => s.length >= 1).map((seg) => {
+        let d = `M${n2(xAt(seg[0].hour))},${n2(yAt(seg[0].p50))}`;
+        for (let i = 1; i < seg.length; i++) {
+          d += `L${n2(xAt(seg[i].hour))},${n2(yAt(seg[i].p50))}`;
+        }
+        return d;
+      }).join("");
+    }
+    const outerD = bandPathD("p5", "p95");
+    const iqrD = bandPathD("p25", "p75");
+    const medD = medianPathD();
+    if (!medD && !outerD && !iqrD) return "";
+    const span = yMax - yMin;
+    const roughStep = span / 4;
+    const niceSteps = [0.25, 0.5, 1, 1.5, 2, 2.5, 5];
+    let step = niceSteps[niceSteps.length - 1];
+    for (const s of niceSteps) {
+      if (s >= roughStep * 0.6) {
+        step = s;
+        break;
+      }
+    }
+    const yTicks = [];
+    const tickStart = Math.ceil(yMin / step) * step;
+    for (let t = tickStart; t <= yMax + 1e-9; t += step) {
+      yTicks.push(Math.round(t * 100) / 100);
+    }
+    const thrDefs = [
+      { y: 3.9, color: "#0369a1", label: "3.9" },
+      { y: 7.8, color: "#ca8a04", label: "7.8" },
+      { y: 10, color: "#c2410c", label: "10.0" }
+    ];
+    const parts = [];
+    parts.push(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="AGP">`
+    );
+    parts.push(
+      `<rect x="${n2(pad.left)}" y="${n2(pad.top)}" width="${n2(plotW)}" height="${n2(plotH)}" fill="#fafbfc" stroke="#e2e8f0" stroke-width="1"/>`
+    );
+    for (const t of yTicks) {
+      const y = yAt(t);
+      if (y < pad.top - 0.5 || y > pad.top + plotH + 0.5) continue;
+      parts.push(
+        `<line x1="${n2(pad.left)}" y1="${n2(y)}" x2="${n2(pad.left + plotW)}" y2="${n2(y)}" stroke="#e2e8f0" stroke-width="1"/>`
+      );
+      parts.push(
+        `<text x="${n2(pad.left - 6)}" y="${n2(y + 3.5)}" text-anchor="end" font-size="10" fill="#64748b" font-family="system-ui,sans-serif">${n2(t)}</text>`
+      );
+    }
+    for (const thr of thrDefs) {
+      const y = yAt(thr.y);
+      if (y < pad.top || y > pad.top + plotH) continue;
+      parts.push(
+        `<line x1="${n2(pad.left)}" y1="${n2(y)}" x2="${n2(pad.left + plotW)}" y2="${n2(y)}" stroke="${thr.color}" stroke-width="1" stroke-dasharray="4 3" opacity="0.85"/>`
+      );
+    }
+    if (outerD) {
+      parts.push(`<path d="${outerD}" fill="rgba(41,128,185,0.18)" stroke="none"/>`);
+    }
+    if (iqrD) {
+      parts.push(`<path d="${iqrD}" fill="rgba(41,128,185,0.38)" stroke="none"/>`);
+    }
+    if (medD) {
+      parts.push(
+        `<path d="${medD}" fill="none" stroke="#1a6a9a" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`
+      );
+    }
+    for (const h of [0, 6, 12, 18, 23]) {
+      const x = xAt(h);
+      parts.push(
+        `<text x="${n2(x)}" y="${n2(H - 10)}" text-anchor="middle" font-size="10" fill="#64748b" font-family="system-ui,sans-serif">${h}</text>`
+      );
+    }
+    parts.push(
+      `<text x="12" y="${n2(pad.top + plotH / 2)}" text-anchor="middle" font-size="10" fill="#64748b" font-family="system-ui,sans-serif" transform="rotate(-90 12 ${n2(pad.top + plotH / 2)})">mmol/L</text>`
+    );
+    const legY = 10;
+    const legX = pad.left + 4;
+    parts.push(
+      `<rect x="${legX}" y="${legY - 6}" width="10" height="8" fill="rgba(41,128,185,0.18)" stroke="none"/>`
+    );
+    parts.push(
+      `<text x="${legX + 14}" y="${legY + 1}" font-size="9" fill="#475569" font-family="system-ui,sans-serif">P5\u2013P95</text>`
+    );
+    parts.push(
+      `<rect x="${legX + 62}" y="${legY - 6}" width="10" height="8" fill="rgba(41,128,185,0.38)" stroke="none"/>`
+    );
+    parts.push(
+      `<text x="${legX + 76}" y="${legY + 1}" font-size="9" fill="#475569" font-family="system-ui,sans-serif">P25\u2013P75</text>`
+    );
+    parts.push(
+      `<line x1="${legX + 128}" y1="${legY - 2}" x2="${legX + 142}" y2="${legY - 2}" stroke="#1a6a9a" stroke-width="2"/>`
+    );
+    parts.push(
+      `<text x="${legX + 146}" y="${legY + 1}" font-size="9" fill="#475569" font-family="system-ui,sans-serif">P50</text>`
+    );
+    parts.push("</svg>");
+    return parts.join("");
+  }
   var BP_DOUBLE_MIN_GAP_MS = 15 * 1e3;
   var BP_DOUBLE_MAX_GAP_MS = 3 * 60 * 1e3;
   function sessionStats(records) {
@@ -6803,8 +6989,8 @@ List 5\u20137 working hypotheses that best fit the available data
         lines.push("");
         lines.push(
           L(
-            "\u975E\u56FE\u5F62 AGP\uFF1B\u8868\u683C\u4E3A\u5404\u5C0F\u65F6 P5\u2013P95 \u4E0E\u4E2D\u4F4D\uFF0C\u5355\u4F4D mmol/L\u3002\u6837\u672C\u8FC7\u5C11\u7684\u5C0F\u65F6\u4E0D\u62A5\u5206\u4F4D\u3002",
-            "Non-graphical AGP; table shows hourly P5\u2013P95 and median in mmol/L. Hours with too few samples omit percentiles."
+            "\u8868\u683C\u4E3A\u5404\u5C0F\u65F6 P5\u2013P95 \u4E0E\u4E2D\u4F4D\uFF0C\u5355\u4F4D mmol/L\u3002\u6837\u672C\u8FC7\u5C11\u7684\u5C0F\u65F6\u4E0D\u62A5\u5206\u4F4D\u3002HTML \u5BFC\u51FA\u7248\u53E6\u9644\u53EF\u6253\u5370 AGP \u5206\u4F4D\u5E26 SVG\u3002",
+            "Table shows hourly P5\u2013P95 and median in mmol/L. Hours with too few samples omit percentiles. HTML export also embeds a printable AGP percentile-band SVG."
           )
         );
         lines.push("");
@@ -6997,11 +7183,44 @@ List 5\u20137 working hypotheses that best fit the available data
     );
     return lines.join("\n");
   }
+  function injectAgpFigure(htmlBody, figureHtml) {
+    if (!figureHtml) return htmlBody;
+    const h3Match = htmlBody.match(/<h3>[^<]*AGP[^<]*<\/h3>/i);
+    if (!h3Match || h3Match.index == null) {
+      return htmlBody + "\n" + figureHtml;
+    }
+    const h3Idx = h3Match.index;
+    const afterH3 = htmlBody.slice(h3Idx);
+    const tableEndRel = afterH3.search(/<\/table>/i);
+    if (tableEndRel >= 0) {
+      const insertAt = h3Idx + tableEndRel + "</table>".length;
+      return htmlBody.slice(0, insertAt) + "\n" + figureHtml + htmlBody.slice(insertAt);
+    }
+    const h3Close = htmlBody.indexOf("</h3>", h3Idx);
+    if (h3Close >= 0) {
+      const insertAt = h3Close + "</h3>".length;
+      return htmlBody.slice(0, insertAt) + "\n" + figureHtml + htmlBody.slice(insertAt);
+    }
+    return htmlBody + "\n" + figureHtml;
+  }
   function generateClinicalReviewHtml(analysis, userContext, options) {
     const md = generateClinicalReviewMarkdown(analysis, userContext, options);
     const locale = normalizeLocale(options?.locale);
     const title = locale === "en" ? "Structured health review / clinic report" : "\u89C4\u8303\u5316\u5065\u5EB7\u590D\u76D8 / \u5C31\u8BCA\u62A5\u544A";
-    const body = markdownToPrintableHtml(md);
+    let body = markdownToPrintableHtml(md);
+    const cgm14 = buildCgm14DayReport(analysis, {
+      locale,
+      windowEnd: options?.cgmWindowEnd
+    });
+    const agpSvg = cgm14?.sufficient ? buildAgpSvg(cgm14, { locale }) : "";
+    if (agpSvg) {
+      const caption = locale === "en" ? "Printable AGP schematic (14-day hourly percentiles)" : "\u6253\u5370\u7528 AGP \u793A\u610F\uFF0814 \u65E5\u6309\u5C0F\u65F6\u5206\u4F4D\uFF09";
+      const figure = `<figure class="agp-figure">
+  <figcaption>${escapeHtml(caption)}</figcaption>
+  ${agpSvg}
+</figure>`;
+      body = injectAgpFigure(body, figure);
+    }
     return `<!DOCTYPE html>
 <html lang="${locale === "en" ? "en" : locale === "zh-TW" ? "zh-TW" : "zh-CN"}">
 <head>
@@ -7021,10 +7240,15 @@ List 5\u20137 working hypotheses that best fit the available data
     blockquote { margin: 0.6em 0; padding: 8px 12px; background: #f8fafc; border-left: 3px solid #0f766e; color: #475569; }
     hr { border: none; border-top: 1px solid #e2e8f0; margin: 1.5em 0; }
     .meta { color: #64748b; font-size: 12px; margin-bottom: 1em; }
+    .agp-figure { margin: 0.8em 0 1.2em; padding: 0; page-break-inside: avoid; }
+    .agp-figure figcaption { font-size: 12px; color: #64748b; margin-bottom: 6px; }
+    .agp-figure svg { max-width: 100%; height: auto; display: block; }
     @media print {
       body { padding: 0; max-width: none; font-size: 11pt; }
       h2 { page-break-after: avoid; }
       table { page-break-inside: avoid; }
+      .agp-figure { page-break-inside: avoid; }
+      .agp-figure svg { max-width: 100%; }
       .no-print { display: none !important; }
     }
   </style>

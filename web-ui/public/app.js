@@ -680,6 +680,134 @@
     });
   }
 
+  function eventsNearDateLocal(events, date, radiusDays) {
+    const ha = window.HealthAnalyzer;
+    const r = Number.isFinite(radiusDays) ? radiusDays : 3;
+    if (ha && typeof ha.eventsNearDate === 'function') {
+      try {
+        return ha.eventsNearDate(events, date, r);
+      } catch (e) { /* fall through */ }
+    }
+    const center = String(date || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(center)) return [];
+    const pad = Math.max(0, Math.floor(r));
+    const addDays = (ymd, delta) => {
+      const d = new Date(ymd + 'T12:00:00');
+      d.setDate(d.getDate() + delta);
+      return d.toISOString().slice(0, 10);
+    };
+    return filterEventsInRangeLocal(events, addDays(center, -pad), addDays(center, pad));
+  }
+
+  async function loadLocalEvents() {
+    if (!window.HealthHistory || typeof window.HealthHistory.listHealthEvents !== 'function') {
+      return [];
+    }
+    try {
+      const rows = await window.HealthHistory.listHealthEvents();
+      return Array.isArray(rows) ? rows : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function truncateEventNote(note, maxLen) {
+    const s = note != null ? String(note).trim() : '';
+    if (!s) return '';
+    const max = maxLen || 80;
+    if (s.length <= max) return s;
+    return s.slice(0, max - 1) + '…';
+  }
+
+  function eventDisplayTitle(ev, locale) {
+    if (ev && ev.title && String(ev.title).trim()) return String(ev.title).trim();
+    return formatEventKindLabelLocal(ev && ev.kind, locale);
+  }
+
+  /**
+   * 结果页：分析窗口内本机事件时间对照（仅共现复盘，无因果措辞）
+   */
+  async function renderEventsReview(analysis) {
+    const container = $('events-review-content');
+    if (!container) return;
+    const locale =
+      (window.I18n && typeof window.I18n.getLocale === 'function' && window.I18n.getLocale()) ||
+      'zh-CN';
+    // 免责声明在 section 静态 .hint（events.review.hint）中始终可见
+    const allEvents = await loadLocalEvents();
+    const range = (analysis && analysis.dateRange) || {};
+    const start = range.start || null;
+    const end = range.end || null;
+    let inRange = filterEventsInRangeLocal(allEvents, start, end);
+    inRange = sortHealthEventsLocal(inRange);
+    if (!inRange.length) {
+      container.innerHTML = `<p class="hint">${escapeHtml(t('events.review.empty'))}</p>`;
+      return;
+    }
+    const maxShow = 30;
+    const shown = inRange.slice(0, maxShow);
+    const countLine = `<p class="events-review-count hint compact-hint">${escapeHtml(
+      t('events.review.count', { n: shown.length, total: inRange.length })
+    )}</p>`;
+    const items = shown
+      .map((ev) => {
+        const kindLabel = formatEventKindLabelLocal(ev.kind, locale);
+        const dateRange =
+          ev.endDate && ev.endDate !== ev.date
+            ? `${ev.date || '—'} → ${ev.endDate}`
+            : ev.date || '—';
+        const title = eventDisplayTitle(ev, locale);
+        const note = truncateEventNote(ev.note, 80);
+        return `
+          <div class="event-review-item">
+            <div class="event-review-meta">
+              <span class="event-review-date">${escapeHtml(dateRange)}</span>
+              <span class="event-review-kind">${escapeHtml(kindLabel)}</span>
+            </div>
+            <p class="event-review-title">${escapeHtml(title)}</p>
+            ${note ? `<p class="event-review-note">${escapeHtml(note)}</p>` : ''}
+          </div>`;
+      })
+      .join('');
+    container.innerHTML = countLine + `<div class="events-review-list">${items}</div>`;
+  }
+
+  /**
+   * 在有日期的信号卡片下附加 ±3 日邻近事件标题（仅有事件时展示；时间共现，非因果）
+   */
+  function attachSignalNearbyEvents(container, allEvents, locale) {
+    if (!container || !Array.isArray(allEvents) || !allEvents.length) return;
+    container.querySelectorAll('.signal-card[data-signal-date]').forEach((card) => {
+      const date = card.getAttribute('data-signal-date');
+      if (!date) return;
+      const near = eventsNearDateLocal(allEvents, date, 3);
+      if (!near.length) return;
+      const box = document.createElement('div');
+      box.className = 'signal-events';
+      const titles = near.slice(0, 8).map((ev) => {
+        const title = eventDisplayTitle(ev, locale);
+        const d = ev.date || '';
+        return d && d !== date ? `${d} ${title}` : title;
+      });
+      box.innerHTML =
+        `<span class="signal-events-label">${escapeHtml(t('events.review.nearby'))}</span>` +
+        `<ul class="signal-events-list">${titles
+          .map((tt) => `<li>${escapeHtml(tt)}</li>`)
+          .join('')}</ul>`;
+      card.appendChild(box);
+    });
+  }
+
+  async function refreshEventsReviewAndSignals() {
+    if (!currentAnalysis) return;
+    try {
+      await renderEventsReview(currentAnalysis);
+    } catch (e) { /* ignore */ }
+    try {
+      await renderSignals(currentAnalysis);
+    } catch (e) { /* ignore */ }
+  }
+
   /**
    * HAE JSON → medication events（lib 优先；本地兜底常见字段）
    */
@@ -935,6 +1063,7 @@
       if (intenEl) intenEl.value = '';
       if (endEl) endEl.value = '';
       await refreshEventsList();
+      await refreshEventsReviewAndSignals();
       showEventsStatus(t('events.ok.saved'), false);
     } catch (e) {
       showEventsStatus(
@@ -950,6 +1079,7 @@
     try {
       await window.HealthHistory.deleteHealthEvent(id);
       await refreshEventsList();
+      await refreshEventsReviewAndSignals();
       showEventsStatus(t('events.ok.deleted'), false);
     } catch (e) {
       showEventsStatus(
@@ -984,6 +1114,7 @@
       const toSave = [...byId.values()];
       await window.HealthHistory.saveHealthEventsBulk(toSave);
       await refreshEventsList();
+      await refreshEventsReviewAndSignals();
       const newCount = toSave.filter((e) => !existingIds.has(e.id)).length;
       const n = newCount || toSave.length;
       showEventsStatus(t('events.ok.imported', { n }), false);
@@ -2063,6 +2194,7 @@
     'step-overview',
     'step-summary',
     'step-signals',
+    'step-events-review',
     'step-charts',
     'step-export',
     'step-prompt',
@@ -2228,6 +2360,7 @@
     show('step-overview');
     show('step-summary');
     show('step-signals');
+    show('step-events-review');
     show('step-charts');
     show('step-export');
     show('step-prompt');
@@ -2238,7 +2371,11 @@
     renderKpis(analysis);
     renderSummary(analysis);
     bindRecoveryWeightsUi();
-    renderSignals(analysis);
+    // 信号 + 事件时间对照（async：本机 IDB 事件与邻近共现）
+    Promise.resolve()
+      .then(() => renderSignals(analysis))
+      .then(() => renderEventsReview(analysis))
+      .catch(() => { /* ignore */ });
     renderCharts(analysis);
     renderPrompt();
     refreshHistorySelect().catch(() => { /* ignore */ });
@@ -2970,7 +3107,7 @@
           ...signalPrefs,
           [id]: signalPrefs[id] === false,
         });
-        if (currentAnalysis) renderSignals(currentAnalysis);
+        if (currentAnalysis) renderSignals(currentAnalysis).catch(() => {});
       });
     });
     container.querySelectorAll('[data-signal-sev]').forEach((btn) => {
@@ -2982,25 +3119,28 @@
           ...signalPrefs,
           [key]: signalPrefs[key] === false,
         });
-        if (currentAnalysis) renderSignals(currentAnalysis);
+        if (currentAnalysis) renderSignals(currentAnalysis).catch(() => {});
       });
     });
     const reset = container.querySelector('#signal-prefs-reset');
     if (reset) {
       reset.addEventListener('click', () => {
         signalPrefs = saveSignalPrefs(defaultSignalPrefs());
-        if (currentAnalysis) renderSignals(currentAnalysis);
+        if (currentAnalysis) renderSignals(currentAnalysis).catch(() => {});
       });
     }
   }
 
-  function renderSignals(analysis) {
+  async function renderSignals(analysis) {
     const container = $('signals-content');
     if (!container) return;
     if (!window.HealthAnalyzer || typeof window.HealthAnalyzer.detectCrossSignals !== 'function') {
       container.innerHTML = `<p class="hint">${escapeHtml(t('signals.moduleMissing'))}</p>`;
       return;
     }
+    const locale =
+      (window.I18n && typeof window.I18n.getLocale === 'function' && window.I18n.getLocale()) ||
+      'zh-CN';
     const signals = window.HealthAnalyzer.detectCrossSignals(analysis, analysisLocaleOpts());
     if (!signals.length) {
       container.innerHTML =
@@ -3012,7 +3152,7 @@
     const visible = signals.filter((s) => isSignalEnabled(s, signalPrefs));
     const listHtml = visible.length
       ? `<div class="signals-list">${visible.map((s) => `
-      <article class="signal-card severity-${escapeHtml(s.severity)}">
+      <article class="signal-card severity-${escapeHtml(s.severity)}"${s.date ? ` data-signal-date="${escapeHtml(s.date)}"` : ''}>
         <div class="signal-meta">
           <span class="signal-badge">${severityLabel(s.severity)}</span>
           ${s.date ? `<span>${escapeHtml(s.date)}</span>` : ''}
@@ -3025,6 +3165,13 @@
       : `<p class="hint">${escapeHtml(t('signals.allFiltered'))}</p>`;
     container.innerHTML = renderSignalPrefsBar(signals, visible.length) + listHtml;
     bindSignalPrefsUi(container);
+    // 有日期的信号：附加 ±3 日本机事件标题（时间共现，非因果）
+    if (visible.some((s) => s && s.date)) {
+      try {
+        const allEvents = await loadLocalEvents();
+        attachSignalNearbyEvents(container, allEvents, locale);
+      } catch (e) { /* ignore */ }
+    }
   }
 
   function downloadBlob(filename, blob) {
@@ -5243,6 +5390,7 @@
     hide('step-overview');
     hide('step-summary');
     hide('step-signals');
+    hide('step-events-review');
     hide('step-charts');
     hide('step-export');
     hide('step-prompt');
@@ -5250,6 +5398,8 @@
     if (charts) charts.innerHTML = '';
     const signals = $('signals-content');
     if (signals) signals.innerHTML = '';
+    const eventsReview = $('events-review-content');
+    if (eventsReview) eventsReview.innerHTML = '';
     const hist = $('history-compare');
     if (hist) hist.innerHTML = '';
     const kpis = $('kpi-grid');
@@ -5345,7 +5495,8 @@
     try {
       // 重算恢复 statusLabel 以匹配当前语言（不改权重、不弹状态）
       recomputeRecoveryWithWeights(recoveryWeights, { quiet: true });
-      renderSignals(currentAnalysis);
+      renderSignals(currentAnalysis).catch(() => {});
+      renderEventsReview(currentAnalysis).catch(() => {});
       renderAvailability(currentAnalysis);
       maybeShowImportHints(currentAnalysis);
       refreshWeeklyReportList().catch(() => {});

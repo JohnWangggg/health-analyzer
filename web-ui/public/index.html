@@ -338,6 +338,7 @@
       <a href="#step-overview" class="result-nav-link" data-i18n="nav.overview">概览</a>
       <a href="#step-summary" class="result-nav-link" data-i18n="nav.summary">明细</a>
       <a href="#step-signals" class="result-nav-link" data-i18n="nav.signals">提示</a>
+      <a href="#step-events-review" class="result-nav-link" data-i18n="nav.eventsReview">事件</a>
       <a href="#step-charts" class="result-nav-link" data-i18n="nav.charts">图表</a>
       <a href="#step-export" class="result-nav-link" data-i18n="nav.export">导出</a>
       <a href="#step-prompt" class="result-nav-link" data-i18n="nav.prompt">提示词</a>
@@ -360,6 +361,10 @@
       <a href="#step-signals" class="result-nav-link">
         <span class="nav-icon" aria-hidden="true">⚡</span>
         <span class="nav-text" data-i18n="nav.signals">提示</span>
+      </a>
+      <a href="#step-events-review" class="result-nav-link">
+        <span class="nav-icon" aria-hidden="true">📅</span>
+        <span class="nav-text" data-i18n="nav.eventsReview">事件</span>
       </a>
       <a href="#step-charts" class="result-nav-link">
         <span class="nav-icon" aria-hidden="true">📈</span>
@@ -422,6 +427,12 @@
       <h2 data-i18n="signals.title">跨维度提示</h2>
       <p class="hint compact-hint" data-i18n="signals.hint">规则线索，非诊断；已写入完整提示词。</p>
       <div id="signals-content"></div>
+    </section>
+
+    <section id="step-events-review" class="card hidden result-section">
+      <h2 data-i18n="events.review.title">事件时间对照</h2>
+      <p class="hint" data-i18n="events.review.hint">仅时间共现复盘，不作因果或调药建议。数据来自本机事件时间线。</p>
+      <div id="events-review-content"></div>
     </section>
 
     <section id="step-charts" class="card hidden result-section">
@@ -571,7 +582,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.42</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.44</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">
