@@ -6373,6 +6373,49 @@ List 5\u20137 working hypotheses that best fit the available data
     if (!v.length) return null;
     return v.reduce((a, b) => a + b, 0) / v.length;
   }
+  function round2(v) {
+    return Math.round(v * 100) / 100;
+  }
+  function percentile(sortedAsc, p) {
+    if (!sortedAsc.length) return null;
+    if (sortedAsc.length === 1) return sortedAsc[0];
+    const pct = Math.max(0, Math.min(100, p)) / 100;
+    const idx = pct * (sortedAsc.length - 1);
+    const lo = Math.floor(idx);
+    const hi = Math.ceil(idx);
+    if (lo === hi) return sortedAsc[lo];
+    const t = idx - lo;
+    return sortedAsc[lo] * (1 - t) + sortedAsc[hi] * t;
+  }
+  function hourlyBinFromValues(hour, vals) {
+    const finite = vals.filter(Number.isFinite);
+    const count = finite.length;
+    const m = mean2(finite);
+    const empty = {
+      hour,
+      mean: m != null ? round2(m) : null,
+      count,
+      p5: null,
+      p25: null,
+      p50: null,
+      p75: null,
+      p95: null
+    };
+    if (count < 3) return empty;
+    const sorted = [...finite].sort((a, b) => a - b);
+    const pct = (p) => {
+      const v = percentile(sorted, p);
+      return v == null ? null : round2(v);
+    };
+    return {
+      ...empty,
+      p5: pct(5),
+      p25: pct(25),
+      p50: pct(50),
+      p75: pct(75),
+      p95: pct(95)
+    };
+  }
   var CGM_MAX_GAP_MS2 = 15 * 60 * 1e3;
   var CGM_LAST_SAMPLE_MS2 = 5 * 60 * 1e3;
   function timeWeightedShares(sorted) {
@@ -6481,11 +6524,9 @@ List 5\u20137 working hypotheses that best fit the available data
       const h = getHour(p.datetime);
       if (h >= 0 && h < 24 && Number.isFinite(p.value)) hourBuckets[h].push(p.value);
     }
-    const hourlyProfile = hourBuckets.map((vals, hour) => ({
-      hour,
-      mean: mean2(vals),
-      count: vals.length
-    }));
+    const hourlyProfile = hourBuckets.map(
+      (vals, hour) => hourlyBinFromValues(hour, vals)
+    );
     const tirMethod = analysis.cgmStats?.coverage?.reliableTir || coveragePct != null && coveragePct >= 50 ? "time_weighted" : "sample_share";
     return {
       windowStart: start,
@@ -6756,14 +6797,29 @@ List 5\u20137 working hypotheses that best fit the available data
         lines.push(`| TAR (>10.0) | ${fmtPct(cgm14.tar)} |`);
         lines.push(`| ${L(">7.8 \u5360\u6BD4", ">7.8 share")} | ${fmtPct(cgm14.tarMild)} |`);
         lines.push("");
-        lines.push(L("### \u6309\u65F6\u6BB5\u5747\u503C\uFF080\u201323 \u65F6\uFF09", "### Mean by hour of day (0\u201323)"));
+        lines.push(
+          L("### AGP \u6309\u65F6\u6BB5\u5206\u4F4D\uFF080\u201323 \u65F6\uFF09", "### AGP hourly percentiles (0\u201323)")
+        );
         lines.push("");
-        lines.push(L("| \u65F6 | \u5747\u503C mmol/L | \u70B9\u6570 |", "| Hour | Mean mmol/L | n |"));
-        lines.push("|---:|---:|---:|");
+        lines.push(
+          L(
+            "\u975E\u56FE\u5F62 AGP\uFF1B\u8868\u683C\u4E3A\u5404\u5C0F\u65F6 P5\u2013P95 \u4E0E\u4E2D\u4F4D\uFF0C\u5355\u4F4D mmol/L\u3002\u6837\u672C\u8FC7\u5C11\u7684\u5C0F\u65F6\u4E0D\u62A5\u5206\u4F4D\u3002",
+            "Non-graphical AGP; table shows hourly P5\u2013P95 and median in mmol/L. Hours with too few samples omit percentiles."
+          )
+        );
+        lines.push("");
+        lines.push(
+          L(
+            "| \u65F6 | P5 | P25 | P50 | P75 | P95 | \u5747\u503C | n |",
+            "| Hour | P5 | P25 | P50 | P75 | P95 | Mean | n |"
+          )
+        );
+        lines.push("|---:|---:|---:|---:|---:|---:|---:|---:|");
+        const fmtCell = (v) => v != null ? v.toFixed(2) : "\u2014";
         for (const b of cgm14.hourlyProfile) {
           if (b.count === 0) continue;
           lines.push(
-            `| ${String(b.hour).padStart(2, "0")} | ${b.mean != null ? b.mean.toFixed(2) : "\u2014"} | ${b.count} |`
+            `| ${String(b.hour).padStart(2, "0")} | ${fmtCell(b.p5)} | ${fmtCell(b.p25)} | ${fmtCell(b.p50)} | ${fmtCell(b.p75)} | ${fmtCell(b.p95)} | ${fmtCell(b.mean)} | ${b.count} |`
           );
         }
         lines.push("");

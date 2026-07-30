@@ -11,6 +11,7 @@ export { generateVisitSummaryMarkdown } from './visit-summary';
 export {
   CGM_REPORT_DAYS,
   CGM_MIN_COVERAGE_PCT,
+  percentile,
   buildCgm14DayReport,
   assessHomeBpProtocol,
   ensureSignalEvidence,

@@ -39,9 +39,15 @@ export const CGM_MIN_COVERAGE_PCT = 70;
 export const CGM_EXPECTED_HOURS_PER_DAY = 24;
 
 export interface CgmHourlyBin {
-  hour: number;
+  hour: number; // 0-23
   mean: number | null;
   count: number;
+  /** AGP-style percentiles (mmol/L); null if count too small */
+  p5: number | null;
+  p25: number | null;
+  p50: number | null; // median
+  p75: number | null;
+  p95: number | null;
 }
 
 export interface Cgm14DayReport {
@@ -134,6 +140,57 @@ function mean(values: number[]): number | null {
   const v = values.filter(Number.isFinite);
   if (!v.length) return null;
   return v.reduce((a, b) => a + b, 0) / v.length;
+}
+
+function round2(v: number): number {
+  return Math.round(v * 100) / 100;
+}
+
+/**
+ * Linear-interpolation percentile on a pre-sorted ascending array.
+ * @param sortedAsc values sorted ascending
+ * @param p percentile in [0, 100] (e.g. 50 for median)
+ */
+export function percentile(sortedAsc: number[], p: number): number | null {
+  if (!sortedAsc.length) return null;
+  if (sortedAsc.length === 1) return sortedAsc[0];
+  const pct = Math.max(0, Math.min(100, p)) / 100;
+  const idx = pct * (sortedAsc.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sortedAsc[lo];
+  const t = idx - lo;
+  return sortedAsc[lo] * (1 - t) + sortedAsc[hi] * t;
+}
+
+function hourlyBinFromValues(hour: number, vals: number[]): CgmHourlyBin {
+  const finite = vals.filter(Number.isFinite);
+  const count = finite.length;
+  const m = mean(finite);
+  const empty: CgmHourlyBin = {
+    hour,
+    mean: m != null ? round2(m) : null,
+    count,
+    p5: null,
+    p25: null,
+    p50: null,
+    p75: null,
+    p95: null,
+  };
+  if (count < 3) return empty;
+  const sorted = [...finite].sort((a, b) => a - b);
+  const pct = (p: number) => {
+    const v = percentile(sorted, p);
+    return v == null ? null : round2(v);
+  };
+  return {
+    ...empty,
+    p5: pct(5),
+    p25: pct(25),
+    p50: pct(50),
+    p75: pct(75),
+    p95: pct(95),
+  };
 }
 
 const CGM_MAX_GAP_MS = 15 * 60 * 1000;
@@ -276,11 +333,9 @@ export function buildCgm14DayReport(
     const h = getHour(p.datetime);
     if (h >= 0 && h < 24 && Number.isFinite(p.value)) hourBuckets[h].push(p.value);
   }
-  const hourlyProfile: CgmHourlyBin[] = hourBuckets.map((vals, hour) => ({
-    hour,
-    mean: mean(vals),
-    count: vals.length,
-  }));
+  const hourlyProfile: CgmHourlyBin[] = hourBuckets.map((vals, hour) =>
+    hourlyBinFromValues(hour, vals)
+  );
 
   const tirMethod: CgmTirMethod =
     analysis.cgmStats?.coverage?.reliableTir || (coveragePct != null && coveragePct >= 50)
@@ -630,14 +685,30 @@ export function generateClinicalReviewMarkdown(
       lines.push(`| TAR (>10.0) | ${fmtPct(cgm14.tar)} |`);
       lines.push(`| ${L('>7.8 占比', '>7.8 share')} | ${fmtPct(cgm14.tarMild)} |`);
       lines.push('');
-      lines.push(L('### 按时段均值（0–23 时）', '### Mean by hour of day (0–23)'));
+      lines.push(
+        L('### AGP 按时段分位（0–23 时）', '### AGP hourly percentiles (0–23)')
+      );
       lines.push('');
-      lines.push(L('| 时 | 均值 mmol/L | 点数 |', '| Hour | Mean mmol/L | n |'));
-      lines.push('|---:|---:|---:|');
+      lines.push(
+        L(
+          '非图形 AGP；表格为各小时 P5–P95 与中位，单位 mmol/L。样本过少的小时不报分位。',
+          'Non-graphical AGP; table shows hourly P5–P95 and median in mmol/L. Hours with too few samples omit percentiles.'
+        )
+      );
+      lines.push('');
+      lines.push(
+        L(
+          '| 时 | P5 | P25 | P50 | P75 | P95 | 均值 | n |',
+          '| Hour | P5 | P25 | P50 | P75 | P95 | Mean | n |'
+        )
+      );
+      lines.push('|---:|---:|---:|---:|---:|---:|---:|---:|');
+      const fmtCell = (v: number | null) => (v != null ? v.toFixed(2) : '—');
       for (const b of cgm14.hourlyProfile) {
         if (b.count === 0) continue;
+        // count 1–2: mean + n only; percentiles as —
         lines.push(
-          `| ${String(b.hour).padStart(2, '0')} | ${b.mean != null ? b.mean.toFixed(2) : '—'} | ${b.count} |`
+          `| ${String(b.hour).padStart(2, '0')} | ${fmtCell(b.p5)} | ${fmtCell(b.p25)} | ${fmtCell(b.p50)} | ${fmtCell(b.p75)} | ${fmtCell(b.p95)} | ${fmtCell(b.mean)} | ${b.count} |`
         );
       }
       lines.push('');
