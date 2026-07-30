@@ -21,6 +21,8 @@
       points: '点',
       ariaInteractive: '，可按住查看读数',
       titleCgm: 'CGM（{range}）',
+      titleAgp: 'CGM AGP 14 日分位带（按小时）',
+      agpInsufficientHint: '覆盖不足时分位仅供参考',
       titleWeightTrend: '体重趋势（晨起优先，{range}）',
       titleBodyFat: '体脂趋势（{range}）',
       titleWeight: '体重（{range}）',
@@ -37,6 +39,10 @@
       legendGlucose: '血糖',
       legendThr39: '3.9 阈值',
       legendThr78: '7.8 阈值',
+      legendThr10: '10.0 阈值',
+      legendP5P95: 'p5–p95',
+      legendP25P75: 'p25–p75',
+      legendP50: 'p50 中位',
       legendWeightTrend: '趋势体重',
       legendBodyFat: '体脂%',
       legendWeight: '体重',
@@ -51,6 +57,7 @@
       legendRecovery: '恢复分',
       legendLoad: '负荷分',
       unitScore: '分',
+      hourLabel: '{h}时',
     },
     en: {
       emptyNoData: 'No chart data',
@@ -65,6 +72,8 @@
       points: 'pts',
       ariaInteractive: ', hold to read values',
       titleCgm: 'CGM ({range})',
+      titleAgp: 'CGM AGP 14-day hourly bands',
+      agpInsufficientHint: 'Insufficient coverage — bands illustrative only',
       titleWeightTrend: 'Weight trend (morning preferred, {range})',
       titleBodyFat: 'Body fat trend ({range})',
       titleWeight: 'Weight ({range})',
@@ -81,6 +90,10 @@
       legendGlucose: 'Glucose',
       legendThr39: '3.9 threshold',
       legendThr78: '7.8 threshold',
+      legendThr10: '10.0 threshold',
+      legendP5P95: 'p5–p95',
+      legendP25P75: 'p25–p75',
+      legendP50: 'p50 median',
       legendWeightTrend: 'Trend weight',
       legendBodyFat: 'Body fat %',
       legendWeight: 'Weight',
@@ -95,6 +108,7 @@
       legendRecovery: 'Recovery',
       legendLoad: 'Load',
       unitScore: 'pts',
+      hourLabel: '{h}h',
     },
   };
 
@@ -398,6 +412,347 @@
     return { paint, bindHover, points, yMin, yMax };
   }
 
+  /**
+   * AGP-style 24h percentile band chart (p5–p95 outer, p25–p75 IQR, p50 median).
+   * @param {HTMLCanvasElement} canvas
+   * @param {{ hour:number, p5:number|null, p25:number|null, p50:number|null, p75:number|null, p95:number|null, mean?:number|null, count?:number }[]} bins
+   * @param {{ color?: string, yLabel?: string, thresholds?: {y:number,color:string,label?:string}[], unit?: string, strings?: object, locale?: string, onHover?: function }} options
+   */
+  function drawAgpBandChart(canvas, bins, options) {
+    options = options || {};
+    if (!canvas || !bins || !bins.length) {
+      if (canvas) clearCanvas(canvas);
+      return null;
+    }
+
+    const theme = themeColors();
+    const S = options.strings || getStrings(resolveLocale(options));
+    const color = options.color || theme.primary;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const cssW = canvas.clientWidth || canvas.width || 320;
+    const cssH = canvas.clientHeight || 200;
+    canvas.width = Math.floor(cssW * dpr);
+    canvas.height = Math.floor(cssH * dpr);
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const pad = { top: 16, right: 12, bottom: 28, left: 44 };
+    const w = cssW - pad.left - pad.right;
+    const h = cssH - pad.top - pad.bottom;
+    if (w <= 0 || h <= 0) return null;
+
+    // Normalize to hour 0–23 map (prefer bin.hour)
+    const byHour = new Array(24).fill(null);
+    for (const b of bins) {
+      const hour = Number.isFinite(b.hour) ? Math.round(b.hour) : -1;
+      if (hour < 0 || hour > 23) continue;
+      byHour[hour] = b;
+    }
+
+    function hasBand(b, loKey, hiKey) {
+      return b && Number.isFinite(b[loKey]) && Number.isFinite(b[hiKey]);
+    }
+    function hasP50(b) {
+      return b && Number.isFinite(b.p50);
+    }
+
+    const ys = [];
+    for (const b of byHour) {
+      if (!b) continue;
+      for (const k of ['p5', 'p25', 'p50', 'p75', 'p95', 'mean']) {
+        if (Number.isFinite(b[k])) ys.push(b[k]);
+      }
+    }
+    if (ys.length === 0) {
+      clearCanvas(canvas);
+      return null;
+    }
+
+    let yMin = Math.min(...ys);
+    let yMax = Math.max(...ys);
+    if (options.thresholds) {
+      for (const t of options.thresholds) {
+        if (Number.isFinite(t.y)) {
+          yMin = Math.min(yMin, t.y);
+          yMax = Math.max(yMax, t.y);
+        }
+      }
+    }
+    if (yMin === yMax) {
+      yMin -= 1;
+      yMax += 1;
+    }
+    const yPad = (yMax - yMin) * 0.08;
+    yMin -= yPad;
+    yMax += yPad;
+
+    const xAt = (hour) => pad.left + (hour / 23) * w;
+    const yAt = (v) => pad.top + h - ((v - yMin) / (yMax - yMin)) * h;
+
+    /** Consecutive hour indices with valid lo/hi */
+    function bandSegments(loKey, hiKey) {
+      const segs = [];
+      let cur = null;
+      for (let hour = 0; hour < 24; hour++) {
+        const b = byHour[hour];
+        if (hasBand(b, loKey, hiKey)) {
+          if (!cur) cur = [];
+          cur.push(hour);
+        } else if (cur) {
+          segs.push(cur);
+          cur = null;
+        }
+      }
+      if (cur) segs.push(cur);
+      return segs;
+    }
+
+    function fillBand(loKey, hiKey, fillStyle) {
+      const segs = bandSegments(loKey, hiKey);
+      for (const seg of segs) {
+        if (!seg.length) continue;
+        ctx.beginPath();
+        for (let i = 0; i < seg.length; i++) {
+          const hour = seg[i];
+          const x = xAt(hour);
+          const y = yAt(byHour[hour][hiKey]);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        for (let i = seg.length - 1; i >= 0; i--) {
+          const hour = seg[i];
+          const x = xAt(hour);
+          const y = yAt(byHour[hour][loKey]);
+          ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = fillStyle;
+        ctx.fill();
+      }
+    }
+
+    function strokeMedian(strokeStyle, lineWidth) {
+      const segs = [];
+      let cur = null;
+      for (let hour = 0; hour < 24; hour++) {
+        if (hasP50(byHour[hour])) {
+          if (!cur) cur = [];
+          cur.push(hour);
+        } else if (cur) {
+          segs.push(cur);
+          cur = null;
+        }
+      }
+      if (cur) segs.push(cur);
+
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = lineWidth || 2;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      for (const seg of segs) {
+        if (!seg.length) continue;
+        ctx.beginPath();
+        for (let i = 0; i < seg.length; i++) {
+          const hour = seg[i];
+          const x = xAt(hour);
+          const y = yAt(byHour[hour].p50);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
+
+    function paint(activeHour) {
+      ctx.clearRect(0, 0, cssW, cssH);
+      ctx.fillStyle = theme.bg;
+      ctx.fillRect(0, 0, cssW, cssH);
+
+      const fontBase = 'ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif';
+      ctx.strokeStyle = theme.grid;
+      ctx.lineWidth = 0.5;
+      ctx.globalAlpha = 0.55;
+      const ticks = 4;
+      for (let i = 0; i <= ticks; i++) {
+        const v = yMin + ((yMax - yMin) * i) / ticks;
+        const y = yAt(v);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, y);
+        ctx.lineTo(pad.left + w, y);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = theme.text;
+      ctx.font = '500 12px ' + fontBase;
+      for (let i = 0; i <= ticks; i++) {
+        const v = yMin + ((yMax - yMin) * i) / ticks;
+        const y = yAt(v);
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(v.toFixed(v >= 100 ? 0 : 1), pad.left - 6, y);
+      }
+
+      if (options.thresholds) {
+        ctx.save();
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.5;
+        ctx.font = '500 11px ' + fontBase;
+        for (const t of options.thresholds) {
+          if (!Number.isFinite(t.y)) continue;
+          const y = yAt(t.y);
+          ctx.strokeStyle = t.color || '#e74c3c';
+          ctx.setLineDash([4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(pad.left, y);
+          ctx.lineTo(pad.left + w, y);
+          ctx.stroke();
+          if (t.label) {
+            ctx.fillStyle = t.color || '#e74c3c';
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'bottom';
+            ctx.fillText(t.label, pad.left + 6, y - 3);
+          }
+        }
+        ctx.restore();
+      }
+
+      // Outer p5–p95 then IQR p25–p75, then median
+      fillBand('p5', 'p95', hexToRgba(color, 0.14));
+      fillBand('p25', 'p75', hexToRgba(color, 0.32));
+      strokeMedian(color, 2.25);
+
+      // Endpoint dots on median where present at 0 / 23
+      for (const hour of [0, 23]) {
+        if (!hasP50(byHour[hour])) continue;
+        const ex = xAt(hour);
+        const ey = yAt(byHour[hour].p50);
+        ctx.beginPath();
+        ctx.arc(ex, ey, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = theme.bg;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(ex, ey, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+      }
+
+      if (activeHour != null && activeHour >= 0 && activeHour < 24 && hasP50(byHour[activeHour])) {
+        const ax = xAt(activeHour);
+        const ay = yAt(byHour[activeHour].p50);
+        ctx.save();
+        ctx.strokeStyle = theme.label;
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.55;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(ax, pad.top);
+        ctx.lineTo(ax, pad.top + h);
+        ctx.stroke();
+        ctx.restore();
+        ctx.beginPath();
+        ctx.arc(ax, ay, 5, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = theme.bg;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      }
+
+      // X labels: 0, 6, 12, 18, 23
+      ctx.fillStyle = theme.text;
+      ctx.font = '500 12px ' + fontBase;
+      ctx.textBaseline = 'top';
+      const hourLabels = [0, 6, 12, 18, 23];
+      for (const hour of hourLabels) {
+        const label = String(hour).padStart(2, '0');
+        ctx.textAlign = hour === 0 ? 'left' : hour === 23 ? 'right' : 'center';
+        ctx.fillText(label, xAt(hour), pad.top + h + 8);
+      }
+
+      if (options.yLabel) {
+        ctx.save();
+        ctx.fillStyle = theme.text;
+        ctx.font = '600 11px ' + fontBase;
+        ctx.translate(12, pad.top + h / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(options.yLabel, 0, 0);
+        ctx.restore();
+      }
+    }
+
+    paint(null);
+
+    function hourFromClientX(clientX) {
+      const rect = canvas.getBoundingClientRect();
+      const x = clientX - rect.left;
+      const t = (x - pad.left) / w;
+      const hour = Math.round(t * 23);
+      return Math.max(0, Math.min(23, hour));
+    }
+
+    function nearestValidHour(hour) {
+      if (hasP50(byHour[hour])) return hour;
+      for (let d = 1; d < 24; d++) {
+        if (hour - d >= 0 && hasP50(byHour[hour - d])) return hour - d;
+        if (hour + d < 24 && hasP50(byHour[hour + d])) return hour + d;
+      }
+      return null;
+    }
+
+    function fmtVal(v) {
+      if (!Number.isFinite(v)) return '—';
+      return Number(v).toFixed(v >= 100 ? 0 : 2);
+    }
+
+    function summaryReadout() {
+      const meds = byHour.filter(hasP50).map((b) => b.p50);
+      if (!meds.length) return '';
+      const unit = options.unit ? ' ' + options.unit : '';
+      const min = Math.min(...meds);
+      const max = Math.max(...meds);
+      // Prefer noon-ish median as "latest" stand-in if present, else last valid
+      let mid = byHour[12] && hasP50(byHour[12]) ? byHour[12].p50 : meds[meds.length - 1];
+      return `${S.latest} ${fmtVal(mid)}${unit}  ·  ${S.range} ${fmtVal(min)}–${fmtVal(max)}${unit}`;
+    }
+
+    function bindHover(readoutEl) {
+      const onMove = (clientX) => {
+        const raw = hourFromClientX(clientX);
+        const hour = nearestValidHour(raw);
+        if (hour == null) return;
+        paint(hour);
+        const b = byHour[hour];
+        if (readoutEl && b) {
+          readoutEl.classList.add('is-hover');
+          const unit = options.unit ? ' ' + options.unit : '';
+          const hh = String(hour).padStart(2, '0') + ':00';
+          readoutEl.textContent =
+            `${hh}  ·  p50 ${fmtVal(b.p50)}${unit}` +
+            (hasBand(b, 'p25', 'p75') ? `  ·  IQR ${fmtVal(b.p25)}–${fmtVal(b.p75)}` : '') +
+            (hasBand(b, 'p5', 'p95') ? `  ·  p5–p95 ${fmtVal(b.p5)}–${fmtVal(b.p95)}` : '');
+        }
+        if (typeof options.onHover === 'function') options.onHover(b, hour);
+      };
+      const onLeave = () => {
+        paint(null);
+        if (readoutEl) {
+          readoutEl.classList.remove('is-hover');
+          readoutEl.textContent = summaryReadout();
+        }
+      };
+      canvas.addEventListener('pointermove', (e) => onMove(e.clientX));
+      canvas.addEventListener('pointerdown', (e) => onMove(e.clientX));
+      canvas.addEventListener('pointerleave', onLeave);
+      onLeave();
+    }
+
+    return { paint, bindHover, byHour, yMin, yMax, summaryReadout };
+  }
+
   function clearCanvas(canvas) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -499,6 +854,47 @@
           { color: '#9b59b6', label: S.legendThr78, dashed: true },
         ],
       });
+
+      // AGP 14-day hourly percentile bands (independent of range chips)
+      try {
+        const HA = global.HealthAnalyzer;
+        if (HA && typeof HA.buildCgm14DayReport === 'function') {
+          const cgm14 = HA.buildCgm14DayReport(analysis, {
+            locale: options.locale || localeKey,
+          });
+          if (
+            cgm14 &&
+            cgm14.hourlyProfile &&
+            cgm14.hourlyProfile.some((b) => b && b.p50 != null && Number.isFinite(b.p50))
+          ) {
+            const agpColor = '#2980b9';
+            blocks.push({
+              key: 'agp',
+              type: 'agp',
+              title: S.titleAgp,
+              subtitle: cgm14.sufficient ? null : S.agpInsufficientHint,
+              color: agpColor,
+              yLabel: 'mmol/L',
+              unit: 'mmol/L',
+              bins: cgm14.hourlyProfile,
+              thresholds: [
+                { y: 3.9, color: '#e67e22', label: '3.9' },
+                { y: 7.8, color: '#9b59b6', label: '7.8' },
+                { y: 10.0, color: '#c0392b', label: '10.0' },
+              ],
+              legend: [
+                { color: hexToRgba(agpColor, 0.22), label: S.legendP5P95, band: true },
+                { color: hexToRgba(agpColor, 0.45), label: S.legendP25P75, band: true },
+                { color: agpColor, label: S.legendP50, dashed: false },
+                { color: '#e67e22', label: S.legendThr39, dashed: true },
+                { color: '#c0392b', label: S.legendThr10, dashed: true },
+              ],
+            });
+          }
+        }
+      } catch (e) {
+        /* AGP optional — ignore build failures */
+      }
     }
 
     const trend = analysis.weightStats && analysis.weightStats.trendSeries;
@@ -749,15 +1145,25 @@
     }
 
     for (const b of blocks) {
-      if (!b.points || b.points.length === 0) continue;
+      const isAgp = b.type === 'agp';
+      if (!isAgp && (!b.points || b.points.length === 0)) continue;
+      if (isAgp && (!b.bins || !b.bins.length)) continue;
+
       const wrap = document.createElement('div');
-      wrap.className = 'chart-block';
+      wrap.className = 'chart-block' + (isAgp ? ' chart-block-agp' : '');
       if (b.key) wrap.setAttribute('data-chart', b.key);
       wrap.id = b.key ? `chart-block-${b.key}` : undefined;
 
       const title = document.createElement('h3');
       title.textContent = b.title;
       wrap.appendChild(title);
+
+      if (b.subtitle) {
+        const sub = document.createElement('p');
+        sub.className = 'chart-subtitle';
+        sub.textContent = b.subtitle;
+        wrap.appendChild(sub);
+      }
 
       const canvas = document.createElement('canvas');
       canvas.className = 'chart-canvas';
@@ -769,9 +1175,14 @@
         const legend = document.createElement('div');
         legend.className = 'chart-legend';
         legend.innerHTML = b.legend.map((item) => {
-          const sw = item.dashed
-            ? `<span class="chart-legend-swatch dashed" style="color:${item.color}"></span>`
-            : `<span class="chart-legend-swatch" style="background:${item.color}"></span>`;
+          let sw;
+          if (item.band) {
+            sw = `<span class="chart-legend-swatch band" style="background:${item.color}"></span>`;
+          } else if (item.dashed) {
+            sw = `<span class="chart-legend-swatch dashed" style="color:${item.color}"></span>`;
+          } else {
+            sw = `<span class="chart-legend-swatch" style="background:${item.color}"></span>`;
+          }
           return `<span class="chart-legend-item">${sw}${item.label}</span>`;
         }).join('');
         wrap.appendChild(legend);
@@ -779,26 +1190,41 @@
 
       const readout = document.createElement('div');
       readout.className = 'chart-readout';
-      readout.textContent = statsLine(b.points, b.unit, S);
+      if (!isAgp) {
+        readout.textContent = statsLine(b.points, b.unit, S);
+      }
       wrap.appendChild(readout);
 
       container.appendChild(wrap);
       requestAnimationFrame(() => {
-        const api = drawLineChart(canvas, b.points, {
-          color: b.color,
-          yLabel: b.yLabel,
-          thresholds: b.thresholds,
-          unit: b.unit,
-          strings: S,
-          locale: options.locale,
-        });
-        if (api && api.bindHover) api.bindHover(readout);
+        if (isAgp) {
+          const api = drawAgpBandChart(canvas, b.bins, {
+            color: b.color,
+            yLabel: b.yLabel,
+            thresholds: b.thresholds,
+            unit: b.unit,
+            strings: S,
+            locale: options.locale,
+          });
+          if (api && api.bindHover) api.bindHover(readout);
+        } else {
+          const api = drawLineChart(canvas, b.points, {
+            color: b.color,
+            yLabel: b.yLabel,
+            thresholds: b.thresholds,
+            unit: b.unit,
+            strings: S,
+            locale: options.locale,
+          });
+          if (api && api.bindHover) api.bindHover(readout);
+        }
       });
     }
   }
 
   global.HealthCharts = {
     drawLineChart,
+    drawAgpBandChart,
     downsample,
     renderAnalysisCharts,
   };

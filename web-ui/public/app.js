@@ -1156,6 +1156,113 @@
   }
 
   // ============================================================
+  // HAE 合并 Web Worker（失败则回退主线程）
+  // ============================================================
+
+  /**
+   * @param {object} data HealthData（将在 worker 中就地合并后克隆回主线程）
+   * @param {{name:string,text:string}[]} files
+   * @param {object} [options]
+   * @returns {Promise<{data: object, stats: object}>}
+   */
+  function mergeHaeWithWorker(data, files, options) {
+    return new Promise((resolve, reject) => {
+      if (typeof Worker === 'undefined') {
+        reject(new Error(t('parse.err.workerUnavailable')));
+        return;
+      }
+      let worker;
+      try {
+        worker = new Worker('./hae-worker.js');
+      } catch (e) {
+        reject(e);
+        return;
+      }
+
+      const id = 'h_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const cleanup = () => {
+        try { worker.terminate(); } catch (e) { /* ignore */ }
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error(t('parse.err.workerTimeout')));
+      }, 10 * 60 * 1000);
+
+      worker.onmessage = (ev) => {
+        const msg = ev.data || {};
+        if (msg.type === 'worker-error') {
+          clearTimeout(timer);
+          cleanup();
+          reject(new Error(msg.error || t('parse.err.workerFailed')));
+          return;
+        }
+        if (msg.id !== id) return;
+        if (msg.type === 'progress') {
+          if (options && typeof options.onProgress === 'function') {
+            options.onProgress(msg.progress);
+          }
+          return;
+        }
+        if (msg.type === 'result') {
+          clearTimeout(timer);
+          cleanup();
+          resolve({ data: msg.data, stats: msg.stats });
+          return;
+        }
+        if (msg.type === 'error') {
+          clearTimeout(timer);
+          cleanup();
+          reject(new Error(msg.error || t('parse.err.workerFailed')));
+        }
+      };
+      worker.onerror = (err) => {
+        clearTimeout(timer);
+        cleanup();
+        reject(err.error || new Error(err.message || t('parse.err.workerFailed')));
+      };
+
+      try {
+        worker.postMessage({
+          id,
+          type: 'merge',
+          payload: {
+            data,
+            files,
+            options: options
+              ? {
+                  includeUnknown: options.includeUnknown,
+                  includeWorkouts: options.includeWorkouts,
+                }
+              : undefined,
+          },
+        });
+      } catch (e) {
+        clearTimeout(timer);
+        cleanup();
+        reject(e);
+      }
+    });
+  }
+
+  /**
+   * Prefer worker; on failure fall back to main-thread mergeHaeIntoData.
+   * Main-thread path mutates data in place and returns { data, stats }.
+   */
+  async function mergeHaeData(data, files, options) {
+    try {
+      return await mergeHaeWithWorker(data, files, options);
+    } catch (err) {
+      console.warn('HAE Worker 合并失败，回退主线程:', err);
+      if (options && typeof options.onWorkerFallback === 'function') {
+        options.onWorkerFallback(err);
+      }
+      const stats = window.HealthAnalyzer.mergeHaeIntoData(data, files, options || {});
+      return { data, stats };
+    }
+  }
+
+  // ============================================================
   // 上传处理
   // ============================================================
 
@@ -3969,19 +4076,26 @@
         payloads.push({ name: f.name || 'file', text: String(text || '') });
       }
 
+      // Worker 合并会结构化克隆 data，需用返回的 data；失败时回退主线程并就地修改 baseData
       const baseData =
         currentAnalysis && currentAnalysis.data
           ? currentAnalysis.data
           : window.HealthAnalyzer.createEmptyData();
 
-      const options = {};
+      const options = {
+        onWorkerFallback: () => {
+          setHaeStatus(t('hae.progress.workerFallback'), false);
+        },
+      };
       if (haeIncludeUnknown.size) {
         options.includeUnknown = [...haeIncludeUnknown];
       }
 
-      const result = window.HealthAnalyzer.mergeHaeIntoData(baseData, payloads, options);
+      setHaeStatus(t('hae.progress.merging'), false);
+      const { data: mergedData, stats: result } = await mergeHaeData(baseData, payloads, options);
+
       recoveryWeights = loadRecoveryWeights();
-      currentAnalysis = window.HealthAnalyzer.analyzeAll(baseData, {
+      currentAnalysis = window.HealthAnalyzer.analyzeAll(mergedData, {
         recoveryWeights,
         locale: getAnalysisLocale(),
       });

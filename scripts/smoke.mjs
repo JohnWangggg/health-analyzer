@@ -91,6 +91,7 @@ const assets = [
   'sw.js',
   'history-db.js',
   'parse-worker.js',
+  'hae-worker.js',
   'fflate.min.js',
   'manifest.json',
 ];
