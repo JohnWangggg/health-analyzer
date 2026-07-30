@@ -7312,6 +7312,9 @@
     const quotaBar = $('warehouse-quota-bar');
     const quotaFill = $('warehouse-quota-fill');
     const storageEl = $('warehouse-storage-est');
+    const layoutEl = $('warehouse-layout-line');
+    const monthsWrap = $('warehouse-cgm-months');
+    const monthsList = $('warehouse-cgm-month-list');
     const HH = window.HealthHistory;
     if (!HH || typeof HH.getWarehouseStatus !== 'function') {
       if (statusEl) statusEl.textContent = t('warehouse.unavailable');
@@ -7334,6 +7337,12 @@
         storageEl.textContent = '';
         storageEl.classList.add('hidden');
       }
+      if (layoutEl) {
+        layoutEl.textContent = '';
+        layoutEl.classList.add('hidden');
+      }
+      if (monthsWrap) monthsWrap.classList.add('hidden');
+      if (monthsList) monthsList.innerHTML = '';
 
       if (!statusEl) {
         await refreshWarehouseHomeBanner();
@@ -7366,6 +7375,20 @@
         statusEl.textContent += ' · ' + t('warehouse.softQuotaShort');
       }
 
+      // Layout line (sharded vs legacy)
+      if (layoutEl && st.hasPayload) {
+        if (st.layout === 'sharded-v1') {
+          layoutEl.textContent = t('warehouse.layout.sharded', {
+            months: String((st.cgmMonths && st.cgmMonths.length) || 0),
+            chunks: String(st.chunkCount || 0),
+          });
+          layoutEl.classList.remove('hidden');
+        } else if (st.layout === 'legacy-full') {
+          layoutEl.textContent = t('warehouse.layout.legacy');
+          layoutEl.classList.remove('hidden');
+        }
+      }
+
       // Quota meter vs soft cap
       const soft = st.softBytes || (150 * 1024 * 1024);
       if (quotaBar && quotaFill && st.hasPayload) {
@@ -7392,6 +7415,21 @@
             const label = labelKey ? t(labelKey) : k;
             return `<li><span class="wh-domain-name">${escapeHtml(label)}</span>`
               + `<span class="wh-domain-meta">${escapeHtml(String(row.recordCount || 0))} · ${escapeHtml(formatBytes(row.approxBytes || 0))}</span></li>`;
+          })
+          .join('');
+      }
+
+      // CGM monthly shards (newest first for readability)
+      const details = Array.isArray(st.cgmMonthDetails) ? st.cgmMonthDetails.slice() : [];
+      if (monthsWrap && monthsList && details.length) {
+        details.sort((a, b) => String(b.month || '').localeCompare(String(a.month || '')));
+        monthsWrap.classList.remove('hidden');
+        monthsList.innerHTML = details
+          .map((row) => {
+            const m = escapeHtml(row.month || '—');
+            const n = escapeHtml(String(row.recordCount || 0));
+            const b = escapeHtml(formatBytes(row.approxBytes || 0));
+            return `<li><span class="wh-month">${m}</span><span class="wh-month-meta">${n} · ${b}</span></li>`;
           })
           .join('');
       }

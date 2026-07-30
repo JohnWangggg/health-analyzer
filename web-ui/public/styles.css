@@ -535,6 +535,65 @@ body.has-results .result-bottom-nav:not(.hidden) {
   margin: 0 0 8px;
 }
 
+.warehouse-layout-line {
+  margin: 0 0 10px !important;
+  font-weight: 500;
+  color: var(--primary-dark);
+}
+
+.warehouse-cgm-months {
+  margin: 0 0 14px;
+  padding: 12px 12px 10px;
+  border-radius: var(--radius-sm, 10px);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--chart-bg, var(--surface)) 88%, var(--primary-light));
+}
+
+.warehouse-cgm-months.hidden {
+  display: none !important;
+}
+
+.warehouse-cgm-months-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.warehouse-cgm-month-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.warehouse-cgm-month-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.warehouse-cgm-month-list .wh-month {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.warehouse-cgm-month-list .wh-month-meta {
+  color: var(--text-light);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .warehouse-panel .panel-subhead {
   margin-top: 0;
 }

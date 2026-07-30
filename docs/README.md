@@ -285,6 +285,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - v1.73：导入→重点→趋势→导出任务流 E2E；200% 文本缩放可读性加固。
 - v1.74：键盘跳过链接与键盘 E2E；真机手测清单见 `docs/MANUAL_QA.md`。
 - v1.75：原始仓 CGM 按月分片；超配额淘汰最旧月份；兼容旧 `healthData|full`。
+- v1.76：数据管理页展示分片布局与 CGM 月列表。
 
 ## 许可
 

@@ -710,11 +710,21 @@
                   : buildDomainStats(assembled.data);
               status.domainStats = stats;
               status.layout = assembled.legacy ? 'legacy-full' : 'sharded-v1';
-              status.cgmMonths = (all || [])
+              const cgmChunkRows = (all || [])
                 .filter((c) => c && c.domain === 'cgm')
-                .map((c) => c.shard)
-                .filter(Boolean)
-                .sort();
+                .slice()
+                .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+              status.cgmMonths = cgmChunkRows.map((c) => c.shard).filter(Boolean);
+              status.cgmMonthDetails = cgmChunkRows.map((c) => ({
+                month: c.shard || '',
+                recordCount: c.recordCount != null ? c.recordCount : (Array.isArray(c.payload) ? c.payload.length : 0),
+                approxBytes: c.approxBytes || 0,
+              }));
+              status.chunkCount = (all || []).length;
+              status.coreBytes = ((all || []).find((c) => c && (c.id === WH_CHUNK_CORE || c.domain === 'core')) || {}).approxBytes || 0;
+            } else if (assembled && assembled.legacy) {
+              status.cgmMonthDetails = [];
+              status.chunkCount = 1;
             }
             status.softWarn = status.approxBytes > WAREHOUSE_SOFT_BYTES;
             return status;

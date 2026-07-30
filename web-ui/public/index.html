@@ -622,7 +622,13 @@
           <div id="warehouse-quota-fill" class="warehouse-quota-fill"></div>
         </div>
         <p id="warehouse-storage-est" class="warehouse-storage-est hint compact-hint hidden"></p>
+        <p id="warehouse-layout-line" class="warehouse-layout-line hint compact-hint hidden"></p>
         <ul id="warehouse-domain-list" class="warehouse-domain-list hidden" aria-label="domain breakdown"></ul>
+        <div id="warehouse-cgm-months" class="warehouse-cgm-months hidden" role="region" aria-labelledby="warehouse-cgm-months-title">
+          <h4 class="warehouse-cgm-months-title" id="warehouse-cgm-months-title" data-i18n="warehouse.cgmMonthsTitle">CGM 月分片</h4>
+          <p class="hint compact-hint" data-i18n="warehouse.cgmMonthsHint">按月存储；超配额时优先淘汰最旧月份。非诊断。</p>
+          <ul id="warehouse-cgm-month-list" class="warehouse-cgm-month-list" aria-label="CGM months"></ul>
+        </div>
         <label class="date-field warehouse-pass-field" for="warehouse-backup-pass">
           <span data-i18n="warehouse.backupPass">备份口令（可选，导出加密 / 导入解密）</span>
           <input type="password" id="warehouse-backup-pass" maxlength="128" autocomplete="new-password" placeholder="留空则明文备份" data-i18n-placeholder="warehouse.backupPassPh" />
@@ -771,7 +777,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.75</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.76</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

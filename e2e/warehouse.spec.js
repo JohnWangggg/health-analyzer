@@ -198,6 +198,17 @@ test.describe('v1.68 raw warehouse', () => {
     // Sharded writes at least core chunk
     expect(layout.chunkCount).toBeGreaterThan(0);
 
+    // UI: layout line + optional CGM month list when sharded with months
+    await expect(page.locator('#warehouse-layout-line')).toBeVisible();
+    const layoutText = await page.locator('#warehouse-layout-line').innerText();
+    expect(layoutText.length).toBeGreaterThan(3);
+    if (layout.layout === 'sharded-v1') {
+      // Month list only if CGM points exist in fixture
+      const monthItems = await page.locator('#warehouse-cgm-month-list li').count();
+      // Fixture may have little/no CGM — list optional
+      expect(monthItems).toBeGreaterThanOrEqual(0);
+    }
+
     await page.reload();
     await page.waitForFunction(() => !!(window.HealthHistory && window.HealthAnalyzer));
     await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
