@@ -166,6 +166,71 @@ test.describe('v1.68 raw warehouse', () => {
     await expect(page.locator('#warehouse-restored-banner')).toBeVisible();
   });
 
+  test('encrypted backup roundtrip with passphrase', async ({ page }) => {
+    await waitAppReady(page);
+    await selectXmlOnly(page);
+    await page.locator('#file-input').setInputFiles(FIXTURE);
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+
+    await setWorkspace(page, 'more');
+    page.once('dialog', async (d) => {
+      await d.accept();
+    });
+    await page.locator('#warehouse-consent').check();
+    await expect
+      .poll(async () => page.evaluate(() => window.HealthHistory.isWarehouseConsentGranted()), {
+        timeout: 8_000,
+      })
+      .toBe(true);
+
+    const pass = 'e2e-secret-42';
+    const envelope = await page.evaluate(async (passphrase) => {
+      return window.HealthHistory.exportWarehouseBackup({
+        includeSnapshots: false,
+        includeEvents: false,
+        includeReports: false,
+        includeBatches: false,
+        passphrase,
+      });
+    }, pass);
+
+    expect(envelope.encryption).toBe('passphrase-aes-gcm');
+    expect(envelope.cipher && envelope.cipher.ciphertextB64).toBeTruthy();
+    expect(envelope.payload).toBeFalsy();
+
+    // Wrong passphrase fails
+    const wrong = await page.evaluate(async (env) => {
+      try {
+        await window.HealthHistory.importWarehouseBackup(env, { passphrase: 'wrong' });
+        return 'ok';
+      } catch (e) {
+        return String(e && e.message ? e.message : e);
+      }
+    }, envelope);
+    expect(wrong).toMatch(/decrypt_failed|passphrase/i);
+
+    // Wipe then import with correct passphrase
+    page.once('dialog', async (d) => {
+      await d.accept();
+    });
+    await page.locator('#btn-clear-all-local').click();
+    await expect(page.locator('body')).not.toHaveClass(/has-results/, { timeout: 15_000 });
+
+    await page.evaluate(
+      async ({ env, passphrase }) => {
+        await window.HealthHistory.importWarehouseBackup(env, {
+          regrantConsent: true,
+          passphrase,
+        });
+      },
+      { env: envelope, passphrase: pass }
+    );
+
+    await page.reload();
+    await page.waitForFunction(() => !!(window.HealthHistory && window.HealthAnalyzer));
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+  });
+
   test('clear payload keeps consent; home restore banner appears', async ({ page }) => {
     await waitAppReady(page);
     await selectXmlOnly(page);

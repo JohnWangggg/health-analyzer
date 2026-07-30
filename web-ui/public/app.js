@@ -22,6 +22,9 @@
   const CHART_COMPARE_KEY = 'health-analyzer-chart-compare';
   const CHART_BASELINE_KEY = 'health-analyzer-chart-baseline';
   const CHART_EVENTS_KEY = 'health-analyzer-chart-events';
+  /** v1.71 趋势视图预设 */
+  const CHART_PRESETS_KEY = 'health-analyzer-chart-presets';
+  const MAX_CHART_PRESETS = 12;
   const SIDE_NAV_COLLAPSED_KEY = 'health-analyzer-side-nav-collapsed';
   let chartRangeDays = (() => {
     try {
@@ -95,6 +98,7 @@
     CHART_COMPARE_KEY,
     CHART_BASELINE_KEY,
     CHART_EVENTS_KEY,
+    CHART_PRESETS_KEY,
     LLM_COPY_ACK_KEY,
     INCLUDE_SENSITIVE_KEY,
     'health-analyzer-insight-coach',
@@ -4590,6 +4594,123 @@
     if (currentAnalysis) renderCharts(currentAnalysis);
   });
 
+  // ---------- v1.71 趋势视图预设 ----------
+  function loadChartPresets() {
+    try {
+      const raw = window.localStorage.getItem(CHART_PRESETS_KEY);
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveChartPresetsList(list) {
+    try {
+      window.localStorage.setItem(CHART_PRESETS_KEY, JSON.stringify(list.slice(0, MAX_CHART_PRESETS)));
+    } catch (e) { /* ignore */ }
+  }
+
+  function refreshChartPresetSelect() {
+    const sel = $('chart-preset-select');
+    if (!sel) return;
+    const presets = loadChartPresets();
+    const prev = sel.value;
+    sel.innerHTML = '';
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = t('charts.preset.none');
+    sel.appendChild(empty);
+    presets.forEach((p) => {
+      if (!p || !p.id) return;
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name || p.id;
+      sel.appendChild(opt);
+    });
+    if (prev && presets.some((p) => p.id === prev)) sel.value = prev;
+  }
+
+  function applyChartPreset(preset) {
+    if (!preset) return;
+    if (preset.primaryKey != null) chartPrimaryKey = String(preset.primaryKey || '');
+    if (preset.compareKey != null) chartCompareKey = String(preset.compareKey || '');
+    if (preset.rangeDays != null) chartRangeDays = Number(preset.rangeDays) || 0;
+    if (preset.showBaseline != null) chartShowBaseline = !!preset.showBaseline;
+    if (preset.showEvents != null) chartShowEvents = !!preset.showEvents;
+    try {
+      window.localStorage.setItem(CHART_PRIMARY_KEY, chartPrimaryKey);
+      window.localStorage.setItem(CHART_COMPARE_KEY, chartCompareKey);
+      window.localStorage.setItem(CHART_RANGE_KEY, String(chartRangeDays));
+      window.localStorage.setItem(CHART_BASELINE_KEY, chartShowBaseline ? '1' : '0');
+      window.localStorage.setItem(CHART_EVENTS_KEY, chartShowEvents ? '1' : '0');
+    } catch (e) { /* ignore */ }
+    const bl = $('chart-baseline-toggle');
+    if (bl) bl.checked = chartShowBaseline;
+    const ev = $('chart-events-toggle');
+    if (ev) ev.checked = chartShowEvents;
+    document.querySelectorAll('#chart-range-chips .chip').forEach((btn) => {
+      const d = Number(btn.getAttribute('data-days'));
+      btn.classList.toggle('is-active', d === chartRangeDays);
+    });
+    if (currentAnalysis) renderCharts(currentAnalysis);
+    showToast(t('charts.preset.applied', { name: preset.name || '' }), { ok: true, ms: 2000 });
+  }
+
+  function saveCurrentChartPreset() {
+    const nameEl = $('chart-preset-name');
+    const name = (nameEl && nameEl.value ? String(nameEl.value).trim() : '') ||
+      t('charts.preset.defaultName', {
+        primary: chartPrimaryKey || '—',
+        days: String(chartRangeDays || 0),
+      });
+    const id =
+      (globalThis.crypto && crypto.randomUUID && crypto.randomUUID()) ||
+      `preset_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const preset = {
+      id,
+      name: name.slice(0, 40),
+      primaryKey: chartPrimaryKey || '',
+      compareKey: chartCompareKey || '',
+      rangeDays: chartRangeDays,
+      showBaseline: !!chartShowBaseline,
+      showEvents: !!chartShowEvents,
+      savedAt: new Date().toISOString(),
+    };
+    const list = loadChartPresets().filter((p) => p && p.name !== preset.name);
+    list.unshift(preset);
+    saveChartPresetsList(list);
+    refreshChartPresetSelect();
+    const sel = $('chart-preset-select');
+    if (sel) sel.value = id;
+    if (nameEl) nameEl.value = '';
+    showToast(t('charts.preset.saved'), { ok: true, ms: 2000 });
+  }
+
+  function deleteSelectedChartPreset() {
+    const sel = $('chart-preset-select');
+    if (!sel || !sel.value) {
+      showToast(t('charts.preset.needSelect'), { ms: 2000 });
+      return;
+    }
+    if (!window.confirm(t('charts.preset.deleteConfirm'))) return;
+    const id = sel.value;
+    saveChartPresetsList(loadChartPresets().filter((p) => p && p.id !== id));
+    refreshChartPresetSelect();
+    showToast(t('charts.preset.deleted'), { ok: true, ms: 1800 });
+  }
+
+  refreshChartPresetSelect();
+  $('chart-preset-select')?.addEventListener('change', (e) => {
+    const id = e.target && e.target.value;
+    if (!id) return;
+    const preset = loadChartPresets().find((p) => p && p.id === id);
+    if (preset) applyChartPreset(preset);
+  });
+  $('btn-chart-preset-save')?.addEventListener('click', () => saveCurrentChartPreset());
+  $('btn-chart-preset-delete')?.addEventListener('click', () => deleteSelectedChartPreset());
+
   $('btn-csv-apply')?.addEventListener('click', () => { reapplyCsvAndRefresh(); });
   $('btn-hae-apply')?.addEventListener('click', () => { applyHaeImportAndRefresh(); });
   $('btn-hae-cancel')?.addEventListener('click', () => {
@@ -7323,19 +7444,37 @@
     const HH = window.HealthHistory;
     if (!HH || typeof HH.exportWarehouseBackup !== 'function') return;
     try {
+      const passEl = $('warehouse-backup-pass');
+      const passphrase = passEl && passEl.value ? String(passEl.value) : '';
+      if (passphrase && passphrase.length < 4) {
+        showToast(t('warehouse.passTooShort'), { ms: 2600 });
+        return;
+      }
       const envelope = await HH.exportWarehouseBackup({
         includeSnapshots: true,
         includeEvents: true,
         includeReports: true,
         includeBatches: true,
+        passphrase: passphrase || undefined,
       });
       const text = JSON.stringify(envelope, null, 2);
-      const name = `health-analyzer-backup-${new Date().toISOString().slice(0, 10)}.hae-backup.json`;
+      const encTag = envelope.encryption === 'passphrase-aes-gcm' ? '-enc' : '';
+      const name = `health-analyzer-backup${encTag}-${new Date().toISOString().slice(0, 10)}.hae-backup.json`;
       downloadText(name, text, 'application/json');
-      showToast(t('warehouse.exportOk'), { ok: true, ms: 2400 });
-      showWarehouseStatusMsg(t('warehouse.exportOk'));
+      const okMsg =
+        envelope.encryption === 'passphrase-aes-gcm'
+          ? t('warehouse.exportOkEnc')
+          : t('warehouse.exportOk');
+      showToast(okMsg, { ok: true, ms: 2400 });
+      showWarehouseStatusMsg(okMsg);
+      if (passEl) passEl.value = '';
     } catch (e) {
-      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+      const msg = (e && e.message) || String(e);
+      if (msg === 'passphrase_too_short') {
+        showToast(t('warehouse.passTooShort'), { ms: 2600 });
+      } else {
+        showToast(t('warehouse.err', { msg }), { ms: 3200 });
+      }
     }
   });
   $('btn-warehouse-import')?.addEventListener('click', () => {
@@ -7371,12 +7510,27 @@
     try {
       const text = await file.text();
       const envelope = JSON.parse(text);
-      await HH.importWarehouseBackup(envelope, { regrantConsent: true });
+      const passEl = $('warehouse-backup-pass');
+      const passphrase = passEl && passEl.value ? String(passEl.value) : '';
+      if (envelope.encryption === 'passphrase-aes-gcm' && !passphrase) {
+        showToast(t('warehouse.passRequired'), { ms: 2800 });
+        return;
+      }
+      await HH.importWarehouseBackup(envelope, {
+        regrantConsent: true,
+        passphrase: passphrase || undefined,
+      });
       showToast(t('warehouse.importOk'), { ok: true, ms: 2600 });
+      if (passEl) passEl.value = '';
       await hydrateFromWarehouse({ manual: true, toast: true });
       await refreshWarehousePanel();
     } catch (e) {
-      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3600 });
+      const msg = (e && e.message) || String(e);
+      if (msg === 'decrypt_failed' || msg === 'passphrase_required') {
+        showToast(t('warehouse.decryptFail'), { ms: 3200 });
+      } else {
+        showToast(t('warehouse.err', { msg }), { ms: 3600 });
+      }
     } finally {
       try { input.value = ''; } catch (err) { /* ignore */ }
     }

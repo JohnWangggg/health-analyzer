@@ -604,9 +604,83 @@
     });
   }
 
+  // ---------- Backup crypto (v1.71 optional passphrase AES-GCM) ----------
+  const BACKUP_PBKDF2_ITERS = 210000;
+
+  function b64FromBytes(buf) {
+    const bytes = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s);
+  }
+
+  function bytesFromB64(b64) {
+    const bin = atob(String(b64 || ''));
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function deriveBackupKey(passphrase, saltBytes) {
+    if (!global.crypto || !global.crypto.subtle) {
+      return Promise.reject(new Error('webcrypto_unavailable'));
+    }
+    const enc = new TextEncoder();
+    return global.crypto.subtle
+      .importKey('raw', enc.encode(String(passphrase || '')), 'PBKDF2', false, ['deriveKey'])
+      .then((baseKey) =>
+        global.crypto.subtle.deriveKey(
+          {
+            name: 'PBKDF2',
+            salt: saltBytes,
+            iterations: BACKUP_PBKDF2_ITERS,
+            hash: 'SHA-256',
+          },
+          baseKey,
+          { name: 'AES-GCM', length: 256 },
+          false,
+          ['encrypt', 'decrypt']
+        )
+      );
+  }
+
+  function encryptBackupPayload(payloadObj, passphrase) {
+    if (!passphrase || String(passphrase).length < 4) {
+      return Promise.reject(new Error('passphrase_too_short'));
+    }
+    const salt = global.crypto.getRandomValues(new Uint8Array(16));
+    const iv = global.crypto.getRandomValues(new Uint8Array(12));
+    const plain = new TextEncoder().encode(JSON.stringify(payloadObj));
+    return deriveBackupKey(passphrase, salt).then((key) =>
+      global.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain).then((cipherBuf) => ({
+        saltB64: b64FromBytes(salt),
+        ivB64: b64FromBytes(iv),
+        iterations: BACKUP_PBKDF2_ITERS,
+        ciphertextB64: b64FromBytes(cipherBuf),
+      }))
+    );
+  }
+
+  function decryptBackupCipher(cipher, passphrase) {
+    if (!cipher || !cipher.ciphertextB64 || !cipher.saltB64 || !cipher.ivB64) {
+      return Promise.reject(new Error('invalid_cipher'));
+    }
+    if (!passphrase) return Promise.reject(new Error('passphrase_required'));
+    const salt = bytesFromB64(cipher.saltB64);
+    const iv = bytesFromB64(cipher.ivB64);
+    const ct = bytesFromB64(cipher.ciphertextB64);
+    return deriveBackupKey(passphrase, salt)
+      .then((key) => global.crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct))
+      .then((plainBuf) => {
+        const text = new TextDecoder().decode(plainBuf);
+        return JSON.parse(text);
+      })
+      .catch(() => Promise.reject(new Error('decrypt_failed')));
+  }
+
   /**
-   * Plaintext backup envelope (MVP: no encryption).
-   * @param {{ includeSnapshots?: boolean, includeEvents?: boolean, includeReports?: boolean, includeBatches?: boolean }} [opts]
+   * Backup envelope. Optional passphrase → AES-GCM (encryption: passphrase-aes-gcm).
+   * @param {{ includeSnapshots?: boolean, includeEvents?: boolean, includeReports?: boolean, includeBatches?: boolean, passphrase?: string }} [opts]
    */
   function exportWarehouseBackup(opts) {
     opts = opts || {};
@@ -629,34 +703,36 @@
       if (opts.includeBatches) {
         try { payload.importBatches = await listImportBatches(); } catch (e) { payload.importBatches = []; }
       }
-      return {
+
+      const base = {
         magic: 'health-analyzer-backup',
         formatVersion: 1,
         exportedAt: new Date().toISOString(),
-        app: { name: 'health-analyzer', dataCenter: 'v1.68' },
+        app: { name: 'health-analyzer', dataCenter: 'v1.71' },
+      };
+
+      const pass = opts.passphrase != null ? String(opts.passphrase) : '';
+      if (pass) {
+        const cipher = await encryptBackupPayload(payload, pass);
+        return Object.assign({}, base, {
+          encryption: 'passphrase-aes-gcm',
+          cipher,
+        });
+      }
+      return Object.assign({}, base, {
         encryption: 'none',
         payload,
-      };
+      });
     });
   }
 
   /**
-   * Replace warehouse (and optional side stores) from backup. MVP: replace only.
-   * @param {object} envelope
+   * Apply payload body into IDB (replace warehouse + optional side stores).
+   * @param {object} body
    * @param {{ regrantConsent?: boolean }} [opts]
    */
-  function importWarehouseBackup(envelope, opts) {
+  function applyBackupPayload(body, opts) {
     opts = opts || {};
-    if (!envelope || envelope.magic !== 'health-analyzer-backup') {
-      return Promise.reject(new Error('invalid_backup_magic'));
-    }
-    if (Number(envelope.formatVersion) !== 1) {
-      return Promise.reject(new Error('unsupported_backup_version'));
-    }
-    if (envelope.encryption && envelope.encryption !== 'none') {
-      return Promise.reject(new Error('encrypted_backup_not_supported_mvp'));
-    }
-    const body = envelope.payload;
     if (!body || typeof body !== 'object') {
       return Promise.reject(new Error('missing_payload'));
     }
@@ -666,82 +742,105 @@
       return Promise.reject(new Error('backup_missing_health_data'));
     }
 
-    return openDb()
-      .then(
-        (db) =>
-          new Promise((resolve, reject) => {
-            const names = [STORE_WH_META, STORE_WH_CHUNKS];
-            if (body.snapshots && db.objectStoreNames.contains(STORE)) names.push(STORE);
-            if (body.weeklyReports && db.objectStoreNames.contains(STORE_REPORTS)) names.push(STORE_REPORTS);
-            if (body.healthEvents && db.objectStoreNames.contains(STORE_EVENTS)) names.push(STORE_EVENTS);
-            if (body.importBatches && db.objectStoreNames.contains(STORE_IMPORT_BATCHES)) {
-              names.push(STORE_IMPORT_BATCHES);
-            }
-            const unique = names.filter((n, i) => names.indexOf(n) === i && db.objectStoreNames.contains(n));
-            const tx = db.transaction(unique, 'readwrite');
+    return openDb().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const names = [STORE_WH_META, STORE_WH_CHUNKS];
+          if (body.snapshots && db.objectStoreNames.contains(STORE)) names.push(STORE);
+          if (body.weeklyReports && db.objectStoreNames.contains(STORE_REPORTS)) names.push(STORE_REPORTS);
+          if (body.healthEvents && db.objectStoreNames.contains(STORE_EVENTS)) names.push(STORE_EVENTS);
+          if (body.importBatches && db.objectStoreNames.contains(STORE_IMPORT_BATCHES)) {
+            names.push(STORE_IMPORT_BATCHES);
+          }
+          const unique = names.filter((n, i) => names.indexOf(n) === i && db.objectStoreNames.contains(n));
+          const tx = db.transaction(unique, 'readwrite');
 
-            // Replace warehouse
-            tx.objectStore(STORE_WH_CHUNKS).clear();
-            const now = new Date().toISOString();
-            const chunk = Object.assign({}, healthChunk, {
-              id: WH_CHUNK_HEALTH,
-              domain: 'healthData',
-              shard: 'full',
-              updatedAt: now,
+          tx.objectStore(STORE_WH_CHUNKS).clear();
+          const now = new Date().toISOString();
+          const chunk = Object.assign({}, healthChunk, {
+            id: WH_CHUNK_HEALTH,
+            domain: 'healthData',
+            shard: 'full',
+            updatedAt: now,
+          });
+          tx.objectStore(STORE_WH_CHUNKS).put(chunk);
+
+          let meta = Object.assign(defaultWarehouseMeta(), body.warehouseMeta || {}, { id: WH_META_ID });
+          if (opts.regrantConsent !== false) {
+            meta.consent = {
+              granted: true,
+              grantedAt: (meta.consent && meta.consent.grantedAt) || now,
+              revokedAt: null,
+              policyVersion: WAREHOUSE_POLICY_VERSION,
+            };
+          }
+          meta.totalApproxBytes = chunk.approxBytes || approxJsonBytes(chunk.payload);
+          meta.totalRecordCount = chunk.recordCount || countHealthRecords(chunk.payload);
+          meta.dateRange = inferDateRange(chunk.payload);
+          meta.lastWrittenAt = now;
+          tx.objectStore(STORE_WH_META).put(meta);
+
+          if (body.snapshots && unique.indexOf(STORE) >= 0) {
+            tx.objectStore(STORE).clear();
+            (body.snapshots || []).forEach((s) => {
+              if (s && s.id) tx.objectStore(STORE).put(s);
             });
-            tx.objectStore(STORE_WH_CHUNKS).put(chunk);
+          }
+          if (body.weeklyReports && unique.indexOf(STORE_REPORTS) >= 0) {
+            tx.objectStore(STORE_REPORTS).clear();
+            (body.weeklyReports || []).forEach((s) => {
+              if (s && s.id) tx.objectStore(STORE_REPORTS).put(s);
+            });
+          }
+          if (body.healthEvents && unique.indexOf(STORE_EVENTS) >= 0) {
+            tx.objectStore(STORE_EVENTS).clear();
+            (body.healthEvents || []).forEach((s) => {
+              if (s && s.id) tx.objectStore(STORE_EVENTS).put(s);
+            });
+          }
+          if (body.importBatches && unique.indexOf(STORE_IMPORT_BATCHES) >= 0) {
+            tx.objectStore(STORE_IMPORT_BATCHES).clear();
+            (body.importBatches || []).forEach((s) => {
+              if (s && s.id) tx.objectStore(STORE_IMPORT_BATCHES).put(s);
+            });
+          }
 
-            let meta = Object.assign(defaultWarehouseMeta(), body.warehouseMeta || {}, { id: WH_META_ID });
-            // After restore, require consent still granted (or re-grant)
-            if (opts.regrantConsent !== false) {
-              meta.consent = {
-                granted: true,
-                grantedAt: (meta.consent && meta.consent.grantedAt) || now,
-                revokedAt: null,
-                policyVersion: WAREHOUSE_POLICY_VERSION,
-              };
-            }
-            meta.totalApproxBytes = chunk.approxBytes || approxJsonBytes(chunk.payload);
-            meta.totalRecordCount = chunk.recordCount || countHealthRecords(chunk.payload);
-            meta.dateRange = inferDateRange(chunk.payload);
-            meta.lastWrittenAt = now;
-            tx.objectStore(STORE_WH_META).put(meta);
+          tx.oncomplete = () => {
+            db.close();
+            resolve({ ok: true, meta });
+          };
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        })
+    );
+  }
 
-            if (body.snapshots && unique.indexOf(STORE) >= 0) {
-              tx.objectStore(STORE).clear();
-              (body.snapshots || []).forEach((s) => {
-                if (s && s.id) tx.objectStore(STORE).put(s);
-              });
-            }
-            if (body.weeklyReports && unique.indexOf(STORE_REPORTS) >= 0) {
-              tx.objectStore(STORE_REPORTS).clear();
-              (body.weeklyReports || []).forEach((s) => {
-                if (s && s.id) tx.objectStore(STORE_REPORTS).put(s);
-              });
-            }
-            if (body.healthEvents && unique.indexOf(STORE_EVENTS) >= 0) {
-              tx.objectStore(STORE_EVENTS).clear();
-              (body.healthEvents || []).forEach((s) => {
-                if (s && s.id) tx.objectStore(STORE_EVENTS).put(s);
-              });
-            }
-            if (body.importBatches && unique.indexOf(STORE_IMPORT_BATCHES) >= 0) {
-              tx.objectStore(STORE_IMPORT_BATCHES).clear();
-              (body.importBatches || []).forEach((s) => {
-                if (s && s.id) tx.objectStore(STORE_IMPORT_BATCHES).put(s);
-              });
-            }
+  /**
+   * Replace warehouse (and optional side stores) from backup.
+   * @param {object} envelope
+   * @param {{ regrantConsent?: boolean, passphrase?: string }} [opts]
+   */
+  function importWarehouseBackup(envelope, opts) {
+    opts = opts || {};
+    if (!envelope || envelope.magic !== 'health-analyzer-backup') {
+      return Promise.reject(new Error('invalid_backup_magic'));
+    }
+    if (Number(envelope.formatVersion) !== 1) {
+      return Promise.reject(new Error('unsupported_backup_version'));
+    }
 
-            tx.oncomplete = () => {
-              db.close();
-              resolve({ ok: true, meta });
-            };
-            tx.onerror = () => {
-              db.close();
-              reject(tx.error);
-            };
-          })
+    const enc = envelope.encryption || 'none';
+    if (enc === 'none') {
+      return applyBackupPayload(envelope.payload, opts);
+    }
+    if (enc === 'passphrase-aes-gcm') {
+      return decryptBackupCipher(envelope.cipher, opts.passphrase).then((body) =>
+        applyBackupPayload(body, opts)
       );
+    }
+    return Promise.reject(new Error('unsupported_encryption'));
   }
 
   function listSnapshots() {

@@ -84,6 +84,23 @@ test.describe('v1.67 trends workbench', () => {
       await expect(page.locator(`#charts-content .chart-block-compare`)).toHaveCount(0);
     }
 
+    // v1.71: save / apply view preset (capture current primary first)
+    const savedPrimary = await page.locator('#chart-primary-metric').inputValue();
+    await page.locator('#chart-preset-name').fill('E2E-Preset');
+    await page.locator('#btn-chart-preset-save').click();
+    await expect
+      .poll(async () => page.locator('#chart-preset-select option').count())
+      .toBeGreaterThan(1);
+    const otherPrimary =
+      optionValues.find((v) => v && v !== savedPrimary) || optionValues[0];
+    if (otherPrimary && otherPrimary !== savedPrimary) {
+      await page.locator('#chart-primary-metric').selectOption(otherPrimary);
+      await page.locator('#chart-preset-select').selectOption({ label: 'E2E-Preset' });
+      await expect
+        .poll(async () => page.locator('#chart-primary-metric').inputValue())
+        .toBe(savedPrimary);
+    }
+
     expect(pageErrors).toEqual([]);
   });
 });

@@ -446,6 +446,20 @@
           <input type="checkbox" id="chart-events-toggle" />
           <span data-i18n="charts.workbench.events">事件标记</span>
         </label>
+        <div class="charts-wb-presets" role="group" data-i18n-aria="charts.preset.aria" aria-label="趋势视图预设">
+          <label class="charts-wb-field charts-wb-preset-select-field">
+            <span class="charts-wb-label" data-i18n="charts.preset.label">视图预设</span>
+            <select id="chart-preset-select" class="charts-wb-select" aria-label="chart preset">
+              <option value="" data-i18n="charts.preset.none">（选择预设）</option>
+            </select>
+          </label>
+          <label class="charts-wb-field charts-wb-preset-name-field">
+            <span class="charts-wb-label" data-i18n="charts.preset.name">名称</span>
+            <input type="text" id="chart-preset-name" class="charts-wb-input" maxlength="40" placeholder="例如 睡眠+HRV" data-i18n-placeholder="charts.preset.namePh" autocomplete="off" />
+          </label>
+          <button type="button" id="btn-chart-preset-save" class="btn-ghost btn-sm" data-i18n="charts.preset.save">保存当前</button>
+          <button type="button" id="btn-chart-preset-delete" class="btn-danger-text btn-sm" data-i18n="charts.preset.delete">删除</button>
+        </div>
       </div>
       <div id="charts-content" class="charts-content"></div>
     </section>
@@ -591,6 +605,10 @@
         </div>
         <p id="warehouse-storage-est" class="warehouse-storage-est hint compact-hint hidden"></p>
         <ul id="warehouse-domain-list" class="warehouse-domain-list hidden" aria-label="domain breakdown"></ul>
+        <label class="date-field warehouse-pass-field" for="warehouse-backup-pass">
+          <span data-i18n="warehouse.backupPass">备份口令（可选，导出加密 / 导入解密）</span>
+          <input type="password" id="warehouse-backup-pass" maxlength="128" autocomplete="new-password" placeholder="留空则明文备份" data-i18n-placeholder="warehouse.backupPassPh" />
+        </label>
         <div class="export-actions warehouse-actions">
           <button type="button" id="btn-warehouse-persist" class="btn-secondary" data-i18n="warehouse.persist">立即保存当前分析</button>
           <button type="button" id="btn-warehouse-restore" class="btn-secondary" data-i18n="warehouse.restore">从本机仓恢复</button>
@@ -735,7 +753,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.70</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.71</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">
