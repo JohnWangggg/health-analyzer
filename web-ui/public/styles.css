@@ -1734,6 +1734,25 @@ body.has-results .app-toast {
   margin: 4px 0 0;
 }
 
+/* 试验性 FHIR Bundle 本机导出 */
+.fhir-export-panel {
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2, var(--surface));
+}
+
+.fhir-export-panel .panel-subhead {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.fhir-export-panel .fhir-export-btns {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
 /* 本报告来源预览（仅关联 sourceBatchIds） */
 .provenance-preview {
   margin: 8px 0 4px;

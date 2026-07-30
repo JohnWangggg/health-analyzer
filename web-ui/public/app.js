@@ -3642,6 +3642,92 @@
     }
   }
 
+  /**
+   * 试验性本机 FHIR R4 形 Bundle 导出（Observation + 可选 Provenance）。
+   * 仅下载 JSON；不上传、非医院对接。依赖 lib buildFhirExportBundle。
+   */
+  async function exportFhirBundle() {
+    try {
+      if (!currentAnalysis) {
+        showToast(t('export.err.needAnalysis'));
+        return;
+      }
+      if (
+        !window.HealthAnalyzer ||
+        typeof window.HealthAnalyzer.buildFhirExportBundle !== 'function'
+      ) {
+        // lib 尚未内置 buildFhirExportBundle 时提示刷新/更新
+        showToast(
+          t('export.fhir.err', {
+            msg: 'buildFhirExportBundle unavailable — refresh / 请刷新页面',
+          }),
+          { ms: 3600 }
+        );
+        return;
+      }
+
+      const batches = (await loadImportBatchesForExport()) || [];
+      const range = currentAnalysis.dateRange || {};
+      const opts = Object.assign({}, analysisLocaleOpts(), {
+        windowStart: range.start || undefined,
+        windowEnd: range.end || undefined,
+        includeProvenance: batches.length > 0,
+        importBatches: batches,
+      });
+
+      const result = window.HealthAnalyzer.buildFhirExportBundle(
+        currentAnalysis,
+        opts
+      );
+      if (!result || (result.json == null && !result.bundle)) {
+        throw new Error('empty result');
+      }
+
+      const json =
+        result.json != null
+          ? String(result.json)
+          : JSON.stringify(result.bundle, null, 2);
+      const end =
+        range.end ||
+        new Date().toISOString().slice(0, 10);
+      downloadText(`fhir-bundle-${end}.json`, json, 'application/fhir+json');
+
+      const counts = result.counts || {};
+      const nObs =
+        counts.observation != null
+          ? counts.observation
+          : counts.observations != null
+            ? counts.observations
+            : counts.Observation != null
+              ? counts.Observation
+              : Array.isArray(result.bundle && result.bundle.entry)
+                ? result.bundle.entry.filter(
+                    (e) =>
+                      e &&
+                      e.resource &&
+                      String(e.resource.resourceType || '') === 'Observation'
+                  ).length
+                : 0;
+      let statusMsg = t('export.fhir.ok', { n: nObs });
+      const notes = Array.isArray(result.notes)
+        ? result.notes.filter(Boolean)
+        : result.notes
+          ? [String(result.notes)]
+          : [];
+      if (notes.length) {
+        statusMsg = statusMsg + ' · ' + notes.slice(0, 2).join(' · ');
+      }
+      showExportStatus(statusMsg);
+      if (notes.length > 2) {
+        showToast(notes.slice(2, 4).join(' · '), { ms: 3200 });
+      }
+    } catch (e) {
+      const msg = (e && e.message) || String(e);
+      showToast(t('export.fhir.err', { msg }), { ms: 3600 });
+      console.warn('exportFhirBundle failed', e);
+    }
+  }
+
   async function saveWeeklyReportToHistory() {
     if (!currentAnalysis) {
       alert(t('common.needAnalysis'));
@@ -6098,6 +6184,9 @@
   $('btn-export-visit')?.addEventListener('click', exportVisitSummary);
   $('btn-export-clinical-html')?.addEventListener('click', () => exportClinicalReview('html'));
   $('btn-export-clinical-md')?.addEventListener('click', () => exportClinicalReview('md'));
+  $('btn-export-fhir')?.addEventListener('click', () => {
+    exportFhirBundle().catch((e) => console.warn('exportFhirBundle', e));
+  });
   $('btn-provenance-preview')?.addEventListener('click', () => {
     toggleProvenancePreview().catch((e) => console.warn('provenance preview', e));
   });

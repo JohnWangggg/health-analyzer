@@ -492,6 +492,15 @@
           <button type="button" id="btn-export-clinical-md" class="btn-ghost" data-i18n="export.clinical.md">导出 Markdown</button>
         </div>
       </div>
+
+      <div class="fhir-export-panel" role="region" aria-labelledby="fhir-export-title">
+        <h3 class="panel-subhead" id="fhir-export-title" data-i18n="export.fhir.title">试验性 FHIR 导出</h3>
+        <p class="hint compact-hint" data-i18n="export.fhir.hint">本机生成 R4 形 Observation + Provenance Bundle JSON；不上传、非医院对接、非医疗认证。默认带本分析关联导入批次为 Provenance 实体。</p>
+        <div class="export-actions fhir-export-btns">
+          <button type="button" id="btn-export-fhir" class="btn-secondary" data-i18n="export.fhir.btn">导出 FHIR Bundle JSON</button>
+        </div>
+      </div>
+
       <p class="hint compact-hint export-shortcut-hint" data-i18n="export.shortcutHint">有结果时可用 ⌘/Ctrl+Shift+C 复制完整提示词。</p>
 
       <div class="privacy-wipe-panel" role="region" aria-labelledby="privacy-wipe-title">
@@ -603,7 +612,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.47</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.48</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">
