@@ -10,9 +10,12 @@ import { createL, normalizeLocale, AppLocale } from './locale';
 // Constants & types
 // ============================================================
 
-export const PROVENANCE_RULE_VERSION = 'health-analyzer-v1.46';
+export const PROVENANCE_RULE_VERSION = 'health-analyzer-v1.46.1';
 
 export type ImportSource = 'hae' | 'apple_zip' | 'apple_xml' | 'csv_merge' | 'other';
+
+/** full = entire file; prefix_1mib = only first 1 MiB; none = no hash */
+export type DigestScope = 'full' | 'prefix_1mib' | 'none';
 
 const IMPORT_SOURCES = new Set<string>([
   'hae',
@@ -22,11 +25,17 @@ const IMPORT_SOURCES = new Set<string>([
   'other',
 ]);
 
+const DIGEST_SCOPES = new Set<string>(['full', 'prefix_1mib', 'none']);
+
 export interface ImportFileDigest {
   name: string;
   bytes: number;
-  /** optional hex sha-256 prefix (first 16 chars ok) or full */
+  /** hex sha-256 (full file or prefix per digestScope) */
   sha256?: string | null;
+  /** how much of the file was hashed — never imply full-file integrity without full */
+  digestScope?: DigestScope | null;
+  /** number of bytes fed into the hash function */
+  bytesHashed?: number | null;
 }
 
 export interface ImportBatchDomainStats {
@@ -75,6 +84,13 @@ function asNonNegInt(v: unknown, fallback = 0): number {
   return Math.floor(n);
 }
 
+function normalizeDigestScope(raw: unknown): DigestScope | undefined {
+  if (raw == null || raw === '') return undefined;
+  const s = String(raw).trim().toLowerCase();
+  if (DIGEST_SCOPES.has(s)) return s as DigestScope;
+  return undefined;
+}
+
 function normalizeFileDigest(raw: unknown): ImportFileDigest | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
@@ -88,9 +104,55 @@ function normalizeFileDigest(raw: unknown): ImportFileDigest | null {
     const s = String(o.sha256).trim().toLowerCase();
     sha256 = s || null;
   }
+  const digestScope = normalizeDigestScope(o.digestScope);
+  let bytesHashed: number | null | undefined;
+  if (o.bytesHashed == null || o.bytesHashed === '') {
+    bytesHashed = undefined;
+  } else {
+    bytesHashed = asNonNegInt(o.bytesHashed, 0);
+  }
+  // Legacy records: sha256 present without scope → treat as unknown partial (prefix_1mib) not full
+  let scope = digestScope;
+  if (sha256 && !scope) {
+    scope = 'prefix_1mib';
+  }
+  if (!sha256 && scope === undefined) {
+    // leave undefined
+  } else if (!sha256) {
+    scope = scope || 'none';
+  }
   const out: ImportFileDigest = { name, bytes };
   if (sha256 !== undefined) out.sha256 = sha256;
+  if (scope !== undefined) out.digestScope = scope;
+  if (bytesHashed !== undefined) out.bytesHashed = bytesHashed;
   return out;
+}
+
+/** Human-readable hash label for appendix / UI */
+export function formatFileDigestHashLabel(
+  f: ImportFileDigest,
+  locale?: string
+): string {
+  const L = createL(normalizeLocale(locale));
+  const sha = f.sha256 != null && String(f.sha256).trim() ? String(f.sha256).trim() : '';
+  if (!sha) return '';
+  const short =
+    sha.length > 16 ? `${sha.slice(0, 16)}…` : sha;
+  const scope = f.digestScope || 'prefix_1mib';
+  if (scope === 'full') {
+    return L(`SHA-256=${short}`, `SHA-256=${short}`);
+  }
+  if (scope === 'prefix_1mib') {
+    const n =
+      f.bytesHashed != null && f.bytesHashed > 0
+        ? f.bytesHashed
+        : 1024 * 1024;
+    return L(
+      `SHA-256（前 1MiB，hashed ${n} B）=${short}`,
+      `SHA-256 (first 1MiB, hashed ${n} B)=${short}`
+    );
+  }
+  return L(`摘要=${short}`, `digest=${short}`);
 }
 
 function normalizeDomainStats(raw: unknown): ImportBatchDomainStats | null {
@@ -256,15 +318,20 @@ export function formatProvenanceAppendixMarkdown(
   lines.push('');
 
   if (!list.length) {
-    lines.push(L('（暂无本机导入批次记录）', '(No local import batch records)'));
+    lines.push(
+      L(
+        '（当前分析未关联导入批次；本附录不是全部导入历史。）',
+        '(No import batches linked to this analysis; this appendix is not full import history.)'
+      )
+    );
     lines.push('');
     return lines.join('\n');
   }
 
   lines.push(
     L(
-      `共展示最近 **${list.length}** 条导入批次（本机 IndexedDB）。`,
-      `Showing the latest **${list.length}** import batch(es) (local IndexedDB).`
+      `共 **${list.length}** 条**本报告关联**的导入批次（非全部导入历史）。`,
+      `**${list.length}** import batch(es) **linked to this report** (not full import history).`
     )
   );
   lines.push('');
@@ -318,10 +385,8 @@ export function formatProvenanceAppendixMarkdown(
         )
       );
       for (const f of b.files.slice(0, 20)) {
-        const hash =
-          f.sha256 != null && String(f.sha256)
-            ? ` · sha256=${String(f.sha256).slice(0, 16)}${String(f.sha256).length > 16 ? '…' : ''}`
-            : '';
+        const hashLabel = formatFileDigestHashLabel(f, locale);
+        const hash = hashLabel ? ` · ${hashLabel}` : '';
         lines.push(`  - \`${f.name}\` (${f.bytes || 0} B${hash})`);
       }
       if (b.files.length > 20) {

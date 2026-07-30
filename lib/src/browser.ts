@@ -167,12 +167,14 @@ export {
   createImportBatchId,
   normalizeImportBatch,
   formatProvenanceAppendixMarkdown,
+  formatFileDigestHashLabel,
 } from './provenance';
 export type {
   ImportFileDigest,
   ImportBatchRecord,
   ImportBatchStats,
   ImportSource,
+  DigestScope,
 } from './provenance';
 
 // 兼容历史 lib.js：calcBpStats 别名

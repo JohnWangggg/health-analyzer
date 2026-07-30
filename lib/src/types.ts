@@ -653,6 +653,11 @@ export interface FullAnalysis {
   sleepByDate: Record<string, SleepDaySummary>;
   dateRange: { start: string; end: string };
   generatedAt: string;
+  /**
+   * 本分析实际关联的本机导入批次 ID（v1.46.1）。
+   * 导出「数据来源附录」应只引用这些 ID，而非全部历史批次。
+   */
+  sourceBatchIds?: string[];
 }
 
 // ============================================================

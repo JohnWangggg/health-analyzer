@@ -33,6 +33,8 @@
   let lastImportDiagnostics = null;
   /** 最近一次本机导入批次 id（可追溯，IndexedDB） */
   let lastImportBatchId = null;
+  /** 当前分析关联的导入批次 ID（导出附录只用这些，不用全部 IDB 历史） */
+  let analysisSourceBatchIds = [];
   const CTX_STORAGE_KEY = 'health-analyzer-user-context-v1';
   const RECOVERY_WEIGHTS_KEY = 'health-analyzer-recovery-weights';
   const SIGNAL_PREFS_KEY = 'health-analyzer-signal-prefs-v1';
@@ -1529,6 +1531,8 @@
 
     const importDiag = createEmptyImportDiagnostics();
     lastImportDiagnostics = null;
+    // 全新 Apple 导出解析：本分析来源批次从空开始（不沿用上月/上次会话 ID）
+    resetAnalysisSourceBatchIds();
 
     try {
       let xmlText = '';
@@ -1722,11 +1726,12 @@
         recoveryWeights,
         locale: getAnalysisLocale(),
       });
+      syncAnalysisSourceBatchIds(currentAnalysis);
 
       importDiag.domains = summarizeDomainCounts(data);
       lastImportDiagnostics = importDiag;
 
-      // 本机导入批次可追溯（v1.46）
+      // 本机导入批次可追溯（v1.46 / 1.46.1：绑定 sourceBatchIds）
       try {
         const isZip = importDiag.source === 'zip';
         const source = isZip ? 'apple_zip' : 'apple_xml';
@@ -1736,21 +1741,25 @@
             name: importDiag.zipName,
             bytes: importDiag.zipBytes || 0,
             sha256: null,
+            digestScope: 'none',
+            bytesHashed: 0,
           });
         }
         if (importDiag.xmlFileName) {
-          let sha = null;
+          let dig = { sha256: null, digestScope: 'none', bytesHashed: 0 };
           try {
-            if (xmlText && xmlText.length <= 1024 * 1024) {
-              sha = await sha256HexPrefix(xmlText);
+            if (xmlText) {
+              dig = await digestForProvenance(xmlText, importDiag.xmlBytes || xmlText.length);
             } else if (xmlBytes && xmlBytes.byteLength) {
-              sha = await sha256HexPrefix(xmlBytes);
+              dig = await digestForProvenance(xmlBytes, importDiag.xmlBytes || xmlBytes.byteLength);
             }
           } catch (_) { /* optional */ }
           digests.push({
             name: importDiag.xmlFileName,
             bytes: importDiag.xmlBytes || 0,
-            sha256: sha,
+            sha256: dig.sha256,
+            digestScope: dig.digestScope || 'none',
+            bytesHashed: dig.bytesHashed != null ? dig.bytesHashed : 0,
           });
         }
         const domains = importDiag.domains || {};
@@ -1763,7 +1772,7 @@
         }
         const notes = Array.isArray(importDiag.notes) ? importDiag.notes.slice() : [];
         if (lastCsvMergeNote) notes.push(String(lastCsvMergeNote));
-        const savedBatch = await recordImportBatch({
+        await recordImportBatch({
           source,
           files: digests,
           stats: {
@@ -1774,9 +1783,7 @@
           },
           notes,
         });
-        if (savedBatch && savedBatch.id) {
-          lastImportBatchId = savedBatch.id;
-        }
+        syncAnalysisSourceBatchIds(currentAnalysis);
       } catch (e) {
         console.warn('import provenance record skipped', e);
       }
@@ -3307,16 +3314,62 @@
     }
   }
 
+  function resetAnalysisSourceBatchIds() {
+    analysisSourceBatchIds = [];
+    lastImportBatchId = null;
+  }
+
+  function rememberSourceBatchId(id) {
+    if (!id) return;
+    const s = String(id);
+    if (!analysisSourceBatchIds.includes(s)) {
+      analysisSourceBatchIds.push(s);
+    }
+    lastImportBatchId = s;
+    if (currentAnalysis) {
+      currentAnalysis.sourceBatchIds = analysisSourceBatchIds.slice();
+    }
+  }
+
+  function syncAnalysisSourceBatchIds(analysis) {
+    if (!analysis) return analysis;
+    analysis.sourceBatchIds = analysisSourceBatchIds.slice();
+    return analysis;
+  }
+
+  /**
+   * 仅加载「当前分析关联」的导入批次，而非全部 IndexedDB 历史。
+   */
   async function loadImportBatchesForExport() {
-    if (!window.HealthHistory || typeof window.HealthHistory.listImportBatches !== 'function') {
-      return [];
-    }
+    const ids =
+      (currentAnalysis &&
+        Array.isArray(currentAnalysis.sourceBatchIds) &&
+        currentAnalysis.sourceBatchIds.length
+        ? currentAnalysis.sourceBatchIds
+        : analysisSourceBatchIds) || [];
+    if (!ids.length) return [];
+    if (!window.HealthHistory) return [];
+    const out = [];
     try {
-      return (await window.HealthHistory.listImportBatches()) || [];
+      if (typeof window.HealthHistory.getImportBatch === 'function') {
+        for (const id of ids) {
+          try {
+            const b = await window.HealthHistory.getImportBatch(id);
+            if (b) out.push(b);
+          } catch (_) { /* skip missing */ }
+        }
+        return out;
+      }
+      // fallback: list all then filter
+      if (typeof window.HealthHistory.listImportBatches === 'function') {
+        const all = (await window.HealthHistory.listImportBatches()) || [];
+        const set = new Set(ids.map(String));
+        return all.filter((b) => b && set.has(String(b.id)));
+      }
     } catch (e) {
-      console.warn('listImportBatches failed', e);
-      return [];
+      console.warn('loadImportBatchesForExport failed', e);
     }
+    return out;
   }
 
   /**
@@ -3422,20 +3475,9 @@
         const events = await loadEventsForClinicalExport();
         opts.events = events || [];
       }
-      // 数据可追溯附录：仅勾选时加载本机导入批次
+      // 数据可追溯附录：仅勾选时加载「本分析关联」批次（非全部历史）
       if (opts.includeProvenanceAppendix) {
-        try {
-          if (
-            window.HealthHistory &&
-            typeof window.HealthHistory.listImportBatches === 'function'
-          ) {
-            opts.importBatches = await window.HealthHistory.listImportBatches();
-          } else {
-            opts.importBatches = [];
-          }
-        } catch (_) {
-          opts.importBatches = [];
-        }
+        opts.importBatches = await loadImportBatchesForExport();
       }
       const ctx =
         opts.includeSensitiveContext && typeof getUserContextForPrompt === 'function'
@@ -4450,8 +4492,10 @@
     host.classList.remove('hidden');
   }
 
-  /** Optional hex SHA-256 (full or first 1MB). Returns null if unavailable. */
-  async function sha256HexPrefix(data) {
+  const DIGEST_FULL_MAX = 1024 * 1024; // ≤1MiB → full SHA-256; larger → prefix only
+
+  /** SHA-256 hex of the given buffer/string as-is (no silent truncation). */
+  async function sha256HexRaw(data) {
     try {
       if (!window.crypto || !window.crypto.subtle) return null;
       let buf;
@@ -4461,15 +4505,10 @@
       } else if (data instanceof ArrayBuffer) {
         buf = data;
       } else if (data && typeof data.byteLength === 'number') {
-        // Uint8Array / TypedArray
         const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
         buf = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
       } else {
         return null;
-      }
-      const MAX = 1024 * 1024;
-      if (buf.byteLength > MAX) {
-        buf = buf.slice(0, MAX);
       }
       const hash = await window.crypto.subtle.digest('SHA-256', buf);
       return Array.from(new Uint8Array(hash))
@@ -4478,6 +4517,56 @@
     } catch (_) {
       return null;
     }
+  }
+
+  /**
+   * Digest for provenance: full file if ≤1MiB; otherwise first 1MiB with digestScope=prefix_1mib.
+   * Never labels a prefix hash as a full-file integrity check.
+   */
+  async function digestForProvenance(data, totalBytesHint) {
+    const empty = { sha256: null, digestScope: 'none', bytesHashed: 0 };
+    try {
+      let u8;
+      if (typeof data === 'string') {
+        u8 = new TextEncoder().encode(data);
+      } else if (data instanceof ArrayBuffer) {
+        u8 = new Uint8Array(data);
+      } else if (data && typeof data.byteLength === 'number') {
+        u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
+      } else {
+        return empty;
+      }
+      const total =
+        totalBytesHint != null && Number.isFinite(totalBytesHint)
+          ? Number(totalBytesHint)
+          : u8.byteLength;
+      if (!u8.byteLength) return empty;
+      if (u8.byteLength <= DIGEST_FULL_MAX) {
+        const sha = await sha256HexRaw(u8);
+        return {
+          sha256: sha,
+          digestScope: sha ? 'full' : 'none',
+          bytesHashed: u8.byteLength,
+          bytes: total,
+        };
+      }
+      const prefix = u8.slice(0, DIGEST_FULL_MAX);
+      const sha = await sha256HexRaw(prefix);
+      return {
+        sha256: sha,
+        digestScope: sha ? 'prefix_1mib' : 'none',
+        bytesHashed: DIGEST_FULL_MAX,
+        bytes: total,
+      };
+    } catch (_) {
+      return empty;
+    }
+  }
+
+  /** @deprecated use digestForProvenance — kept for any stray callers */
+  async function sha256HexPrefix(data) {
+    const d = await digestForProvenance(data);
+    return d.sha256;
   }
 
   function shortImportBatchId(id) {
@@ -4502,7 +4591,7 @@
         `batch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
       const ruleVersion =
         (typeof HA.PROVENANCE_RULE_VERSION === 'string' && HA.PROVENANCE_RULE_VERSION) ||
-        'health-analyzer-v1.46';
+        'health-analyzer-v1.46.1';
       let record = {
         id,
         createdAt: new Date().toISOString(),
@@ -4529,8 +4618,11 @@
         if (n) record = n;
       }
       const saved = await window.HealthHistory.saveImportBatch(record);
-      if (saved && saved.id) lastImportBatchId = saved.id;
-      return saved || record;
+      const finalRec = saved || record;
+      if (finalRec && finalRec.id) {
+        rememberSourceBatchId(finalRec.id);
+      }
+      return finalRec;
     } catch (e) {
       console.warn('recordImportBatch failed', e);
       return null;
@@ -4621,6 +4713,8 @@
           name: String((d && d.name) || 'file'),
           bytes: (d && d.bytes) || 0,
           sha256: d && d.sha256 != null ? d.sha256 : null,
+          digestScope: (d && d.digestScope) || (d && d.sha256 ? 'prefix_1mib' : 'none'),
+          bytesHashed: d && d.bytesHashed != null ? d.bytesHashed : null,
         })),
         stats: {
           totalAdded: result.totalAdded || 0,
@@ -4726,18 +4820,19 @@
           const text = await readFileAsText(f, HAE_LIMITS.MAX_SINGLE_BYTES);
           const textStr = String(text || '');
           payloads.push({ name: f.name || 'file', text: textStr });
-          let sha = null;
+          let dig = { sha256: null, digestScope: 'none', bytesHashed: 0 };
           try {
-            if (textStr.length <= 1024 * 1024) {
-              sha = await sha256HexPrefix(textStr);
-            } else if (textStr.length) {
-              sha = await sha256HexPrefix(textStr.slice(0, 1024 * 1024));
-            }
+            dig = await digestForProvenance(
+              textStr,
+              typeof f.size === 'number' ? f.size : textStr.length
+            );
           } catch (_) { /* optional */ }
           batchDigests.push({
             name: f.name || 'file',
             bytes: typeof f.size === 'number' ? f.size : textStr.length,
-            sha256: sha,
+            sha256: dig.sha256,
+            digestScope: dig.digestScope || 'none',
+            bytesHashed: dig.bytesHashed != null ? dig.bytesHashed : 0,
           });
         }
         if (cancelled) break;
@@ -4775,11 +4870,17 @@
         }
       }
 
+      // HAE 增量合并：保留已有 sourceBatchIds，再追加本批（record 内 remember）
+      if (!currentAnalysis) {
+        // 无既有分析时从空关联列表开始
+        resetAnalysisSourceBatchIds();
+      }
       recoveryWeights = loadRecoveryWeights();
       currentAnalysis = window.HealthAnalyzer.analyzeAll(workingData, {
         recoveryWeights,
         locale: getAnalysisLocale(),
       });
+      syncAnalysisSourceBatchIds(currentAnalysis);
       renderResults(currentAnalysis);
 
       const added = result.totalAdded || 0;
@@ -4792,6 +4893,7 @@
         cancelled,
         capNotes,
       });
+      syncAnalysisSourceBatchIds(currentAnalysis);
       const batchId = savedBatch && savedBatch.id ? savedBatch.id : null;
 
       renderHaeImportResult(result, { capNote, fileCount: processedFiles, batchId });
@@ -4815,6 +4917,7 @@
             recoveryWeights,
             locale: getAnalysisLocale(),
           });
+          syncAnalysisSourceBatchIds(currentAnalysis);
           renderResults(currentAnalysis);
           const savedBatch = await recordHaeImportBatch({
             fileDigests: processedDigests,
@@ -4822,6 +4925,7 @@
             cancelled: true,
             capNotes: [...capNotes, String((e && e.message) || e)],
           });
+          syncAnalysisSourceBatchIds(currentAnalysis);
           const batchId = savedBatch && savedBatch.id ? savedBatch.id : null;
           renderHaeImportResult(result, { capNote, fileCount: processedFiles, batchId });
           renderHaeUnknownMetrics(result.unknownMetrics || []);
@@ -5955,7 +6059,7 @@
       alert(t('privacy.wipeFail', { msg: e && e.message ? e.message : String(e) }));
       return;
     }
-    lastImportBatchId = null;
+    resetAnalysisSourceBatchIds();
     const labelEl = $('history-label');
     if (labelEl) labelEl.value = '';
     const wrLabel = $('weekly-report-label');
@@ -5977,7 +6081,7 @@
   function resetResultsUi(opts) {
     currentAnalysis = null;
     lastImportDiagnostics = null;
-    lastImportBatchId = null;
+    resetAnalysisSourceBatchIds();
     lastCsvMergeNote = '';
     lastSelectedFiles = null;
     setResultsVisible(false);

@@ -77,6 +77,7 @@ var HealthAnalyzer = (() => {
     formatCrossSignalsForLLM: () => formatCrossSignalsForLLM,
     formatEventKindLabel: () => formatEventKindLabel,
     formatEventsMarkdown: () => formatEventsMarkdown,
+    formatFileDigestHashLabel: () => formatFileDigestHashLabel,
     formatInsightsForLLM: () => formatInsightsForLLM,
     formatProvenanceAppendixMarkdown: () => formatProvenanceAppendixMarkdown,
     formatUserContext: () => formatUserContext,
@@ -5849,7 +5850,7 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/provenance.ts
-  var PROVENANCE_RULE_VERSION = "health-analyzer-v1.46";
+  var PROVENANCE_RULE_VERSION = "health-analyzer-v1.46.1";
   var IMPORT_SOURCES = /* @__PURE__ */ new Set([
     "hae",
     "apple_zip",
@@ -5857,6 +5858,7 @@ List 5\u20137 working hypotheses that best fit the available data
     "csv_merge",
     "other"
   ]);
+  var DIGEST_SCOPES = /* @__PURE__ */ new Set(["full", "prefix_1mib", "none"]);
   function createImportBatchId() {
     return `batch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
   }
@@ -5867,6 +5869,12 @@ List 5\u20137 working hypotheses that best fit the available data
     const n = typeof v === "number" ? v : Number(v);
     if (!Number.isFinite(n) || n < 0) return fallback;
     return Math.floor(n);
+  }
+  function normalizeDigestScope(raw) {
+    if (raw == null || raw === "") return void 0;
+    const s = String(raw).trim().toLowerCase();
+    if (DIGEST_SCOPES.has(s)) return s;
+    return void 0;
   }
   function normalizeFileDigest(raw) {
     if (!raw || typeof raw !== "object") return null;
@@ -5881,9 +5889,44 @@ List 5\u20137 working hypotheses that best fit the available data
       const s = String(o.sha256).trim().toLowerCase();
       sha256 = s || null;
     }
+    const digestScope = normalizeDigestScope(o.digestScope);
+    let bytesHashed;
+    if (o.bytesHashed == null || o.bytesHashed === "") {
+      bytesHashed = void 0;
+    } else {
+      bytesHashed = asNonNegInt(o.bytesHashed, 0);
+    }
+    let scope = digestScope;
+    if (sha256 && !scope) {
+      scope = "prefix_1mib";
+    }
+    if (!sha256 && scope === void 0) {
+    } else if (!sha256) {
+      scope = scope || "none";
+    }
     const out = { name, bytes };
     if (sha256 !== void 0) out.sha256 = sha256;
+    if (scope !== void 0) out.digestScope = scope;
+    if (bytesHashed !== void 0) out.bytesHashed = bytesHashed;
     return out;
+  }
+  function formatFileDigestHashLabel(f, locale) {
+    const L = createL(normalizeLocale(locale));
+    const sha = f.sha256 != null && String(f.sha256).trim() ? String(f.sha256).trim() : "";
+    if (!sha) return "";
+    const short = sha.length > 16 ? `${sha.slice(0, 16)}\u2026` : sha;
+    const scope = f.digestScope || "prefix_1mib";
+    if (scope === "full") {
+      return L(`SHA-256=${short}`, `SHA-256=${short}`);
+    }
+    if (scope === "prefix_1mib") {
+      const n = f.bytesHashed != null && f.bytesHashed > 0 ? f.bytesHashed : 1024 * 1024;
+      return L(
+        `SHA-256\uFF08\u524D 1MiB\uFF0Chashed ${n} B\uFF09=${short}`,
+        `SHA-256 (first 1MiB, hashed ${n} B)=${short}`
+      );
+    }
+    return L(`\u6458\u8981=${short}`, `digest=${short}`);
   }
   function normalizeDomainStats(raw) {
     if (!raw || typeof raw !== "object") return null;
@@ -6000,14 +6043,19 @@ List 5\u20137 working hypotheses that best fit the available data
     );
     lines.push("");
     if (!list.length) {
-      lines.push(L("\uFF08\u6682\u65E0\u672C\u673A\u5BFC\u5165\u6279\u6B21\u8BB0\u5F55\uFF09", "(No local import batch records)"));
+      lines.push(
+        L(
+          "\uFF08\u5F53\u524D\u5206\u6790\u672A\u5173\u8054\u5BFC\u5165\u6279\u6B21\uFF1B\u672C\u9644\u5F55\u4E0D\u662F\u5168\u90E8\u5BFC\u5165\u5386\u53F2\u3002\uFF09",
+          "(No import batches linked to this analysis; this appendix is not full import history.)"
+        )
+      );
       lines.push("");
       return lines.join("\n");
     }
     lines.push(
       L(
-        `\u5171\u5C55\u793A\u6700\u8FD1 **${list.length}** \u6761\u5BFC\u5165\u6279\u6B21\uFF08\u672C\u673A IndexedDB\uFF09\u3002`,
-        `Showing the latest **${list.length}** import batch(es) (local IndexedDB).`
+        `\u5171 **${list.length}** \u6761**\u672C\u62A5\u544A\u5173\u8054**\u7684\u5BFC\u5165\u6279\u6B21\uFF08\u975E\u5168\u90E8\u5BFC\u5165\u5386\u53F2\uFF09\u3002`,
+        `**${list.length}** import batch(es) **linked to this report** (not full import history).`
       )
     );
     lines.push("");
@@ -6054,7 +6102,8 @@ List 5\u20137 working hypotheses that best fit the available data
           )
         );
         for (const f of b.files.slice(0, 20)) {
-          const hash = f.sha256 != null && String(f.sha256) ? ` \xB7 sha256=${String(f.sha256).slice(0, 16)}${String(f.sha256).length > 16 ? "\u2026" : ""}` : "";
+          const hashLabel = formatFileDigestHashLabel(f, locale);
+          const hash = hashLabel ? ` \xB7 ${hashLabel}` : "";
           lines.push(`  - \`${f.name}\` (${f.bytes || 0} B${hash})`);
         }
         if (b.files.length > 20) {
