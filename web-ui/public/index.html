@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
+  <a href="#main-content" class="skip-link" data-i18n="a11y.skipMain">跳到主内容</a>
   <div class="bg-aurora" aria-hidden="true"></div>
   <div class="bg-grid" aria-hidden="true"></div>
   <header class="app-header">
@@ -45,7 +46,7 @@
     </div>
   </header>
 
-  <main class="container app-shell">
+  <main id="main-content" class="container app-shell" tabindex="-1">
 
     <aside id="install-guide" class="install-guide hidden" aria-label="install">
       <div class="install-guide-icon" aria-hidden="true">📱</div>
@@ -770,7 +771,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.73</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.74</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">
