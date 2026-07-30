@@ -557,6 +557,135 @@ body.has-results .result-bottom-nav:not(.hidden) {
   margin-bottom: 12px;
 }
 
+/* v1.72 今日优先关注 */
+.priority-focus {
+  margin: 0 0 16px;
+  padding: 16px 16px 14px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+  border-left: 5px solid var(--primary);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary-light) 55%, var(--surface)) 0%, var(--surface) 72%);
+  box-shadow: var(--shadow-lg);
+}
+
+.priority-focus.hidden {
+  display: none !important;
+}
+
+.priority-focus.tone-alert {
+  border-left-color: var(--danger);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--danger) 10%, var(--surface)) 0%, var(--surface) 70%);
+}
+.priority-focus.tone-watch {
+  border-left-color: var(--warning);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--warning) 12%, var(--surface)) 0%, var(--surface) 70%);
+}
+.priority-focus.tone-positive {
+  border-left-color: var(--success);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--success) 10%, var(--surface)) 0%, var(--surface) 70%);
+}
+
+.priority-focus-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.priority-focus-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--primary-dark);
+}
+
+.priority-focus-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+  color: var(--primary-dark);
+}
+
+.priority-focus.tone-alert .priority-focus-badge {
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface));
+  color: color-mix(in srgb, var(--danger) 80%, var(--text));
+}
+.priority-focus.tone-watch .priority-focus-badge {
+  background: color-mix(in srgb, var(--warning) 16%, var(--surface));
+  color: color-mix(in srgb, var(--warning) 80%, var(--text));
+}
+.priority-focus.tone-positive .priority-focus-badge {
+  background: color-mix(in srgb, var(--success) 14%, var(--surface));
+  color: color-mix(in srgb, var(--success) 75%, var(--text));
+}
+
+.priority-focus-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.priority-focus-detail {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.priority-focus-coverage {
+  margin: 0 0 12px !important;
+}
+
+.priority-focus-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.priority-focus-actions .btn-sm {
+  min-height: 40px;
+  min-width: 44px;
+}
+
+.priority-focus-note {
+  margin: 0 !important;
+}
+
+@media (min-width: 720px) {
+  .priority-focus {
+    padding: 18px 20px 16px;
+  }
+  .priority-focus-title {
+    font-size: 22px;
+  }
+}
+
+/* Mobile: emphasize priority; slightly denser secondary list */
+@media (max-width: 719px) {
+  .priority-focus-title {
+    font-size: 18px;
+  }
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .kpi-grid > :nth-child(n + 5) {
+    /* keep first ~4 KPI cards primary on phone; rest still available below */
+  }
+}
+
 .insight-panel {
   margin: 0 0 18px;
   padding: 16px 16px 18px;

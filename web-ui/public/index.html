@@ -386,8 +386,25 @@
       <div id="data-quality-banner" class="hidden" aria-live="polite"></div>
       <div id="warehouse-restored-banner" class="warehouse-restored-banner hidden" role="status" data-i18n="warehouse.restoredBanner">已从本机原始数据仓恢复 · 非重新上传</div>
 
+      <!-- v1.72 今日优先关注：单条主结论 -->
+      <div id="priority-focus" class="priority-focus hidden" role="region" data-i18n-aria="priority.aria" aria-label="今日优先关注">
+        <div class="priority-focus-top">
+          <p class="priority-focus-label" data-i18n="priority.label">今日优先关注</p>
+          <span id="priority-focus-badge" class="priority-focus-badge"></span>
+        </div>
+        <h3 id="priority-focus-title" class="priority-focus-title"></h3>
+        <p id="priority-focus-detail" class="priority-focus-detail"></p>
+        <p id="priority-focus-coverage" class="priority-focus-coverage hint compact-hint"></p>
+        <div class="priority-focus-actions">
+          <button type="button" id="btn-priority-detail" class="btn-secondary btn-sm" data-i18n="action.detail">看明细</button>
+          <button type="button" id="btn-priority-chart" class="btn-ghost btn-sm hidden" data-i18n="action.chart">看曲线</button>
+          <button type="button" id="btn-priority-trends" class="btn-ghost btn-sm" data-i18n="hero.openTrends">查看趋势</button>
+        </div>
+        <p class="priority-focus-note hint compact-hint" data-i18n="priority.note">规则线索，非诊断；其余条目见下方列表。</p>
+      </div>
+
       <div class="insight-panel">
-        <h3 class="subhead" data-i18n="insight.subhead">先看这些</h3>
+        <h3 class="subhead" data-i18n="insight.subhead">其它关注点</h3>
         <p class="insight-lead" data-i18n="insight.lead">点条目看明细，点「看曲线」跳到对应趋势图（非诊断）。</p>
         <ol id="insight-list" class="insight-list" aria-label="insights"></ol>
       </div>
@@ -753,7 +770,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.71</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.72</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

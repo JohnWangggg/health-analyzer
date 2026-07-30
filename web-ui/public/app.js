@@ -2871,11 +2871,124 @@
     return main.slice(0, max - 1) + '…';
   }
 
+  function toneLabelOf(tone) {
+    if (tone === 'alert') return t('tone.alert');
+    if (tone === 'watch') return t('tone.watch');
+    if (tone === 'positive') return t('tone.positive');
+    return t('tone.neutral');
+  }
+
+  function chartKeyFromAnchor(a) {
+    if (!a) return '';
+    if (a.includes('cgm')) return 'cgm';
+    if (a.includes('bodyfat')) return 'bodyfat';
+    if (a.includes('weight')) return 'weight';
+    if (a.includes('bp') || a.includes('血压')) return 'bp';
+    if (a.includes('hrv')) return 'hrv';
+    if (a.includes('workout')) return 'workout';
+    if (a.includes('recovery') || a.includes('恢复') || a.includes('负荷')) return 'recovery';
+    if (a.includes('exercise')) return 'exercise';
+    if (a.includes('watch') || a.includes('spo2')) return 'spo2';
+    return '';
+  }
+
+  function canChartFromAnalysis(analysis, chartKey) {
+    if (!analysis || !chartKey) return false;
+    return (
+      chartKey === 'cgm' ? !!(analysis.cgmStats) :
+      chartKey === 'weight' ? !!(analysis.weightStats || (analysis.data && analysis.data.weight && analysis.data.weight.length)) :
+      chartKey === 'bodyfat' ? !!(
+        analysis.weightStats &&
+        analysis.weightStats.trendSeries &&
+        analysis.weightStats.trendSeries.some((w) => w.bodyFat != null && Number.isFinite(w.bodyFat))
+      ) :
+      chartKey === 'bp' ? !!(analysis.bpStats) :
+      chartKey === 'hrv' ? !!(analysis.hrvByDate && Object.keys(analysis.hrvByDate).length) :
+      chartKey === 'spo2' || chartKey === 'exercise' ? !!(analysis.watchStats && analysis.watchStats.dayCount) :
+      chartKey === 'workout' ? !!(analysis.workoutStats && analysis.workoutStats.count) :
+      chartKey === 'recovery' ? !!(analysis.recoveryWeeks && analysis.recoveryWeeks.length >= 2) :
+      false
+    );
+  }
+
+  /** Prefer alert → watch → neutral → positive for "what to look at first". */
+  function pickPriorityBullet(bullets) {
+    if (!bullets || !bullets.length) return null;
+    const rank = { alert: 0, watch: 1, neutral: 2, positive: 3 };
+    let best = bullets[0];
+    let bestR = rank[best.tone] != null ? rank[best.tone] : 9;
+    for (let i = 1; i < bullets.length; i++) {
+      const r = rank[bullets[i].tone] != null ? rank[bullets[i].tone] : 9;
+      if (r < bestR) {
+        best = bullets[i];
+        bestR = r;
+      }
+    }
+    return best;
+  }
+
+  function coverageLineFromAnalysis(analysis) {
+    try {
+      const meta = analysis && analysis.meta;
+      const start = meta && (meta.startDate || meta.dateStart);
+      const end = meta && (meta.endDate || meta.dateEnd);
+      const days = meta && (meta.dayCount || meta.days);
+      if (start && end) {
+        return t('priority.coverageRange', {
+          start: String(start).slice(0, 10),
+          end: String(end).slice(0, 10),
+          days: days != null ? String(days) : '—',
+        });
+      }
+    } catch (e) { /* ignore */ }
+    const el = $('date-range-info');
+    if (el && el.textContent && el.textContent.trim()) {
+      return t('priority.coverageFromUi', { text: el.textContent.trim() });
+    }
+    return t('priority.coverageUnknown');
+  }
+
+  /** @type {{ anchor: string, chartKey: string, canChart: boolean }|null} */
+  let priorityFocusState = null;
+
+  function renderPriorityFocus(analysis, bullets) {
+    const card = $('priority-focus');
+    if (!card) return;
+    const priority = pickPriorityBullet(bullets);
+    if (!priority) {
+      card.classList.add('hidden');
+      priorityFocusState = null;
+      return;
+    }
+    const tone = priority.tone || 'neutral';
+    const anchor = priority.anchor || 'summary';
+    const chartKey = chartKeyFromAnchor(anchor);
+    const canChart = canChartFromAnalysis(analysis, chartKey);
+    priorityFocusState = { anchor, chartKey, canChart };
+
+    card.classList.remove('hidden');
+    card.classList.remove('tone-alert', 'tone-watch', 'tone-positive', 'tone-neutral');
+    card.classList.add('tone-' + tone);
+
+    const badge = $('priority-focus-badge');
+    if (badge) badge.textContent = toneLabelOf(tone);
+    const title = $('priority-focus-title');
+    if (title) title.textContent = priority.title || '';
+    const detail = $('priority-focus-detail');
+    if (detail) detail.textContent = priority.detail || '';
+    const cov = $('priority-focus-coverage');
+    if (cov) cov.textContent = coverageLineFromAnalysis(analysis);
+
+    const btnChart = $('btn-priority-chart');
+    if (btnChart) btnChart.classList.toggle('hidden', !canChart);
+  }
+
   function renderInsights(analysis) {
     const list = $('insight-list');
     if (!list) return;
     if (!window.HealthAnalyzer || typeof window.HealthAnalyzer.buildInsightBullets !== 'function') {
       list.innerHTML = `<li class="insight-item tone-neutral"><div class="insight-title">${escapeHtml(t('insights.moduleMissing'))}</div></li>`;
+      renderPriorityFocus(analysis, []);
       return;
     }
     const bullets = window.HealthAnalyzer.buildInsightBullets(analysis, analysisLocaleOpts()) || [];
@@ -2884,61 +2997,45 @@
         `<li class="insight-item tone-neutral empty-state-card">` +
         `<div class="insight-title">${escapeHtml(t('empty.insights.title'))}</div>` +
         `<p class="insight-detail">${escapeHtml(t('empty.insights.detail'))}</p></li>`;
+      renderPriorityFocus(analysis, []);
       return;
     }
-    const toneLabel = (tone) => {
-      if (tone === 'alert') return t('tone.alert');
-      if (tone === 'watch') return t('tone.watch');
-      if (tone === 'positive') return t('tone.positive');
-      return t('tone.neutral');
-    };
-    const chartKeyFromAnchor = (a) => {
-      if (!a) return '';
-      if (a.includes('cgm')) return 'cgm';
-      if (a.includes('bodyfat')) return 'bodyfat';
-      if (a.includes('weight')) return 'weight';
-      if (a.includes('bp') || a.includes('血压')) return 'bp';
-      if (a.includes('hrv')) return 'hrv';
-      if (a.includes('workout')) return 'workout';
-      if (a.includes('recovery') || a.includes('恢复') || a.includes('负荷')) return 'recovery';
-      if (a.includes('exercise')) return 'exercise';
-      if (a.includes('watch') || a.includes('spo2')) return 'spo2';
-      return '';
-    };
 
-    list.innerHTML = bullets.map((b, idx) => {
-      const anchor = b.anchor || 'summary';
-      const chartKey = chartKeyFromAnchor(anchor);
-      // 图表可能尚未渲染完：根据分析数据预判；canChart 为 false 时不显示「看曲线」
-      const canChart =
-        chartKey === 'cgm' ? !!(analysis.cgmStats) :
-        chartKey === 'weight' ? !!(analysis.weightStats || (analysis.data && analysis.data.weight && analysis.data.weight.length)) :
-        chartKey === 'bodyfat' ? !!(
-          analysis.weightStats &&
-          analysis.weightStats.trendSeries &&
-          analysis.weightStats.trendSeries.some((w) => w.bodyFat != null && Number.isFinite(w.bodyFat))
-        ) :
-        chartKey === 'bp' ? !!(analysis.bpStats) :
-        chartKey === 'hrv' ? !!(analysis.hrvByDate && Object.keys(analysis.hrvByDate).length) :
-        chartKey === 'spo2' || chartKey === 'exercise' ? !!(analysis.watchStats && analysis.watchStats.dayCount) :
-        chartKey === 'workout' ? !!(analysis.workoutStats && analysis.workoutStats.count) :
-        chartKey === 'recovery' ? !!(analysis.recoveryWeeks && analysis.recoveryWeeks.length >= 2) :
-        false;
-      const actions = `
-        <span class="insight-actions">
-          <button type="button" class="insight-act" data-prefer="summary" data-anchor="${escapeHtml(anchor)}">${escapeHtml(t('action.detail'))}</button>
-          ${canChart ? `<button type="button" class="insight-act" data-prefer="chart" data-anchor="${escapeHtml(anchor)}">${escapeHtml(t('action.chart'))}</button>` : ''}
-        </span>`;
-      return `
-      <li class="insight-item tone-${escapeHtml(b.tone || 'neutral')} is-clickable" data-anchor="${escapeHtml(anchor)}" data-idx="${idx}" role="button" tabindex="0">
-        <div class="insight-meta">
-          <span class="insight-badge">${toneLabel(b.tone)}</span>
-          ${actions}
-        </div>
-        <div class="insight-title">${escapeHtml(b.title)}</div>
-        <p class="insight-detail">${escapeHtml(b.detail)}</p>
-      </li>`;
-    }).join('');
+    // v1.72: surface one priority card; list shows remaining (or all if only one)
+    const priority = pickPriorityBullet(bullets);
+    renderPriorityFocus(analysis, bullets);
+    const rest =
+      priority && bullets.length > 1
+        ? bullets.filter((b) => b !== priority)
+        : bullets.length === 1
+          ? [] // single bullet only in priority card
+          : bullets;
+
+    if (!rest.length) {
+      list.innerHTML =
+        `<li class="insight-item tone-neutral empty-state-card insight-rest-empty">` +
+        `<div class="insight-title">${escapeHtml(t('priority.restEmpty'))}</div></li>`;
+    } else {
+      list.innerHTML = rest.map((b, idx) => {
+        const anchor = b.anchor || 'summary';
+        const chartKey = chartKeyFromAnchor(anchor);
+        const canChart = canChartFromAnalysis(analysis, chartKey);
+        const actions = `
+          <span class="insight-actions">
+            <button type="button" class="insight-act" data-prefer="summary" data-anchor="${escapeHtml(anchor)}">${escapeHtml(t('action.detail'))}</button>
+            ${canChart ? `<button type="button" class="insight-act" data-prefer="chart" data-anchor="${escapeHtml(anchor)}">${escapeHtml(t('action.chart'))}</button>` : ''}
+          </span>`;
+        return `
+        <li class="insight-item tone-${escapeHtml(b.tone || 'neutral')} is-clickable" data-anchor="${escapeHtml(anchor)}" data-idx="${idx}" role="button" tabindex="0">
+          <div class="insight-meta">
+            <span class="insight-badge">${toneLabelOf(b.tone)}</span>
+            ${actions}
+          </div>
+          <div class="insight-title">${escapeHtml(b.title)}</div>
+          <p class="insight-detail">${escapeHtml(b.detail)}</p>
+        </li>`;
+      }).join('');
+    }
 
     list.querySelectorAll('.insight-item[data-anchor]').forEach((el) => {
       const go = (prefer) => navigateToInsight(el.getAttribute('data-anchor'), prefer);
@@ -2959,6 +3056,21 @@
       });
     });
   }
+
+  // Priority focus actions (bound once)
+  $('btn-priority-detail')?.addEventListener('click', () => {
+    if (priorityFocusState && priorityFocusState.anchor) {
+      navigateToInsight(priorityFocusState.anchor, 'summary');
+    }
+  });
+  $('btn-priority-chart')?.addEventListener('click', () => {
+    if (priorityFocusState && priorityFocusState.anchor) {
+      navigateToInsight(priorityFocusState.anchor, 'chart');
+    }
+  });
+  $('btn-priority-trends')?.addEventListener('click', () => {
+    setActiveWorkspace('trends', { focusSectionId: 'step-charts' });
+  });
 
   function renderKpis(analysis) {
     const grid = $('kpi-grid');
@@ -7109,6 +7221,11 @@
     if (kpis) kpis.innerHTML = '';
     const insights = $('insight-list');
     if (insights) insights.innerHTML = '';
+    const priority = $('priority-focus');
+    if (priority) {
+      priority.classList.add('hidden');
+      priorityFocusState = null;
+    }
     const summary = $('summary-content');
     if (summary) summary.innerHTML = '';
     const promptOut = $('prompt-output');

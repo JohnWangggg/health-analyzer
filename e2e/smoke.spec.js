@@ -61,10 +61,15 @@ test.describe('health-analyzer PWA smoke', () => {
     await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
     await expect(page.locator('body')).toHaveClass(/has-results/);
 
-    // KPI or insights should render something
+    // KPI or insights / priority focus should render something
     const hasKpi = await page.locator('#kpi-grid .kpi-card, #kpi-grid > *').count();
     const hasInsights = await page.locator('#insight-list .insight-item, #insight-list li').count();
-    expect(hasKpi + hasInsights).toBeGreaterThan(0);
+    const hasPriority = await page.locator('#priority-focus:not(.hidden)').count();
+    expect(hasKpi + hasInsights + hasPriority).toBeGreaterThan(0);
+    // v1.72 priority card when bullets exist
+    if (hasPriority) {
+      await expect(page.locator('#priority-focus-title')).not.toBeEmpty();
+    }
 
     // v1.66: Today workspace shows overview + signals
     await expect(page.locator('#step-signals')).toBeVisible();
