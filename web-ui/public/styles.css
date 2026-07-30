@@ -4593,3 +4593,63 @@ body.has-results .app-footer {
   font-size: 12px;
   padding: 6px 12px;
 }
+
+/* ========== v1.73 text zoom / large type resilience ========== */
+/* Prefer wrapping over clipping when users zoom or enlarge text */
+.priority-focus-title,
+.priority-focus-detail,
+.priority-focus-label,
+.insight-title,
+.insight-detail,
+.result-bottom-nav .nav-text,
+.result-side-nav .nav-text,
+.chip,
+.subhead,
+.panel-subhead {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.priority-focus-title {
+  white-space: normal;
+  overflow: visible;
+  max-height: none;
+}
+
+.result-bottom-nav .result-nav-link {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.2;
+}
+
+.kpi-card {
+  min-height: 0;
+  overflow: visible;
+}
+
+.kpi-num {
+  font-size: clamp(18px, 5.5vw, 28px);
+}
+
+/* Avoid fixed short max-heights eating enlarged text in key panels */
+.insight-panel,
+.priority-focus,
+.charts-workbench {
+  max-height: none;
+}
+
+/* Sticky CTA + bottom nav: allow multi-line labels under zoom */
+.sticky-cta-btn,
+.sticky-cta-btn-secondary {
+  white-space: normal;
+  line-height: 1.25;
+  height: auto;
+  min-height: 44px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .priority-focus,
+  .insight-item.is-clickable:hover {
+    transform: none;
+  }
+}
