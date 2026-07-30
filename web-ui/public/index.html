@@ -495,10 +495,14 @@
 
       <div class="fhir-export-panel" role="region" aria-labelledby="fhir-export-title">
         <h3 class="panel-subhead" id="fhir-export-title" data-i18n="export.fhir.title">试验性 FHIR 导出</h3>
-        <p class="hint compact-hint" data-i18n="export.fhir.hint">本机生成 R4 形 Observation + Provenance Bundle JSON；含血压/体重/CGM/步数/静息心率/血氧/睡眠。不上传、非医院对接、非医疗认证。默认带本分析关联导入批次为 Provenance 实体。</p>
+        <p class="hint compact-hint" data-i18n="export.fhir.hint">本机生成 R4 形 Observation + Provenance Bundle JSON；含血压/体重/CGM/步数/静息心率/血氧/睡眠/VO₂/呼吸紊乱。不上传、非医院对接、非医疗认证。默认带本分析关联导入批次为 Provenance 实体。</p>
         <label class="check-inline" for="fhir-include-clinical-doc">
           <input type="checkbox" id="fhir-include-clinical-doc" />
           <span data-i18n="export.fhir.includeClinicalDoc">附带就诊复盘文档（DocumentReference，默认脱敏规则）</span>
+        </label>
+        <label class="check-inline" for="fhir-include-agp-svg">
+          <input type="checkbox" id="fhir-include-agp-svg" />
+          <span data-i18n="export.fhir.includeAgpSvg">附带 CGM AGP 14 日分位 SVG（覆盖充分时）</span>
         </label>
         <div class="export-actions fhir-export-btns">
           <button type="button" id="btn-export-fhir" class="btn-secondary" data-i18n="export.fhir.btn">导出 FHIR Bundle JSON</button>
@@ -616,7 +620,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.49</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.50</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

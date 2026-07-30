@@ -7767,7 +7767,7 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.1";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.2";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
@@ -7780,6 +7780,8 @@ List 5\u20137 working hypotheses that best fit the available data
   var DEFAULT_MAX_RESTING_HR_DAYS = 366;
   var DEFAULT_MAX_SPO2_DAYS = 366;
   var DEFAULT_MAX_SLEEP_DAYS = 366;
+  var DEFAULT_MAX_VO2_DAYS = 366;
+  var DEFAULT_MAX_BREATHING_DAYS = 366;
   var DEFAULT_MAX_CLINICAL_DOC_CHARS = 4e5;
   function toIsoDateTime(appleDt) {
     if (appleDt == null) return "";
@@ -7992,6 +7994,100 @@ List 5\u20137 working hypotheses that best fit the available data
     });
     return obs;
   }
+  function buildVo2Observation(date, vo2, index) {
+    const id = `obs-vo2-${index}`;
+    const effective = toIsoDateTime(date);
+    const obs = baseObservation(
+      id,
+      loincCoding("19916-4", "Oxygen consumption"),
+      effective
+    );
+    obs.valueQuantity = quantity(vo2, "mL/kg/min", "mL/kg/min");
+    obs.note.push({
+      text: "VO\u2082 max estimate from Watch / fitness (device estimate, not CPET)"
+    });
+    return obs;
+  }
+  function buildBreathingDisturbanceObservation(date, value, index) {
+    const id = `obs-breathing-${index}`;
+    const effective = toIsoDateTime(date);
+    const obs = baseObservation(
+      id,
+      {
+        coding: [
+          {
+            system: "urn:health-analyzer:metric",
+            code: "apple_sleeping_breathing_disturbances",
+            display: "Sleep breathing disturbances (device index)"
+          }
+        ],
+        text: "Sleep breathing disturbances (device index)"
+      },
+      effective
+    );
+    obs.valueQuantity = quantity(value, "1", "1");
+    obs.note.push({
+      text: "Apple Watch sleeping breathing disturbances index; experimental local mapping, not a diagnosis"
+    });
+    return obs;
+  }
+  function buildAgpSvgDocumentReference(svg, notes) {
+    const body = String(svg || "").trim();
+    if (!body.startsWith("<svg") && !body.includes("<svg")) {
+      notes.push("includeAgpSvg set but SVG empty or invalid");
+      return null;
+    }
+    const recorded = (/* @__PURE__ */ new Date()).toISOString();
+    return {
+      resourceType: "DocumentReference",
+      id: "docref-agp-svg-1",
+      meta: {
+        source: META_SOURCE,
+        tag: [
+          {
+            system: "urn:health-analyzer:tag",
+            code: FHIR_EXPORT_PROFILE,
+            display: "Experimental local FHIR-shaped export"
+          }
+        ]
+      },
+      status: "current",
+      docStatus: "preliminary",
+      type: {
+        coding: [
+          {
+            system: LOINC,
+            code: "18748-4",
+            display: "Diagnostic imaging study"
+          }
+        ],
+        text: "CGM AGP 14-day hourly percentile schematic (SVG)"
+      },
+      category: [
+        {
+          text: "agp-schematic (local archive)"
+        }
+      ],
+      date: recorded,
+      description: "Printable AGP-style SVG (P5\u2013P95 bands) generated locally; not a certified AGP software report.",
+      content: [
+        {
+          attachment: {
+            contentType: "image/svg+xml",
+            title: "cgm-agp-14d.svg",
+            data: utf8ToBase64(body),
+            size: utf8ByteLength(body)
+          }
+        }
+      ],
+      extension: [
+        {
+          url: "urn:health-analyzer:extension:document-disclaimer",
+          valueString: "Local AGP schematic only; experimental. Not FDA/CE certified CGM report software."
+        }
+      ]
+    };
+  }
   function utf8Bytes(text) {
     return new TextEncoder().encode(text);
   }
@@ -8114,6 +8210,8 @@ List 5\u20137 working hypotheses that best fit the available data
     const maxRestingHrDays = DEFAULT_MAX_RESTING_HR_DAYS;
     const maxSpo2Days = Math.max(0, opts.maxSpo2Days ?? DEFAULT_MAX_SPO2_DAYS);
     const maxSleepDays = Math.max(0, opts.maxSleepDays ?? DEFAULT_MAX_SLEEP_DAYS);
+    const maxVo2Days = Math.max(0, opts.maxVo2Days ?? DEFAULT_MAX_VO2_DAYS);
+    const maxBreathingDays = Math.max(0, opts.maxBreathingDays ?? DEFAULT_MAX_BREATHING_DAYS);
     const maxClinicalDocChars = Math.max(
       1e3,
       opts.maxClinicalDocChars ?? DEFAULT_MAX_CLINICAL_DOC_CHARS
@@ -8135,7 +8233,10 @@ List 5\u20137 working hypotheses that best fit the available data
       restingHeartRate: 0,
       spo2: 0,
       sleep: 0,
-      clinicalDocument: 0
+      vo2Max: 0,
+      breathingDisturbance: 0,
+      clinicalDocument: 0,
+      agpSvg: 0
     };
     const observations = [];
     const bpAll = (data?.bloodPressure || []).filter(
@@ -8238,6 +8339,38 @@ List 5\u20137 working hypotheses that best fit the available data
       observations.push(buildSleepObservation(d, sleepMap[d], i));
       byType.sleep += 1;
     }
+    const vo2Days = watchDays.filter(
+      (d) => d && d.date && inWindow(d.date, windowStart, windowEnd) && d.vo2Max != null && Number.isFinite(d.vo2Max)
+    ).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    let vo2Used = vo2Days;
+    if (vo2Days.length > maxVo2Days) {
+      vo2Used = sampleEvenly(vo2Days, maxVo2Days);
+      notes.push(
+        `VO2 days capped: ${vo2Days.length} \u2192 ${vo2Used.length} (maxVo2Days=${maxVo2Days})`
+      );
+    }
+    for (let i = 0; i < vo2Used.length; i++) {
+      const d = vo2Used[i];
+      observations.push(buildVo2Observation(d.date, d.vo2Max, i));
+      byType.vo2Max += 1;
+    }
+    const brDays = watchDays.filter(
+      (d) => d && d.date && inWindow(d.date, windowStart, windowEnd) && d.breathingDisturbance != null && Number.isFinite(d.breathingDisturbance)
+    ).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    let brUsed = brDays;
+    if (brDays.length > maxBreathingDays) {
+      brUsed = sampleEvenly(brDays, maxBreathingDays);
+      notes.push(
+        `Breathing disturbance days capped: ${brDays.length} \u2192 ${brUsed.length} (maxBreathingDays=${maxBreathingDays})`
+      );
+    }
+    for (let i = 0; i < brUsed.length; i++) {
+      const d = brUsed[i];
+      observations.push(
+        buildBreathingDisturbanceObservation(d.date, d.breathingDisturbance, i)
+      );
+      byType.breathingDisturbance += 1;
+    }
     if (opts.patientDisplay) {
       const subject = {
         display: String(opts.patientDisplay),
@@ -8264,6 +8397,39 @@ List 5\u20137 working hypotheses that best fit the available data
         }
         documentReferences.push(doc);
         byType.clinicalDocument = 1;
+      }
+    }
+    if (opts.includeAgpSvg) {
+      let svg = opts.agpSvg != null ? String(opts.agpSvg) : "";
+      if (!svg.trim()) {
+        try {
+          const cgm14 = buildCgm14DayReport(analysis, {
+            windowEnd: windowEnd || void 0,
+            locale: opts.locale
+          });
+          if (cgm14 && cgm14.sufficient) {
+            svg = buildAgpSvg(cgm14, { locale: opts.locale });
+          } else if (cgm14 && !cgm14.sufficient) {
+            notes.push("AGP SVG skipped: CGM 14-day coverage insufficient for standardized bands");
+          } else {
+            notes.push("AGP SVG skipped: no CGM data for 14-day report");
+          }
+        } catch (e) {
+          notes.push(
+            `AGP SVG generation failed: ${e && e.message ? e.message : String(e)}`
+          );
+        }
+      }
+      const agpDoc = buildAgpSvgDocumentReference(svg, notes);
+      if (agpDoc) {
+        if (opts.patientDisplay) {
+          agpDoc.subject = {
+            display: String(opts.patientDisplay),
+            reference: "Patient/local-patient"
+          };
+        }
+        documentReferences.push(agpDoc);
+        byType.agpSvg = 1;
       }
     }
     const batchesRaw = opts.importBatches;
@@ -8407,7 +8573,7 @@ List 5\u20137 working hypotheses that best fit the available data
       byType
     };
     notes.push(
-      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, clinicalDoc=${byType.clinicalDocument})`
+      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
     );
     const json = JSON.stringify(bundle, null, 2);
     return { bundle, json, counts, notes };

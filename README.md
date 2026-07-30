@@ -177,6 +177,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.50 | FHIR 增加 VO₂/呼吸紊乱；可选 AGP SVG DocumentReference |
 | v1.49 | FHIR 导出扩展 SpO2/睡眠 + 可选就诊文档 DocumentReference |
 | v1.48 | 试验性本机 FHIR Observation+Provenance Bundle 导出 |
 | v1.47 | 本报告来源预览；HAE 取消导入 E2E |

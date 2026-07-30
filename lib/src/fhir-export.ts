@@ -1,5 +1,5 @@
 /**
- * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference 导出（试验性 v1.49）
+ * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference 导出（试验性 v1.50）
  *
  * - 仅生成本地可下载 JSON Bundle；非医院系统对接、非 FHIR 认证提交
  * - 资源为 experimental / trial-use 形状，供个人归档与互操作试验
@@ -21,12 +21,13 @@ import {
   PROVENANCE_RULE_VERSION,
   normalizeImportBatch,
 } from './provenance';
+import { buildAgpSvg, buildCgm14DayReport } from './clinical-report';
 
 // ============================================================
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.1';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.2';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
@@ -41,6 +42,8 @@ const DEFAULT_MAX_STEPS_DAYS = 366;
 const DEFAULT_MAX_RESTING_HR_DAYS = 366;
 const DEFAULT_MAX_SPO2_DAYS = 366;
 const DEFAULT_MAX_SLEEP_DAYS = 366;
+const DEFAULT_MAX_VO2_DAYS = 366;
+const DEFAULT_MAX_BREATHING_DAYS = 366;
 /** Clinical document attachment size cap (UTF-8 chars) */
 const DEFAULT_MAX_CLINICAL_DOC_CHARS = 400_000;
 
@@ -56,6 +59,8 @@ export interface FhirExportOptions {
   maxStepsDays?: number; // default 366
   maxSpo2Days?: number; // default 366
   maxSleepDays?: number; // default 366
+  maxVo2Days?: number; // default 366
+  maxBreathingDays?: number; // default 366
   includeProvenance?: boolean; // default true when batches provided
   importBatches?: ImportBatchRecord[] | null; // from provenance.ts
   patientDisplay?: string | null; // optional "local-patient" display only
@@ -67,6 +72,12 @@ export interface FhirExportOptions {
   clinicalMarkdown?: string | null;
   clinicalHtml?: string | null;
   maxClinicalDocChars?: number;
+  /**
+   * Attach printable AGP SVG as a separate DocumentReference when CGM 14d is sufficient.
+   * Optional pre-built SVG overrides internal generation.
+   */
+  includeAgpSvg?: boolean;
+  agpSvg?: string | null;
 }
 
 export interface FhirExportResult {
@@ -362,6 +373,114 @@ function buildSleepObservation(
   return obs;
 }
 
+/** VO2 max (mL/kg/min) — LOINC 19916-4 Oxygen consumption */
+function buildVo2Observation(date: string, vo2: number, index: number): Record<string, unknown> {
+  const id = `obs-vo2-${index}`;
+  const effective = toIsoDateTime(date);
+  const obs = baseObservation(
+    id,
+    loincCoding('19916-4', 'Oxygen consumption'),
+    effective
+  );
+  obs.valueQuantity = quantity(vo2, 'mL/kg/min', 'mL/kg/min');
+  (obs.note as { text: string }[]).push({
+    text: 'VO₂ max estimate from Watch / fitness (device estimate, not CPET)',
+  });
+  return obs;
+}
+
+/** Apple Sleeping Breathing Disturbances — local experimental code */
+function buildBreathingDisturbanceObservation(
+  date: string,
+  value: number,
+  index: number
+): Record<string, unknown> {
+  const id = `obs-breathing-${index}`;
+  const effective = toIsoDateTime(date);
+  const obs = baseObservation(
+    id,
+    {
+      coding: [
+        {
+          system: 'urn:health-analyzer:metric',
+          code: 'apple_sleeping_breathing_disturbances',
+          display: 'Sleep breathing disturbances (device index)',
+        },
+      ],
+      text: 'Sleep breathing disturbances (device index)',
+    },
+    effective
+  );
+  obs.valueQuantity = quantity(value, '1', '1');
+  (obs.note as { text: string }[]).push({
+    text: 'Apple Watch sleeping breathing disturbances index; experimental local mapping, not a diagnosis',
+  });
+  return obs;
+}
+
+function buildAgpSvgDocumentReference(
+  svg: string,
+  notes: string[]
+): Record<string, unknown> | null {
+  const body = String(svg || '').trim();
+  if (!body.startsWith('<svg') && !body.includes('<svg')) {
+    notes.push('includeAgpSvg set but SVG empty or invalid');
+    return null;
+  }
+  const recorded = new Date().toISOString();
+  return {
+    resourceType: 'DocumentReference',
+    id: 'docref-agp-svg-1',
+    meta: {
+      source: META_SOURCE,
+      tag: [
+        {
+          system: 'urn:health-analyzer:tag',
+          code: FHIR_EXPORT_PROFILE,
+          display: 'Experimental local FHIR-shaped export',
+        },
+      ],
+    },
+    status: 'current',
+    docStatus: 'preliminary',
+    type: {
+      coding: [
+        {
+          system: LOINC,
+          code: '18748-4',
+          display: 'Diagnostic imaging study',
+        },
+      ],
+      text: 'CGM AGP 14-day hourly percentile schematic (SVG)',
+    },
+    category: [
+      {
+        text: 'agp-schematic (local archive)',
+      },
+    ],
+    date: recorded,
+    description:
+      'Printable AGP-style SVG (P5–P95 bands) generated locally; not a certified AGP software report.',
+    content: [
+      {
+        attachment: {
+          contentType: 'image/svg+xml',
+          title: 'cgm-agp-14d.svg',
+          data: utf8ToBase64(body),
+          size: utf8ByteLength(body),
+        },
+      },
+    ],
+    extension: [
+      {
+        url: 'urn:health-analyzer:extension:document-disclaimer',
+        valueString:
+          'Local AGP schematic only; experimental. Not FDA/CE certified CGM report software.',
+      },
+    ],
+  };
+}
+
 /** UTF-8 bytes (TextEncoder is available in modern Node + browsers) */
 function utf8Bytes(text: string): Uint8Array {
   return new TextEncoder().encode(text);
@@ -516,6 +635,8 @@ export function buildFhirExportBundle(
   const maxRestingHrDays = DEFAULT_MAX_RESTING_HR_DAYS;
   const maxSpo2Days = Math.max(0, opts.maxSpo2Days ?? DEFAULT_MAX_SPO2_DAYS);
   const maxSleepDays = Math.max(0, opts.maxSleepDays ?? DEFAULT_MAX_SLEEP_DAYS);
+  const maxVo2Days = Math.max(0, opts.maxVo2Days ?? DEFAULT_MAX_VO2_DAYS);
+  const maxBreathingDays = Math.max(0, opts.maxBreathingDays ?? DEFAULT_MAX_BREATHING_DAYS);
   const maxClinicalDocChars = Math.max(
     1000,
     opts.maxClinicalDocChars ?? DEFAULT_MAX_CLINICAL_DOC_CHARS
@@ -546,7 +667,10 @@ export function buildFhirExportBundle(
     restingHeartRate: 0,
     spo2: 0,
     sleep: 0,
+    vo2Max: 0,
+    breathingDisturbance: 0,
     clinicalDocument: 0,
+    agpSvg: 0,
   };
   const observations: Record<string, unknown>[] = [];
 
@@ -677,6 +801,56 @@ export function buildFhirExportBundle(
     byType.sleep += 1;
   }
 
+  // --- VO2 max (Watch days with vo2Max) ---
+  const vo2Days = watchDays
+    .filter(
+      (d) =>
+        d &&
+        d.date &&
+        inWindow(d.date, windowStart, windowEnd) &&
+        d.vo2Max != null &&
+        Number.isFinite(d.vo2Max)
+    )
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  let vo2Used = vo2Days;
+  if (vo2Days.length > maxVo2Days) {
+    vo2Used = sampleEvenly(vo2Days, maxVo2Days);
+    notes.push(
+      `VO2 days capped: ${vo2Days.length} → ${vo2Used.length} (maxVo2Days=${maxVo2Days})`
+    );
+  }
+  for (let i = 0; i < vo2Used.length; i++) {
+    const d = vo2Used[i];
+    observations.push(buildVo2Observation(d.date, d.vo2Max as number, i));
+    byType.vo2Max += 1;
+  }
+
+  // --- Breathing disturbances (device index) ---
+  const brDays = watchDays
+    .filter(
+      (d) =>
+        d &&
+        d.date &&
+        inWindow(d.date, windowStart, windowEnd) &&
+        d.breathingDisturbance != null &&
+        Number.isFinite(d.breathingDisturbance)
+    )
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  let brUsed = brDays;
+  if (brDays.length > maxBreathingDays) {
+    brUsed = sampleEvenly(brDays, maxBreathingDays);
+    notes.push(
+      `Breathing disturbance days capped: ${brDays.length} → ${brUsed.length} (maxBreathingDays=${maxBreathingDays})`
+    );
+  }
+  for (let i = 0; i < brUsed.length; i++) {
+    const d = brUsed[i];
+    observations.push(
+      buildBreathingDisturbanceObservation(d.date, d.breathingDisturbance as number, i)
+    );
+    byType.breathingDisturbance += 1;
+  }
+
   // Optional subject display on each observation
   if (opts.patientDisplay) {
     const subject = {
@@ -688,7 +862,7 @@ export function buildFhirExportBundle(
     }
   }
 
-  // --- DocumentReference (clinical review, opt-in) ---
+  // --- DocumentReference (clinical review + optional AGP SVG) ---
   const documentReferences: Record<string, unknown>[] = [];
   if (opts.includeClinicalDocument) {
     const doc = buildClinicalDocumentReference(
@@ -706,6 +880,40 @@ export function buildFhirExportBundle(
       }
       documentReferences.push(doc);
       byType.clinicalDocument = 1;
+    }
+  }
+
+  if (opts.includeAgpSvg) {
+    let svg = opts.agpSvg != null ? String(opts.agpSvg) : '';
+    if (!svg.trim()) {
+      try {
+        const cgm14 = buildCgm14DayReport(analysis, {
+          windowEnd: windowEnd || undefined,
+          locale: opts.locale,
+        });
+        if (cgm14 && cgm14.sufficient) {
+          svg = buildAgpSvg(cgm14, { locale: opts.locale });
+        } else if (cgm14 && !cgm14.sufficient) {
+          notes.push('AGP SVG skipped: CGM 14-day coverage insufficient for standardized bands');
+        } else {
+          notes.push('AGP SVG skipped: no CGM data for 14-day report');
+        }
+      } catch (e) {
+        notes.push(
+          `AGP SVG generation failed: ${e && (e as Error).message ? (e as Error).message : String(e)}`
+        );
+      }
+    }
+    const agpDoc = buildAgpSvgDocumentReference(svg, notes);
+    if (agpDoc) {
+      if (opts.patientDisplay) {
+        agpDoc.subject = {
+          display: String(opts.patientDisplay),
+          reference: 'Patient/local-patient',
+        };
+      }
+      documentReferences.push(agpDoc);
+      byType.agpSvg = 1;
     }
   }
 
@@ -877,7 +1085,8 @@ export function buildFhirExportBundle(
       `Provenance=${counts.provenances} ` +
       `(bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, ` +
       `steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, ` +
-      `sleep=${byType.sleep}, clinicalDoc=${byType.clinicalDocument})`
+      `sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, ` +
+      `clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
   );
 
   const json = JSON.stringify(bundle, null, 2);

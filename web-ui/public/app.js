@@ -3709,6 +3709,10 @@
           console.warn('clinical document for FHIR skipped', docErr);
         }
       }
+      // Optional AGP SVG DocumentReference (lib builds from CGM 14d when sufficient)
+      if ($('fhir-include-agp-svg') && $('fhir-include-agp-svg').checked) {
+        opts.includeAgpSvg = true;
+      }
 
       const result = window.HealthAnalyzer.buildFhirExportBundle(
         currentAnalysis,
