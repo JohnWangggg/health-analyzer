@@ -572,6 +572,24 @@
         <span id="export-status" class="copy-status" aria-live="polite"></span>
       </div>
 
+      <div class="warehouse-panel" id="warehouse-panel" role="region" aria-labelledby="warehouse-title">
+        <h3 class="panel-subhead" id="warehouse-title" data-i18n="warehouse.title">本机原始数据仓</h3>
+        <p class="hint compact-hint" data-i18n="warehouse.hint">默认关闭。开启后，解析后的健康明细（含 CGM 等）可保存在本机 IndexedDB，刷新后无需重传大文件。不上传、非云同步、非诊断。</p>
+        <label class="check-inline warehouse-consent-row" for="warehouse-consent">
+          <input type="checkbox" id="warehouse-consent" />
+          <span data-i18n="warehouse.consentLabel">授权在本机保存原始明细（可随时关闭并删除）</span>
+        </label>
+        <p id="warehouse-status" class="warehouse-status hint compact-hint" aria-live="polite"></p>
+        <div class="export-actions warehouse-actions">
+          <button type="button" id="btn-warehouse-persist" class="btn-secondary" data-i18n="warehouse.persist">立即保存当前分析</button>
+          <button type="button" id="btn-warehouse-restore" class="btn-secondary" data-i18n="warehouse.restore">从本机仓恢复</button>
+          <button type="button" id="btn-warehouse-export" class="btn-ghost" data-i18n="warehouse.exportBackup">导出备份</button>
+          <button type="button" id="btn-warehouse-import" class="btn-ghost" data-i18n="warehouse.importBackup">导入备份</button>
+          <input type="file" id="warehouse-backup-input" class="hidden" accept=".json,application/json,.hae-backup.json" />
+        </div>
+        <span id="warehouse-action-status" class="copy-status" aria-live="polite"></span>
+      </div>
+
       <details class="fhir-export-fold" id="fhir-export-fold">
         <summary data-i18n="export.fhir.fold">高级：试验性 FHIR 导出</summary>
       <div class="fhir-export-panel" role="region" aria-labelledby="fhir-export-title">
@@ -639,7 +657,7 @@
 
       <div class="privacy-wipe-panel" role="region" aria-labelledby="privacy-wipe-title">
         <h3 class="panel-subhead" id="privacy-wipe-title" data-i18n="privacy.wipeTitle">隐私与本机数据</h3>
-        <p class="hint compact-hint" data-i18n="privacy.wipeHint">清除个人背景、恢复权重、信号偏好、图表范围及 IndexedDB 摘要/周报历史、事件时间线与导入批次。主题与界面语言会保留。</p>
+        <p class="hint compact-hint" data-i18n="privacy.wipeHint">清除个人背景、恢复权重、信号偏好、图表范围及 IndexedDB 摘要/周报历史、事件时间线、导入批次；若曾开启原始数据仓，将同时删除本机 CGM 等明细。主题与界面语言会保留。</p>
         <button type="button" id="btn-clear-all-local" class="btn-danger-text" data-i18n="privacy.wipeBtn">清除所有本机健康数据</button>
       </div>
 
@@ -705,7 +723,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.67</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.68</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

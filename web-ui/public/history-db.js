@@ -1,21 +1,30 @@
 /**
  * IndexedDB：本地保存分析摘要快照 + 周报历史 + 事件时间线 + 导入批次可追溯
- * 不上传；仅存压缩 metrics / markdown / 手录事件 / 导入摘要，不含完整 CGM 明细
+ * + v1.68 可选原始 HealthData 仓（须用户授权；默认不落盘明细）
+ * 不上传；摘要仓不含完整 CGM；原始仓仅在 consent 开启后写入
  */
 (function (global) {
   'use strict';
 
   const DB_NAME = 'health-analyzer-history';
-  /** v4：新增 importBatches object store（本机导入可追溯） */
-  const DB_VERSION = 4;
+  /** v5：warehouseMeta + domainChunks（原始数据仓，opt-in） */
+  const DB_VERSION = 5;
   const STORE = 'snapshots';
   const STORE_REPORTS = 'weeklyReports';
   const STORE_EVENTS = 'healthEvents';
   const STORE_IMPORT_BATCHES = 'importBatches';
+  const STORE_WH_META = 'warehouseMeta';
+  const STORE_WH_CHUNKS = 'domainChunks';
   const MAX_SNAPSHOTS = 30;
   const MAX_WEEKLY_REPORTS = 20;
   const MAX_EVENTS = 500;
   const MAX_IMPORT_BATCHES = 50;
+  /** Soft / hard byte caps for raw warehouse (approx JSON size) */
+  const WAREHOUSE_SOFT_BYTES = 150 * 1024 * 1024;
+  const WAREHOUSE_HARD_BYTES = 200 * 1024 * 1024;
+  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.68.0';
+  const WH_CHUNK_HEALTH = 'healthData|full';
+  const WH_META_ID = 'primary';
 
   function openDb() {
     return new Promise((resolve, reject) => {
@@ -44,12 +53,543 @@
           const batches = db.createObjectStore(STORE_IMPORT_BATCHES, { keyPath: 'id' });
           batches.createIndex('createdAt', 'createdAt', { unique: false });
         }
-        // 兼容：从 v1–v3 升到 v4 时确保各 store 存在
+        if (!db.objectStoreNames.contains(STORE_WH_META)) {
+          db.createObjectStore(STORE_WH_META, { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains(STORE_WH_CHUNKS)) {
+          const chunks = db.createObjectStore(STORE_WH_CHUNKS, { keyPath: 'id' });
+          chunks.createIndex('domain', 'domain', { unique: false });
+          chunks.createIndex('updatedAt', 'updatedAt', { unique: false });
+        }
+        // 兼容：从 v1–v4 升到 v5 时确保各 store 存在
         void ev;
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error || new Error('打开 IndexedDB 失败'));
     });
+  }
+
+  function defaultWarehouseMeta() {
+    return {
+      id: WH_META_ID,
+      formatVersion: 1,
+      consent: {
+        granted: false,
+        grantedAt: null,
+        revokedAt: null,
+        policyVersion: WAREHOUSE_POLICY_VERSION,
+      },
+      dateRange: null,
+      domainStats: {},
+      totalApproxBytes: 0,
+      totalRecordCount: 0,
+      lastImportBatchId: null,
+      lastWrittenAt: null,
+      retention: {
+        mode: 'unlimited_until_quota',
+        rollingDays: null,
+        maxTotalBytes: WAREHOUSE_SOFT_BYTES,
+      },
+      codec: 'json',
+      notes: [],
+    };
+  }
+
+  function approxJsonBytes(value) {
+    try {
+      return JSON.stringify(value).length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function clonePlain(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function countHealthRecords(data) {
+    if (!data || typeof data !== 'object') return 0;
+    let n = 0;
+    n += (data.cgm && data.cgm.length) || 0;
+    n += (data.bloodPressure && data.bloodPressure.length) || 0;
+    n += (data.weight && data.weight.length) || 0;
+    n += (data.bodyFat && data.bodyFat.length) || 0;
+    n += (data.workouts && data.workouts.length) || 0;
+    n += (data.ecg && data.ecg.length) || 0;
+    const mapKeys = (m) => (m && typeof m === 'object' ? Object.keys(m).length : 0);
+    n += mapKeys(data.hrv);
+    n += mapKeys(data.hrvOvernight);
+    n += mapKeys(data.restingHr);
+    n += mapKeys(data.walkingHr);
+    n += mapKeys(data.steps);
+    n += mapKeys(data.sleep);
+    n += mapKeys(data.watchDaily);
+    return n;
+  }
+
+  function inferDateRange(data) {
+    if (!data) return null;
+    const dates = [];
+    const pushDate = (s) => {
+      if (!s) return;
+      const d = String(s).slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) dates.push(d);
+    };
+    (data.cgm || []).forEach((p) => pushDate(p && p.datetime));
+    (data.bloodPressure || []).forEach((p) => pushDate(p && p.datetime));
+    (data.weight || []).forEach((p) => pushDate(p && p.datetime));
+    (data.workouts || []).forEach((p) => pushDate(p && (p.start || p.datetime)));
+    Object.keys(data.sleep || {}).forEach(pushDate);
+    Object.keys(data.hrv || {}).forEach(pushDate);
+    Object.keys(data.watchDaily || {}).forEach(pushDate);
+    Object.keys(data.steps || {}).forEach(pushDate);
+    if (!dates.length) return null;
+    dates.sort();
+    return { start: dates[0], end: dates[dates.length - 1] };
+  }
+
+  function getWarehouseMeta() {
+    return openDb().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          if (!db.objectStoreNames.contains(STORE_WH_META)) {
+            db.close();
+            resolve(defaultWarehouseMeta());
+            return;
+          }
+          const tx = db.transaction(STORE_WH_META, 'readonly');
+          const req = tx.objectStore(STORE_WH_META).get(WH_META_ID);
+          req.onsuccess = () => {
+            const row = req.result;
+            resolve(row ? Object.assign(defaultWarehouseMeta(), row) : defaultWarehouseMeta());
+          };
+          req.onerror = () => reject(req.error);
+          tx.oncomplete = () => db.close();
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        })
+    );
+  }
+
+  function putWarehouseMeta(meta) {
+    const row = Object.assign(defaultWarehouseMeta(), meta || {}, { id: WH_META_ID });
+    return openDb().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          if (!db.objectStoreNames.contains(STORE_WH_META)) {
+            db.close();
+            reject(new Error('warehouseMeta store missing'));
+            return;
+          }
+          const tx = db.transaction(STORE_WH_META, 'readwrite');
+          tx.objectStore(STORE_WH_META).put(row);
+          tx.oncomplete = () => {
+            db.close();
+            resolve(row);
+          };
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        })
+    );
+  }
+
+  function isWarehouseConsentGranted() {
+    return getWarehouseMeta().then((m) => !!(m && m.consent && m.consent.granted));
+  }
+
+  function grantWarehouseConsent(opts) {
+    opts = opts || {};
+    return getWarehouseMeta().then((meta) => {
+      const now = new Date().toISOString();
+      meta.consent = {
+        granted: true,
+        grantedAt: now,
+        revokedAt: null,
+        policyVersion: (opts.policyVersion || WAREHOUSE_POLICY_VERSION),
+      };
+      return putWarehouseMeta(meta);
+    });
+  }
+
+  /**
+   * 关闭授权并清空原始仓（默认行为：关授权即删明细）
+   */
+  function revokeWarehouseConsent() {
+    return clearWarehouseOnly().then(() =>
+      getWarehouseMeta().then((meta) => {
+        const now = new Date().toISOString();
+        meta.consent = {
+          granted: false,
+          grantedAt: meta.consent && meta.consent.grantedAt ? meta.consent.grantedAt : null,
+          revokedAt: now,
+          policyVersion: WAREHOUSE_POLICY_VERSION,
+        };
+        meta.dateRange = null;
+        meta.domainStats = {};
+        meta.totalApproxBytes = 0;
+        meta.totalRecordCount = 0;
+        meta.lastImportBatchId = null;
+        meta.lastWrittenAt = null;
+        return putWarehouseMeta(meta);
+      })
+    );
+  }
+
+  function clearWarehouseOnly() {
+    return openDb().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          const names = [];
+          if (db.objectStoreNames.contains(STORE_WH_CHUNKS)) names.push(STORE_WH_CHUNKS);
+          if (db.objectStoreNames.contains(STORE_WH_META)) names.push(STORE_WH_META);
+          if (!names.length) {
+            db.close();
+            resolve();
+            return;
+          }
+          const tx = db.transaction(names, 'readwrite');
+          if (names.indexOf(STORE_WH_CHUNKS) >= 0) {
+            tx.objectStore(STORE_WH_CHUNKS).clear();
+          }
+          if (names.indexOf(STORE_WH_META) >= 0) {
+            // reset meta to default (no consent)
+            tx.objectStore(STORE_WH_META).put(defaultWarehouseMeta());
+          }
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        })
+    );
+  }
+
+  /**
+   * Persist merged HealthData into warehouse (replace full working set).
+   * @param {object} healthData
+   * @param {{ batchId?: string|null }} [opts]
+   * @returns {Promise<{ ok: boolean, reason?: string, meta?: object, approxBytes?: number }>}
+   */
+  function persistHealthDataWarehouse(healthData, opts) {
+    opts = opts || {};
+    if (!healthData || typeof healthData !== 'object') {
+      return Promise.resolve({ ok: false, reason: 'no_data' });
+    }
+    return getWarehouseMeta().then((meta) => {
+      if (!meta.consent || !meta.consent.granted) {
+        return { ok: false, reason: 'no_consent' };
+      }
+      let payload;
+      try {
+        payload = clonePlain(healthData);
+      } catch (e) {
+        return { ok: false, reason: 'clone_failed', message: String((e && e.message) || e) };
+      }
+      const approxBytes = approxJsonBytes(payload);
+      if (approxBytes > WAREHOUSE_HARD_BYTES) {
+        return {
+          ok: false,
+          reason: 'quota_hard',
+          approxBytes,
+          maxBytes: WAREHOUSE_HARD_BYTES,
+        };
+      }
+      const recordCount = countHealthRecords(payload);
+      const dateRange = inferDateRange(payload);
+      const now = new Date().toISOString();
+      const chunk = {
+        id: WH_CHUNK_HEALTH,
+        domain: 'healthData',
+        shard: 'full',
+        dateStart: dateRange ? dateRange.start : null,
+        dateEnd: dateRange ? dateRange.end : null,
+        payload,
+        approxBytes,
+        recordCount,
+        batchId: opts.batchId || null,
+        updatedAt: now,
+        codec: 'json',
+      };
+      meta.dateRange = dateRange;
+      meta.domainStats = {
+        healthData: {
+          recordCount,
+          approxBytes,
+          chunkCount: 1,
+          minDate: dateRange ? dateRange.start : undefined,
+          maxDate: dateRange ? dateRange.end : undefined,
+        },
+      };
+      meta.totalApproxBytes = approxBytes;
+      meta.totalRecordCount = recordCount;
+      meta.lastImportBatchId = opts.batchId || meta.lastImportBatchId || null;
+      meta.lastWrittenAt = now;
+      meta.codec = 'json';
+      if (approxBytes > WAREHOUSE_SOFT_BYTES) {
+        meta.notes = ['soft_quota_exceeded'];
+      } else {
+        meta.notes = [];
+      }
+
+      return openDb().then(
+        (db) =>
+          new Promise((resolve, reject) => {
+            if (
+              !db.objectStoreNames.contains(STORE_WH_CHUNKS) ||
+              !db.objectStoreNames.contains(STORE_WH_META)
+            ) {
+              db.close();
+              resolve({ ok: false, reason: 'store_missing' });
+              return;
+            }
+            const tx = db.transaction([STORE_WH_CHUNKS, STORE_WH_META], 'readwrite');
+            tx.objectStore(STORE_WH_CHUNKS).put(chunk);
+            tx.objectStore(STORE_WH_META).put(Object.assign(defaultWarehouseMeta(), meta, { id: WH_META_ID }));
+            tx.oncomplete = () => {
+              db.close();
+              resolve({
+                ok: true,
+                meta,
+                approxBytes,
+                softWarn: approxBytes > WAREHOUSE_SOFT_BYTES,
+              });
+            };
+            tx.onerror = () => {
+              db.close();
+              const err = tx.error;
+              const name = err && err.name;
+              if (name === 'QuotaExceededError') {
+                resolve({ ok: false, reason: 'quota_exceeded', message: String(err) });
+              } else {
+                reject(err);
+              }
+            };
+          })
+      );
+    });
+  }
+
+  /**
+   * @returns {Promise<{ data: object, meta: object, chunk: object }|null>}
+   */
+  function loadHealthDataWarehouse() {
+    return getWarehouseMeta().then((meta) => {
+      if (!meta.consent || !meta.consent.granted) return null;
+      return openDb().then(
+        (db) =>
+          new Promise((resolve, reject) => {
+            if (!db.objectStoreNames.contains(STORE_WH_CHUNKS)) {
+              db.close();
+              resolve(null);
+              return;
+            }
+            const tx = db.transaction(STORE_WH_CHUNKS, 'readonly');
+            const req = tx.objectStore(STORE_WH_CHUNKS).get(WH_CHUNK_HEALTH);
+            req.onsuccess = () => {
+              const chunk = req.result;
+              if (!chunk || !chunk.payload) {
+                resolve(null);
+                return;
+              }
+              resolve({ data: chunk.payload, meta, chunk });
+            };
+            req.onerror = () => reject(req.error);
+            tx.oncomplete = () => db.close();
+            tx.onerror = () => {
+              db.close();
+              reject(tx.error);
+            };
+          })
+      );
+    });
+  }
+
+  function getWarehouseStatus() {
+    return getWarehouseMeta().then((meta) => {
+      const granted = !!(meta.consent && meta.consent.granted);
+      return {
+        granted,
+        meta,
+        policyVersion: WAREHOUSE_POLICY_VERSION,
+        softBytes: WAREHOUSE_SOFT_BYTES,
+        hardBytes: WAREHOUSE_HARD_BYTES,
+        hasPayload: granted && (meta.totalRecordCount > 0 || meta.totalApproxBytes > 0),
+      };
+    }).then((status) => {
+      if (!status.granted) return status;
+      // Confirm chunk exists for accurate hasPayload
+      return openDb().then(
+        (db) =>
+          new Promise((resolve) => {
+            if (!db.objectStoreNames.contains(STORE_WH_CHUNKS)) {
+              db.close();
+              resolve(status);
+              return;
+            }
+            const tx = db.transaction(STORE_WH_CHUNKS, 'readonly');
+            const req = tx.objectStore(STORE_WH_CHUNKS).get(WH_CHUNK_HEALTH);
+            req.onsuccess = () => {
+              status.hasPayload = !!(req.result && req.result.payload);
+              status.approxBytes = (req.result && req.result.approxBytes) || status.meta.totalApproxBytes || 0;
+            };
+            tx.oncomplete = () => {
+              db.close();
+              resolve(status);
+            };
+            tx.onerror = () => {
+              db.close();
+              resolve(status);
+            };
+          })
+      );
+    });
+  }
+
+  /**
+   * Plaintext backup envelope (MVP: no encryption).
+   * @param {{ includeSnapshots?: boolean, includeEvents?: boolean, includeReports?: boolean, includeBatches?: boolean }} [opts]
+   */
+  function exportWarehouseBackup(opts) {
+    opts = opts || {};
+    return getWarehouseMeta().then(async (meta) => {
+      const loaded = await loadHealthDataWarehouse();
+      /** @type {any} */
+      const payload = {
+        warehouseMeta: meta,
+        domainChunks: loaded && loaded.chunk ? [loaded.chunk] : [],
+      };
+      if (opts.includeSnapshots) {
+        try { payload.snapshots = await listSnapshots(); } catch (e) { payload.snapshots = []; }
+      }
+      if (opts.includeReports) {
+        try { payload.weeklyReports = await listWeeklyReports(); } catch (e) { payload.weeklyReports = []; }
+      }
+      if (opts.includeEvents) {
+        try { payload.healthEvents = await listHealthEvents(); } catch (e) { payload.healthEvents = []; }
+      }
+      if (opts.includeBatches) {
+        try { payload.importBatches = await listImportBatches(); } catch (e) { payload.importBatches = []; }
+      }
+      return {
+        magic: 'health-analyzer-backup',
+        formatVersion: 1,
+        exportedAt: new Date().toISOString(),
+        app: { name: 'health-analyzer', dataCenter: 'v1.68' },
+        encryption: 'none',
+        payload,
+      };
+    });
+  }
+
+  /**
+   * Replace warehouse (and optional side stores) from backup. MVP: replace only.
+   * @param {object} envelope
+   * @param {{ regrantConsent?: boolean }} [opts]
+   */
+  function importWarehouseBackup(envelope, opts) {
+    opts = opts || {};
+    if (!envelope || envelope.magic !== 'health-analyzer-backup') {
+      return Promise.reject(new Error('invalid_backup_magic'));
+    }
+    if (Number(envelope.formatVersion) !== 1) {
+      return Promise.reject(new Error('unsupported_backup_version'));
+    }
+    if (envelope.encryption && envelope.encryption !== 'none') {
+      return Promise.reject(new Error('encrypted_backup_not_supported_mvp'));
+    }
+    const body = envelope.payload;
+    if (!body || typeof body !== 'object') {
+      return Promise.reject(new Error('missing_payload'));
+    }
+    const chunks = Array.isArray(body.domainChunks) ? body.domainChunks : [];
+    const healthChunk = chunks.find((c) => c && (c.id === WH_CHUNK_HEALTH || c.domain === 'healthData'));
+    if (!healthChunk || !healthChunk.payload) {
+      return Promise.reject(new Error('backup_missing_health_data'));
+    }
+
+    return openDb()
+      .then(
+        (db) =>
+          new Promise((resolve, reject) => {
+            const names = [STORE_WH_META, STORE_WH_CHUNKS];
+            if (body.snapshots && db.objectStoreNames.contains(STORE)) names.push(STORE);
+            if (body.weeklyReports && db.objectStoreNames.contains(STORE_REPORTS)) names.push(STORE_REPORTS);
+            if (body.healthEvents && db.objectStoreNames.contains(STORE_EVENTS)) names.push(STORE_EVENTS);
+            if (body.importBatches && db.objectStoreNames.contains(STORE_IMPORT_BATCHES)) {
+              names.push(STORE_IMPORT_BATCHES);
+            }
+            const unique = names.filter((n, i) => names.indexOf(n) === i && db.objectStoreNames.contains(n));
+            const tx = db.transaction(unique, 'readwrite');
+
+            // Replace warehouse
+            tx.objectStore(STORE_WH_CHUNKS).clear();
+            const now = new Date().toISOString();
+            const chunk = Object.assign({}, healthChunk, {
+              id: WH_CHUNK_HEALTH,
+              domain: 'healthData',
+              shard: 'full',
+              updatedAt: now,
+            });
+            tx.objectStore(STORE_WH_CHUNKS).put(chunk);
+
+            let meta = Object.assign(defaultWarehouseMeta(), body.warehouseMeta || {}, { id: WH_META_ID });
+            // After restore, require consent still granted (or re-grant)
+            if (opts.regrantConsent !== false) {
+              meta.consent = {
+                granted: true,
+                grantedAt: (meta.consent && meta.consent.grantedAt) || now,
+                revokedAt: null,
+                policyVersion: WAREHOUSE_POLICY_VERSION,
+              };
+            }
+            meta.totalApproxBytes = chunk.approxBytes || approxJsonBytes(chunk.payload);
+            meta.totalRecordCount = chunk.recordCount || countHealthRecords(chunk.payload);
+            meta.dateRange = inferDateRange(chunk.payload);
+            meta.lastWrittenAt = now;
+            tx.objectStore(STORE_WH_META).put(meta);
+
+            if (body.snapshots && unique.indexOf(STORE) >= 0) {
+              tx.objectStore(STORE).clear();
+              (body.snapshots || []).forEach((s) => {
+                if (s && s.id) tx.objectStore(STORE).put(s);
+              });
+            }
+            if (body.weeklyReports && unique.indexOf(STORE_REPORTS) >= 0) {
+              tx.objectStore(STORE_REPORTS).clear();
+              (body.weeklyReports || []).forEach((s) => {
+                if (s && s.id) tx.objectStore(STORE_REPORTS).put(s);
+              });
+            }
+            if (body.healthEvents && unique.indexOf(STORE_EVENTS) >= 0) {
+              tx.objectStore(STORE_EVENTS).clear();
+              (body.healthEvents || []).forEach((s) => {
+                if (s && s.id) tx.objectStore(STORE_EVENTS).put(s);
+              });
+            }
+            if (body.importBatches && unique.indexOf(STORE_IMPORT_BATCHES) >= 0) {
+              tx.objectStore(STORE_IMPORT_BATCHES).clear();
+              (body.importBatches || []).forEach((s) => {
+                if (s && s.id) tx.objectStore(STORE_IMPORT_BATCHES).put(s);
+              });
+            }
+
+            tx.oncomplete = () => {
+              db.close();
+              resolve({ ok: true, meta });
+            };
+            tx.onerror = () => {
+              db.close();
+              reject(tx.error);
+            };
+          })
+      );
   }
 
   function listSnapshots() {
@@ -158,7 +698,7 @@
   }
 
   /**
-   * 清空全部本机健康历史 store：摘要快照 + 周报历史 + 事件时间线 + 导入批次
+   * 清空全部本机健康历史 store：摘要快照 + 周报历史 + 事件时间线 + 导入批次 + 原始仓
    * 供「清除所有本机健康数据」一键使用
    */
   function clearAllStores() {
@@ -175,9 +715,19 @@
           if (db.objectStoreNames.contains(STORE_IMPORT_BATCHES)) {
             names.push(STORE_IMPORT_BATCHES);
           }
+          if (db.objectStoreNames.contains(STORE_WH_CHUNKS)) {
+            names.push(STORE_WH_CHUNKS);
+          }
+          if (db.objectStoreNames.contains(STORE_WH_META)) {
+            names.push(STORE_WH_META);
+          }
           const tx = db.transaction(names, 'readwrite');
           for (const n of names) {
-            tx.objectStore(n).clear();
+            if (n === STORE_WH_META) {
+              tx.objectStore(n).put(defaultWarehouseMeta());
+            } else {
+              tx.objectStore(n).clear();
+            }
           }
           tx.oncomplete = () => {
             db.close();
@@ -800,5 +1350,19 @@
     getImportBatch,
     clearImportBatches,
     MAX_IMPORT_BATCHES,
+    // v1.68 原始数据仓（opt-in）
+    WAREHOUSE_POLICY_VERSION,
+    WAREHOUSE_SOFT_BYTES,
+    WAREHOUSE_HARD_BYTES,
+    getWarehouseMeta,
+    getWarehouseStatus,
+    isWarehouseConsentGranted,
+    grantWarehouseConsent,
+    revokeWarehouseConsent,
+    clearWarehouseOnly,
+    persistHealthDataWarehouse,
+    loadHealthDataWarehouse,
+    exportWarehouseBackup,
+    importWarehouseBackup,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

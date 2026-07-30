@@ -388,6 +388,49 @@ body.has-results .result-bottom-nav:not(.hidden) {
   display: block;
 }
 
+.warehouse-panel {
+  margin: 18px 0 8px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--muted-surface) 100%);
+}
+
+.warehouse-panel .panel-subhead {
+  margin-top: 0;
+}
+
+.warehouse-consent-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 10px 0 8px;
+  font-size: 14px;
+  line-height: 1.45;
+  min-height: 44px;
+}
+
+.warehouse-consent-row input {
+  margin-top: 4px;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.warehouse-status {
+  margin: 4px 0 10px;
+  color: var(--text);
+}
+
+.warehouse-actions {
+  margin-top: 4px;
+}
+
+.warehouse-actions .btn-secondary,
+.warehouse-actions .btn-ghost {
+  min-height: 44px;
+}
+
 .fhir-export-fold {
   margin: 16px 0;
   border: 1px solid var(--border);

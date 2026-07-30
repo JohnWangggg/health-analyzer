@@ -1,12 +1,12 @@
 # v1.68 本地个人健康数据中心（Local Personal Health Data Center）
 
-**状态：** 设计草案（产品/架构授权文档，**未实现**）  
+**状态：** 设计 + **MVP 已实现**（v1.68：单片 `healthData|full`、明文备份、关授权即清仓）  
 **范围：** 浏览器本机 IndexedDB 持久化「解析后的 typed 健康仓」+ 授权、配额、备份/清除  
 **语言 / Language：** 中文（关键术语中英对照）  
-**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 4`）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）
+**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）
 
 > 本地隐私优先 · 零服务器 · 非诊断 · 默认不上传  
-> 本文只定义产品层授权与数据契约；**不实现代码、不改 `web-ui` 业务逻辑**。
+> MVP 产品默认：自动 hydrate、关授权即删仓、仅配额软/硬上限、备份明文、恢复整库替换。按域月片分片与口令加密属后续阶段。
 
 ---
 

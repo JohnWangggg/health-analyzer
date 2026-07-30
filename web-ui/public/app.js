@@ -2538,6 +2538,10 @@
     renderInsights(analysis);
     showInsightCoachOnce();
 
+    // v1.68: auto-persist working set when user has granted warehouse consent
+    maybePersistWarehouse(analysis).catch(() => { /* ignore */ });
+    refreshWarehousePanel().catch(() => { /* ignore */ });
+
     $('step-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -6943,6 +6947,7 @@
     await refreshHistorySelect();
     await refreshWeeklyReportList();
     await refreshEventsList().catch(() => {});
+    await refreshWarehousePanel().catch(() => {});
     // 同时清掉当前页内存分析结果与已渲染 UI（与「重新上传」一致）
     resetResultsUi({ keepScroll: false });
     showExportStatus(t('privacy.wipeOk'));
@@ -7000,6 +7005,246 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }
+
+  // ---------- v1.68 本机原始数据仓 ----------
+  function showWarehouseStatusMsg(msg) {
+    const el = $('warehouse-action-status');
+    if (!el) return;
+    el.textContent = msg || '';
+    if (msg) {
+      el.classList.add('show');
+      setTimeout(() => el.classList.remove('show'), 3200);
+    }
+  }
+
+  async function refreshWarehousePanel() {
+    const statusEl = $('warehouse-status');
+    const consentEl = $('warehouse-consent');
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.getWarehouseStatus !== 'function') {
+      if (statusEl) statusEl.textContent = t('warehouse.unavailable');
+      return;
+    }
+    try {
+      const st = await HH.getWarehouseStatus();
+      if (consentEl) {
+        consentEl.checked = !!st.granted;
+        // avoid re-entrancy when programmatically syncing
+        consentEl.dataset.syncing = '1';
+        setTimeout(() => { delete consentEl.dataset.syncing; }, 0);
+      }
+      if (!statusEl) return;
+      if (!st.granted) {
+        statusEl.textContent = t('warehouse.status.off');
+        return;
+      }
+      const bytes = st.approxBytes != null ? st.approxBytes : (st.meta && st.meta.totalApproxBytes) || 0;
+      const records = (st.meta && st.meta.totalRecordCount) || 0;
+      const range = st.meta && st.meta.dateRange;
+      const rangeText = range && range.start && range.end
+        ? t('warehouse.status.range', { start: range.start, end: range.end })
+        : t('warehouse.status.noRange');
+      const written = st.meta && st.meta.lastWrittenAt
+        ? String(st.meta.lastWrittenAt).slice(0, 19).replace('T', ' ')
+        : '—';
+      statusEl.textContent = t('warehouse.status.on', {
+        bytes: formatBytes(bytes),
+        n: String(records),
+        range: rangeText,
+        written,
+      });
+      if (st.hasPayload === false) {
+        statusEl.textContent += ' · ' + t('warehouse.status.empty');
+      }
+    } catch (e) {
+      if (statusEl) statusEl.textContent = t('warehouse.err', { msg: (e && e.message) || String(e) });
+    }
+  }
+
+  async function maybePersistWarehouse(analysis, opts) {
+    opts = opts || {};
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.persistHealthDataWarehouse !== 'function') return;
+    if (!analysis || !analysis.data) return;
+    try {
+      const granted = await HH.isWarehouseConsentGranted();
+      if (!granted) return;
+      const batchId =
+        (analysis.sourceBatchIds && analysis.sourceBatchIds[analysis.sourceBatchIds.length - 1]) ||
+        null;
+      const res = await HH.persistHealthDataWarehouse(analysis.data, { batchId });
+      if (res && res.ok) {
+        if (opts.toast) {
+          showToast(t('warehouse.persistOk', { bytes: formatBytes(res.approxBytes || 0) }), {
+            ok: true,
+            ms: 2200,
+          });
+        }
+        if (res.softWarn) {
+          showToast(t('warehouse.softQuota'), { ms: 3200 });
+        }
+      } else if (res && res.reason === 'quota_hard') {
+        showToast(t('warehouse.hardQuota'), { ms: 3600 });
+      } else if (res && res.reason === 'quota_exceeded') {
+        showToast(t('warehouse.quotaExceeded'), { ms: 3600 });
+      }
+      await refreshWarehousePanel();
+    } catch (e) {
+      console.warn('warehouse persist skipped', e);
+    }
+  }
+
+  async function hydrateFromWarehouse(opts) {
+    opts = opts || {};
+    const HH = window.HealthHistory;
+    const HA = window.HealthAnalyzer;
+    if (!HH || typeof HH.loadHealthDataWarehouse !== 'function' || !HA || typeof HA.analyzeAll !== 'function') {
+      return false;
+    }
+    try {
+      const loaded = await HH.loadHealthDataWarehouse();
+      if (!loaded || !loaded.data) {
+        if (opts.manual) showToast(t('warehouse.restoreEmpty'), { ms: 2600 });
+        return false;
+      }
+      recoveryWeights = loadRecoveryWeights();
+      currentAnalysis = HA.analyzeAll(loaded.data, {
+        recoveryWeights,
+        locale: getAnalysisLocale(),
+      });
+      // Restore last batch id for provenance if present
+      try {
+        const bid = loaded.meta && loaded.meta.lastImportBatchId;
+        if (bid) {
+          if (!analysisSourceBatchIds.includes(bid)) {
+            analysisSourceBatchIds.push(bid);
+          }
+          syncAnalysisSourceBatchIds(currentAnalysis);
+        }
+      } catch (e) { /* ignore */ }
+      renderResults(currentAnalysis);
+      if (opts.toast !== false) {
+        showToast(t('warehouse.restoreOk'), { ok: true, ms: 2600 });
+      }
+      await refreshWarehousePanel();
+      return true;
+    } catch (e) {
+      console.error(e);
+      if (opts.manual) {
+        showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+      }
+      return false;
+    }
+  }
+
+  async function onWarehouseConsentChange() {
+    const consentEl = $('warehouse-consent');
+    if (!consentEl || consentEl.dataset.syncing === '1') return;
+    const HH = window.HealthHistory;
+    if (!HH) return;
+    if (consentEl.checked) {
+      const ok = window.confirm(t('warehouse.consentConfirm'));
+      if (!ok) {
+        consentEl.checked = false;
+        return;
+      }
+      try {
+        await HH.grantWarehouseConsent();
+        showToast(t('warehouse.consentGranted'), { ok: true, ms: 2400 });
+        if (currentAnalysis) {
+          await maybePersistWarehouse(currentAnalysis, { toast: true });
+        }
+      } catch (e) {
+        consentEl.checked = false;
+        showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+      }
+    } else {
+      const ok = window.confirm(t('warehouse.revokeConfirm'));
+      if (!ok) {
+        consentEl.checked = true;
+        return;
+      }
+      try {
+        await HH.revokeWarehouseConsent();
+        showToast(t('warehouse.consentRevoked'), { ok: true, ms: 2400 });
+      } catch (e) {
+        consentEl.checked = true;
+        showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+      }
+    }
+    await refreshWarehousePanel();
+  }
+
+  $('warehouse-consent')?.addEventListener('change', () => {
+    onWarehouseConsentChange();
+  });
+  $('btn-warehouse-persist')?.addEventListener('click', async () => {
+    if (!currentAnalysis) {
+      showToast(t('common.needAnalysis') || t('warehouse.needAnalysis'), { ms: 2200 });
+      return;
+    }
+    const HH = window.HealthHistory;
+    if (!HH) return;
+    const granted = await HH.isWarehouseConsentGranted();
+    if (!granted) {
+      showToast(t('warehouse.needConsent'), { ms: 2600 });
+      return;
+    }
+    await maybePersistWarehouse(currentAnalysis, { toast: true });
+    showWarehouseStatusMsg(t('warehouse.persistOk', {
+      bytes: formatBytes(
+        (await HH.getWarehouseStatus().catch(() => ({}))).approxBytes || 0
+      ),
+    }));
+  });
+  $('btn-warehouse-restore')?.addEventListener('click', () => {
+    hydrateFromWarehouse({ manual: true, toast: true });
+  });
+  $('btn-warehouse-export')?.addEventListener('click', async () => {
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.exportWarehouseBackup !== 'function') return;
+    try {
+      const envelope = await HH.exportWarehouseBackup({
+        includeSnapshots: true,
+        includeEvents: true,
+        includeReports: true,
+        includeBatches: true,
+      });
+      const text = JSON.stringify(envelope, null, 2);
+      const name = `health-analyzer-backup-${new Date().toISOString().slice(0, 10)}.hae-backup.json`;
+      downloadText(name, text, 'application/json');
+      showToast(t('warehouse.exportOk'), { ok: true, ms: 2400 });
+      showWarehouseStatusMsg(t('warehouse.exportOk'));
+    } catch (e) {
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+    }
+  });
+  $('btn-warehouse-import')?.addEventListener('click', () => {
+    $('warehouse-backup-input')?.click();
+  });
+  $('warehouse-backup-input')?.addEventListener('change', async (ev) => {
+    const input = ev.target;
+    const file = input && input.files && input.files[0];
+    if (!file) return;
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.importWarehouseBackup !== 'function') return;
+    if (!window.confirm(t('warehouse.importConfirm'))) {
+      input.value = '';
+      return;
+    }
+    try {
+      const text = await file.text();
+      const envelope = JSON.parse(text);
+      await HH.importWarehouseBackup(envelope, { regrantConsent: true });
+      showToast(t('warehouse.importOk'), { ok: true, ms: 2600 });
+      await hydrateFromWarehouse({ manual: true, toast: true });
+      await refreshWarehousePanel();
+    } catch (e) {
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3600 });
+    } finally {
+      try { input.value = ''; } catch (err) { /* ignore */ }
+    }
+  });
 
   $('btn-clear-all-local')?.addEventListener('click', () => {
     clearAllLocalHealthData();
@@ -7074,6 +7319,38 @@
   window.addEventListener('health-analyzer-locale', () => {
     refreshLocaleUi();
   });
+
+  // v1.68: auto-hydrate from local warehouse when authorized (no re-upload)
+  (function tryAutoHydrateWarehouse() {
+    const run = async () => {
+      try {
+        if (currentAnalysis) return;
+        if (!window.HealthHistory || typeof window.HealthHistory.loadHealthDataWarehouse !== 'function') {
+          return;
+        }
+        const granted = await window.HealthHistory.isWarehouseConsentGranted();
+        if (!granted) {
+          await refreshWarehousePanel().catch(() => {});
+          return;
+        }
+        const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+        if (!loaded || !loaded.data) {
+          await refreshWarehousePanel().catch(() => {});
+          return;
+        }
+        await hydrateFromWarehouse({ toast: true });
+      } catch (e) {
+        console.warn('warehouse auto-hydrate skipped', e);
+        await refreshWarehousePanel().catch(() => {});
+      }
+    };
+    // Defer until HealthAnalyzer / HealthHistory scripts are ready
+    if (document.readyState === 'complete') {
+      setTimeout(run, 80);
+    } else {
+      window.addEventListener('load', () => setTimeout(run, 80));
+    }
+  })();
 
   // 初始：同步语言选择器 + 桌面拖放提示
   (function initLocaleChrome() {
