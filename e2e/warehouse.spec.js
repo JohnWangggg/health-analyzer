@@ -791,6 +791,152 @@ test.describe('v1.68 raw warehouse', () => {
     await expect(page.locator('#warehouse-auto-trim')).toBeChecked();
   });
 
+  test('auto-trim after save: keep 2 years drops older BP/weight shards on hydrate re-persist', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+    await page.evaluate(async () => {
+      localStorage.setItem('health-analyzer-warehouse-auto-trim', '1');
+      localStorage.setItem('health-analyzer-year-keep-years', '2');
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.bloodPressure = [
+        { datetime: '2023-03-10T08:00:00', systolic: 120, diastolic: 80 },
+        { datetime: '2024-03-10T08:00:00', systolic: 118, diastolic: 78 },
+        { datetime: '2025-03-10T08:00:00', systolic: 122, diastolic: 81 },
+        { datetime: '2026-03-10T08:00:00', systolic: 119, diastolic: 79 },
+      ];
+      data.weight = [
+        { datetime: '2023-02-01T07:00:00', value: 72.0 },
+        { datetime: '2024-02-01T07:00:00', value: 71.0 },
+        { datetime: '2025-02-01T07:00:00', value: 70.0 },
+        { datetime: '2026-02-01T07:00:00', value: 69.0 },
+      ];
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasWeight = true;
+      // No CGM seeded — auto-trim must leave cgmMonths empty/unaffected
+      await HH.persistHealthDataWarehouse(data);
+    });
+
+    const before = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      return {
+        bp: (st.bpYears || []).slice().sort(),
+        weight: (st.weightYears || []).slice().sort(),
+        cgm: (st.cgmMonths || []).slice().sort(),
+      };
+    });
+    expect(before.bp).toEqual(['2023', '2024', '2025', '2026']);
+    expect(before.weight).toEqual(['2023', '2024', '2025', '2026']);
+    expect(before.cgm).toEqual([]);
+
+    // Hydrate → renderResults → maybePersist → auto-trim
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const st = await window.HealthHistory.getWarehouseStatus();
+            return {
+              bpYears: (st.bpYears || []).slice().sort(),
+              weightYears: (st.weightYears || []).slice().sort(),
+              cgmMonths: (st.cgmMonths || []).slice().sort(),
+            };
+          }),
+        { timeout: 12_000 }
+      )
+      .toEqual({
+        bpYears: ['2025', '2026'],
+        weightYears: ['2025', '2026'],
+        cgmMonths: [],
+      });
+
+    await setWorkspace(page, 'more');
+    await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+    await expect(page.locator('#warehouse-auto-trim')).toBeChecked();
+  });
+
+  test('copy warehouse status summary is meta-only (no raw samples)', async ({ page }) => {
+    await waitAppReady(page);
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.bloodPressure = [
+        { datetime: '2026-03-10T08:00:00', systolic: 133, diastolic: 88 },
+      ];
+      data.weight = [{ datetime: '2026-04-01T07:00:00', value: 71.11 }];
+      data.cgm = [{ datetime: '2026-05-10T08:00:00', value: 6.66 }];
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasWeight = true;
+      data.dataAvailability.hasCgm = true;
+      await HH.persistHealthDataWarehouse(data);
+    });
+
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+    await setWorkspace(page, 'more');
+    await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+    await expect(page.locator('#btn-warehouse-copy-status')).toBeVisible();
+
+    // Capture clipboard payload via writeText hook (more reliable than readText in CI)
+    await page.evaluate(() => {
+      window.__whCopyCapture = '';
+      const clip = navigator.clipboard;
+      if (clip && typeof clip.writeText === 'function') {
+        const orig = clip.writeText.bind(clip);
+        clip.writeText = async (t) => {
+          window.__whCopyCapture = String(t || '');
+          try {
+            return await orig(t);
+          } catch (e) {
+            return undefined;
+          }
+        };
+      }
+    });
+    await page.locator('#btn-warehouse-copy-status').click();
+    const text = await page.evaluate(async () => {
+      for (let i = 0; i < 40; i++) {
+        if (window.__whCopyCapture && window.__whCopyCapture.length > 10) {
+          return window.__whCopyCapture;
+        }
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return window.__whCopyCapture || '';
+    });
+    expect(text.length).toBeGreaterThan(40);
+    // Meta markers
+    expect(text).toMatch(/2026-05|cgm|CGM|血压|BP|体重|weight|sharded|分片/i);
+    // Must not leak raw sample values (use distinctive numbers that won't appear in byte counts)
+    expect(text).not.toMatch(/133|88|71\.11|6\.66|systolic|diastolic/);
+  });
+
   test('encrypted backup roundtrip with passphrase', async ({ page }) => {
     await waitAppReady(page);
     await selectXmlOnly(page);

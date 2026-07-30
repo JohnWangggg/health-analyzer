@@ -7306,6 +7306,156 @@
     }
   }
 
+  /**
+   * Build a privacy-safe plain-text warehouse status summary (meta only).
+   * No raw samples, no datetime series, no personal names.
+   */
+  function buildWarehouseStatusSummary(st) {
+    st = st || {};
+    const meta = st.meta || {};
+    const yes = t('warehouse.statusSummary.yes');
+    const no = t('warehouse.statusSummary.no');
+    const on = t('warehouse.statusSummary.on');
+    const off = t('warehouse.statusSummary.off');
+    const lines = [];
+
+    lines.push(t('warehouse.statusSummary.title'));
+    lines.push('');
+    lines.push(t('warehouse.statusSummary.consent', { v: st.granted ? yes : no }));
+
+    let layout = st.layout || meta.layout || null;
+    if (layout === 'legacy-full') layout = 'legacy';
+    if (!layout) layout = 'none';
+    lines.push(t('warehouse.statusSummary.layout', { v: String(layout) }));
+
+    const bytes = st.approxBytes != null ? st.approxBytes : (meta.totalApproxBytes || 0);
+    const soft = st.softBytes || (150 * 1024 * 1024);
+    const hard = st.hardBytes || (200 * 1024 * 1024);
+    lines.push(t('warehouse.statusSummary.bytes', { bytes: formatBytes(bytes) }));
+    lines.push(t('warehouse.statusSummary.caps', {
+      soft: formatBytes(soft),
+      hard: formatBytes(hard),
+    }));
+
+    const records = meta.totalRecordCount != null ? meta.totalRecordCount : 0;
+    lines.push(t('warehouse.statusSummary.records', { n: String(records) }));
+
+    const range = meta.dateRange;
+    if (range && (range.start || range.end)) {
+      // Dates only (YYYY-MM-DD) — strip any time component for privacy.
+      const start = String(range.start || '').slice(0, 10) || '—';
+      const end = String(range.end || '').slice(0, 10) || '—';
+      lines.push(t('warehouse.statusSummary.range', { start, end }));
+    } else {
+      lines.push(t('warehouse.statusSummary.noRange'));
+    }
+
+    const stats = st.domainStats || meta.domainStats || {};
+    const keys = Object.keys(stats).sort((a, b) => {
+      const ba = (stats[b] && stats[b].approxBytes) || 0;
+      const aa = (stats[a] && stats[a].approxBytes) || 0;
+      return ba - aa;
+    });
+    lines.push(t('warehouse.statusSummary.domains'));
+    if (!keys.length) {
+      lines.push('  —');
+    } else {
+      keys.forEach((k) => {
+        const row = stats[k] || {};
+        const labelKey = WAREHOUSE_DOMAIN_I18N[k];
+        const label = labelKey ? t(labelKey) : k;
+        lines.push(t('warehouse.statusSummary.domainRow', {
+          domain: label,
+          n: String(row.recordCount || 0),
+          bytes: formatBytes(row.approxBytes || 0),
+          chunks: String(row.chunkCount || 0),
+        }));
+      });
+    }
+
+    const cgmMonths = (st.cgmMonths || [])
+      .map((m) => String(m || '').slice(0, 7))
+      .filter((m) => /^\d{4}-\d{2}$/.test(m))
+      .sort();
+    lines.push(t('warehouse.statusSummary.cgmMonths', {
+      n: String(cgmMonths.length),
+      list: cgmMonths.length ? cgmMonths.join(', ') : '—',
+    }));
+
+    const bpYears = (st.bpYears || [])
+      .map((y) => String(y || '').slice(0, 4))
+      .filter((y) => /^\d{4}$/.test(y))
+      .sort();
+    lines.push(t('warehouse.statusSummary.bpYears', {
+      n: String(bpYears.length),
+      list: bpYears.length ? bpYears.join(', ') : '—',
+    }));
+
+    const weightYears = (st.weightYears || [])
+      .map((y) => String(y || '').slice(0, 4))
+      .filter((y) => /^\d{4}$/.test(y))
+      .sort();
+    lines.push(t('warehouse.statusSummary.weightYears', {
+      n: String(weightYears.length),
+      list: weightYears.length ? weightYears.join(', ') : '—',
+    }));
+
+    lines.push(t('warehouse.statusSummary.softWarn', { v: st.softWarn ? yes : no }));
+    lines.push(t('warehouse.statusSummary.autoTrim', {
+      v: isWarehouseAutoTrimEnabled() ? on : off,
+    }));
+    lines.push(t('warehouse.statusSummary.cgmKeep', { n: String(getCgmKeepMonths()) }));
+    lines.push(t('warehouse.statusSummary.yearKeep', { n: String(getYearKeepYears()) }));
+    lines.push('');
+    lines.push(t('warehouse.statusSummary.footer'));
+    return lines.join('\n');
+  }
+
+  async function copyWarehouseStatusSummary() {
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.getWarehouseStatus !== 'function') {
+      showToast(t('warehouse.unavailable'), { ms: 2200 });
+      return false;
+    }
+    let text;
+    try {
+      const st = await HH.getWarehouseStatus();
+      text = buildWarehouseStatusSummary(st);
+    } catch (e) {
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+      return false;
+    }
+    try {
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(text);
+      } else {
+        throw new Error('no_clipboard_api');
+      }
+    } catch (clipErr) {
+      try {
+        // Fallback: temporary textarea (same idea as copyText helper)
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        ta.style.top = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        const copied = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (!copied) throw clipErr || new Error('copy_failed');
+      } catch (e2) {
+        showToast(t('warehouse.copyStatusFail') || t('copy.fail'), { ms: 2800 });
+        return false;
+      }
+    }
+    showToast(t('warehouse.copyStatusOk'), { ok: true, ms: 2400 });
+    showWarehouseStatusMsg(t('warehouse.copyStatusOk'));
+    return true;
+  }
+
   function setWarehouseRestoredUi(on) {
     lastHydratedFromWarehouse = !!on;
     document.body.classList.toggle('from-warehouse', !!on);
@@ -8301,6 +8451,9 @@
     } catch (e) {
       showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
     }
+  });
+  $('btn-warehouse-copy-status')?.addEventListener('click', () => {
+    copyWarehouseStatusSummary();
   });
   $('btn-warehouse-home-restore')?.addEventListener('click', () => {
     hydrateFromWarehouse({ manual: true, toast: true });

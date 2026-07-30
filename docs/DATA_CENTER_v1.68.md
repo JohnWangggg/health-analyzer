@@ -1,9 +1,9 @@
 # v1.68 本地个人健康数据中心（Local Personal Health Data Center）
 
-**状态：** 设计 + **已实现**（v1.68 MVP → **v1.75** `core|full` + `cgm|YYYY-MM` → **v1.79–v1.81** `bloodPressure|YYYY` / `weight|YYYY` 年分片、面板删片、保留近 N 月/年；兼容 legacy `healthData|full`）  
-**范围：** 浏览器本机 IndexedDB 持久化「解析后的 typed 健康仓」+ 授权、配额、备份/清除、分片淘汰与手动裁剪  
+**状态：** 设计 + **已实现**（v1.68 MVP → **v1.75** `core|full` + `cgm|YYYY-MM` → **v1.79–v1.81** `bloodPressure|YYYY` / `weight|YYYY` 年分片、面板删片、保留近 N 月/年 → **v1.82** 双域一键 keep-N 年 → **v1.83** 保存后可选自动 keep-N 裁剪；兼容 legacy `healthData|full`）  
+**范围：** 浏览器本机 IndexedDB 持久化「解析后的 typed 健康仓」+ 授权、配额、备份/清除、分片淘汰与手动/可选自动裁剪  
 **语言 / Language：** 中文（关键术语中英对照）  
-**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.81.0`）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）
+**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.81.0`+）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）；UI 偏好与自动裁剪见 `web-ui/public/app.js`
 
 > 本地隐私优先 · 零服务器 · 非诊断 · 默认不上传  
 > 产品默认：自动 hydrate、关授权即删仓、软/硬字节配额、备份默认明文（可选口令 AES-GCM）、恢复整库替换。分片与口令加密**已落地**（见 §4.2 / §6 / §8）。
@@ -470,25 +470,39 @@ interface ImportBatchRecordV168 extends ImportBatchRecord {
 5. **硬配额**（200 MB）：拒绝 persist（`reason: 'quota_hard'`），不半写。  
 6. **不自动删** `healthEvents` / 用户周报 / 摘要 snapshots。
 
-**策略 B：用户手动「仅保留近 N」**（v1.78–v1.81 UI，不替代软/硬配额）
+**策略 B：用户手动「仅保留近 N」**（v1.78–v1.82 UI，不替代软/硬配额）
 
 | 域 | 保留选项 | 行为 |
 |----|----------|------|
 | CGM | 近 **3 / 6 / 12 / 24** 个月 | 删除早于「最新 N 个月」的 `cgm|YYYY-MM` |
 | 血压 | 近 **1 / 2 / 3 / 5** 年 | 删除早于「最新 N 个有数据年」的 `bloodPressure|YYYY` |
 | 体重（含体脂） | 近 **1 / 2 / 3 / 5** 年 | 同上，`weight|YYYY` |
+| **双域一键（v1.82）** | 同上 N | 「双域仅保留近 N 年」**一次**对血压 + 体重各裁 keep-N（两域共用同一 N / 同一偏好键） |
 
-- 偏好记在 **localStorage**（非云）。v1.81：血压与体重「保留年数」UI 控件各一，**当前共用同一偏好键**；**v1.82** 可轻量演进为分域独立 keep（dual-domain keep）。  
-- 另支持：**多选删除** CGM 月 / BP 年 / weight 年（`deleteCgmMonthShards` / `deleteDomainYearShards`）。
+- 偏好记在 **localStorage**（**非云、不上传**）。键示例：
+  - `health-analyzer-cgm-keep-months`（CGM 保留月数）
+  - `health-analyzer-year-keep-years`（血压 / 体重共用保留年数；面板上 BP / 体重各有 select，值同步）
+- 手动 keep-N（含双域按钮）有确认对话框；删除不可撤销（可先备份）。
+- 另支持：**多选删除** CGM 月 / BP 年 / weight 年（`deleteCgmMonthShards` / `deleteDomainYearShards` 等）。
 
 **策略 C：滚动天数（设计可选）**
 
 - 删除 `dateEnd < today - rollingDays` 的 chunks。  
-- 当前产品默认**不**按天自动滚动，仅配额 + 手动保留。
+- 当前产品默认**不**按天自动滚动；保留窗口依赖配额淘汰 + 手动 keep-N + **可选**自动 keep-N（策略 D）。
+
+**策略 D：保存后可选自动 keep-N 裁剪（v1.83）**
+
+- **Opt-in**，默认**关闭**。偏好键：`health-analyzer-warehouse-auto-trim`（localStorage；勾选「保存后自动按保留窗口裁剪」时写入，**非云**）。
+- 在 **`persistHealthDataWarehouse` 成功之后**（`maybePersistWarehouse` 路径）执行：按当前 CGM keep-months 与 year keep-years，静默删除更旧的 `cgm|YYYY-MM`、`bloodPressure|YYYY`、`weight|YYYY`（体脂随体重年）。
+- **无二次确认**（与手动 keep-N 不同）；开启即表示接受「每次成功写入后按窗口裁掉更旧分片」。可先备份再开。
+- 成功裁剪后可 toast 汇总删了多少月/年；失败才报错 toast。不写诊断文案。
+- 裁剪仍走 `HealthHistory` 删片 API → **`warehouseWriteChain` 串行**（与 §6.2.1 相同，避免并发写回）。
+- 防重入：自动裁剪过程中不再嵌套触发第二次 auto-trim；内存工作集与仓对齐后再写回一次（`skipAutoTrim`）。
+- 不替代软/硬配额（策略 A）；只是 keep 窗口的自动化。
 
 ### 6.2.1 写入串行（write serialization）
 
-`history-db.js` 用 `warehouseWriteChain` / `enqueueWarehouseWrite` **串行化** persist / 分片删除 / clear / 备份导入等仓写操作，避免并发 IDB 写入把刚删的分片「写回去」。分片删除采用两阶段：先 commit 删除 chunk id，再读 remaining 重算 meta（降低同事务 `getAll` 竞态）。
+`history-db.js` 用 `warehouseWriteChain` / `enqueueWarehouseWrite` **串行化** persist / 分片删除 / clear / 备份导入等仓写操作，避免并发 IDB 写入把刚删的分片「写回去」。分片删除采用两阶段：先 commit 删除 chunk id，再读 remaining 重算 meta（降低同事务 `getAll` 竞态）。**v1.83 自动 keep-N 裁剪**的删片与再 persist 也走同一写队列。
 
 ### 6.3 用户可见占用
 
@@ -501,7 +515,9 @@ interface ImportBatchRecordV168 extends ImportBatchRecord {
 | 分域列表 | CGM / 血压 / 体重… |
 | 布局行 | `sharded-v1` 等 |
 | **CGM 月列表** | 多选删除、保留近 N 月 |
-| **血压 / 体重年列表** | 多选删除、保留近 N 年；体重提示含体脂 |
+| **血压 / 体重年列表** | 多选删除、分域保留近 N 年；体重提示含体脂 |
+| **双域 keep（v1.82）** | 「双域仅保留近 N 年」一键裁血压 + 体重 |
+| **自动裁剪（v1.83）** | 勾选「保存后自动按保留窗口裁剪」（默认关；localStorage） |
 | 日历覆盖 | 2024-03-01 → 2026-07-28 |
 | 操作 | 立即保存 / 从仓恢复 / 导出·导入备份（口令可选）/ **仅清空仓内明细（保留授权）** / 关授权清空 |
 
@@ -810,6 +826,8 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
         │     ├── 占用与分域统计 + 配额条
         │     ├── CGM 月分片列表（多选删 / 保留近 N 月）
         │     ├── 血压 / 体重年分片列表（多选删 / 保留近 N 年；体脂随体重）
+        │     ├── 双域一键 keep-N 年（v1.82）
+        │     ├── 保存后自动 keep-N 裁剪勾选（v1.83，默认关）
         │     ├── 导出 / 导入备份（口令可选）
         │     ├── 仅清空仓内明细（保留 consent）
         │     └── 关授权 / 一键清除 wipe 仓
@@ -1030,7 +1048,7 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 
 见完成报告「需要用户拍板的 3–5 个产品决策」；正文内嵌默认建议如下：
 
-1. **默认保留策略：** 不按天滚动；超软配额先淘汰最旧 CGM 月片，再淘汰 BP/体重年片；用户可手动「仅保留近 N 月/年」。  
+1. **默认保留策略：** 不按天滚动；超软配额先淘汰最旧 CGM 月片，再淘汰 BP/体重年片；用户可手动「仅保留近 N 月/年」与双域一键年 keep；**可选**保存后自动 keep-N（默认关）。  
 2. **关授权即删仓：** 是。  
 3. **备份默认明文：** 是；加密为高级选项。  
 4. **恢复策略 MVP：** 仅 replace，不做三方 merge。  
@@ -1042,6 +1060,7 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 |------|------|------|
 | 草案 v1 | 2026-07-30 | 首版设计，对齐 history-db v4 与 v1.66 IA |
 | 实现对照 v1.75–v1.81 | 2026-07-30 | 对齐 `core\|full` + `cgm\|YYYY-MM` + `bloodPressure\|YYYY` / `weight\|YYYY`；软硬配额；写入串行；面板删片与 keep-N；clear payload 保留 consent |
+| 实现对照 v1.82–v1.83 | 2026-07-30 | v1.82 双域一键 keep-N 年；v1.83 保存成功后 opt-in 自动 keep-N（localStorage，默认关，无确认，写队列串行）；非云、非诊断 |
 
 ---
 
@@ -1049,10 +1068,10 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 
 | 路径 | 说明 |
 |------|------|
-| `web-ui/public/history-db.js` | IDB v5、`HealthHistory`、分片 persist / 删片 / 配额 / 备份 |
-| `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 多选删、wipe |
-| `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年） |
-| `e2e/warehouse.spec.js` | 仓 / 年分片 / 备份自动化 |
+| `web-ui/public/history-db.js` | IDB v5、`HealthHistory`、分片 persist / 删片 / 配额 / 备份 / 写串行 |
+| `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 双域 keep / 自动裁剪、多选删、wipe |
+| `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年 / 双域按钮 / auto-trim） |
+| `e2e/warehouse.spec.js` | 仓 / 年分片 / 双域 keep / auto-trim / 备份自动化 |
 | `lib/src/types.ts` | `HealthData` / `FullAnalysis` |
 | `lib/src/snapshot.ts` | 摘要快照（非明细） |
 | `lib/src/provenance.ts` | `ImportBatchRecord` |
