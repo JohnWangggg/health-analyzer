@@ -658,6 +658,12 @@ export interface FullAnalysis {
    * 导出「数据来源附录」应只引用这些 ID，而非全部历史批次。
    */
   sourceBatchIds?: string[];
+  /**
+   * domain → import batch ids that contributed to this analysis for that domain (v1.53).
+   * Keys: cgm | bloodPressure | weight | steps | sleep | restingHr | watch | ...
+   * Used for fine-grained FHIR Provenance (per-batch targets) and Observation extensions.
+   */
+  domainSourceBatches?: Record<string, string[]>;
 }
 
 // ============================================================

@@ -35,6 +35,12 @@
   let lastImportBatchId = null;
   /** 当前分析关联的导入批次 ID（导出附录只用这些，不用全部 IDB 历史） */
   let analysisSourceBatchIds = [];
+  /**
+   * domain → batch ids that contributed (v1.53 fine-grained FHIR Provenance).
+   * Keys: cgm | bloodPressure | weight | steps | sleep | restingHr | watch | ...
+   * @type {Record<string, string[]>}
+   */
+  let analysisDomainSourceBatches = {};
   const CTX_STORAGE_KEY = 'health-analyzer-user-context-v1';
   const RECOVERY_WEIGHTS_KEY = 'health-analyzer-recovery-weights';
   const SIGNAL_PREFS_KEY = 'health-analyzer-signal-prefs-v1';
@@ -3317,7 +3323,65 @@
 
   function resetAnalysisSourceBatchIds() {
     analysisSourceBatchIds = [];
+    analysisDomainSourceBatches = {};
     lastImportBatchId = null;
+  }
+
+  /** Normalize Apple summarizeDomainCounts keys → HAE / FHIR domain keys */
+  function normalizeDomainKey(key) {
+    const k = String(key || '');
+    const aliases = {
+      restingHrDays: 'restingHr',
+      stepsDays: 'steps',
+      sleepDays: 'sleep',
+      watchDays: 'watch',
+      hrvDays: 'hrv',
+      bodyWeight: 'weight',
+    };
+    return aliases[k] || k;
+  }
+
+  function cloneDomainSourceBatches(map) {
+    const out = {};
+    if (!map || typeof map !== 'object') return out;
+    for (const [k, v] of Object.entries(map)) {
+      out[k] = Array.isArray(v) ? v.slice() : [];
+    }
+    return out;
+  }
+
+  /**
+   * Record that batchId contributed to domains with added/updated (or n>0 counts).
+   * @param {string} batchId
+   * @param {Record<string, {added?: number, updated?: number, skipped?: number}|number>} byDomainStats
+   */
+  function rememberDomainBatches(batchId, byDomainStats) {
+    if (!batchId || !byDomainStats || typeof byDomainStats !== 'object') return;
+    const s = String(batchId);
+    for (const [rawKey, stats] of Object.entries(byDomainStats)) {
+      let contributed = false;
+      if (typeof stats === 'number') {
+        contributed = stats > 0;
+      } else if (stats && typeof stats === 'object') {
+        const added = Number(stats.added) || 0;
+        const updated = Number(stats.updated) || 0;
+        contributed = added > 0 || updated > 0;
+      }
+      if (!contributed) continue;
+      const domain = normalizeDomainKey(rawKey);
+      if (!domain) continue;
+      if (!analysisDomainSourceBatches[domain]) {
+        analysisDomainSourceBatches[domain] = [];
+      }
+      if (!analysisDomainSourceBatches[domain].includes(s)) {
+        analysisDomainSourceBatches[domain].push(s);
+      }
+    }
+    if (currentAnalysis) {
+      currentAnalysis.domainSourceBatches = cloneDomainSourceBatches(
+        analysisDomainSourceBatches
+      );
+    }
   }
 
   function rememberSourceBatchId(id) {
@@ -3329,12 +3393,16 @@
     lastImportBatchId = s;
     if (currentAnalysis) {
       currentAnalysis.sourceBatchIds = analysisSourceBatchIds.slice();
+      currentAnalysis.domainSourceBatches = cloneDomainSourceBatches(
+        analysisDomainSourceBatches
+      );
     }
   }
 
   function syncAnalysisSourceBatchIds(analysis) {
     if (!analysis) return analysis;
     analysis.sourceBatchIds = analysisSourceBatchIds.slice();
+    analysis.domainSourceBatches = cloneDomainSourceBatches(analysisDomainSourceBatches);
     return analysis;
   }
 
@@ -4886,6 +4954,11 @@
       const finalRec = saved || record;
       if (finalRec && finalRec.id) {
         rememberSourceBatchId(finalRec.id);
+        const byDomain =
+          (finalRec.stats && finalRec.stats.byDomain) ||
+          (partial && partial.stats && partial.stats.byDomain) ||
+          null;
+        if (byDomain) rememberDomainBatches(finalRec.id, byDomain);
       }
       return finalRec;
     } catch (e) {

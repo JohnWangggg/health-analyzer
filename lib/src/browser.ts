@@ -120,9 +120,11 @@ export {
   CGM_MIN_COVERAGE_PCT,
   FHIR_EXPORT_PROFILE,
   FHIR_R4,
+  FHIR_OBS_TYPE_TO_DOMAIN,
   toIsoDateTime,
   newBundleUuid,
   dayEffectivePeriod,
+  shortImportBatchIdForProv,
   buildFhirExportBundle,
   validateFhirExportBundle,
 } from './export';

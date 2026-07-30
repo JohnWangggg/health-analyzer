@@ -30,6 +30,7 @@ var HealthAnalyzer = (() => {
     CGM_REPORT_DAYS: () => CGM_REPORT_DAYS,
     DEFAULT_RECOVERY_WEIGHTS: () => DEFAULT_RECOVERY_WEIGHTS,
     FHIR_EXPORT_PROFILE: () => FHIR_EXPORT_PROFILE,
+    FHIR_OBS_TYPE_TO_DOMAIN: () => FHIR_OBS_TYPE_TO_DOMAIN,
     FHIR_R4: () => FHIR_R4,
     HEALTH_EVENT_KINDS: () => HEALTH_EVENT_KINDS,
     MAIN_PROMPT_TEMPLATE: () => MAIN_PROMPT_TEMPLATE,
@@ -127,6 +128,7 @@ var HealthAnalyzer = (() => {
     processWorkoutBlock: () => processWorkoutBlock,
     processXmlLine: () => processXmlLine,
     recomputeRecovery: () => recomputeRecovery,
+    shortImportBatchIdForProv: () => shortImportBatchIdForProv,
     shortWorkoutType: () => shortWorkoutType,
     sortHealthEvents: () => sortHealthEvents,
     summarizeHrvByDay: () => summarizeHrvByDay,
@@ -7770,12 +7772,27 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.4.1";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.5.0";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
   var META_SOURCE = "urn:health-analyzer:local";
   var DEVICE_NOTE = "local Apple Health / HAE import";
+  var EXT_SOURCE_BATCH_IDS = "urn:health-analyzer:extension:source-batch-ids";
+  var FHIR_OBS_TYPE_TO_DOMAIN = {
+    bloodPressure: "bloodPressure",
+    bodyWeight: "weight",
+    glucose: "cgm",
+    steps: "steps",
+    restingHeartRate: "restingHr",
+    sleep: "sleep",
+    spo2: "watch",
+    vo2Max: "watch",
+    breathingDisturbance: "watch",
+    wristTemperature: "watch",
+    nightHeartRate: "watch",
+    respiratoryRate: "watch"
+  };
   var DEFAULT_MAX_CGM = 2e3;
   var DEFAULT_MAX_BP = 500;
   var DEFAULT_MAX_WEIGHT = 500;
@@ -7940,6 +7957,110 @@ List 5\u20137 working hypotheses that best fit the available data
     const fileNames = (b.files || []).map((f) => f.name).filter(Boolean);
     const filesPart = fileNames.length === 0 ? "no-files" : fileNames.length <= 3 ? fileNames.join(", ") : `${fileNames.slice(0, 3).join(", ")} +${fileNames.length - 3}`;
     return `${b.source}: ${filesPart}`;
+  }
+  function shortImportBatchIdForProv(id) {
+    const s = String(id || "");
+    const m = s.match(/^batch_(\d+)_(.+)$/i);
+    if (m) return `${m[1].slice(-6)}_${String(m[2]).slice(0, 8)}`;
+    return s.length > 20 ? s.slice(0, 20) : s || "unknown";
+  }
+  function hasDomainSourceBatches(map) {
+    if (!map || typeof map !== "object") return false;
+    return Object.keys(map).some((k) => Array.isArray(map[k]) && map[k].length > 0);
+  }
+  function attachSourceBatchExtension(obs, domain, domainSourceBatches) {
+    if (!domainSourceBatches) return;
+    const raw = domainSourceBatches[domain];
+    if (!Array.isArray(raw) || !raw.length) return;
+    const ids = raw.map((x) => String(x)).filter(Boolean);
+    if (!ids.length) return;
+    const ext = Array.isArray(obs.extension) ? obs.extension : [];
+    ext.push({
+      url: EXT_SOURCE_BATCH_IDS,
+      valueString: ids.join(",")
+    });
+    obs.extension = ext;
+  }
+  function buildAssemblerProvenance(params) {
+    const prov = {
+      resourceType: "Provenance",
+      id: params.id,
+      meta: {
+        source: META_SOURCE,
+        tag: [
+          {
+            system: "urn:health-analyzer:tag",
+            code: FHIR_EXPORT_PROFILE,
+            display: "Experimental local FHIR-shaped export"
+          },
+          {
+            system: "urn:health-analyzer:rule-version",
+            code: PROVENANCE_RULE_VERSION,
+            display: PROVENANCE_RULE_VERSION
+          }
+        ]
+      },
+      target: params.target,
+      recorded: params.recorded,
+      activity: {
+        coding: [
+          {
+            system: "http://terminology.hl7.org/CodeSystem/v3-DataOperation",
+            code: "CREATE",
+            display: "create"
+          }
+        ],
+        text: "assemble local Observations / DocumentReference from Apple Health / HAE import"
+      },
+      agent: [
+        {
+          type: {
+            coding: [
+              {
+                system: "http://terminology.hl7.org/CodeSystem/provenance-participant-type",
+                code: "assembler",
+                display: "Assembler"
+              }
+            ],
+            text: "assembler"
+          },
+          who: {
+            display: "Health Analyzer",
+            identifier: {
+              system: "urn:health-analyzer:software",
+              value: FHIR_EXPORT_PROFILE
+            }
+          }
+        }
+      ],
+      reason: [
+        {
+          text: "Local processing and personal archive only; not clinical authentication or certified FHIR submission."
+        }
+      ],
+      extension: [
+        {
+          url: "urn:health-analyzer:extension:export-disclaimer",
+          valueString: "Local processing only; not clinical authentication. Experimental FHIR R4-shaped export."
+        }
+      ]
+    };
+    if (params.entities.length) {
+      prov.entity = params.entities;
+    }
+    return prov;
+  }
+  function entityForBatch(b) {
+    return {
+      role: "source",
+      what: {
+        identifier: {
+          system: "urn:health-analyzer:import-batch",
+          value: b.id
+        },
+        display: batchDisplay(b)
+      }
+    };
   }
   function buildBpObservation(r, index) {
     const id = `obs-bp-${index}`;
@@ -8471,6 +8592,15 @@ List 5\u20137 working hypotheses that best fit the available data
       agpSvg: 0
     };
     const observations = [];
+    const observationDomains = [];
+    const domainSourceBatches = analysis.domainSourceBatches;
+    const pushObs = (obs, byTypeKey) => {
+      const domain = FHIR_OBS_TYPE_TO_DOMAIN[byTypeKey] || byTypeKey;
+      attachSourceBatchExtension(obs, domain, domainSourceBatches);
+      observations.push(obs);
+      observationDomains.push(domain);
+      byType[byTypeKey] = (byType[byTypeKey] || 0) + 1;
+    };
     const bpAll = (data?.bloodPressure || []).filter(
       (r) => inWindow(r.date || getDate(r.datetime), windowStart, windowEnd)
     );
@@ -8480,8 +8610,7 @@ List 5\u20137 working hypotheses that best fit the available data
       notes.push(`BP capped: ${bpAll.length} \u2192 ${bp.length} (maxBp=${maxBp}, even sample)`);
     }
     for (let i = 0; i < bp.length; i++) {
-      observations.push(buildBpObservation(bp[i], i));
-      byType.bloodPressure += 1;
+      pushObs(buildBpObservation(bp[i], i), "bloodPressure");
     }
     const wtAll = (data?.weight || []).filter(
       (r) => inWindow(r.date || getDate(r.datetime), windowStart, windowEnd)
@@ -8494,8 +8623,7 @@ List 5\u20137 working hypotheses that best fit the available data
       );
     }
     for (let i = 0; i < wt.length; i++) {
-      observations.push(buildWeightObservation(wt[i], i));
-      byType.bodyWeight += 1;
+      pushObs(buildWeightObservation(wt[i], i), "bodyWeight");
     }
     const cgmAll = (data?.cgm || []).filter(
       (p) => inWindow(getDate(p.datetime), windowStart, windowEnd)
@@ -8506,8 +8634,7 @@ List 5\u20137 working hypotheses that best fit the available data
       notes.push(`CGM capped: ${cgmAll.length} \u2192 ${cgm.length} (maxCgm=${maxCgm}, even sample)`);
     }
     for (let i = 0; i < cgm.length; i++) {
-      observations.push(buildGlucoseObservation(cgm[i], i));
-      byType.glucose += 1;
+      pushObs(buildGlucoseObservation(cgm[i], i), "glucose");
     }
     const stepsMap = analysis.stepsByDate || {};
     const stepDates = Object.keys(stepsMap).filter((d) => inWindow(d, windowStart, windowEnd) && Number.isFinite(stepsMap[d])).sort();
@@ -8520,8 +8647,7 @@ List 5\u20137 working hypotheses that best fit the available data
     }
     for (let i = 0; i < stepDatesUsed.length; i++) {
       const d = stepDatesUsed[i];
-      observations.push(buildStepsObservation(d, stepsMap[d], i));
-      byType.steps += 1;
+      pushObs(buildStepsObservation(d, stepsMap[d], i), "steps");
     }
     const rhrMap = analysis.restingHrByDate || data?.restingHr || {};
     const rhrDates = Object.keys(rhrMap).filter((d) => inWindow(d, windowStart, windowEnd) && Number.isFinite(rhrMap[d])).sort();
@@ -8534,8 +8660,7 @@ List 5\u20137 working hypotheses that best fit the available data
     }
     for (let i = 0; i < rhrDatesUsed.length; i++) {
       const d = rhrDatesUsed[i];
-      observations.push(buildRestingHrObservation(d, rhrMap[d], i));
-      byType.restingHeartRate += 1;
+      pushObs(buildRestingHrObservation(d, rhrMap[d], i), "restingHeartRate");
     }
     const watchDays = analysis.watchStats?.days || [];
     const spo2Days = watchDays.filter(
@@ -8550,8 +8675,7 @@ List 5\u20137 working hypotheses that best fit the available data
     }
     for (let i = 0; i < spo2Used.length; i++) {
       const d = spo2Used[i];
-      observations.push(buildSpo2Observation(d.date, d.spo2Mean, i));
-      byType.spo2 += 1;
+      pushObs(buildSpo2Observation(d.date, d.spo2Mean, i), "spo2");
     }
     const sleepMap = analysis.sleepByDate || data?.sleep || {};
     const sleepDates = Object.keys(sleepMap).filter((d) => {
@@ -8568,8 +8692,7 @@ List 5\u20137 working hypotheses that best fit the available data
     }
     for (let i = 0; i < sleepDatesUsed.length; i++) {
       const d = sleepDatesUsed[i];
-      observations.push(buildSleepObservation(d, sleepMap[d], i));
-      byType.sleep += 1;
+      pushObs(buildSleepObservation(d, sleepMap[d], i), "sleep");
     }
     const vo2Days = watchDays.filter(
       (d) => d && d.date && inWindow(d.date, windowStart, windowEnd) && d.vo2Max != null && Number.isFinite(d.vo2Max)
@@ -8583,8 +8706,7 @@ List 5\u20137 working hypotheses that best fit the available data
     }
     for (let i = 0; i < vo2Used.length; i++) {
       const d = vo2Used[i];
-      observations.push(buildVo2Observation(d.date, d.vo2Max, i));
-      byType.vo2Max += 1;
+      pushObs(buildVo2Observation(d.date, d.vo2Max, i), "vo2Max");
     }
     const brDays = watchDays.filter(
       (d) => d && d.date && inWindow(d.date, windowStart, windowEnd) && d.breathingDisturbance != null && Number.isFinite(d.breathingDisturbance)
@@ -8598,10 +8720,10 @@ List 5\u20137 working hypotheses that best fit the available data
     }
     for (let i = 0; i < brUsed.length; i++) {
       const d = brUsed[i];
-      observations.push(
-        buildBreathingDisturbanceObservation(d.date, d.breathingDisturbance, i)
+      pushObs(
+        buildBreathingDisturbanceObservation(d.date, d.breathingDisturbance, i),
+        "breathingDisturbance"
       );
-      byType.breathingDisturbance += 1;
     }
     const wtTempDays = watchDays.filter(
       (d) => d && d.date && inWindow(d.date, windowStart, windowEnd) && d.wristTempMean != null && Number.isFinite(d.wristTempMean)
@@ -8615,8 +8737,7 @@ List 5\u20137 working hypotheses that best fit the available data
     }
     for (let i = 0; i < wtTempUsed.length; i++) {
       const d = wtTempUsed[i];
-      observations.push(buildWristTempObservation(d.date, d.wristTempMean, i));
-      byType.wristTemperature += 1;
+      pushObs(buildWristTempObservation(d.date, d.wristTempMean, i), "wristTemperature");
     }
     const nightHrDays = watchDays.filter(
       (d) => d && d.date && inWindow(d.date, windowStart, windowEnd) && d.nightHrMean != null && Number.isFinite(d.nightHrMean)
@@ -8630,8 +8751,7 @@ List 5\u20137 working hypotheses that best fit the available data
     }
     for (let i = 0; i < nightHrUsed.length; i++) {
       const d = nightHrUsed[i];
-      observations.push(buildNightHrObservation(d.date, d.nightHrMean, i));
-      byType.nightHeartRate += 1;
+      pushObs(buildNightHrObservation(d.date, d.nightHrMean, i), "nightHeartRate");
     }
     const rrDays = watchDays.filter(
       (d) => d && d.date && inWindow(d.date, windowStart, windowEnd) && d.rrMean != null && Number.isFinite(d.rrMean)
@@ -8645,8 +8765,7 @@ List 5\u20137 working hypotheses that best fit the available data
     }
     for (let i = 0; i < rrUsed.length; i++) {
       const d = rrUsed[i];
-      observations.push(buildRespiratoryRateObservation(d.date, d.rrMean, i));
-      byType.respiratoryRate += 1;
+      pushObs(buildRespiratoryRateObservation(d.date, d.rrMean, i), "respiratoryRate");
     }
     if (opts.patientDisplay) {
       const subject = {
@@ -8721,7 +8840,7 @@ List 5\u20137 working hypotheses that best fit the available data
     ];
     if (includeProvenance) {
       const recorded = (/* @__PURE__ */ new Date()).toISOString();
-      const target = [
+      const fullTargetAll = () => [
         ...observations.map((o) => ({
           reference: idToFullUrl.get(`Observation/${o.id}`) || `Observation/${o.id}`
         })),
@@ -8729,88 +8848,73 @@ List 5\u20137 working hypotheses that best fit the available data
           reference: idToFullUrl.get(`DocumentReference/${d.id}`) || `DocumentReference/${d.id}`
         }))
       ];
-      const entities = batches.map((b) => ({
-        role: "source",
-        what: {
-          identifier: {
-            system: "urn:health-analyzer:import-batch",
-            value: b.id
-          },
-          display: batchDisplay(b)
-        }
-      }));
-      const prov = {
-        resourceType: "Provenance",
-        id: "prov-export-1",
-        meta: {
-          source: META_SOURCE,
-          tag: [
-            {
-              system: "urn:health-analyzer:tag",
-              code: FHIR_EXPORT_PROFILE,
-              display: "Experimental local FHIR-shaped export"
-            },
-            {
-              system: "urn:health-analyzer:rule-version",
-              code: PROVENANCE_RULE_VERSION,
-              display: PROVENANCE_RULE_VERSION
-            }
-          ]
-        },
-        target,
-        recorded,
-        activity: {
-          coding: [
-            {
-              system: "http://terminology.hl7.org/CodeSystem/v3-DataOperation",
-              code: "CREATE",
-              display: "create"
-            }
-          ],
-          text: "assemble local Observations / DocumentReference from Apple Health / HAE import"
-        },
-        agent: [
-          {
-            type: {
-              coding: [
-                {
-                  system: "http://terminology.hl7.org/CodeSystem/provenance-participant-type",
-                  code: "assembler",
-                  display: "Assembler"
-                }
-              ],
-              text: "assembler"
-            },
-            who: {
-              display: "Health Analyzer",
-              identifier: {
-                system: "urn:health-analyzer:software",
-                value: FHIR_EXPORT_PROFILE
-              }
-            }
-          }
-        ],
-        reason: [
-          {
-            text: "Local processing and personal archive only; not clinical authentication or certified FHIR submission."
-          }
-        ],
-        // R4 Provenance.reason is CodeableConcept[]; also put narrative in extension for clarity
-        extension: [
-          {
-            url: "urn:health-analyzer:extension:export-disclaimer",
-            valueString: "Local processing only; not clinical authentication. Experimental FHIR R4-shaped export."
-          }
-        ]
-      };
-      if (entities.length) {
-        prov.entity = entities;
-      } else {
+      const useFineGrained = batches.length > 0 && hasDomainSourceBatches(domainSourceBatches);
+      if (useFineGrained) {
         notes.push(
-          "Provenance included without import batch entities (no importBatches provided)."
+          "fine-grained provenance: one Provenance per import batch (domainSourceBatches)"
+        );
+        let linkedAny = false;
+        for (const b of batches) {
+          const bid = String(b.id);
+          const targets = [];
+          for (let i = 0; i < observations.length; i++) {
+            const domain = observationDomains[i];
+            const list = domainSourceBatches && domainSourceBatches[domain] || [];
+            if (!list.map(String).includes(bid)) continue;
+            const o = observations[i];
+            targets.push({
+              reference: idToFullUrl.get(`Observation/${o.id}`) || `Observation/${o.id}`
+            });
+          }
+          if (!targets.length) {
+            notes.push(
+              `batch ${bid}: no domain-matched Observations; provenance skipped for this batch`
+            );
+            continue;
+          }
+          linkedAny = true;
+          provenances.push(
+            buildAssemblerProvenance({
+              id: `prov-batch-${shortImportBatchIdForProv(bid)}`,
+              target: targets,
+              entities: [entityForBatch(b)],
+              recorded
+            })
+          );
+        }
+        if (!linkedAny) {
+          notes.push(
+            "domain map available but no batch-observation links; coarse provenance fallback"
+          );
+          const entities = batches.map(entityForBatch);
+          provenances.push(
+            buildAssemblerProvenance({
+              id: "prov-export-1",
+              target: fullTargetAll(),
+              entities,
+              recorded
+            })
+          );
+        }
+      } else {
+        if (batches.length > 0 && !hasDomainSourceBatches(domainSourceBatches)) {
+          notes.push("domain map unavailable; coarse provenance");
+        }
+        const entities = batches.map(entityForBatch);
+        if (!entities.length) {
+          notes.push(
+            "Provenance included without import batch entities (no importBatches provided)."
+          );
+        }
+        provenances.push(
+          buildAssemblerProvenance({
+            id: "prov-export-1",
+            target: fullTargetAll(),
+            entities,
+            recorded
+          })
         );
       }
-      provenances.push(prov);
     }
     const entries = [
       ...resourceEntries,
@@ -8826,7 +8930,7 @@ List 5\u20137 working hypotheses that best fit the available data
           {
             system: "urn:health-analyzer:tag",
             code: FHIR_EXPORT_PROFILE,
-            display: "health-analyzer FHIR export profile v1.4.1"
+            display: "health-analyzer FHIR export profile v1.5.0"
           },
           {
             system: "urn:health-analyzer:rule-version",

@@ -1,9 +1,10 @@
 /**
- * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference 导出（试验性 v1.52.1）
+ * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference 导出（试验性 v1.53）
  *
  * - 仅生成本地可下载 JSON Bundle；非医院系统对接、非 FHIR 认证提交
  * - Bundle entry.fullUrl 使用 urn:uuid:；Provenance.target 与之匹配
  * - 日汇总用 effectivePeriod；瞬时测点用 effectiveDateTime
+ * - v1.53：按 domainSourceBatches 为每个导入批次生成细粒度 Provenance（仅 target 该域 Observation）
  * - 含结构自检 validateFhirExportBundle（非官方 FHIR 校验器）
  */
 
@@ -27,13 +28,34 @@ import { buildAgpSvg, buildCgm14DayReport } from './clinical-report';
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.4.1';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.5.0';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
 const UCUM = 'http://unitsofmeasure.org';
 const META_SOURCE = 'urn:health-analyzer:local';
 const DEVICE_NOTE = 'local Apple Health / HAE import';
+/** Observation extension: comma-separated import batch ids for this domain */
+const EXT_SOURCE_BATCH_IDS = 'urn:health-analyzer:extension:source-batch-ids';
+
+/**
+ * FHIR Observation byType key → analysis domain key (domainSourceBatches / HAE byDomain).
+ * Watch-derived daily metrics share the `watch` domain.
+ */
+export const FHIR_OBS_TYPE_TO_DOMAIN: Record<string, string> = {
+  bloodPressure: 'bloodPressure',
+  bodyWeight: 'weight',
+  glucose: 'cgm',
+  steps: 'steps',
+  restingHeartRate: 'restingHr',
+  sleep: 'sleep',
+  spo2: 'watch',
+  vo2Max: 'watch',
+  breathingDisturbance: 'watch',
+  wristTemperature: 'watch',
+  nightHeartRate: 'watch',
+  respiratoryRate: 'watch',
+};
 
 const DEFAULT_MAX_CGM = 2000;
 const DEFAULT_MAX_BP = 500;
@@ -313,6 +335,131 @@ function batchDisplay(b: ImportBatchRecord): string {
         ? fileNames.join(', ')
         : `${fileNames.slice(0, 3).join(', ')} +${fileNames.length - 3}`;
   return `${b.source}: ${filesPart}`;
+}
+
+/** Short stable suffix for Provenance resource id */
+export function shortImportBatchIdForProv(id: string): string {
+  const s = String(id || '');
+  const m = s.match(/^batch_(\d+)_(.+)$/i);
+  if (m) return `${m[1].slice(-6)}_${String(m[2]).slice(0, 8)}`;
+  return s.length > 20 ? s.slice(0, 20) : s || 'unknown';
+}
+
+function hasDomainSourceBatches(
+  map: Record<string, string[]> | null | undefined
+): boolean {
+  if (!map || typeof map !== 'object') return false;
+  return Object.keys(map).some((k) => Array.isArray(map[k]) && map[k]!.length > 0);
+}
+
+function attachSourceBatchExtension(
+  obs: Record<string, unknown>,
+  domain: string,
+  domainSourceBatches: Record<string, string[]> | undefined
+): void {
+  if (!domainSourceBatches) return;
+  const raw = domainSourceBatches[domain];
+  if (!Array.isArray(raw) || !raw.length) return;
+  const ids = raw.map((x) => String(x)).filter(Boolean);
+  if (!ids.length) return;
+  const ext = Array.isArray(obs.extension)
+    ? (obs.extension as Record<string, unknown>[])
+    : [];
+  ext.push({
+    url: EXT_SOURCE_BATCH_IDS,
+    valueString: ids.join(','),
+  });
+  obs.extension = ext;
+}
+
+function buildAssemblerProvenance(params: {
+  id: string;
+  target: { reference: string }[];
+  entities: Record<string, unknown>[];
+  recorded: string;
+}): Record<string, unknown> {
+  const prov: Record<string, unknown> = {
+    resourceType: 'Provenance',
+    id: params.id,
+    meta: {
+      source: META_SOURCE,
+      tag: [
+        {
+          system: 'urn:health-analyzer:tag',
+          code: FHIR_EXPORT_PROFILE,
+          display: 'Experimental local FHIR-shaped export',
+        },
+        {
+          system: 'urn:health-analyzer:rule-version',
+          code: PROVENANCE_RULE_VERSION,
+          display: PROVENANCE_RULE_VERSION,
+        },
+      ],
+    },
+    target: params.target,
+    recorded: params.recorded,
+    activity: {
+      coding: [
+        {
+          system: 'http://terminology.hl7.org/CodeSystem/v3-DataOperation',
+          code: 'CREATE',
+          display: 'create',
+        },
+      ],
+      text: 'assemble local Observations / DocumentReference from Apple Health / HAE import',
+    },
+    agent: [
+      {
+        type: {
+          coding: [
+            {
+              system: 'http://terminology.hl7.org/CodeSystem/provenance-participant-type',
+              code: 'assembler',
+              display: 'Assembler',
+            },
+          ],
+          text: 'assembler',
+        },
+        who: {
+          display: 'Health Analyzer',
+          identifier: {
+            system: 'urn:health-analyzer:software',
+            value: FHIR_EXPORT_PROFILE,
+          },
+        },
+      },
+    ],
+    reason: [
+      {
+        text:
+          'Local processing and personal archive only; not clinical authentication or certified FHIR submission.',
+      },
+    ],
+    extension: [
+      {
+        url: 'urn:health-analyzer:extension:export-disclaimer',
+        valueString:
+          'Local processing only; not clinical authentication. Experimental FHIR R4-shaped export.',
+      },
+    ],
+  };
+  if (params.entities.length) {
+    prov.entity = params.entities;
+  }
+  return prov;
+}
+
+function entityForBatch(b: ImportBatchRecord): Record<string, unknown> {
+  return {
+    role: 'source',
+    what: {
+      identifier: {
+        system: 'urn:health-analyzer:import-batch',
+        value: b.id,
+      },
+      display: batchDisplay(b),
+    },
+  };
 }
 
 // ============================================================
@@ -982,6 +1129,20 @@ export function buildFhirExportBundle(
     agpSvg: 0,
   };
   const observations: Record<string, unknown>[] = [];
+  /** Parallel to observations: analysis domain key for provenance / extensions */
+  const observationDomains: string[] = [];
+  const domainSourceBatches = analysis.domainSourceBatches;
+
+  const pushObs = (
+    obs: Record<string, unknown>,
+    byTypeKey: string
+  ): void => {
+    const domain = FHIR_OBS_TYPE_TO_DOMAIN[byTypeKey] || byTypeKey;
+    attachSourceBatchExtension(obs, domain, domainSourceBatches);
+    observations.push(obs);
+    observationDomains.push(domain);
+    byType[byTypeKey] = (byType[byTypeKey] || 0) + 1;
+  };
 
   // --- Blood pressure ---
   const bpAll = (data?.bloodPressure || []).filter((r) =>
@@ -993,8 +1154,7 @@ export function buildFhirExportBundle(
     notes.push(`BP capped: ${bpAll.length} → ${bp.length} (maxBp=${maxBp}, even sample)`);
   }
   for (let i = 0; i < bp.length; i++) {
-    observations.push(buildBpObservation(bp[i], i));
-    byType.bloodPressure += 1;
+    pushObs(buildBpObservation(bp[i], i), 'bloodPressure');
   }
 
   // --- Weight ---
@@ -1009,8 +1169,7 @@ export function buildFhirExportBundle(
     );
   }
   for (let i = 0; i < wt.length; i++) {
-    observations.push(buildWeightObservation(wt[i], i));
-    byType.bodyWeight += 1;
+    pushObs(buildWeightObservation(wt[i], i), 'bodyWeight');
   }
 
   // --- CGM / glucose ---
@@ -1023,8 +1182,7 @@ export function buildFhirExportBundle(
     notes.push(`CGM capped: ${cgmAll.length} → ${cgm.length} (maxCgm=${maxCgm}, even sample)`);
   }
   for (let i = 0; i < cgm.length; i++) {
-    observations.push(buildGlucoseObservation(cgm[i], i));
-    byType.glucose += 1;
+    pushObs(buildGlucoseObservation(cgm[i], i), 'glucose');
   }
 
   // --- Steps daily ---
@@ -1041,8 +1199,7 @@ export function buildFhirExportBundle(
   }
   for (let i = 0; i < stepDatesUsed.length; i++) {
     const d = stepDatesUsed[i];
-    observations.push(buildStepsObservation(d, stepsMap[d], i));
-    byType.steps += 1;
+    pushObs(buildStepsObservation(d, stepsMap[d], i), 'steps');
   }
 
   // --- Resting HR (optional easy domain) ---
@@ -1059,8 +1216,7 @@ export function buildFhirExportBundle(
   }
   for (let i = 0; i < rhrDatesUsed.length; i++) {
     const d = rhrDatesUsed[i];
-    observations.push(buildRestingHrObservation(d, rhrMap[d], i));
-    byType.restingHeartRate += 1;
+    pushObs(buildRestingHrObservation(d, rhrMap[d], i), 'restingHeartRate');
   }
 
   // --- SpO2 daily mean (Watch stats days) ---
@@ -1084,8 +1240,7 @@ export function buildFhirExportBundle(
   }
   for (let i = 0; i < spo2Used.length; i++) {
     const d = spo2Used[i];
-    observations.push(buildSpo2Observation(d.date, d.spo2Mean as number, i));
-    byType.spo2 += 1;
+    pushObs(buildSpo2Observation(d.date, d.spo2Mean as number, i), 'spo2');
   }
 
   // --- Sleep daily ---
@@ -1106,8 +1261,7 @@ export function buildFhirExportBundle(
   }
   for (let i = 0; i < sleepDatesUsed.length; i++) {
     const d = sleepDatesUsed[i];
-    observations.push(buildSleepObservation(d, sleepMap[d], i));
-    byType.sleep += 1;
+    pushObs(buildSleepObservation(d, sleepMap[d], i), 'sleep');
   }
 
   // --- VO2 max (Watch days with vo2Max) ---
@@ -1130,8 +1284,7 @@ export function buildFhirExportBundle(
   }
   for (let i = 0; i < vo2Used.length; i++) {
     const d = vo2Used[i];
-    observations.push(buildVo2Observation(d.date, d.vo2Max as number, i));
-    byType.vo2Max += 1;
+    pushObs(buildVo2Observation(d.date, d.vo2Max as number, i), 'vo2Max');
   }
 
   // --- Breathing disturbances (device index) ---
@@ -1154,10 +1307,10 @@ export function buildFhirExportBundle(
   }
   for (let i = 0; i < brUsed.length; i++) {
     const d = brUsed[i];
-    observations.push(
-      buildBreathingDisturbanceObservation(d.date, d.breathingDisturbance as number, i)
+    pushObs(
+      buildBreathingDisturbanceObservation(d.date, d.breathingDisturbance as number, i),
+      'breathingDisturbance'
     );
-    byType.breathingDisturbance += 1;
   }
 
   // --- Wrist temperature (°C) ---
@@ -1180,8 +1333,7 @@ export function buildFhirExportBundle(
   }
   for (let i = 0; i < wtTempUsed.length; i++) {
     const d = wtTempUsed[i];
-    observations.push(buildWristTempObservation(d.date, d.wristTempMean as number, i));
-    byType.wristTemperature += 1;
+    pushObs(buildWristTempObservation(d.date, d.wristTempMean as number, i), 'wristTemperature');
   }
 
   // --- Night heart rate mean ---
@@ -1204,8 +1356,7 @@ export function buildFhirExportBundle(
   }
   for (let i = 0; i < nightHrUsed.length; i++) {
     const d = nightHrUsed[i];
-    observations.push(buildNightHrObservation(d.date, d.nightHrMean as number, i));
-    byType.nightHeartRate += 1;
+    pushObs(buildNightHrObservation(d.date, d.nightHrMean as number, i), 'nightHeartRate');
   }
 
   // --- Respiratory rate mean ---
@@ -1228,8 +1379,7 @@ export function buildFhirExportBundle(
   }
   for (let i = 0; i < rrUsed.length; i++) {
     const d = rrUsed[i];
-    observations.push(buildRespiratoryRateObservation(d.date, d.rrMean as number, i));
-    byType.respiratoryRate += 1;
+    pushObs(buildRespiratoryRateObservation(d.date, d.rrMean as number, i), 'respiratoryRate');
   }
 
   // Optional subject display on each observation
@@ -1323,8 +1473,7 @@ export function buildFhirExportBundle(
 
   if (includeProvenance) {
     const recorded = new Date().toISOString();
-    // Targets must match entry.fullUrl (urn:uuid:), not relative Resource/id
-    const target = [
+    const fullTargetAll = () => [
       ...observations.map((o) => ({
         reference: idToFullUrl.get(`Observation/${o.id}`) || `Observation/${o.id}`,
       })),
@@ -1334,94 +1483,79 @@ export function buildFhirExportBundle(
       })),
     ];
 
-    const entities: Record<string, unknown>[] = batches.map((b) => ({
-      role: 'source',
-      what: {
-        identifier: {
-          system: 'urn:health-analyzer:import-batch',
-          value: b.id,
-        },
-        display: batchDisplay(b),
-      },
-    }));
+    const useFineGrained =
+      batches.length > 0 && hasDomainSourceBatches(domainSourceBatches);
 
-    // One Provenance for transform/assemble (+ source entities from import batches)
-    const prov: Record<string, unknown> = {
-      resourceType: 'Provenance',
-      id: 'prov-export-1',
-      meta: {
-        source: META_SOURCE,
-        tag: [
-          {
-            system: 'urn:health-analyzer:tag',
-            code: FHIR_EXPORT_PROFILE,
-            display: 'Experimental local FHIR-shaped export',
-          },
-          {
-            system: 'urn:health-analyzer:rule-version',
-            code: PROVENANCE_RULE_VERSION,
-            display: PROVENANCE_RULE_VERSION,
-          },
-        ],
-      },
-      target,
-      recorded,
-      activity: {
-        coding: [
-          {
-            system: 'http://terminology.hl7.org/CodeSystem/v3-DataOperation',
-            code: 'CREATE',
-            display: 'create',
-          },
-        ],
-        text: 'assemble local Observations / DocumentReference from Apple Health / HAE import',
-      },
-      agent: [
-        {
-          type: {
-            coding: [
-              {
-                system: 'http://terminology.hl7.org/CodeSystem/provenance-participant-type',
-                code: 'assembler',
-                display: 'Assembler',
-              },
-            ],
-            text: 'assembler',
-          },
-          who: {
-            display: 'Health Analyzer',
-            identifier: {
-              system: 'urn:health-analyzer:software',
-              value: FHIR_EXPORT_PROFILE,
-            },
-          },
-        },
-      ],
-      reason: [
-        {
-          text:
-            'Local processing and personal archive only; not clinical authentication or certified FHIR submission.',
-        },
-      ],
-      // R4 Provenance.reason is CodeableConcept[]; also put narrative in extension for clarity
-      extension: [
-        {
-          url: 'urn:health-analyzer:extension:export-disclaimer',
-          valueString:
-            'Local processing only; not clinical authentication. Experimental FHIR R4-shaped export.',
-        },
-      ],
-    };
-
-    if (entities.length) {
-      prov.entity = entities;
-    } else {
+    if (useFineGrained) {
+      // v1.53: one Provenance per import batch; target only Observations for domains
+      // that list this batch id (do not stamp every CGM point with every batch).
       notes.push(
-        'Provenance included without import batch entities (no importBatches provided).'
+        'fine-grained provenance: one Provenance per import batch (domainSourceBatches)'
+      );
+      let linkedAny = false;
+      for (const b of batches) {
+        const bid = String(b.id);
+        const targets: { reference: string }[] = [];
+        for (let i = 0; i < observations.length; i++) {
+          const domain = observationDomains[i];
+          const list = (domainSourceBatches && domainSourceBatches[domain]) || [];
+          if (!list.map(String).includes(bid)) continue;
+          const o = observations[i];
+          targets.push({
+            reference: idToFullUrl.get(`Observation/${o.id}`) || `Observation/${o.id}`,
+          });
+        }
+        if (!targets.length) {
+          notes.push(
+            `batch ${bid}: no domain-matched Observations; provenance skipped for this batch`
+          );
+          continue;
+        }
+        linkedAny = true;
+        provenances.push(
+          buildAssemblerProvenance({
+            id: `prov-batch-${shortImportBatchIdForProv(bid)}`,
+            target: targets,
+            entities: [entityForBatch(b)],
+            recorded,
+          })
+        );
+      }
+      if (!linkedAny) {
+        // Domain map present but no links → coarse fallback so export still has provenance
+        notes.push(
+          'domain map available but no batch-observation links; coarse provenance fallback'
+        );
+        const entities = batches.map(entityForBatch);
+        provenances.push(
+          buildAssemblerProvenance({
+            id: 'prov-export-1',
+            target: fullTargetAll(),
+            entities,
+            recorded,
+          })
+        );
+      }
+    } else {
+      // Coarse: single Provenance targeting all Observations (+ DocumentReference)
+      if (batches.length > 0 && !hasDomainSourceBatches(domainSourceBatches)) {
+        notes.push('domain map unavailable; coarse provenance');
+      }
+      const entities = batches.map(entityForBatch);
+      if (!entities.length) {
+        notes.push(
+          'Provenance included without import batch entities (no importBatches provided).'
+        );
+      }
+      provenances.push(
+        buildAssemblerProvenance({
+          id: 'prov-export-1',
+          target: fullTargetAll(),
+          entities,
+          recorded,
+        })
       );
     }
-
-    provenances.push(prov);
   }
 
   const entries = [
@@ -1439,7 +1573,7 @@ export function buildFhirExportBundle(
         {
           system: 'urn:health-analyzer:tag',
           code: FHIR_EXPORT_PROFILE,
-          display: 'health-analyzer FHIR export profile v1.4.1',
+          display: 'health-analyzer FHIR export profile v1.5.0',
         },
         {
           system: 'urn:health-analyzer:rule-version',

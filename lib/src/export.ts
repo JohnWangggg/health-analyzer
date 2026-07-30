@@ -31,9 +31,11 @@ export type {
 export {
   FHIR_EXPORT_PROFILE,
   FHIR_R4,
+  FHIR_OBS_TYPE_TO_DOMAIN,
   toIsoDateTime,
   newBundleUuid,
   dayEffectivePeriod,
+  shortImportBatchIdForProv,
   buildFhirExportBundle,
   validateFhirExportBundle,
 } from './fhir-export';
