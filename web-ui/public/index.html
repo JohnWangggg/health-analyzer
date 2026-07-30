@@ -655,6 +655,16 @@
               <span data-i18n="warehouse.cgmSelectAll">全选</span>
             </label>
             <button type="button" id="btn-warehouse-bp-delete-selected" class="btn-danger-text btn-sm" data-i18n="warehouse.yearDeleteSelected">删除所选年</button>
+            <label class="warehouse-cgm-keep-label" for="warehouse-bp-keep-years">
+              <span data-i18n="warehouse.yearKeepYearsLabel">保留年数</span>
+              <select id="warehouse-bp-keep-years" data-i18n-aria="warehouse.yearKeepYearsLabel" aria-label="保留年数">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+              </select>
+            </label>
+            <button type="button" id="btn-warehouse-bp-keep-recent" class="btn-ghost btn-sm">仅保留近 3 年</button>
           </div>
           <ul id="warehouse-bp-year-list" class="warehouse-cgm-month-list" aria-label="BP years"></ul>
         </div>
@@ -667,6 +677,16 @@
               <span data-i18n="warehouse.cgmSelectAll">全选</span>
             </label>
             <button type="button" id="btn-warehouse-weight-delete-selected" class="btn-danger-text btn-sm" data-i18n="warehouse.yearDeleteSelected">删除所选年</button>
+            <label class="warehouse-cgm-keep-label" for="warehouse-weight-keep-years">
+              <span data-i18n="warehouse.yearKeepYearsLabel">保留年数</span>
+              <select id="warehouse-weight-keep-years" data-i18n-aria="warehouse.yearKeepYearsLabel" aria-label="保留年数">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+              </select>
+            </label>
+            <button type="button" id="btn-warehouse-weight-keep-recent" class="btn-ghost btn-sm">仅保留近 3 年</button>
           </div>
           <ul id="warehouse-weight-year-list" class="warehouse-cgm-month-list" aria-label="Weight years"></ul>
         </div>
@@ -818,7 +838,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.80</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.81</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

@@ -89,6 +89,10 @@
   const CGM_KEEP_MONTHS_KEY = 'health-analyzer-cgm-keep-months';
   const CGM_KEEP_MONTHS_OPTIONS = [3, 6, 12, 24];
   const CGM_KEEP_MONTHS_DEFAULT = 6;
+  /** BP/体重仓「仅保留近 N 年」的 N（1/2/3/5，默认 3） */
+  const YEAR_KEEP_YEARS_KEY = 'health-analyzer-year-keep-years';
+  const YEAR_KEEP_YEARS_OPTIONS = [1, 2, 3, 5];
+  const YEAR_KEEP_YEARS_DEFAULT = 3;
   /**
    * 健康相关 localStorage 键（一键清除会删这些）。
    * 刻意保留：THEME_KEY、health-analyzer-locale、侧栏折叠、安装/更新提示等 UI 偏好。
@@ -106,6 +110,7 @@
     LLM_COPY_ACK_KEY,
     INCLUDE_SENSITIVE_KEY,
     CGM_KEEP_MONTHS_KEY,
+    YEAR_KEEP_YEARS_KEY,
     'health-analyzer-insight-coach',
   ];
 
@@ -7150,6 +7155,9 @@
     try {
       if (typeof syncCgmKeepMonthsUi === 'function') syncCgmKeepMonthsUi();
     } catch (e) { /* ignore */ }
+    try {
+      if (typeof syncYearKeepYearsUi === 'function') syncYearKeepYearsUi();
+    } catch (e) { /* ignore */ }
     syncIncludeSensitiveCheckbox();
     // 恢复权重滑块 UI（若有）
     try {
@@ -7655,6 +7663,86 @@
     deleteDomainYearShardsUi('weight', getSelectedYearsFromUi('warehouse-weight-year-list'));
   });
 
+  function getYearKeepYears() {
+    try {
+      const v = Number(window.localStorage.getItem(YEAR_KEEP_YEARS_KEY));
+      if (YEAR_KEEP_YEARS_OPTIONS.indexOf(v) >= 0) return v;
+    } catch (e) { /* ignore */ }
+    return YEAR_KEEP_YEARS_DEFAULT;
+  }
+
+  function setYearKeepYears(n) {
+    const num = Number(n);
+    const v = YEAR_KEEP_YEARS_OPTIONS.indexOf(num) >= 0 ? num : YEAR_KEEP_YEARS_DEFAULT;
+    try {
+      window.localStorage.setItem(YEAR_KEEP_YEARS_KEY, String(v));
+    } catch (e) { /* ignore */ }
+    return v;
+  }
+
+  function syncYearKeepYearsUi() {
+    const n = getYearKeepYears();
+    ['warehouse-bp-keep-years', 'warehouse-weight-keep-years'].forEach((id) => {
+      const sel = $(id);
+      if (sel && sel.value !== String(n)) sel.value = String(n);
+    });
+    const label = t('warehouse.yearKeepRecent', { n: String(n) });
+    const bpBtn = $('btn-warehouse-bp-keep-recent');
+    const wtBtn = $('btn-warehouse-weight-keep-recent');
+    if (bpBtn) bpBtn.textContent = label;
+    if (wtBtn) wtBtn.textContent = label;
+  }
+
+  async function keepRecentDomainYearsUi(domain) {
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.getWarehouseStatus !== 'function') return;
+    const keepN = getYearKeepYears();
+    try {
+      const st = await HH.getWarehouseStatus();
+      const years =
+        domain === 'bloodPressure'
+          ? (st.bpYears || (st.bpYearDetails || []).map((d) => d.year) || [])
+          : (st.weightYears || (st.weightYearDetails || []).map((d) => d.year) || []);
+      const sorted = years.slice().filter(Boolean).map(String).sort();
+      if (sorted.length <= keepN) {
+        showToast(t('warehouse.yearKeepRecentNone', {
+          n: String(keepN),
+          domain: domainLabel(domain),
+        }), { ms: 2200 });
+        return;
+      }
+      const keep = sorted.slice(-keepN);
+      const drop = sorted.filter((y) => keep.indexOf(y) < 0);
+      await deleteDomainYearShardsUi(
+        domain,
+        drop,
+        t('warehouse.yearKeepRecentConfirm', {
+          n: String(drop.length),
+          keep: String(keepN),
+          domain: domainLabel(domain),
+        })
+      );
+    } catch (e) {
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+    }
+  }
+
+  $('warehouse-bp-keep-years')?.addEventListener('change', (e) => {
+    setYearKeepYears(e.target && e.target.value);
+    syncYearKeepYearsUi();
+  });
+  $('warehouse-weight-keep-years')?.addEventListener('change', (e) => {
+    setYearKeepYears(e.target && e.target.value);
+    syncYearKeepYearsUi();
+  });
+  $('btn-warehouse-bp-keep-recent')?.addEventListener('click', () => {
+    keepRecentDomainYearsUi('bloodPressure');
+  });
+  $('btn-warehouse-weight-keep-recent')?.addEventListener('click', () => {
+    keepRecentDomainYearsUi('weight');
+  });
+  syncYearKeepYearsUi();
+
   async function deleteCgmMonthShardsUi(months, confirmMsg) {
     const HH = window.HealthHistory;
     if (!HH || typeof HH.deleteCgmMonthShards !== 'function') return;
@@ -7738,6 +7826,7 @@
   });
   window.addEventListener('health-analyzer-locale', () => {
     syncCgmKeepMonthsUi();
+    syncYearKeepYearsUi();
   });
   syncCgmKeepMonthsUi();
   $('btn-warehouse-cgm-keep-recent')?.addEventListener('click', async () => {

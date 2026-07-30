@@ -24,7 +24,7 @@
   /** Soft / hard byte caps for raw warehouse (approx JSON size) */
   const WAREHOUSE_SOFT_BYTES = 150 * 1024 * 1024;
   const WAREHOUSE_HARD_BYTES = 200 * 1024 * 1024;
-  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.79.0';
+  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.81.0';
   /** @deprecated legacy single-blob id; still read for migrate */
   const WH_CHUNK_HEALTH = 'healthData|full';
   const WH_CHUNK_CORE = 'core|full';
@@ -32,6 +32,20 @@
   const WH_DOMAIN_CGM = 'cgm';
   const WH_DOMAIN_BP = 'bloodPressure';
   const WH_DOMAIN_WEIGHT = 'weight';
+
+  /**
+   * Serialize warehouse mutations (persist / delete / clear / import).
+   * Prevents concurrent IDB writers from restoring shards another op just deleted.
+   */
+  let warehouseWriteChain = Promise.resolve();
+  function enqueueWarehouseWrite(fn) {
+    const run = warehouseWriteChain.then(() => fn());
+    warehouseWriteChain = run.then(
+      () => undefined,
+      () => undefined
+    );
+    return run;
+  }
 
   function openDb() {
     return new Promise((resolve, reject) => {
@@ -736,6 +750,11 @@
     if (!healthData || typeof healthData !== 'object') {
       return Promise.resolve({ ok: false, reason: 'no_data' });
     }
+    return enqueueWarehouseWrite(() => persistHealthDataWarehouseUnlocked(healthData, opts));
+  }
+
+  function persistHealthDataWarehouseUnlocked(healthData, opts) {
+    opts = opts || {};
     return getWarehouseMeta().then((meta) => {
       if (!meta.consent || !meta.consent.granted) {
         return { ok: false, reason: 'no_consent' };
@@ -2140,53 +2159,97 @@
     list.forEach((m) => {
       idSet['cgm|' + m] = m;
     });
-    return getWarehouseMeta().then((meta) => {
-      if (!meta.consent || !meta.consent.granted) {
-        return { ok: false, reason: 'no_consent' };
-      }
-      return openDb().then(
+    const deleted = list.slice();
+    const note =
+      deleted.length === 1
+        ? 'cgm_month_deleted:' + deleted[0]
+        : 'cgm_months_deleted:' + deleted.join(',');
+    return enqueueWarehouseWrite(() =>
+      getWarehouseMeta().then((meta) => {
+        if (!meta.consent || !meta.consent.granted) {
+          return { ok: false, reason: 'no_consent' };
+        }
+        return deleteChunkIdsThenRecomputeMeta(meta, idSet, note).then((next) => {
+          if (next && next.ok === false) return next;
+          return {
+            ok: true,
+            months: deleted,
+            deleted,
+            meta: next,
+          };
+        });
+      })
+    );
+  }
+
+  /**
+   * Two-phase shard delete: commit deletes first, then recompute meta from remaining.
+   * Avoids same-transaction getAll races under load.
+   * @returns {Promise<object>} next warehouse meta, or { ok:false, reason }
+   */
+  function deleteChunkIdsThenRecomputeMeta(meta, idSet, note) {
+    const ids = Object.keys(idSet);
+    return openDb()
+      .then(
         (db) =>
           new Promise((resolve, reject) => {
             if (!db.objectStoreNames.contains(STORE_WH_CHUNKS)) {
               db.close();
-              resolve({ ok: false, reason: 'store_missing' });
+              resolve({ missing: true });
               return;
             }
-            const tx = db.transaction([STORE_WH_CHUNKS, STORE_WH_META], 'readwrite');
+            const tx = db.transaction(STORE_WH_CHUNKS, 'readwrite');
             const store = tx.objectStore(STORE_WH_CHUNKS);
-            Object.keys(idSet).forEach((id) => store.delete(id));
-            const allReq = store.getAll();
-            allReq.onsuccess = () => {
-              const all = allReq.result || [];
-              const remaining = all.filter((c) => c && !idSet[c.id]);
-              const deleted = list.slice();
-              const note =
-                deleted.length === 1
-                  ? 'cgm_month_deleted:' + deleted[0]
-                  : 'cgm_months_deleted:' + deleted.join(',');
-              const next = recomputeMetaAfterCgmDeletes(meta, remaining, note);
-              tx.objectStore(STORE_WH_META).put(next);
-              tx.oncomplete = () => {
-                db.close();
-                resolve({
-                  ok: true,
-                  months: deleted,
-                  deleted,
-                  meta: next,
-                });
-              };
-            };
-            allReq.onerror = () => {
+            ids.forEach((id) => store.delete(id));
+            tx.oncomplete = () => {
               db.close();
-              reject(allReq.error);
+              resolve({ missing: false });
             };
             tx.onerror = () => {
               db.close();
               reject(tx.error);
             };
+            tx.onabort = () => {
+              db.close();
+              reject(tx.error || new Error('shard_delete_aborted'));
+            };
           })
-      );
-    });
+      )
+      .then((phase1) => {
+        if (phase1 && phase1.missing) {
+          return { ok: false, reason: 'store_missing' };
+        }
+        return openDb().then(
+          (db) =>
+            new Promise((resolve, reject) => {
+              if (
+                !db.objectStoreNames.contains(STORE_WH_CHUNKS) ||
+                !db.objectStoreNames.contains(STORE_WH_META)
+              ) {
+                db.close();
+                resolve(meta);
+                return;
+              }
+              const tx = db.transaction([STORE_WH_CHUNKS, STORE_WH_META], 'readwrite');
+              let nextMeta = meta;
+              tx.oncomplete = () => {
+                db.close();
+                resolve(nextMeta);
+              };
+              tx.onerror = () => {
+                db.close();
+                reject(tx.error);
+              };
+              const allReq = tx.objectStore(STORE_WH_CHUNKS).getAll();
+              allReq.onsuccess = () => {
+                const remaining = (allReq.result || []).filter((c) => c && !idSet[c.id]);
+                nextMeta = recomputeMetaAfterShardDeletes(meta, remaining, note);
+                tx.objectStore(STORE_WH_META).put(nextMeta);
+              };
+              allReq.onerror = () => reject(allReq.error);
+            })
+        );
+      });
   }
 
   /**
@@ -2236,54 +2299,28 @@
     list.forEach((y) => {
       idSet[dom + '|' + y] = y;
     });
-    return getWarehouseMeta().then((meta) => {
-      if (!meta.consent || !meta.consent.granted) {
-        return { ok: false, reason: 'no_consent' };
-      }
-      return openDb().then(
-        (db) =>
-          new Promise((resolve, reject) => {
-            if (!db.objectStoreNames.contains(STORE_WH_CHUNKS)) {
-              db.close();
-              resolve({ ok: false, reason: 'store_missing' });
-              return;
-            }
-            const tx = db.transaction([STORE_WH_CHUNKS, STORE_WH_META], 'readwrite');
-            const store = tx.objectStore(STORE_WH_CHUNKS);
-            Object.keys(idSet).forEach((id) => store.delete(id));
-            const allReq = store.getAll();
-            allReq.onsuccess = () => {
-              const all = allReq.result || [];
-              const remaining = all.filter((c) => c && !idSet[c.id]);
-              const deleted = list.slice();
-              const note =
-                deleted.length === 1
-                  ? dom + '_year_deleted:' + deleted[0]
-                  : dom + '_years_deleted:' + deleted.join(',');
-              const next = recomputeMetaAfterShardDeletes(meta, remaining, note);
-              tx.objectStore(STORE_WH_META).put(next);
-              tx.oncomplete = () => {
-                db.close();
-                resolve({
-                  ok: true,
-                  domain: dom,
-                  years: deleted,
-                  deleted,
-                  meta: next,
-                });
-              };
-            };
-            allReq.onerror = () => {
-              db.close();
-              reject(allReq.error);
-            };
-            tx.onerror = () => {
-              db.close();
-              reject(tx.error);
-            };
-          })
-      );
-    });
+    const deleted = list.slice();
+    const note =
+      deleted.length === 1
+        ? dom + '_year_deleted:' + deleted[0]
+        : dom + '_years_deleted:' + deleted.join(',');
+    return enqueueWarehouseWrite(() =>
+      getWarehouseMeta().then((meta) => {
+        if (!meta.consent || !meta.consent.granted) {
+          return { ok: false, reason: 'no_consent' };
+        }
+        return deleteChunkIdsThenRecomputeMeta(meta, idSet, note).then((next) => {
+          if (next && next.ok === false) return next;
+          return {
+            ok: true,
+            domain: dom,
+            years: deleted,
+            deleted,
+            meta: next,
+          };
+        });
+      })
+    );
   }
 
   function deleteBloodPressureYearShards(years) {

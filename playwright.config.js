@@ -16,6 +16,8 @@ module.exports = defineConfig({
     baseURL: 'http://127.0.0.1:4173',
     trace: 'on-first-retry',
     locale: 'zh-CN',
+    // Avoid SW caching flaky history-db/app during parallel e2e against live public/
+    serviceWorkers: 'block',
   },
   projects: [
     {
