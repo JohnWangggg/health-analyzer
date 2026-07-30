@@ -125,6 +125,7 @@ export {
   newBundleUuid,
   dayEffectivePeriod,
   shortImportBatchIdForProv,
+  buildLocalPatientResource,
   buildFhirExportBundle,
   validateFhirExportBundle,
 } from './export';

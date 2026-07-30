@@ -504,6 +504,14 @@
           <input type="checkbox" id="fhir-include-agp-svg" />
           <span data-i18n="export.fhir.includeAgpSvg">附带 CGM AGP 14 日分位 SVG（覆盖充分时）</span>
         </label>
+        <label class="check-inline" for="fhir-include-patient">
+          <input type="checkbox" id="fhir-include-patient" />
+          <span data-i18n="export.fhir.includePatient">包含本机伪名 Patient（默认不导出身份）</span>
+        </label>
+        <label class="date-field" for="fhir-patient-display">
+          <span data-i18n="export.fhir.patientDisplay">显示名（可选）</span>
+          <input type="text" id="fhir-patient-display" maxlength="80" placeholder="例如 本地用户 / 匿名-A" data-i18n-placeholder="export.fhir.patientDisplayPh" />
+        </label>
         <div class="export-actions fhir-export-btns">
           <button type="button" id="btn-export-fhir" class="btn-secondary" data-i18n="export.fhir.btn">导出 FHIR Bundle JSON</button>
         </div>
@@ -620,7 +628,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.54</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.55</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

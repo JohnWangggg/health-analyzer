@@ -1753,6 +1753,29 @@ body.has-results .app-toast {
   margin-bottom: 0;
 }
 
+.fhir-export-panel .date-field {
+  margin: 8px 0 4px;
+  max-width: 320px;
+}
+
+.fhir-export-panel .date-field input[type="text"] {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.fhir-export-panel .date-field input[type="text"]:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+
 /* 本报告来源预览（仅关联 sourceBatchIds） */
 .provenance-preview {
   margin: 8px 0 4px;

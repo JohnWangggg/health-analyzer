@@ -1,10 +1,11 @@
 /**
- * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference 导出（试验性 v1.53）
+ * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference / Patient 导出（试验性 v1.55）
  *
  * - 仅生成本地可下载 JSON Bundle；非医院系统对接、非 FHIR 认证提交
  * - Bundle entry.fullUrl 使用 urn:uuid:；Provenance.target 与之匹配
  * - 日汇总用 effectivePeriod；瞬时测点用 effectiveDateTime
  * - v1.53：按 domainSourceBatches 为每个导入批次生成细粒度 Provenance（仅 target 该域 Observation）
+ * - v1.55：可选本机伪名 Patient（默认关闭，无身份 / 无 subject）
  * - 含结构自检 validateFhirExportBundle（非官方 FHIR 校验器）
  */
 
@@ -28,7 +29,7 @@ import { buildAgpSvg, buildCgm14DayReport } from './clinical-report';
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.5.0';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.6.0';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
@@ -37,6 +38,15 @@ const META_SOURCE = 'urn:health-analyzer:local';
 const DEVICE_NOTE = 'local Apple Health / HAE import';
 /** Observation extension: comma-separated import batch ids for this domain */
 const EXT_SOURCE_BATCH_IDS = 'urn:health-analyzer:extension:source-batch-ids';
+/** Patient extension: year-only birthDate is approximate */
+const EXT_BIRTH_YEAR_ONLY = 'urn:health-analyzer:extension:birth-year-only';
+/** Patient extension: local pseudonym disclaimer */
+const EXT_PATIENT_DISCLAIMER = 'urn:health-analyzer:extension:patient-disclaimer';
+/** Stable local patient identifier system / value (no real identity) */
+const PATIENT_ID_SYSTEM = 'urn:health-analyzer:patient';
+const PATIENT_LOCAL_ID = 'patient-local-1';
+const PATIENT_IDENTIFIER_VALUE = 'local-patient';
+const FHIR_ADMIN_GENDERS = new Set(['male', 'female', 'other', 'unknown']);
 
 /**
  * FHIR Observation byType key → analysis domain key (domainSourceBatches / HAE byDomain).
@@ -91,7 +101,17 @@ export interface FhirExportOptions {
   maxRrDays?: number; // default 366
   includeProvenance?: boolean; // default true when batches provided
   importBatches?: ImportBatchRecord[] | null; // from provenance.ts
-  patientDisplay?: string | null; // optional "local-patient" display only
+  /**
+   * default false — no Patient resource and no subject on Observations/DocumentReference.
+   * When true, emit a local pseudonym Patient and wire subject to its Bundle fullUrl.
+   */
+  includePatient?: boolean;
+  /** display name only, e.g. "Local user" / "匿名-A" — never required real legal name */
+  patientDisplay?: string | null;
+  /** optional gender: male | female | other | unknown */
+  patientGender?: string | null;
+  /** optional birthYear only (not full DOB) for privacy */
+  patientBirthYear?: number | null;
   /**
    * Attach a local clinical review document as DocumentReference (default false).
    * Provide markdown and/or html; content is truncated if over maxClinicalDocChars.
@@ -123,6 +143,7 @@ export interface FhirExportResult {
     observations: number;
     provenances: number;
     documentReferences: number;
+    patients: number;
     byType: Record<string, number>;
   };
   notes: string[];
@@ -324,6 +345,69 @@ function entryFor(
     idToFullUrl.set(`${rt}/${id}`, fullUrl);
   }
   return { fullUrl, resource };
+}
+
+/**
+ * Local pseudonym Patient for optional Bundle subject wiring.
+ * Not a verified identity; id is fixed as patient-local-1.
+ */
+export function buildLocalPatientResource(opts?: {
+  display?: string | null;
+  gender?: string | null;
+  birthYear?: number | null;
+}): Record<string, unknown> {
+  const display =
+    opts?.display != null && String(opts.display).trim()
+      ? String(opts.display).trim()
+      : 'Local patient';
+  const patient: Record<string, unknown> = {
+    resourceType: 'Patient',
+    id: PATIENT_LOCAL_ID,
+    meta: {
+      source: META_SOURCE,
+      tag: [
+        {
+          system: 'urn:health-analyzer:tag',
+          code: FHIR_EXPORT_PROFILE,
+          display: 'Experimental local FHIR-shaped export',
+        },
+      ],
+    },
+    identifier: [
+      {
+        system: PATIENT_ID_SYSTEM,
+        value: PATIENT_IDENTIFIER_VALUE,
+      },
+    ],
+    name: [{ text: display }],
+    extension: [
+      {
+        url: EXT_PATIENT_DISCLAIMER,
+        valueString:
+          'Local pseudonym only; not a verified identity. Optional subject for personal archive — never a legal name requirement.',
+      },
+    ],
+  };
+
+  const genderRaw = opts?.gender != null ? String(opts.gender).trim().toLowerCase() : '';
+  if (genderRaw && FHIR_ADMIN_GENDERS.has(genderRaw)) {
+    patient.gender = genderRaw;
+  }
+
+  const by = opts?.birthYear;
+  if (by != null && Number.isFinite(by)) {
+    const year = Math.trunc(Number(by));
+    if (year >= 1900 && year <= 2100) {
+      // FHIR birthDate requires full date; year-only privacy → Jan 1 + extension note
+      patient.birthDate = `${year}-01-01`;
+      (patient.extension as Record<string, unknown>[]).push({
+        url: EXT_BIRTH_YEAR_ONLY,
+        valueString: 'year-only approximate',
+      });
+    }
+  }
+
+  return patient;
 }
 
 function batchDisplay(b: ImportBatchRecord): string {
@@ -843,6 +927,43 @@ export function validateFhirExportBundle(
           issues.push(`DocumentReference/${id || i} content[0].attachment.data missing`);
         }
       }
+    } else if (rt === 'Patient') {
+      // id already required above; light checks for local-pseudonym shape
+      if (!Array.isArray(r.identifier) || !r.identifier.length) {
+        issues.push(`Patient/${id || i} missing identifier`);
+      }
+    }
+  }
+
+  // Patient fullUrls (for subject resolution when Patient is present)
+  const patientFullUrls = new Set<string>();
+  for (let i = 0; i < entry.length; i++) {
+    const e = entry[i] || {};
+    const r = (e.resource || null) as Record<string, unknown> | null;
+    if (r && r.resourceType === 'Patient' && e.fullUrl != null) {
+      patientFullUrls.add(String(e.fullUrl));
+    }
+  }
+
+  // Observation / DocumentReference subject.reference must resolve when present;
+  // if Patient is in the Bundle, subject must point at Patient entry fullUrl.
+  for (let i = 0; i < entry.length; i++) {
+    const r = (entry[i]?.resource || null) as Record<string, unknown> | null;
+    if (!r) continue;
+    const rt = String(r.resourceType || '');
+    if (rt !== 'Observation' && rt !== 'DocumentReference') continue;
+    const sub = r.subject as { reference?: string; display?: string } | undefined;
+    if (!sub || typeof sub !== 'object') continue;
+    const ref = sub.reference != null ? String(sub.reference) : '';
+    if (!ref) continue;
+    if (!fullUrls.has(ref)) {
+      issues.push(
+        `${rt}/${String(r.id || i)} subject.reference ${ref} does not match any entry.fullUrl`
+      );
+    } else if (patientFullUrls.size > 0 && !patientFullUrls.has(ref)) {
+      issues.push(
+        `${rt}/${String(r.id || i)} subject.reference ${ref} must resolve to Patient entry fullUrl`
+      );
     }
   }
 
@@ -1382,17 +1503,6 @@ export function buildFhirExportBundle(
     pushObs(buildRespiratoryRateObservation(d.date, d.rrMean as number, i), 'respiratoryRate');
   }
 
-  // Optional subject display on each observation
-  if (opts.patientDisplay) {
-    const subject = {
-      display: String(opts.patientDisplay),
-      reference: 'Patient/local-patient',
-    };
-    for (const obs of observations) {
-      obs.subject = subject;
-    }
-  }
-
   // --- DocumentReference (clinical review + optional AGP SVG) ---
   const documentReferences: Record<string, unknown>[] = [];
   if (opts.includeClinicalDocument) {
@@ -1403,12 +1513,6 @@ export function buildFhirExportBundle(
       notes
     );
     if (doc) {
-      if (opts.patientDisplay) {
-        doc.subject = {
-          display: String(opts.patientDisplay),
-          reference: 'Patient/local-patient',
-        };
-      }
       documentReferences.push(doc);
       byType.clinicalDocument = 1;
     }
@@ -1437,15 +1541,32 @@ export function buildFhirExportBundle(
     }
     const agpDoc = buildAgpSvgDocumentReference(svg, notes);
     if (agpDoc) {
-      if (opts.patientDisplay) {
-        agpDoc.subject = {
-          display: String(opts.patientDisplay),
-          reference: 'Patient/local-patient',
-        };
-      }
       documentReferences.push(agpDoc);
       byType.agpSvg = 1;
     }
+  }
+
+  // --- Optional local pseudonym Patient (v1.55; default off — no identity) ---
+  const includePatient = opts.includePatient === true;
+  let patientResource: Record<string, unknown> | null = null;
+  let patientDisplayText = 'Local patient';
+  if (includePatient) {
+    patientDisplayText =
+      opts.patientDisplay != null && String(opts.patientDisplay).trim()
+        ? String(opts.patientDisplay).trim()
+        : 'Local patient';
+    patientResource = buildLocalPatientResource({
+      display: patientDisplayText,
+      gender: opts.patientGender,
+      birthYear: opts.patientBirthYear,
+    });
+    notes.push(
+      'includePatient: local pseudonym Patient (not verified identity); subjects wire to Patient fullUrl'
+    );
+  } else if (opts.patientDisplay) {
+    notes.push(
+      'patientDisplay ignored for subject wiring (includePatient is false; default has no identity)'
+    );
   }
 
   // --- Provenance ---
@@ -1464,12 +1585,34 @@ export function buildFhirExportBundle(
   const provenances: Record<string, unknown>[] = [];
 
   // --- Bundle entries with urn:uuid fullUrl (identity for collection) ---
+  // Patient first when present; then Observations / DocumentReference; Provenance last.
+  // Provenance targets assembler agent + obs/docs only (prefer not targeting Patient).
   const timestamp = new Date().toISOString();
   const idToFullUrl = new Map<string, string>();
-  const resourceEntries: Record<string, unknown>[] = [
-    ...observations.map((o) => entryFor(o, idToFullUrl)),
-    ...documentReferences.map((d) => entryFor(d, idToFullUrl)),
-  ];
+  const resourceEntries: Record<string, unknown>[] = [];
+
+  if (patientResource) {
+    resourceEntries.push(entryFor(patientResource, idToFullUrl));
+    const patientFullUrl =
+      idToFullUrl.get(`Patient/${PATIENT_LOCAL_ID}`) || `Patient/${PATIENT_LOCAL_ID}`;
+    const subject = {
+      reference: patientFullUrl,
+      display: patientDisplayText,
+    };
+    for (const obs of observations) {
+      obs.subject = subject;
+    }
+    for (const doc of documentReferences) {
+      doc.subject = subject;
+    }
+  }
+
+  for (const o of observations) {
+    resourceEntries.push(entryFor(o, idToFullUrl));
+  }
+  for (const d of documentReferences) {
+    resourceEntries.push(entryFor(d, idToFullUrl));
+  }
 
   if (includeProvenance) {
     const recorded = new Date().toISOString();
@@ -1573,7 +1716,7 @@ export function buildFhirExportBundle(
         {
           system: 'urn:health-analyzer:tag',
           code: FHIR_EXPORT_PROFILE,
-          display: 'health-analyzer FHIR export profile v1.5.0',
+          display: 'health-analyzer FHIR export profile v1.6.0',
         },
         {
           system: 'urn:health-analyzer:rule-version',
@@ -1599,12 +1742,13 @@ export function buildFhirExportBundle(
     observations: observations.length,
     provenances: provenances.length,
     documentReferences: documentReferences.length,
+    patients: patientResource ? 1 : 0,
     byType,
   };
 
   notes.push(
     `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} ` +
-      `Provenance=${counts.provenances} ` +
+      `Patient=${counts.patients} Provenance=${counts.provenances} ` +
       `(bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, ` +
       `steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, ` +
       `sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, ` +

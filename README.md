@@ -177,6 +177,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.55 | FHIR 可选本机伪名 Patient（默认无身份） |
 | v1.54 | FHIR 结构夹具离线自检（`npm run test:fhir`，不上送健康数据） |
 | v1.53 | FHIR 按领域细粒度导入批次 Provenance；Observation source-batch-ids 扩展 |
 | v1.52.1 | FHIR Bundle urn:uuid fullUrl；日汇总 effectivePeriod；腕温本地编码 |

@@ -50,6 +50,7 @@ var HealthAnalyzer = (() => {
     buildExportBundle: () => buildExportBundle,
     buildFhirExportBundle: () => buildFhirExportBundle,
     buildInsightBullets: () => buildInsightBullets,
+    buildLocalPatientResource: () => buildLocalPatientResource,
     calcBloodPressureStats: () => calcBloodPressureStats,
     calcBpStats: () => calcBloodPressureStats,
     calcCgmStats: () => calcCgmStats,
@@ -7772,13 +7773,19 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.5.0";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.6.0";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
   var META_SOURCE = "urn:health-analyzer:local";
   var DEVICE_NOTE = "local Apple Health / HAE import";
   var EXT_SOURCE_BATCH_IDS = "urn:health-analyzer:extension:source-batch-ids";
+  var EXT_BIRTH_YEAR_ONLY = "urn:health-analyzer:extension:birth-year-only";
+  var EXT_PATIENT_DISCLAIMER = "urn:health-analyzer:extension:patient-disclaimer";
+  var PATIENT_ID_SYSTEM = "urn:health-analyzer:patient";
+  var PATIENT_LOCAL_ID = "patient-local-1";
+  var PATIENT_IDENTIFIER_VALUE = "local-patient";
+  var FHIR_ADMIN_GENDERS = /* @__PURE__ */ new Set(["male", "female", "other", "unknown"]);
   var FHIR_OBS_TYPE_TO_DOMAIN = {
     bloodPressure: "bloodPressure",
     bodyWeight: "weight",
@@ -7952,6 +7959,52 @@ List 5\u20137 working hypotheses that best fit the available data
       idToFullUrl.set(`${rt}/${id}`, fullUrl);
     }
     return { fullUrl, resource };
+  }
+  function buildLocalPatientResource(opts) {
+    const display = opts?.display != null && String(opts.display).trim() ? String(opts.display).trim() : "Local patient";
+    const patient = {
+      resourceType: "Patient",
+      id: PATIENT_LOCAL_ID,
+      meta: {
+        source: META_SOURCE,
+        tag: [
+          {
+            system: "urn:health-analyzer:tag",
+            code: FHIR_EXPORT_PROFILE,
+            display: "Experimental local FHIR-shaped export"
+          }
+        ]
+      },
+      identifier: [
+        {
+          system: PATIENT_ID_SYSTEM,
+          value: PATIENT_IDENTIFIER_VALUE
+        }
+      ],
+      name: [{ text: display }],
+      extension: [
+        {
+          url: EXT_PATIENT_DISCLAIMER,
+          valueString: "Local pseudonym only; not a verified identity. Optional subject for personal archive \u2014 never a legal name requirement."
+        }
+      ]
+    };
+    const genderRaw = opts?.gender != null ? String(opts.gender).trim().toLowerCase() : "";
+    if (genderRaw && FHIR_ADMIN_GENDERS.has(genderRaw)) {
+      patient.gender = genderRaw;
+    }
+    const by = opts?.birthYear;
+    if (by != null && Number.isFinite(by)) {
+      const year = Math.trunc(Number(by));
+      if (year >= 1900 && year <= 2100) {
+        patient.birthDate = `${year}-01-01`;
+        patient.extension.push({
+          url: EXT_BIRTH_YEAR_ONLY,
+          valueString: "year-only approximate"
+        });
+      }
+    }
+    return patient;
   }
   function batchDisplay(b) {
     const fileNames = (b.files || []).map((f) => f.name).filter(Boolean);
@@ -8357,6 +8410,37 @@ List 5\u20137 working hypotheses that best fit the available data
             issues.push(`DocumentReference/${id || i} content[0].attachment.data missing`);
           }
         }
+      } else if (rt === "Patient") {
+        if (!Array.isArray(r.identifier) || !r.identifier.length) {
+          issues.push(`Patient/${id || i} missing identifier`);
+        }
+      }
+    }
+    const patientFullUrls = /* @__PURE__ */ new Set();
+    for (let i = 0; i < entry.length; i++) {
+      const e = entry[i] || {};
+      const r = e.resource || null;
+      if (r && r.resourceType === "Patient" && e.fullUrl != null) {
+        patientFullUrls.add(String(e.fullUrl));
+      }
+    }
+    for (let i = 0; i < entry.length; i++) {
+      const r = entry[i]?.resource || null;
+      if (!r) continue;
+      const rt = String(r.resourceType || "");
+      if (rt !== "Observation" && rt !== "DocumentReference") continue;
+      const sub = r.subject;
+      if (!sub || typeof sub !== "object") continue;
+      const ref = sub.reference != null ? String(sub.reference) : "";
+      if (!ref) continue;
+      if (!fullUrls.has(ref)) {
+        issues.push(
+          `${rt}/${String(r.id || i)} subject.reference ${ref} does not match any entry.fullUrl`
+        );
+      } else if (patientFullUrls.size > 0 && !patientFullUrls.has(ref)) {
+        issues.push(
+          `${rt}/${String(r.id || i)} subject.reference ${ref} must resolve to Patient entry fullUrl`
+        );
       }
     }
     for (let i = 0; i < entry.length; i++) {
@@ -8767,15 +8851,6 @@ List 5\u20137 working hypotheses that best fit the available data
       const d = rrUsed[i];
       pushObs(buildRespiratoryRateObservation(d.date, d.rrMean, i), "respiratoryRate");
     }
-    if (opts.patientDisplay) {
-      const subject = {
-        display: String(opts.patientDisplay),
-        reference: "Patient/local-patient"
-      };
-      for (const obs of observations) {
-        obs.subject = subject;
-      }
-    }
     const documentReferences = [];
     if (opts.includeClinicalDocument) {
       const doc = buildClinicalDocumentReference(
@@ -8785,12 +8860,6 @@ List 5\u20137 working hypotheses that best fit the available data
         notes
       );
       if (doc) {
-        if (opts.patientDisplay) {
-          doc.subject = {
-            display: String(opts.patientDisplay),
-            reference: "Patient/local-patient"
-          };
-        }
         documentReferences.push(doc);
         byType.clinicalDocument = 1;
       }
@@ -8818,15 +8887,27 @@ List 5\u20137 working hypotheses that best fit the available data
       }
       const agpDoc = buildAgpSvgDocumentReference(svg, notes);
       if (agpDoc) {
-        if (opts.patientDisplay) {
-          agpDoc.subject = {
-            display: String(opts.patientDisplay),
-            reference: "Patient/local-patient"
-          };
-        }
         documentReferences.push(agpDoc);
         byType.agpSvg = 1;
       }
+    }
+    const includePatient = opts.includePatient === true;
+    let patientResource = null;
+    let patientDisplayText = "Local patient";
+    if (includePatient) {
+      patientDisplayText = opts.patientDisplay != null && String(opts.patientDisplay).trim() ? String(opts.patientDisplay).trim() : "Local patient";
+      patientResource = buildLocalPatientResource({
+        display: patientDisplayText,
+        gender: opts.patientGender,
+        birthYear: opts.patientBirthYear
+      });
+      notes.push(
+        "includePatient: local pseudonym Patient (not verified identity); subjects wire to Patient fullUrl"
+      );
+    } else if (opts.patientDisplay) {
+      notes.push(
+        "patientDisplay ignored for subject wiring (includePatient is false; default has no identity)"
+      );
     }
     const batchesRaw = opts.importBatches;
     const batches = (Array.isArray(batchesRaw) ? batchesRaw : []).map((b) => normalizeImportBatch(b)).filter((b) => !!b);
@@ -8834,10 +8915,27 @@ List 5\u20137 working hypotheses that best fit the available data
     const provenances = [];
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
     const idToFullUrl = /* @__PURE__ */ new Map();
-    const resourceEntries = [
-      ...observations.map((o) => entryFor(o, idToFullUrl)),
-      ...documentReferences.map((d) => entryFor(d, idToFullUrl))
-    ];
+    const resourceEntries = [];
+    if (patientResource) {
+      resourceEntries.push(entryFor(patientResource, idToFullUrl));
+      const patientFullUrl = idToFullUrl.get(`Patient/${PATIENT_LOCAL_ID}`) || `Patient/${PATIENT_LOCAL_ID}`;
+      const subject = {
+        reference: patientFullUrl,
+        display: patientDisplayText
+      };
+      for (const obs of observations) {
+        obs.subject = subject;
+      }
+      for (const doc of documentReferences) {
+        doc.subject = subject;
+      }
+    }
+    for (const o of observations) {
+      resourceEntries.push(entryFor(o, idToFullUrl));
+    }
+    for (const d of documentReferences) {
+      resourceEntries.push(entryFor(d, idToFullUrl));
+    }
     if (includeProvenance) {
       const recorded = (/* @__PURE__ */ new Date()).toISOString();
       const fullTargetAll = () => [
@@ -8930,7 +9028,7 @@ List 5\u20137 working hypotheses that best fit the available data
           {
             system: "urn:health-analyzer:tag",
             code: FHIR_EXPORT_PROFILE,
-            display: "health-analyzer FHIR export profile v1.5.0"
+            display: "health-analyzer FHIR export profile v1.6.0"
           },
           {
             system: "urn:health-analyzer:rule-version",
@@ -8955,10 +9053,11 @@ List 5\u20137 working hypotheses that best fit the available data
       observations: observations.length,
       provenances: provenances.length,
       documentReferences: documentReferences.length,
+      patients: patientResource ? 1 : 0,
       byType
     };
     notes.push(
-      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, wristTemp=${byType.wristTemperature}, nightHr=${byType.nightHeartRate}, rr=${byType.respiratoryRate}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
+      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Patient=${counts.patients} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, wristTemp=${byType.wristTemperature}, nightHr=${byType.nightHeartRate}, rr=${byType.respiratoryRate}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
     );
     let validation;
     if (opts.validate !== false) {

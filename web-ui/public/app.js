@@ -3782,6 +3782,21 @@
         opts.includeAgpSvg = true;
       }
 
+      // Optional local pseudonym Patient (default off — no identity / no subject)
+      // Do not auto-pull age/sex from user context; display name only when opted in.
+      if ($('fhir-include-patient') && $('fhir-include-patient').checked) {
+        opts.includePatient = true;
+        const displayEl = $('fhir-patient-display');
+        const raw =
+          displayEl && displayEl.value != null
+            ? String(displayEl.value).trim()
+            : '';
+        opts.patientDisplay =
+          raw ||
+          t('export.fhir.patientDefault') ||
+          'Local patient';
+      }
+
       const result = window.HealthAnalyzer.buildFhirExportBundle(
         currentAnalysis,
         opts
