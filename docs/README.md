@@ -206,6 +206,8 @@ npm test          # 单元测试
 npm run build     # tsc + 生成 web-ui/public/lib.js
 ```
 
+根目录可跑 `npm run perf:parse`（`scripts/perf-parse-baseline.mjs`）测 `parseHealthXml` / `analyzeAll` 本地耗时与内存；默认 `e2e/fixtures/minimal-export.xml` 很小，大 export 用 `PERF_XML_PATH` 或 `--file=` 自备且**不要提交**个人数据。
+
 修改解析/统计/提示词请只改 `lib/src/**`，再执行 `npm run build`。不要手改 `web-ui/public/lib.js`。
 
 ## 局限与边界

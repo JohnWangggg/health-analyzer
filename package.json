@@ -4,6 +4,7 @@
   "description": "Apple Health analyzer PWA — root scripts for smoke & E2E",
   "scripts": {
     "smoke": "node scripts/smoke.mjs",
+    "perf:parse": "node scripts/perf-parse-baseline.mjs",
     "test:lib": "npm --prefix lib test",
     "build:lib": "npm --prefix lib run build",
     "test:fhir": "node scripts/fhir-structure-check.mjs && node scripts/fhir-exchange-check.mjs && node scripts/fhir-hl7-validator.mjs",
