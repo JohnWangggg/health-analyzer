@@ -1571,6 +1571,8 @@
 
     show('step-progress');
     setProgress(0.02, t('progress.prepare'), { stage: 'read', hint: t('progress.hintPrepare') });
+    // New upload path — not a warehouse restore
+    setWarehouseRestoredUi(false);
 
     const importDiag = createEmptyImportDiagnostics();
     lastImportDiagnostics = null;
@@ -2541,6 +2543,7 @@
     // v1.68: auto-persist working set when user has granted warehouse consent
     maybePersistWarehouse(analysis).catch(() => { /* ignore */ });
     refreshWarehousePanel().catch(() => { /* ignore */ });
+    refreshWarehouseHomeBanner().catch(() => { /* ignore */ });
 
     $('step-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -6963,6 +6966,7 @@
     resetAnalysisSourceBatchIds();
     lastCsvMergeNote = '';
     lastSelectedFiles = null;
+    setWarehouseRestoredUi(false);
     setResultsVisible(false);
     hide('step-overview');
     hide('step-summary');
@@ -7006,7 +7010,25 @@
     }
   }
 
-  // ---------- v1.68 本机原始数据仓 ----------
+  // ---------- v1.68 / v1.69 本机原始数据仓 ----------
+  let lastHydratedFromWarehouse = false;
+
+  const WAREHOUSE_DOMAIN_I18N = {
+    cgm: 'warehouse.domain.cgm',
+    bloodPressure: 'warehouse.domain.bp',
+    weight: 'warehouse.domain.weight',
+    bodyFat: 'warehouse.domain.bodyFat',
+    hrv: 'warehouse.domain.hrv',
+    hrvOvernight: 'warehouse.domain.hrvNight',
+    restingHr: 'warehouse.domain.restingHr',
+    walkingHr: 'warehouse.domain.walkingHr',
+    steps: 'warehouse.domain.steps',
+    sleep: 'warehouse.domain.sleep',
+    watchDaily: 'warehouse.domain.watch',
+    workouts: 'warehouse.domain.workouts',
+    ecg: 'warehouse.domain.ecg',
+  };
+
   function showWarehouseStatusMsg(msg) {
     const el = $('warehouse-action-status');
     if (!el) return;
@@ -7017,9 +7039,41 @@
     }
   }
 
+  function setWarehouseRestoredUi(on) {
+    lastHydratedFromWarehouse = !!on;
+    document.body.classList.toggle('from-warehouse', !!on);
+    const banner = $('warehouse-restored-banner');
+    if (banner) banner.classList.toggle('hidden', !on);
+  }
+
+  async function refreshWarehouseHomeBanner() {
+    const banner = $('warehouse-home-banner');
+    if (!banner) return;
+    if (currentAnalysis || document.body.classList.contains('has-results')) {
+      banner.classList.add('hidden');
+      return;
+    }
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.getWarehouseStatus !== 'function') {
+      banner.classList.add('hidden');
+      return;
+    }
+    try {
+      const st = await HH.getWarehouseStatus();
+      const show = !!(st && st.granted && st.hasPayload);
+      banner.classList.toggle('hidden', !show);
+    } catch (e) {
+      banner.classList.add('hidden');
+    }
+  }
+
   async function refreshWarehousePanel() {
     const statusEl = $('warehouse-status');
     const consentEl = $('warehouse-consent');
+    const listEl = $('warehouse-domain-list');
+    const quotaBar = $('warehouse-quota-bar');
+    const quotaFill = $('warehouse-quota-fill');
+    const storageEl = $('warehouse-storage-est');
     const HH = window.HealthHistory;
     if (!HH || typeof HH.getWarehouseStatus !== 'function') {
       if (statusEl) statusEl.textContent = t('warehouse.unavailable');
@@ -7033,9 +7087,23 @@
         consentEl.dataset.syncing = '1';
         setTimeout(() => { delete consentEl.dataset.syncing; }, 0);
       }
-      if (!statusEl) return;
+      if (listEl) {
+        listEl.innerHTML = '';
+        listEl.classList.add('hidden');
+      }
+      if (quotaBar) quotaBar.classList.add('hidden');
+      if (storageEl) {
+        storageEl.textContent = '';
+        storageEl.classList.add('hidden');
+      }
+
+      if (!statusEl) {
+        await refreshWarehouseHomeBanner();
+        return;
+      }
       if (!st.granted) {
         statusEl.textContent = t('warehouse.status.off');
+        await refreshWarehouseHomeBanner();
         return;
       }
       const bytes = st.approxBytes != null ? st.approxBytes : (st.meta && st.meta.totalApproxBytes) || 0;
@@ -7056,6 +7124,53 @@
       if (st.hasPayload === false) {
         statusEl.textContent += ' · ' + t('warehouse.status.empty');
       }
+      if (st.softWarn) {
+        statusEl.textContent += ' · ' + t('warehouse.softQuotaShort');
+      }
+
+      // Quota meter vs soft cap
+      const soft = st.softBytes || (150 * 1024 * 1024);
+      if (quotaBar && quotaFill && st.hasPayload) {
+        const pct = Math.min(100, Math.round((bytes / soft) * 100));
+        quotaBar.classList.remove('hidden');
+        quotaBar.setAttribute('aria-valuenow', String(pct));
+        quotaBar.classList.toggle('is-warn', pct >= 90);
+        quotaFill.style.width = pct + '%';
+      }
+
+      // Domain breakdown
+      const stats = st.domainStats || (st.meta && st.meta.domainStats) || {};
+      const keys = Object.keys(stats).sort((a, b) => {
+        const ba = (stats[b] && stats[b].approxBytes) || 0;
+        const aa = (stats[a] && stats[a].approxBytes) || 0;
+        return ba - aa;
+      });
+      if (listEl && keys.length) {
+        listEl.classList.remove('hidden');
+        listEl.innerHTML = keys
+          .map((k) => {
+            const row = stats[k] || {};
+            const labelKey = WAREHOUSE_DOMAIN_I18N[k];
+            const label = labelKey ? t(labelKey) : k;
+            return `<li><span class="wh-domain-name">${escapeHtml(label)}</span>`
+              + `<span class="wh-domain-meta">${escapeHtml(String(row.recordCount || 0))} · ${escapeHtml(formatBytes(row.approxBytes || 0))}</span></li>`;
+          })
+          .join('');
+      }
+
+      // Browser origin storage estimate (best-effort)
+      if (storageEl && navigator.storage && typeof navigator.storage.estimate === 'function') {
+        try {
+          const est = await navigator.storage.estimate();
+          if (est && est.usage != null) {
+            const usage = formatBytes(est.usage);
+            const quota = est.quota != null ? formatBytes(est.quota) : '—';
+            storageEl.textContent = t('warehouse.browserStorage', { usage, quota });
+            storageEl.classList.remove('hidden');
+          }
+        } catch (e) { /* ignore */ }
+      }
+      await refreshWarehouseHomeBanner();
     } catch (e) {
       if (statusEl) statusEl.textContent = t('warehouse.err', { msg: (e && e.message) || String(e) });
     }
@@ -7122,11 +7237,13 @@
           syncAnalysisSourceBatchIds(currentAnalysis);
         }
       } catch (e) { /* ignore */ }
+      setWarehouseRestoredUi(true);
       renderResults(currentAnalysis);
       if (opts.toast !== false) {
         showToast(t('warehouse.restoreOk'), { ok: true, ms: 2600 });
       }
       await refreshWarehousePanel();
+      await refreshWarehouseHomeBanner();
       return true;
     } catch (e) {
       console.error(e);
@@ -7221,6 +7338,23 @@
   });
   $('btn-warehouse-import')?.addEventListener('click', () => {
     $('warehouse-backup-input')?.click();
+  });
+  $('btn-warehouse-clear-payload')?.addEventListener('click', async () => {
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.clearWarehousePayloadKeepConsent !== 'function') return;
+    if (!window.confirm(t('warehouse.clearPayloadConfirm'))) return;
+    try {
+      await HH.clearWarehousePayloadKeepConsent();
+      showToast(t('warehouse.clearPayloadOk'), { ok: true, ms: 2400 });
+      showWarehouseStatusMsg(t('warehouse.clearPayloadOk'));
+      await refreshWarehousePanel();
+      await refreshWarehouseHomeBanner();
+    } catch (e) {
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+    }
+  });
+  $('btn-warehouse-home-restore')?.addEventListener('click', () => {
+    hydrateFromWarehouse({ manual: true, toast: true });
   });
   $('warehouse-backup-input')?.addEventListener('change', async (ev) => {
     const input = ev.target;

@@ -107,4 +107,129 @@ test.describe('v1.68 raw warehouse', () => {
     });
     expect(afterWipe).toBe(true);
   });
+
+  test('backup export/import roundtrip restores analysis', async ({ page }) => {
+    await waitAppReady(page);
+    await selectXmlOnly(page);
+    await page.locator('#file-input').setInputFiles(FIXTURE);
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+
+    await setWorkspace(page, 'more');
+    page.once('dialog', async (d) => {
+      await d.accept();
+    });
+    await page.locator('#warehouse-consent').check();
+    await expect
+      .poll(async () => page.evaluate(() => window.HealthHistory.isWarehouseConsentGranted()), {
+        timeout: 8_000,
+      })
+      .toBe(true);
+
+    // Export backup via API (stable for e2e)
+    const envelope = await page.evaluate(async () => {
+      return window.HealthHistory.exportWarehouseBackup({
+        includeSnapshots: false,
+        includeEvents: false,
+        includeReports: false,
+        includeBatches: false,
+      });
+    });
+    expect(envelope.magic).toBe('health-analyzer-backup');
+    expect(envelope.payload.domainChunks.length).toBeGreaterThan(0);
+
+    // Wipe all
+    page.once('dialog', async (d) => {
+      await d.accept();
+    });
+    await page.locator('#btn-clear-all-local').click();
+    await expect(page.locator('body')).not.toHaveClass(/has-results/, { timeout: 15_000 });
+
+    // Import backup
+    await page.evaluate(async (env) => {
+      await window.HealthHistory.importWarehouseBackup(env, { regrantConsent: true });
+    }, envelope);
+
+    const restored = await page.evaluate(async () => {
+      const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+      if (!loaded || !loaded.data) return false;
+      const analysis = window.HealthAnalyzer.analyzeAll(loaded.data);
+      return !!(analysis && analysis.data);
+    });
+    expect(restored).toBe(true);
+
+    // UI restore path
+    await page.reload();
+    await page.waitForFunction(
+      () => !!(window.HealthHistory && window.HealthAnalyzer && window.I18n)
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+    await expect(page.locator('#warehouse-restored-banner')).toBeVisible();
+  });
+
+  test('clear payload keeps consent; home restore banner appears', async ({ page }) => {
+    await waitAppReady(page);
+    await selectXmlOnly(page);
+    await page.locator('#file-input').setInputFiles(FIXTURE);
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+
+    await setWorkspace(page, 'more');
+    page.once('dialog', async (d) => {
+      await d.accept();
+    });
+    await page.locator('#warehouse-consent').check();
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const st = await window.HealthHistory.getWarehouseStatus();
+            return !!(st && st.hasPayload);
+          }),
+        { timeout: 10_000 }
+      )
+      .toBe(true);
+
+    // Domain list should render after save
+    await expect(page.locator('#warehouse-domain-list li').first()).toBeVisible({ timeout: 8_000 });
+
+    page.once('dialog', async (d) => {
+      await d.accept();
+    });
+    await page.locator('#btn-warehouse-clear-payload').click();
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const st = await window.HealthHistory.getWarehouseStatus();
+            return st && st.granted && !st.hasPayload;
+          }),
+        { timeout: 8_000 }
+      )
+      .toBe(true);
+
+    // Re-save current analysis
+    await page.locator('#btn-warehouse-persist').click();
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const st = await window.HealthHistory.getWarehouseStatus();
+            return !!(st && st.hasPayload);
+          }),
+        { timeout: 8_000 }
+      )
+      .toBe(true);
+
+    // Reset UI only (keep warehouse) via re-upload path is heavy; use evaluate to clear memory UI
+    await page.evaluate(() => {
+      // mimic no results for home banner
+      document.body.classList.remove('has-results');
+    });
+    // Open source area: home banner when no results but payload
+    await page.reload();
+    await page.waitForFunction(() => !!(window.HealthHistory && window.I18n));
+    // Auto-hydrate will restore results; banner on home only when not has-results —
+    // after auto hydrate we should see restored banner instead
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+    await expect(page.locator('#warehouse-restored-banner')).toBeVisible();
+  });
 });

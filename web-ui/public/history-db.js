@@ -107,6 +107,10 @@
     return JSON.parse(JSON.stringify(value));
   }
 
+  function mapKeys(m) {
+    return m && typeof m === 'object' ? Object.keys(m).length : 0;
+  }
+
   function countHealthRecords(data) {
     if (!data || typeof data !== 'object') return 0;
     let n = 0;
@@ -116,7 +120,6 @@
     n += (data.bodyFat && data.bodyFat.length) || 0;
     n += (data.workouts && data.workouts.length) || 0;
     n += (data.ecg && data.ecg.length) || 0;
-    const mapKeys = (m) => (m && typeof m === 'object' ? Object.keys(m).length : 0);
     n += mapKeys(data.hrv);
     n += mapKeys(data.hrvOvernight);
     n += mapKeys(data.restingHr);
@@ -125,6 +128,88 @@
     n += mapKeys(data.sleep);
     n += mapKeys(data.watchDaily);
     return n;
+  }
+
+  /**
+   * Per-domain record counts + approximate JSON bytes (for UI breakdown).
+   * @returns {Record<string, { recordCount: number, approxBytes: number, chunkCount: number }>}
+   */
+  function buildDomainStats(data) {
+    if (!data || typeof data !== 'object') return {};
+    /** @type {Record<string, unknown>} */
+    const slices = {
+      cgm: data.cgm || [],
+      bloodPressure: data.bloodPressure || [],
+      weight: data.weight || [],
+      bodyFat: data.bodyFat || [],
+      hrv: data.hrv || {},
+      hrvOvernight: data.hrvOvernight || {},
+      restingHr: data.restingHr || {},
+      walkingHr: data.walkingHr || {},
+      steps: data.steps || {},
+      sleep: data.sleep || {},
+      watchDaily: data.watchDaily || {},
+      workouts: data.workouts || [],
+      ecg: data.ecg || [],
+    };
+    /** @type {Record<string, { recordCount: number, approxBytes: number, chunkCount: number }>} */
+    const out = {};
+    Object.keys(slices).forEach((key) => {
+      const slice = slices[key];
+      const recordCount = Array.isArray(slice) ? slice.length : mapKeys(slice);
+      if (!recordCount) return;
+      out[key] = {
+        recordCount,
+        approxBytes: approxJsonBytes(slice),
+        chunkCount: 1,
+      };
+    });
+    return out;
+  }
+
+  /**
+   * Clear domain chunks but keep consent.granted (user can re-save after next analysis).
+   */
+  function clearWarehousePayloadKeepConsent() {
+    return getWarehouseMeta().then((meta) => {
+      const granted = !!(meta.consent && meta.consent.granted);
+      return openDb().then(
+        (db) =>
+          new Promise((resolve, reject) => {
+            const names = [];
+            if (db.objectStoreNames.contains(STORE_WH_CHUNKS)) names.push(STORE_WH_CHUNKS);
+            if (db.objectStoreNames.contains(STORE_WH_META)) names.push(STORE_WH_META);
+            if (!names.length) {
+              db.close();
+              resolve(meta);
+              return;
+            }
+            const tx = db.transaction(names, 'readwrite');
+            if (names.indexOf(STORE_WH_CHUNKS) >= 0) {
+              tx.objectStore(STORE_WH_CHUNKS).clear();
+            }
+            const next = Object.assign(defaultWarehouseMeta(), meta, { id: WH_META_ID });
+            next.dateRange = null;
+            next.domainStats = {};
+            next.totalApproxBytes = 0;
+            next.totalRecordCount = 0;
+            next.lastWrittenAt = null;
+            next.notes = granted ? ['payload_cleared_keep_consent'] : [];
+            // preserve consent object as-is
+            if (names.indexOf(STORE_WH_META) >= 0) {
+              tx.objectStore(STORE_WH_META).put(next);
+            }
+            tx.oncomplete = () => {
+              db.close();
+              resolve(next);
+            };
+            tx.onerror = () => {
+              db.close();
+              reject(tx.error);
+            };
+          })
+      );
+    });
   }
 
   function inferDateRange(data) {
@@ -318,15 +403,7 @@
         codec: 'json',
       };
       meta.dateRange = dateRange;
-      meta.domainStats = {
-        healthData: {
-          recordCount,
-          approxBytes,
-          chunkCount: 1,
-          minDate: dateRange ? dateRange.start : undefined,
-          maxDate: dateRange ? dateRange.end : undefined,
-        },
-      };
+      meta.domainStats = buildDomainStats(payload);
       meta.totalApproxBytes = approxBytes;
       meta.totalRecordCount = recordCount;
       meta.lastImportBatchId = opts.batchId || meta.lastImportBatchId || null;
@@ -421,10 +498,12 @@
         softBytes: WAREHOUSE_SOFT_BYTES,
         hardBytes: WAREHOUSE_HARD_BYTES,
         hasPayload: granted && (meta.totalRecordCount > 0 || meta.totalApproxBytes > 0),
+        domainStats: meta.domainStats || {},
+        softWarn: !!(meta.totalApproxBytes > WAREHOUSE_SOFT_BYTES),
       };
     }).then((status) => {
       if (!status.granted) return status;
-      // Confirm chunk exists for accurate hasPayload
+      // Confirm chunk exists for accurate hasPayload; refresh domainStats if missing
       return openDb().then(
         (db) =>
           new Promise((resolve) => {
@@ -436,8 +515,19 @@
             const tx = db.transaction(STORE_WH_CHUNKS, 'readonly');
             const req = tx.objectStore(STORE_WH_CHUNKS).get(WH_CHUNK_HEALTH);
             req.onsuccess = () => {
-              status.hasPayload = !!(req.result && req.result.payload);
-              status.approxBytes = (req.result && req.result.approxBytes) || status.meta.totalApproxBytes || 0;
+              const chunk = req.result;
+              status.hasPayload = !!(chunk && chunk.payload);
+              status.approxBytes = (chunk && chunk.approxBytes) || status.meta.totalApproxBytes || 0;
+              if (chunk && chunk.payload) {
+                const stats = status.domainStats && Object.keys(status.domainStats).length
+                  ? status.domainStats
+                  : buildDomainStats(chunk.payload);
+                status.domainStats = stats;
+                if (!status.meta.domainStats || !Object.keys(status.meta.domainStats).length) {
+                  status.meta.domainStats = stats;
+                }
+              }
+              status.softWarn = status.approxBytes > WAREHOUSE_SOFT_BYTES;
             };
             tx.oncomplete = () => {
               db.close();
@@ -1360,6 +1450,8 @@
     grantWarehouseConsent,
     revokeWarehouseConsent,
     clearWarehouseOnly,
+    clearWarehousePayloadKeepConsent,
+    buildDomainStats,
     persistHealthDataWarehouse,
     loadHealthDataWarehouse,
     exportWarehouseBackup,

@@ -70,6 +70,11 @@
       <h2><span class="step-num">1</span> <span data-i18n="step1.title">上传健康数据</span></h2>
       <p class="step-lead" data-i18n="step1.lead" data-i18n-html="1">推荐使用 iPhone「健康」App 导出的 <strong>ZIP</strong>。解析与统计均在本机完成。</p>
 
+      <div id="warehouse-home-banner" class="warehouse-home-banner hidden" role="region" aria-live="polite">
+        <p class="warehouse-home-text" data-i18n="warehouse.home.banner">本机原始数据仓有可恢复的明细，无需重新上传大文件。</p>
+        <button type="button" id="btn-warehouse-home-restore" class="btn-secondary" data-i18n="warehouse.home.restore">从本机仓恢复分析</button>
+      </div>
+
       <div class="source-grid" id="source-grid-main">
         <label class="source-option">
           <input type="radio" name="source" value="apple_health_export" checked>
@@ -379,6 +384,7 @@
       <p class="privacy-inline" data-i18n="overview.privacy">完整明细仅在本页；可复制提示词给大模型，或保存摘要到本机历史。</p>
       <p class="locale-analysis-note hint compact-hint" data-i18n="note.analysisLang">分析摘要与医学提示词内容目前以中文为主；界面可切换语言。</p>
       <div id="data-quality-banner" class="hidden" aria-live="polite"></div>
+      <div id="warehouse-restored-banner" class="warehouse-restored-banner hidden" role="status" data-i18n="warehouse.restoredBanner">已从本机原始数据仓恢复 · 非重新上传</div>
 
       <div class="insight-panel">
         <h3 class="subhead" data-i18n="insight.subhead">先看这些</h3>
@@ -580,11 +586,17 @@
           <span data-i18n="warehouse.consentLabel">授权在本机保存原始明细（可随时关闭并删除）</span>
         </label>
         <p id="warehouse-status" class="warehouse-status hint compact-hint" aria-live="polite"></p>
+        <div id="warehouse-quota-bar" class="warehouse-quota-bar hidden" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div id="warehouse-quota-fill" class="warehouse-quota-fill"></div>
+        </div>
+        <p id="warehouse-storage-est" class="warehouse-storage-est hint compact-hint hidden"></p>
+        <ul id="warehouse-domain-list" class="warehouse-domain-list hidden" aria-label="domain breakdown"></ul>
         <div class="export-actions warehouse-actions">
           <button type="button" id="btn-warehouse-persist" class="btn-secondary" data-i18n="warehouse.persist">立即保存当前分析</button>
           <button type="button" id="btn-warehouse-restore" class="btn-secondary" data-i18n="warehouse.restore">从本机仓恢复</button>
           <button type="button" id="btn-warehouse-export" class="btn-ghost" data-i18n="warehouse.exportBackup">导出备份</button>
           <button type="button" id="btn-warehouse-import" class="btn-ghost" data-i18n="warehouse.importBackup">导入备份</button>
+          <button type="button" id="btn-warehouse-clear-payload" class="btn-danger-text" data-i18n="warehouse.clearPayload">仅清空仓内明细</button>
           <input type="file" id="warehouse-backup-input" class="hidden" accept=".json,application/json,.hae-backup.json" />
         </div>
         <span id="warehouse-action-status" class="copy-status" aria-live="polite"></span>
@@ -723,7 +735,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.68</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.69</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">
