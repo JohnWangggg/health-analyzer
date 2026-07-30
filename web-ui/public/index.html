@@ -420,6 +420,27 @@
         <button type="button" class="chip" data-days="90" data-i18n="charts.range90">近 90 天</button>
         <button type="button" class="chip" data-days="0" data-i18n="charts.rangeAll">全部</button>
       </div>
+      <!-- v1.67 趋势工作台：主/对比指标、基线、事件标记 -->
+      <div id="charts-workbench" class="charts-workbench" role="group" data-i18n-aria="charts.workbench.aria" aria-label="趋势工作台">
+        <label class="charts-wb-field">
+          <span class="charts-wb-label" data-i18n="charts.workbench.primary">主指标</span>
+          <select id="chart-primary-metric" class="charts-wb-select" aria-label="primary metric"></select>
+        </label>
+        <label class="charts-wb-field">
+          <span class="charts-wb-label" data-i18n="charts.workbench.compare">对比</span>
+          <select id="chart-compare-metric" class="charts-wb-select" aria-label="compare metric">
+            <option value="" data-i18n="charts.workbench.compareNone">无</option>
+          </select>
+        </label>
+        <label class="charts-wb-toggle">
+          <input type="checkbox" id="chart-baseline-toggle" />
+          <span data-i18n="charts.workbench.baseline">个人基线</span>
+        </label>
+        <label class="charts-wb-toggle">
+          <input type="checkbox" id="chart-events-toggle" />
+          <span data-i18n="charts.workbench.events">事件标记</span>
+        </label>
+      </div>
       <div id="charts-content" class="charts-content"></div>
     </section>
 
@@ -684,7 +705,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.66</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.67</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

@@ -58,6 +58,27 @@
       legendLoad: '负荷分',
       unitScore: '分',
       hourLabel: '{h}时',
+      legendBaseline: '个人基线',
+      legendEvents: '事件',
+      conclusionInsufficient: '数据不足，暂无法概括趋势（非诊断）',
+      conclusionSparse: '约 {days} 天有数据，点偏少，趋势仅供参考（非诊断）',
+      conclusionStable: '近 {range} · 约 {days} 天有数据 · 大致稳定（描述性，非诊断）',
+      conclusionUp: '近 {range} · 约 {days} 天有数据 · 末值较前偏高约 {delta}（描述性，非诊断）',
+      conclusionDown: '近 {range} · 约 {days} 天有数据 · 末值较前偏低约 {delta}（描述性，非诊断）',
+      metricCgm: '血糖 CGM',
+      metricAgp: 'CGM AGP',
+      metricWeight: '体重',
+      metricBodyfat: '体脂',
+      metricHrv: 'HRV',
+      metricBp: '收缩压',
+      metricSpo2: '血氧 SpO₂',
+      metricExercise: '锻炼分钟',
+      metricVo2: 'VO₂ max',
+      metricSpo2Night: '夜段血氧',
+      metricBreathing: '呼吸紊乱',
+      metricWorkout: 'Workout',
+      metricRecovery: '周恢复分',
+      metricLoad: '周负荷分',
     },
     en: {
       emptyNoData: 'No chart data',
@@ -109,7 +130,46 @@
       legendLoad: 'Load',
       unitScore: 'pts',
       hourLabel: '{h}h',
+      legendBaseline: 'Personal baseline',
+      legendEvents: 'Events',
+      conclusionInsufficient: 'Not enough data to summarize the trend (not a diagnosis)',
+      conclusionSparse: 'About {days} day(s) with data — sparse; trend is illustrative only (not a diagnosis)',
+      conclusionStable: 'Last {range} · ~{days} days with data · roughly stable (descriptive, not a diagnosis)',
+      conclusionUp: 'Last {range} · ~{days} days with data · latest higher by ~{delta} (descriptive, not a diagnosis)',
+      conclusionDown: 'Last {range} · ~{days} days with data · latest lower by ~{delta} (descriptive, not a diagnosis)',
+      metricCgm: 'Glucose CGM',
+      metricAgp: 'CGM AGP',
+      metricWeight: 'Weight',
+      metricBodyfat: 'Body fat',
+      metricHrv: 'HRV',
+      metricBp: 'Systolic BP',
+      metricSpo2: 'SpO₂',
+      metricExercise: 'Exercise min',
+      metricVo2: 'VO₂ max',
+      metricSpo2Night: 'Night SpO₂',
+      metricBreathing: 'Breathing disturbance',
+      metricWorkout: 'Workout',
+      metricRecovery: 'Weekly recovery',
+      metricLoad: 'Weekly load',
     },
+  };
+
+  /** Chart key → i18n-ish label field on STRINGS */
+  var METRIC_LABEL_KEYS = {
+    cgm: 'metricCgm',
+    agp: 'metricAgp',
+    weight: 'metricWeight',
+    bodyfat: 'metricBodyfat',
+    hrv: 'metricHrv',
+    bp: 'metricBp',
+    spo2: 'metricSpo2',
+    exercise: 'metricExercise',
+    vo2: 'metricVo2',
+    'spo2-night': 'metricSpo2Night',
+    breathing: 'metricBreathing',
+    workout: 'metricWorkout',
+    recovery: 'metricRecovery',
+    load: 'metricLoad',
   };
 
   function resolveLocale(options) {
@@ -177,9 +237,90 @@
   }
 
   /**
+   * Map event date (YYYY-MM-DD) to canvas x within point date span.
+   * @returns {number|null}
+   */
+  function eventXFromDate(eventDate, points, pad, plotW) {
+    if (!eventDate || !points || !points.length) return null;
+    const te = Date.parse(String(eventDate).slice(0, 10) + 'T00:00:00Z');
+    if (!Number.isFinite(te)) return null;
+    const times = points
+      .map((p) => Date.parse(String(p.x).slice(0, 10) + 'T00:00:00Z'))
+      .filter(Number.isFinite);
+    if (!times.length) return null;
+    const t0 = Math.min(...times);
+    const t1 = Math.max(...times);
+    if (te < t0 || te > t1) return null;
+    if (t1 === t0) return pad.left + plotW / 2;
+    return pad.left + ((te - t0) / (t1 - t0)) * plotW;
+  }
+
+  function medianOf(values) {
+    const arr = (values || []).filter(Number.isFinite).slice().sort((a, b) => a - b);
+    if (!arr.length) return null;
+    const mid = Math.floor(arr.length / 2);
+    if (arr.length % 2 === 0) return (arr[mid - 1] + arr[mid]) / 2;
+    return arr[mid];
+  }
+
+  function uniqueDayCount(points) {
+    const set = {};
+    for (const p of points || []) {
+      const d = String(p.x).slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(d)) set[d] = true;
+    }
+    return Object.keys(set).length;
+  }
+
+  function formatDeltaVal(v) {
+    if (!Number.isFinite(v)) return '—';
+    const a = Math.abs(v);
+    if (a >= 100) return a.toFixed(0);
+    if (a >= 10) return a.toFixed(1);
+    return a.toFixed(2);
+  }
+
+  /**
+   * Descriptive (non-diagnostic) one-line chart conclusion.
+   * @param {{x:*, y:number}[]} points
+   * @param {number} rangeDays 0 = all
+   * @param {object} S strings
+   */
+  function chartConclusion(points, rangeDays, S) {
+    S = S || STRINGS.zh;
+    if (!points || points.length < 2) return S.conclusionInsufficient;
+    const ys = points.map((p) => p.y).filter(Number.isFinite);
+    if (ys.length < 2) return S.conclusionInsufficient;
+    const days = uniqueDayCount(points);
+    const rangeText = !rangeDays || rangeDays <= 0 ? S.rangeAll : fmt(S.rangeDays, { n: rangeDays });
+    if (days < 3) return fmt(S.conclusionSparse, { days: days });
+    const first = ys[0];
+    const last = ys[ys.length - 1];
+    const mid = (Math.abs(first) + Math.abs(last)) / 2 || 1;
+    const delta = last - first;
+    const rel = Math.abs(delta) / mid;
+    // Relative 2% or tiny absolute change → stable
+    if (rel < 0.02 || Math.abs(delta) < 1e-6) {
+      return fmt(S.conclusionStable, { range: rangeText, days: days });
+    }
+    if (delta > 0) {
+      return fmt(S.conclusionUp, {
+        range: rangeText,
+        days: days,
+        delta: formatDeltaVal(delta),
+      });
+    }
+    return fmt(S.conclusionDown, {
+      range: rangeText,
+      days: days,
+      delta: formatDeltaVal(delta),
+    });
+  }
+
+  /**
    * @param {HTMLCanvasElement} canvas
    * @param {{ label: string, x: number|string, y: number }[]} points
-   * @param {{ color?: string, yLabel?: string, fill?: boolean, thresholds?: {y:number,color:string,label?:string}[], onHover?: function, unit?: string, strings?: object }} options
+   * @param {{ color?: string, yLabel?: string, fill?: boolean, thresholds?: {y:number,color:string,label?:string}[], baseline?: {y:number,color?:string,label?:string}, events?: {date:string,title?:string}[], onHover?: function, unit?: string, strings?: object }} options
    */
   function drawLineChart(canvas, points, options) {
     options = options || {};
@@ -216,6 +357,10 @@
           yMax = Math.max(yMax, t.y);
         }
       }
+    }
+    if (options.baseline && Number.isFinite(options.baseline.y)) {
+      yMin = Math.min(yMin, options.baseline.y);
+      yMax = Math.max(yMax, options.baseline.y);
     }
     if (yMin === yMax) {
       yMin -= 1;
@@ -258,6 +403,40 @@
         ctx.fillText(v.toFixed(v >= 100 ? 0 : 1), pad.left - 6, y);
       }
 
+      // Event markers (vertical) — behind series
+      if (options.events && options.events.length) {
+        ctx.save();
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = cssVar('--text-light', '#95a5a6');
+        ctx.fillStyle = cssVar('--text-light', '#95a5a6');
+        ctx.globalAlpha = 0.55;
+        ctx.font = '500 10px ' + fontBase;
+        let labeled = 0;
+        for (const ev of options.events) {
+          const x = eventXFromDate(ev.date || ev.x, points, pad, w);
+          if (x == null) continue;
+          ctx.beginPath();
+          ctx.moveTo(x, pad.top);
+          ctx.lineTo(x, pad.top + h);
+          ctx.stroke();
+          // top tick
+          ctx.globalAlpha = 0.85;
+          ctx.beginPath();
+          ctx.arc(x, pad.top + 3, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+          if (ev.title && labeled < 4) {
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'top';
+            const short = String(ev.title).slice(0, 8);
+            ctx.fillText(short, x, pad.top + 6);
+            labeled += 1;
+          }
+          ctx.globalAlpha = 0.55;
+        }
+        ctx.restore();
+      }
+
       if (options.thresholds) {
         ctx.save();
         ctx.lineWidth = 1;
@@ -279,6 +458,29 @@
             ctx.fillText(t.label, pad.left + 6, y - 3);
           }
         }
+        ctx.restore();
+      }
+
+      // Personal baseline (median) — solid-ish dashed, distinct from clinical thresholds
+      if (options.baseline && Number.isFinite(options.baseline.y)) {
+        ctx.save();
+        const by = yAt(options.baseline.y);
+        const bColor = options.baseline.color || '#7f8c8d';
+        ctx.strokeStyle = bColor;
+        ctx.lineWidth = 1.5;
+        ctx.globalAlpha = 0.75;
+        ctx.setLineDash([8, 4]);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, by);
+        ctx.lineTo(pad.left + w, by);
+        ctx.stroke();
+        const blabel = options.baseline.label || S.legendBaseline;
+        ctx.fillStyle = bColor;
+        ctx.font = '600 11px ' + fontBase;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.globalAlpha = 0.9;
+        ctx.fillText(blabel, pad.left + w - 4, by - 3);
         ctx.restore();
       }
 
@@ -808,24 +1010,18 @@
   }
 
   /**
-   * 从 FullAnalysis 渲染可用图表
-   * @param {HTMLElement} container
-   * @param {object} analysis
-   * @param {{ days?: number, locale?: string }} options days: 7|30|90|0(全部)；CGM 默认 7，体重/HRV/BP 默认 90
+   * Build chart blocks from analysis (same logic as render, without DOM).
+   * @returns {{ blocks: object[], cgmDays: number, seriesDays: number, localeKey: string, S: object }}
    */
-  function renderAnalysisCharts(container, analysis, options) {
+  function buildChartBlocks(analysis, options) {
     options = options || {};
     const daysOpt = options.days;
     const localeKey = resolveLocale(options);
     const S = getStrings(localeKey);
-    if (!container) return;
-    container.innerHTML = '';
-    if (!analysis || !analysis.data) {
-      container.innerHTML = `<div class="chart-empty">${S.emptyNoData}</div>`;
-      return;
-    }
-
     const blocks = [];
+    if (!analysis || !analysis.data) {
+      return { blocks, cgmDays: 7, seriesDays: 90, localeKey, S };
+    }
     const data = analysis.data;
     const theme = themeColors();
     // 默认：CGM 看 7 天，其余看 90 天；用户 chips 会统一 days
@@ -1139,10 +1335,105 @@
       }
     }
 
+    return { blocks, cgmDays, seriesDays, localeKey, S };
+  }
+
+  /**
+   * List selectable metric keys (excludes AGP — shown with CGM).
+   * @returns {{ key: string, label: string }[]}
+   */
+  function listAvailableChartKeys(analysis, options) {
+    const built = buildChartBlocks(analysis, options || {});
+    const S = built.S;
+    const seen = {};
+    const out = [];
+    for (const b of built.blocks) {
+      if (!b || !b.key || b.key === 'agp') continue;
+      if (seen[b.key]) continue;
+      seen[b.key] = true;
+      const lk = METRIC_LABEL_KEYS[b.key];
+      out.push({ key: b.key, label: (lk && S[lk]) || b.key });
+    }
+    return out;
+  }
+
+  /**
+   * Filter / order blocks for workbench (primary + optional compare).
+   * AGP is kept when primary is cgm.
+   */
+  function applyWorkbenchFilter(blocks, options) {
+    options = options || {};
+    const primaryKey = options.primaryKey ? String(options.primaryKey) : '';
+    const compareKey = options.compareKey ? String(options.compareKey) : '';
+    if (!primaryKey) return blocks.slice();
+
+    const byKey = {};
+    for (const b of blocks) {
+      if (b && b.key) byKey[b.key] = b;
+    }
+    const ordered = [];
+    if (byKey[primaryKey]) ordered.push(byKey[primaryKey]);
+    // CGM primary also shows AGP profile when available
+    if (primaryKey === 'cgm' && byKey.agp) ordered.push(byKey.agp);
+    if (compareKey && compareKey !== primaryKey && byKey[compareKey]) {
+      ordered.push(byKey[compareKey]);
+    }
+    // Fallback: if primary missing, show all
+    if (!ordered.length) return blocks.slice();
+    return ordered;
+  }
+
+  /**
+   * 从 FullAnalysis 渲染可用图表
+   * @param {HTMLElement} container
+   * @param {object} analysis
+   * @param {{
+   *   days?: number,
+   *   locale?: string,
+   *   primaryKey?: string,
+   *   compareKey?: string,
+   *   showBaseline?: boolean,
+   *   events?: { date: string, title?: string }[],
+   * }} options days: 7|30|90|0(全部)；CGM 默认 7，体重/HRV/BP 默认 90
+   */
+  function renderAnalysisCharts(container, analysis, options) {
+    options = options || {};
+    if (!container) return;
+    container.innerHTML = '';
+
+    const built = buildChartBlocks(analysis, options);
+    const S = built.S;
+    let blocks = built.blocks;
+    const daysOpt = options.days;
+
+    if (!analysis || !analysis.data) {
+      container.innerHTML = `<div class="chart-empty">${S.emptyNoData}</div>`;
+      return;
+    }
+
+    if (options.primaryKey) {
+      blocks = applyWorkbenchFilter(blocks, options);
+    }
+
     if (blocks.length === 0) {
       container.innerHTML = `<div class="chart-empty">${S.emptyInsufficient}</div>`;
       return;
     }
+
+    // Dual-column layout shell when compare is active
+    const compareKey = options.compareKey ? String(options.compareKey) : '';
+    const primaryKey = options.primaryKey ? String(options.primaryKey) : '';
+    const hasCompare =
+      !!(compareKey && primaryKey && compareKey !== primaryKey &&
+        blocks.some((b) => b.key === compareKey));
+    if (hasCompare) {
+      container.classList.add('charts-content--compare');
+    } else {
+      container.classList.remove('charts-content--compare');
+    }
+
+    const events = Array.isArray(options.events) ? options.events : [];
+    const showBaseline = !!options.showBaseline;
 
     for (const b of blocks) {
       const isAgp = b.type === 'agp';
@@ -1150,9 +1441,28 @@
       if (isAgp && (!b.bins || !b.bins.length)) continue;
 
       const wrap = document.createElement('div');
-      wrap.className = 'chart-block' + (isAgp ? ' chart-block-agp' : '');
+      let roleClass = '';
+      if (b.key && primaryKey && b.key === primaryKey) roleClass = ' chart-block-primary';
+      else if (b.key && compareKey && b.key === compareKey) roleClass = ' chart-block-compare';
+      else if (b.key === 'agp' && primaryKey === 'cgm') roleClass = ' chart-block-primary-aux';
+      wrap.className = 'chart-block' + (isAgp ? ' chart-block-agp' : '') + roleClass;
       if (b.key) wrap.setAttribute('data-chart', b.key);
       wrap.id = b.key ? `chart-block-${b.key}` : undefined;
+
+      // Conclusion summary (line charts only; non-diagnostic)
+      if (!isAgp && b.points) {
+        const rangeForBlock =
+          b.key === 'cgm'
+            ? (daysOpt === undefined ? 7 : daysOpt)
+            : (daysOpt === undefined ? 90 : daysOpt);
+        const conclusion = chartConclusion(b.points, rangeForBlock, S);
+        if (conclusion) {
+          const sum = document.createElement('p');
+          sum.className = 'chart-conclusion';
+          sum.textContent = conclusion;
+          wrap.appendChild(sum);
+        }
+      }
 
       const title = document.createElement('h3');
       title.textContent = b.title;
@@ -1171,10 +1481,26 @@
       canvas.setAttribute('aria-label', b.title + S.ariaInteractive);
       wrap.appendChild(canvas);
 
-      if (b.legend && b.legend.length) {
+      // Legend (+ baseline / events when enabled)
+      const legendItems = (b.legend && b.legend.slice()) || [];
+      if (!isAgp && showBaseline) {
+        legendItems.push({
+          color: '#7f8c8d',
+          label: S.legendBaseline,
+          dashed: true,
+        });
+      }
+      if (!isAgp && events.length) {
+        legendItems.push({
+          color: '#95a5a6',
+          label: S.legendEvents,
+          dashed: true,
+        });
+      }
+      if (legendItems.length) {
         const legend = document.createElement('div');
         legend.className = 'chart-legend';
-        legend.innerHTML = b.legend.map((item) => {
+        legend.innerHTML = legendItems.map((item) => {
           let sw;
           if (item.band) {
             sw = `<span class="chart-legend-swatch band" style="background:${item.color}"></span>`;
@@ -1196,6 +1522,21 @@
       wrap.appendChild(readout);
 
       container.appendChild(wrap);
+
+      // Baseline: median of series in view
+      let baselineOpt = null;
+      if (!isAgp && showBaseline && b.points) {
+        const med = medianOf(b.points.map((p) => p.y));
+        if (med != null) {
+          baselineOpt = {
+            y: med,
+            color: '#7f8c8d',
+            label: S.legendBaseline,
+          };
+        }
+      }
+      const eventsOpt = !isAgp && events.length ? events : null;
+
       requestAnimationFrame(() => {
         if (isAgp) {
           const api = drawAgpBandChart(canvas, b.bins, {
@@ -1215,6 +1556,8 @@
             unit: b.unit,
             strings: S,
             locale: options.locale,
+            baseline: baselineOpt,
+            events: eventsOpt,
           });
           if (api && api.bindHover) api.bindHover(readout);
         }
@@ -1227,5 +1570,8 @@
     drawAgpBandChart,
     downsample,
     renderAnalysisCharts,
+    listAvailableChartKeys,
+    chartConclusion,
+    medianOf,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -17,6 +17,11 @@
   let deferredInstallPrompt = null;
   /** 图表时间范围：7|30|90|0(全部) */
   const CHART_RANGE_KEY = 'health-analyzer-chart-range';
+  /** v1.67 趋势工作台偏好 */
+  const CHART_PRIMARY_KEY = 'health-analyzer-chart-primary';
+  const CHART_COMPARE_KEY = 'health-analyzer-chart-compare';
+  const CHART_BASELINE_KEY = 'health-analyzer-chart-baseline';
+  const CHART_EVENTS_KEY = 'health-analyzer-chart-events';
   const SIDE_NAV_COLLAPSED_KEY = 'health-analyzer-side-nav-collapsed';
   let chartRangeDays = (() => {
     try {
@@ -25,6 +30,34 @@
     } catch (e) { /* ignore */ }
     return 30;
   })();
+  /** 主指标 key（空 = 自动选第一个有数据的） */
+  let chartPrimaryKey = (() => {
+    try {
+      return String(window.localStorage.getItem(CHART_PRIMARY_KEY) || '');
+    } catch (e) { return ''; }
+  })();
+  /** 对比指标 key（空 = 无） */
+  let chartCompareKey = (() => {
+    try {
+      return String(window.localStorage.getItem(CHART_COMPARE_KEY) || '');
+    } catch (e) { return ''; }
+  })();
+  let chartShowBaseline = (() => {
+    try {
+      const v = window.localStorage.getItem(CHART_BASELINE_KEY);
+      if (v === null || v === undefined || v === '') return true; // 默认开
+      return v === '1' || v === 'true';
+    } catch (e) { return true; }
+  })();
+  let chartShowEvents = (() => {
+    try {
+      const v = window.localStorage.getItem(CHART_EVENTS_KEY);
+      if (v === null || v === undefined || v === '') return true;
+      return v === '1' || v === 'true';
+    } catch (e) { return true; }
+  })();
+  /** 缓存的分析窗口内事件（renderCharts 异步填充） */
+  let chartEventsCache = [];
   /** 最近一次成功选中的文件，供失败后「重试（保留设置）」 */
   let lastSelectedFiles = null;
   /** 最近一次 CSV 合并说明（展示在质量横幅旁） */
@@ -58,6 +91,10 @@
     RECOVERY_WEIGHTS_KEY,
     SIGNAL_PREFS_KEY,
     CHART_RANGE_KEY,
+    CHART_PRIMARY_KEY,
+    CHART_COMPARE_KEY,
+    CHART_BASELINE_KEY,
+    CHART_EVENTS_KEY,
     LLM_COPY_ACK_KEY,
     INCLUDE_SENSITIVE_KEY,
     'health-analyzer-insight-coach',
@@ -4340,19 +4377,165 @@
     }
   }
 
+  /**
+   * Populate primary / compare metric <select>s from available chart keys.
+   * @param {object} analysis
+   * @param {number} days
+   */
+  function syncChartWorkbenchSelects(analysis, days) {
+    const primarySel = $('chart-primary-metric');
+    const compareSel = $('chart-compare-metric');
+    if (!primarySel || !compareSel) return;
+    const keys =
+      window.HealthCharts && typeof window.HealthCharts.listAvailableChartKeys === 'function'
+        ? window.HealthCharts.listAvailableChartKeys(analysis, {
+            days: days === 0 ? 0 : (days || 30),
+            locale: getAnalysisLocale(),
+          })
+        : [];
+
+    // Resolve primary: prefer stored, else first available
+    let primary = chartPrimaryKey;
+    if (!primary || !keys.some((k) => k.key === primary)) {
+      primary = keys.length ? keys[0].key : '';
+      chartPrimaryKey = primary;
+    }
+    // Compare must not equal primary
+    let compare = chartCompareKey;
+    if (compare && (compare === primary || !keys.some((k) => k.key === compare))) {
+      compare = '';
+      chartCompareKey = '';
+    }
+
+    const metricLabel = (item) => {
+      const i18nKey = 'charts.metric.' + item.key;
+      const tr = t(i18nKey);
+      return tr && tr !== i18nKey ? tr : item.label;
+    };
+
+    primarySel.innerHTML = '';
+    keys.forEach((item) => {
+      const opt = document.createElement('option');
+      opt.value = item.key;
+      opt.textContent = metricLabel(item);
+      if (item.key === primary) opt.selected = true;
+      primarySel.appendChild(opt);
+    });
+    if (!keys.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '—';
+      primarySel.appendChild(opt);
+    }
+
+    compareSel.innerHTML = '';
+    const noneOpt = document.createElement('option');
+    noneOpt.value = '';
+    noneOpt.textContent = t('charts.workbench.compareNone');
+    if (!compare) noneOpt.selected = true;
+    compareSel.appendChild(noneOpt);
+    keys.forEach((item) => {
+      if (item.key === primary) return;
+      const opt = document.createElement('option');
+      opt.value = item.key;
+      opt.textContent = metricLabel(item);
+      if (item.key === compare) opt.selected = true;
+      compareSel.appendChild(opt);
+    });
+
+    const baselineEl = $('chart-baseline-toggle');
+    if (baselineEl) baselineEl.checked = !!chartShowBaseline;
+    const eventsEl = $('chart-events-toggle');
+    if (eventsEl) eventsEl.checked = !!chartShowEvents;
+  }
+
+  /**
+   * Load health events overlapping the chart window (silent if none / unavailable).
+   * @param {object} analysis
+   * @param {number} days
+   * @returns {Promise<{date:string,title?:string}[]>}
+   */
+  async function loadChartEventsForWindow(analysis, days) {
+    if (!chartShowEvents) return [];
+    if (!window.HealthHistory || typeof window.HealthHistory.listHealthEvents !== 'function') {
+      return [];
+    }
+    try {
+      const rows = await window.HealthHistory.listHealthEvents();
+      if (!rows || !rows.length) return [];
+      // Window end: prefer analysis endDate / latest series date
+      let endStr = '';
+      try {
+        if (analysis && analysis.meta && analysis.meta.endDate) {
+          endStr = String(analysis.meta.endDate).slice(0, 10);
+        }
+      } catch (e) { /* ignore */ }
+      if (!endStr) {
+        const today = new Date();
+        endStr = today.toISOString().slice(0, 10);
+      }
+      let startStr = '0000-01-01';
+      if (days && days > 0) {
+        const end = new Date(endStr + 'T00:00:00Z');
+        end.setUTCDate(end.getUTCDate() - (days - 1));
+        startStr = end.toISOString().slice(0, 10);
+      }
+      return rows
+        .filter((r) => {
+          const d = String(r && r.date != null ? r.date : '').slice(0, 10);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+          return d >= startStr && d <= endStr;
+        })
+        .map((r) => ({
+          date: String(r.date).slice(0, 10),
+          title: r.title || r.kind || '',
+        }));
+    } catch (e) {
+      return [];
+    }
+  }
+
   function renderCharts(analysis) {
     const container = $('charts-content');
     if (!container) return;
-    if (window.HealthCharts && typeof window.HealthCharts.renderAnalysisCharts === 'function') {
-      const days = chartRangeDays;
-      window.HealthCharts.renderAnalysisCharts(container, analysis, {
-        // 0 = 全部；chips 默认 30
-        days: days === 0 ? 0 : (days || 30),
-        locale: getAnalysisLocale(),
-      });
-    } else {
-      container.innerHTML = `<p class="hint chart-empty">${escapeHtml(t('charts.title'))} — module not loaded</p>`;
-    }
+    const days = chartRangeDays;
+    const daysOpt = days === 0 ? 0 : (days || 30);
+
+    // Sync workbench controls first (keys may depend on analysis)
+    syncChartWorkbenchSelects(analysis, daysOpt);
+
+    // Fire-and-forget events load, then re-render if needed
+    const eventsPromise = chartShowEvents
+      ? loadChartEventsForWindow(analysis, daysOpt)
+      : Promise.resolve([]);
+
+    const paint = (events) => {
+      chartEventsCache = events || [];
+      if (window.HealthCharts && typeof window.HealthCharts.renderAnalysisCharts === 'function') {
+        window.HealthCharts.renderAnalysisCharts(container, analysis, {
+          // 0 = 全部；chips 默认 30
+          days: daysOpt,
+          locale: getAnalysisLocale(),
+          primaryKey: chartPrimaryKey || undefined,
+          compareKey: chartCompareKey || undefined,
+          showBaseline: !!chartShowBaseline,
+          events: chartShowEvents ? chartEventsCache : [],
+        });
+      } else {
+        container.innerHTML = `<p class="hint chart-empty">${escapeHtml(t('charts.title'))} — module not loaded</p>`;
+      }
+    };
+
+    // Immediate paint without waiting (events empty first); then refresh if events arrive
+    paint(chartShowEvents ? chartEventsCache : []);
+    eventsPromise.then((events) => {
+      // Only re-paint if still on same analysis and events changed
+      if (analysis !== currentAnalysis) return;
+      const prev = JSON.stringify(chartEventsCache.map((e) => e.date + '|' + e.title));
+      const next = JSON.stringify((events || []).map((e) => e.date + '|' + e.title));
+      if (prev !== next) paint(events);
+    }).catch(() => { /* silent */ });
+
     // 同步 chips 激活态
     document.querySelectorAll('#chart-range-chips .chip').forEach((btn) => {
       const d = Number(btn.getAttribute('data-days'));
@@ -4366,6 +4549,38 @@
       try { window.localStorage.setItem(CHART_RANGE_KEY, String(chartRangeDays)); } catch (e) { /* ignore */ }
       if (currentAnalysis) renderCharts(currentAnalysis);
     });
+  });
+
+  // v1.67 趋势工作台控件
+  $('chart-primary-metric')?.addEventListener('change', (e) => {
+    chartPrimaryKey = String(e.target && e.target.value || '');
+    try { window.localStorage.setItem(CHART_PRIMARY_KEY, chartPrimaryKey); } catch (err) { /* ignore */ }
+    // Compare cannot equal primary
+    if (chartCompareKey && chartCompareKey === chartPrimaryKey) {
+      chartCompareKey = '';
+      try { window.localStorage.setItem(CHART_COMPARE_KEY, ''); } catch (err2) { /* ignore */ }
+    }
+    if (currentAnalysis) renderCharts(currentAnalysis);
+  });
+  $('chart-compare-metric')?.addEventListener('change', (e) => {
+    chartCompareKey = String(e.target && e.target.value || '');
+    try { window.localStorage.setItem(CHART_COMPARE_KEY, chartCompareKey); } catch (err) { /* ignore */ }
+    if (currentAnalysis) renderCharts(currentAnalysis);
+  });
+  $('chart-baseline-toggle')?.addEventListener('change', (e) => {
+    chartShowBaseline = !!(e.target && e.target.checked);
+    try {
+      window.localStorage.setItem(CHART_BASELINE_KEY, chartShowBaseline ? '1' : '0');
+    } catch (err) { /* ignore */ }
+    if (currentAnalysis) renderCharts(currentAnalysis);
+  });
+  $('chart-events-toggle')?.addEventListener('change', (e) => {
+    chartShowEvents = !!(e.target && e.target.checked);
+    try {
+      window.localStorage.setItem(CHART_EVENTS_KEY, chartShowEvents ? '1' : '0');
+    } catch (err) { /* ignore */ }
+    if (!chartShowEvents) chartEventsCache = [];
+    if (currentAnalysis) renderCharts(currentAnalysis);
   });
 
   $('btn-csv-apply')?.addEventListener('click', () => { reapplyCsvAndRefresh(); });
@@ -6674,10 +6889,19 @@
     recoveryWeights = getDefaultRecoveryWeights();
     signalPrefs = defaultSignalPrefs();
     chartRangeDays = 30;
+    chartPrimaryKey = '';
+    chartCompareKey = '';
+    chartShowBaseline = true;
+    chartShowEvents = true;
+    chartEventsCache = [];
     document.querySelectorAll('[data-days]').forEach((btn) => {
       const d = Number(btn.getAttribute('data-days'));
       btn.classList.toggle('is-active', d === chartRangeDays);
     });
+    const bl = $('chart-baseline-toggle');
+    if (bl) bl.checked = true;
+    const ev = $('chart-events-toggle');
+    if (ev) ev.checked = true;
     syncIncludeSensitiveCheckbox();
     // 恢复权重滑块 UI（若有）
     try {

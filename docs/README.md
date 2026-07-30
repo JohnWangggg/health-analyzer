@@ -274,6 +274,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - v1.63：**个人转交**伪名 ID 须 UUID/`pid_…`；本机生成·复制·轮换（localStorage）；拒绝弱 ID。
 - v1.64：CI/release **强制**官方 HL7 校验。
 - v1.65：匿名分享将 import-batch id 重映射为 `batch_anon_*`；门禁拦截姓名型 batch id；`validator_cli` **固定 6.9.12 + SHA-256**。
+- v1.67：趋势工作台 MVP——主/对比指标选择、个人基线（窗口中位数）、事件标记、图表结论摘要（描述性非诊断）；偏好本机记忆。
 - v1.66：结果页改为「今日 / 趋势 / 报告 / 更多」工作区；桌面侧栏 + 手机底部导航；就诊/周报进报告，FHIR/历史/隐私进更多。
 
 ## 许可
