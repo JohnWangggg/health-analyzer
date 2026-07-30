@@ -2,14 +2,22 @@
  * Local parse + analyzeAll performance baseline (no upload, no network).
  *
  * Measures wall-clock ms for parseHealthXml / analyzeAll on a local XML export,
- * plus record counts and process.memoryUsage deltas. Default fixture is tiny;
- * point at a large local export for real baselines (never commit large fixtures).
+ * plus record counts (by domain) and process.memoryUsage deltas. Default fixture
+ * is tiny; point at a large local export for real baselines (never commit large
+ * fixtures).
  *
  * Usage:
  *   npm run perf:parse
  *   npm run perf:parse -- --repeat=5
  *   npm run perf:parse -- --file=/path/to/export.xml
+ *   npm run perf:parse -- --json
+ *   npm run perf:parse -- --json --repeat=3
  *   PERF_XML_PATH=/path/to/export.xml npm run perf:parse -- --repeat=3
+ *
+ * Flags:
+ *   --json   Emit one JSON object to stdout (machine-readable). Human-readable
+ *            progress goes to stderr so pipes stay clean. Without --json, human
+ *            summary is printed to stdout (default).
  *
  * Requires built browser bundle: web-ui/public/lib.js (npm run build:lib).
  * Exit 0 on success; 1 on load/parse failure.
@@ -33,6 +41,7 @@ function parseArgs(argv) {
   let repeat = 1;
   let file = process.env.PERF_XML_PATH || process.env.HEALTH_XML_PATH || '';
   let preferCjs = process.env.PERF_USE_CJS === '1';
+  let json = false;
   let help = false;
 
   for (const arg of argv) {
@@ -42,6 +51,10 @@ function parseArgs(argv) {
     }
     if (arg === '--cjs') {
       preferCjs = true;
+      continue;
+    }
+    if (arg === '--json') {
+      json = true;
       continue;
     }
     const mRepeat = arg.match(/^--repeat=(\d+)$/);
@@ -66,6 +79,7 @@ function parseArgs(argv) {
     repeat,
     file: file ? path.resolve(file) : DEFAULT_FIXTURE,
     preferCjs,
+    json,
     help,
   };
 }
@@ -81,12 +95,21 @@ Options:
   --file=PATH     Apple Health export.xml (or unzipped export). Default:
                   e2e/fixtures/minimal-export.xml
   --repeat=N      Run N times; report median (default 1)
+  --json          Print one JSON summary object to stdout (progress → stderr)
   --cjs           Prefer temporary CJS build of lib/ (else web-ui/public/lib.js)
   -h, --help      Show this help
 
 Env:
   PERF_XML_PATH / HEALTH_XML_PATH   Same as --file
   PERF_USE_CJS=1                    Same as --cjs
+
+JSON shape (--json), main fields:
+  file, bytes, lines, source, repeat, defaultFixture
+  parseMs / analyzeMs / totalMs   { median, runs[] }
+  recordCounts                    per-domain + total
+  domainsWithData                 domain keys with count > 0
+  dateRange                       { start, end } if available
+  memory                          rss/heap deltas (median + last parse/analyze)
 
 Notes:
   - Default fixture is small (CI-friendly). For large ZIP/XML baselines, unzip
@@ -170,6 +193,13 @@ function countRecords(data) {
     counts.workouts +
     counts.ecg;
   return { ...counts, total };
+}
+
+/** Domain keys that have at least one record (excludes total). */
+function domainsWithData(records) {
+  return Object.entries(records)
+    .filter(([k, v]) => k !== 'total' && v > 0)
+    .map(([k]) => k);
 }
 
 function loadFromLibJs() {
@@ -326,12 +356,83 @@ function runOnce(api, xmlText) {
   };
 }
 
+/**
+ * Build the machine-readable summary object shared by --json and the human
+ * one-liner tail.
+ */
+function buildSummary({ opts, st, lines, api, runs }) {
+  const last = runs[runs.length - 1];
+  const parseRuns = runs.map((r) => Number(r.parseMs.toFixed(3)));
+  const analyzeRuns = runs.map((r) => Number(r.analyzeMs.toFixed(3)));
+  const totalRuns = runs.map((r) => Number(r.totalMs.toFixed(3)));
+  const parseMed = median(runs.map((r) => r.parseMs));
+  const analyzeMed = median(runs.map((r) => r.analyzeMs));
+  const totalMed = median(runs.map((r) => r.totalMs));
+  const heapMed = median(runs.map((r) => r.memTotal.heapUsed));
+  const rssMed = median(runs.map((r) => r.memTotal.rss));
+  const domains = domainsWithData(last.records);
+
+  return {
+    file: opts.file,
+    bytes: st.size,
+    lines,
+    source: api.source,
+    repeat: opts.repeat,
+    defaultFixture: path.resolve(opts.file) === path.resolve(DEFAULT_FIXTURE),
+    parseMs: {
+      median: Number(parseMed.toFixed(3)),
+      runs: parseRuns,
+    },
+    analyzeMs: {
+      median: Number(analyzeMed.toFixed(3)),
+      runs: analyzeRuns,
+    },
+    totalMs: {
+      median: Number(totalMed.toFixed(3)),
+      runs: totalRuns,
+    },
+    // Flat aliases for quick paste / older consumers
+    parse_ms_median: Number(parseMed.toFixed(3)),
+    analyze_ms_median: Number(analyzeMed.toFixed(3)),
+    total_ms_median: Number(totalMed.toFixed(3)),
+    records: last.records.total,
+    recordCounts: last.records,
+    domainsWithData: domains,
+    domainCount: domains.length,
+    dateRange: last.dateRange
+      ? { start: last.dateRange.start || null, end: last.dateRange.end || null }
+      : null,
+    analysisKeys: last.analysisKeys,
+    memory: {
+      total: {
+        heapUsed_median: Math.round(heapMed),
+        rss_median: Math.round(rssMed),
+      },
+      lastParse: {
+        heapUsed: Math.round(last.memParse.heapUsed),
+        rss: Math.round(last.memParse.rss),
+      },
+      lastAnalyze: {
+        heapUsed: Math.round(last.memAnalyze.heapUsed),
+        rss: Math.round(last.memAnalyze.rss),
+      },
+    },
+    heap_delta_median: Math.round(heapMed),
+    rss_delta_median: Math.round(rssMed),
+  };
+}
+
 function main() {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.help) {
     printHelp();
     process.exit(0);
   }
+
+  // In --json mode, progress logs go to stderr so stdout is pure JSON.
+  const log = opts.json
+    ? (...args) => console.error(...args)
+    : (...args) => console.log(...args);
 
   if (!fs.existsSync(opts.file)) {
     console.error(`XML not found: ${opts.file}`);
@@ -343,16 +444,16 @@ function main() {
   const xmlText = fs.readFileSync(opts.file, 'utf8');
   const lines = xmlText.split('\n').length;
 
-  console.log('=== perf-parse-baseline ===');
-  console.log(`file:     ${opts.file}`);
-  console.log(
+  log('=== perf-parse-baseline ===');
+  log(`file:     ${opts.file}`);
+  log(
     `size:     ${fmtBytes(st.size)} · ${lines} lines · defaultFixture=${
       path.resolve(opts.file) === path.resolve(DEFAULT_FIXTURE)
     }`
   );
-  console.log(`repeat:   ${opts.repeat}${opts.repeat > 1 ? ' (report median)' : ''}`);
+  log(`repeat:   ${opts.repeat}${opts.repeat > 1 ? ' (report median)' : ''}`);
   if (typeof globalThis.gc !== 'function') {
-    console.log('hint:     node --expose-gc for optional GC between runs (memory quieter)');
+    log('hint:     node --expose-gc for optional GC between runs (memory quieter)');
   }
 
   let api;
@@ -362,7 +463,7 @@ function main() {
     console.error('Failed to load lib:', e.message || e);
     process.exit(1);
   }
-  console.log(`lib:      ${api.source}`);
+  log(`lib:      ${api.source}`);
 
   // Warm-up (not scored) — JIT / first-read effects
   try {
@@ -378,7 +479,7 @@ function main() {
     try {
       const r = runOnce(api, xmlText);
       runs.push(r);
-      console.log(
+      log(
         `  run ${i + 1}/${opts.repeat}: parse ${fmtMs(r.parseMs)} · analyze ${fmtMs(
           r.analyzeMs
         )} · total ${fmtMs(r.totalMs)} · records ${r.records.total} · heapΔ ${fmtBytes(
@@ -391,52 +492,57 @@ function main() {
     }
   }
 
+  const summary = buildSummary({ opts, st, lines, api, runs });
   const last = runs[runs.length - 1];
-  const parseMed = median(runs.map((r) => r.parseMs));
-  const analyzeMed = median(runs.map((r) => r.analyzeMs));
-  const totalMed = median(runs.map((r) => r.totalMs));
-  const heapMed = median(runs.map((r) => r.memTotal.heapUsed));
-  const rssMed = median(runs.map((r) => r.memTotal.rss));
 
-  console.log('\n--- summary (median of runs) ---');
-  console.log(`parse_ms:     ${parseMed.toFixed(2)}`);
-  console.log(`analyze_ms:   ${analyzeMed.toFixed(2)}`);
-  console.log(`total_ms:     ${totalMed.toFixed(2)}`);
-  console.log(`records:      ${last.records.total}`);
-  if (last.dateRange?.start || last.dateRange?.end) {
-    console.log(`date_range:   ${last.dateRange.start || '?'} → ${last.dateRange.end || '?'}`);
-  }
-  console.log('record_breakdown:');
-  for (const [k, v] of Object.entries(last.records)) {
-    if (k === 'total') continue;
-    if (v) console.log(`  ${k}: ${v}`);
-  }
-  console.log('memory_delta (median total parse→analyze end):');
-  console.log(`  heapUsed:   ${fmtBytes(heapMed)}`);
-  console.log(`  rss:        ${fmtBytes(rssMed)}`);
-  console.log('memory_delta (last run parse only / analyze only):');
-  console.log(
-    `  parse heap:   ${fmtBytes(last.memParse.heapUsed)} · rss ${fmtBytes(last.memParse.rss)}`
-  );
-  console.log(
-    `  analyze heap: ${fmtBytes(last.memAnalyze.heapUsed)} · rss ${fmtBytes(last.memAnalyze.rss)}`
-  );
+  if (opts.json) {
+    // Single JSON object on stdout only
+    console.log(JSON.stringify(summary));
+  } else {
+    log('\n--- summary (median of runs) ---');
+    log(`parse_ms:     ${summary.parseMs.median}`);
+    log(`analyze_ms:   ${summary.analyzeMs.median}`);
+    log(`total_ms:     ${summary.totalMs.median}`);
+    log(`records:      ${summary.records}`);
+    log(
+      `domains:      ${summary.domainCount} with data (${summary.domainsWithData.join(', ') || 'none'})`
+    );
+    if (summary.dateRange?.start || summary.dateRange?.end) {
+      log(`date_range:   ${summary.dateRange.start || '?'} → ${summary.dateRange.end || '?'}`);
+    }
+    log('record_breakdown (domain counts):');
+    for (const [k, v] of Object.entries(last.records)) {
+      if (k === 'total') continue;
+      if (v) log(`  ${k}: ${v}`);
+    }
+    log('memory_delta (median total parse→analyze end):');
+    log(`  heapUsed:   ${fmtBytes(summary.memory.total.heapUsed_median)}`);
+    log(`  rss:        ${fmtBytes(summary.memory.total.rss_median)}`);
+    log('memory_delta (last run parse only / analyze only):');
+    log(
+      `  parse heap:   ${fmtBytes(last.memParse.heapUsed)} · rss ${fmtBytes(last.memParse.rss)}`
+    );
+    log(
+      `  analyze heap: ${fmtBytes(last.memAnalyze.heapUsed)} · rss ${fmtBytes(last.memAnalyze.rss)}`
+    );
 
-  // Machine-readable one-liner for paste into notes / PR
-  const jsonLine = {
-    file: opts.file,
-    bytes: st.size,
-    lines,
-    source: api.source,
-    repeat: opts.repeat,
-    parse_ms_median: Number(parseMed.toFixed(3)),
-    analyze_ms_median: Number(analyzeMed.toFixed(3)),
-    total_ms_median: Number(totalMed.toFixed(3)),
-    records: last.records.total,
-    heap_delta_median: Math.round(heapMed),
-    rss_delta_median: Math.round(rssMed),
-  };
-  console.log('\njson:', JSON.stringify(jsonLine));
+    // Compact one-liner for paste into notes / PR (still human mode)
+    const jsonLine = {
+      file: summary.file,
+      bytes: summary.bytes,
+      lines: summary.lines,
+      source: summary.source,
+      repeat: summary.repeat,
+      parse_ms_median: summary.parse_ms_median,
+      analyze_ms_median: summary.analyze_ms_median,
+      total_ms_median: summary.total_ms_median,
+      records: summary.records,
+      domainsWithData: summary.domainsWithData,
+      heap_delta_median: summary.heap_delta_median,
+      rss_delta_median: summary.rss_delta_median,
+    };
+    log('\njson:', JSON.stringify(jsonLine));
+  }
 
   if (api.cleanup) {
     try {

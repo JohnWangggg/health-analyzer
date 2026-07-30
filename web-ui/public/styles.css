@@ -562,6 +562,14 @@ body.has-results .result-bottom-nav:not(.hidden) {
   background: color-mix(in srgb, var(--chart-bg, var(--surface)) 90%, var(--muted-surface));
 }
 
+.warehouse-years-both-actions {
+  margin: 0 0 14px;
+}
+
+.warehouse-years-both-actions.hidden {
+  display: none !important;
+}
+
 .warehouse-cgm-months-title {
   margin: 0 0 4px;
   font-size: 13px;

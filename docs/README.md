@@ -293,6 +293,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - v1.79：血压/体重按年分片；CGM 保留近 N 个月可配置；`npm run perf:parse` 解析性能基线。
 - v1.80：仓面板展示血压/体重年分片列表，支持单年与多选删除。
 - v1.81：血压/体重年分片「仅保留近 N 年」可配置（1/2/3/5），分域裁剪。
+- v1.82：血压与体重「双域一并保留近 N 年」；`npm run perf:parse:json`；手测清单覆盖年分片 keep-N。
 
 ## 许可
 

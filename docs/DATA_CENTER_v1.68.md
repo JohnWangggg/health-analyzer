@@ -1,12 +1,12 @@
 # v1.68 本地个人健康数据中心（Local Personal Health Data Center）
 
-**状态：** 设计 + **已实现**（v1.68 MVP 单片 → **v1.75** `core|full` + `cgm|YYYY-MM` 分片、按月淘汰、兼容 legacy）  
-**范围：** 浏览器本机 IndexedDB 持久化「解析后的 typed 健康仓」+ 授权、配额、备份/清除  
+**状态：** 设计 + **已实现**（v1.68 MVP → **v1.75** `core|full` + `cgm|YYYY-MM` → **v1.79–v1.81** `bloodPressure|YYYY` / `weight|YYYY` 年分片、面板删片、保留近 N 月/年；兼容 legacy `healthData|full`）  
+**范围：** 浏览器本机 IndexedDB 持久化「解析后的 typed 健康仓」+ 授权、配额、备份/清除、分片淘汰与手动裁剪  
 **语言 / Language：** 中文（关键术语中英对照）  
-**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）
+**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.81.0`）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）
 
 > 本地隐私优先 · 零服务器 · 非诊断 · 默认不上传  
-> MVP 产品默认：自动 hydrate、关授权即删仓、仅配额软/硬上限、备份明文、恢复整库替换。按域月片分片与口令加密属后续阶段。
+> 产品默认：自动 hydrate、关授权即删仓、软/硬字节配额、备份默认明文（可选口令 AES-GCM）、恢复整库替换。分片与口令加密**已落地**（见 §4.2 / §6 / §8）。
 
 ---
 
@@ -211,8 +211,8 @@ type WarehouseDomain =
 interface DomainChunk {
   id: string;              // `${domain}|${shardKey}`
   domain: WarehouseDomain;
-  /** 分片键：按日 'YYYY-MM-DD' 或按月 'YYYY-MM' 或 'all' */
-  shardKey: string;
+  /** 分片键：CGM 月 'YYYY-MM'；BP/体重年 'YYYY'；core 为 'full'；legacy 可读 'full' 单片 */
+  shardKey: string; // 实现字段名亦作 `shard`
   dateStart: string;       // 分片内最小日期
   dateEnd: string;
   recordCount: number;
@@ -282,21 +282,27 @@ sessions: currentAnalysis ────────┘  （内存工作集，可�
 | **`HealthData` typed 结构** | **是（主仓）** | 与 `analyzeAll` / 图表 / 导出直接对齐 |
 | 仅 metrics 摘要 | 已有 | 不够支撑 G1 |
 
-### 4.2 按域分片策略（推荐）
+### 4.2 按域分片策略（推荐 / 已实现基线）
+
+**当前写入布局（`layout: 'sharded-v1'`，`history-db.js`）：**
+
+| Chunk id | 域 | 分片键 | payload |
+|----------|-----|--------|---------|
+| `core\|full` | core | `full` | 除 CGM / 血压 / 体重 / 体脂外的 `HealthData` 字段 |
+| `cgm\|YYYY-MM` | `cgm` | 自然月 | `CgmPoint[]` |
+| `bloodPressure\|YYYY` | `bloodPressure` | 自然年 | `BloodPressureRecord[]` |
+| `weight\|YYYY` | `weight` | 自然年 | `{ weight, bodyFat }`（**体脂并入体重年片**，无独立 `bodyFat|…` 片） |
+
+兼容：仍可读 legacy 单片 `healthData|full`；无 BP/体重年片时回退 core 内嵌数组（v1.75 仅 CGM 分片时代数据）。
 
 | 域 | 形态（对齐 `types.ts`） | 分片粒度 | 说明 |
 |----|-------------------------|----------|------|
-| `cgm` | `CgmPoint[]` | **按月** `YYYY-MM` | 体量最大；月片利于淘汰与增量 |
-| `bloodPressure` | `BloodPressureRecord[]` | 按月或按年 | 条数通常远小于 CGM |
-| `weight` / `bodyFat` | 数组 | **`all` 单片** 或按年 | 低频 |
-| `hrv` / `hrvOvernight` | `Record<date, number[]>` | 按月（把该月 key 子集放入 payload） | map 型 |
-| `restingHr` / `walkingHr` | `Record<date, number>` | 按年或 `all` | 日粒度一行 |
-| `steps` | `Record<date, {watch,iphone,max}>` | 按年或 `all` | |
-| `sleep` | `Record<date, SleepDay>` | 按年或 `all` | |
-| `watchDaily` | `Record<date, WatchDaySummary>` | 按年 | 已是日汇总，**禁止**再拆逐条 HR |
-| `workouts` | `WorkoutSession[]` | 按年 | |
-| `ecg` | `ERecordSummary[]` | `all` | 条数少；**不存 ECG 波形 CSV 全文** |
-| `availability` | `{ dataAvailability, dataQuality }` | `all` | 小对象 |
+| `cgm` | `CgmPoint[]` | **按月** `YYYY-MM` | 体量最大；月片利于淘汰、多选删除、保留近 N 月 |
+| `bloodPressure` | `BloodPressureRecord[]` | **按年** `YYYY`（v1.79+） | 条数通常远小于 CGM；面板可单年/多选删、保留近 N 年 |
+| `weight` / `bodyFat` | 数组 | **按年** `weight\|YYYY`（v1.79+） | 体脂 rides with 体重年片；删年则两者同删 |
+| `hrv` / `hrvOvernight` 等日汇总 | map / 数组 | 写入 **`core\|full`** | 随 core 整片持久化（非独立年/月片） |
+| `watchDaily` / `workouts` / `ecg` 等 | 日汇总或会话 | 写入 **`core\|full`** | Watch 已是日汇总，**禁止**再拆逐条 HR；ECG **不存**波形 CSV |
+| `availability` | `{ dataAvailability, dataQuality }` | 写入 core | 小对象 |
 
 **默认不入仓：**
 
@@ -455,37 +461,57 @@ interface ImportBatchRecordV168 extends ImportBatchRecord {
 
 ### 6.2 淘汰策略
 
-**策略 A（推荐默认）：配额驱动 FIFO by month**
+**策略 A（已实现默认）：配额驱动 FIFO by 分片**
 
-1. 当 `totalApproxBytes > maxTotalBytes`：  
-2. 按 `dateStart` 升序删除最旧的 **CGM 月片**，其次其它域旧年片；  
-3. 更新 meta；写 UI 提示「已自动淘汰 YYYY-MM 的 CGM 明细以控制占用」。  
-4. **不自动删** `healthEvents` / 用户周报（用户心智上更「手写资产」）。
+1. 当估算占用超过 **软配额**（`WAREHOUSE_SOFT_BYTES` = 150 MB）：  
+2. **先**按月淘汰最旧 **CGM 月片**（尽量至少保留最新一个月；单月仍超则点级裁剪兜底）；  
+3. **再**淘汰最旧 **血压 / 体重年片**（跨域按最旧自然年推进；尽量至少保留一个有数据年）；  
+4. 更新 `warehouseMeta`（`cgmMonths` / `bpYears` / `weightYears`、`notes` 如 `cgm_months_evicted_for_quota`）；写 UI toast 提示。  
+5. **硬配额**（200 MB）：拒绝 persist（`reason: 'quota_hard'`），不半写。  
+6. **不自动删** `healthEvents` / 用户周报 / 摘要 snapshots。
 
-**策略 B：滚动天数**
+**策略 B：用户手动「仅保留近 N」**（v1.78–v1.81 UI，不替代软/硬配额）
+
+| 域 | 保留选项 | 行为 |
+|----|----------|------|
+| CGM | 近 **3 / 6 / 12 / 24** 个月 | 删除早于「最新 N 个月」的 `cgm|YYYY-MM` |
+| 血压 | 近 **1 / 2 / 3 / 5** 年 | 删除早于「最新 N 个有数据年」的 `bloodPressure|YYYY` |
+| 体重（含体脂） | 近 **1 / 2 / 3 / 5** 年 | 同上，`weight|YYYY` |
+
+- 偏好记在 **localStorage**（非云）。v1.81：血压与体重「保留年数」UI 控件各一，**当前共用同一偏好键**；**v1.82** 可轻量演进为分域独立 keep（dual-domain keep）。  
+- 另支持：**多选删除** CGM 月 / BP 年 / weight 年（`deleteCgmMonthShards` / `deleteDomainYearShards`）。
+
+**策略 C：滚动天数（设计可选）**
 
 - 删除 `dateEnd < today - rollingDays` 的 chunks。  
-- 适合明确「只留近 13 个月」的用户。
+- 当前产品默认**不**按天自动滚动，仅配额 + 手动保留。
+
+### 6.2.1 写入串行（write serialization）
+
+`history-db.js` 用 `warehouseWriteChain` / `enqueueWarehouseWrite` **串行化** persist / 分片删除 / clear / 备份导入等仓写操作，避免并发 IDB 写入把刚删的分片「写回去」。分片删除采用两阶段：先 commit 删除 chunk id，再读 remaining 重算 meta（降低同事务 `getAll` 竞态）。
 
 ### 6.3 用户可见占用
 
-在 **更多 → 数据管理** 展示：
+在 **更多 → 数据管理 → 本机原始数据仓** 展示：
 
 | UI 元素 | 内容 |
 |---------|------|
 | 授权状态 | 已开启 / 未开启 + 授权时间 |
-| 总占用（估算） | e.g. `32 MB · 18.4 万条` |
-| 分域条形或列表 | CGM 24 MB · 血压 0.4 MB … |
+| 总占用（估算） | e.g. `32 MB · 18.4 万条` + 配额条 |
+| 分域列表 | CGM / 血压 / 体重… |
+| 布局行 | `sharded-v1` 等 |
+| **CGM 月列表** | 多选删除、保留近 N 月 |
+| **血压 / 体重年列表** | 多选删除、保留近 N 年；体重提示含体脂 |
 | 日历覆盖 | 2024-03-01 → 2026-07-28 |
-| 操作 | 关闭授权并清空仓 / 仅清空仓保留摘要 / 导出备份 / 调整保留 |
+| 操作 | 立即保存 / 从仓恢复 / 导出·导入备份（口令可选）/ **仅清空仓内明细（保留授权）** / 关授权清空 |
 
-**估算方法：** `approxBytes = sum(chunk.approxBytes)`；写入时用 `JSON.stringify(payload).length` 或 uncompressed length 缓存，避免每次 `getAll` 全表扫描（可维护在 meta）。
+**估算方法：** `approxBytes = sum(chunk.approxBytes)`；写入时用 `JSON.stringify` 长度缓存于 chunk / meta。
 
 **Storage API（可选增强）：** `navigator.storage.estimate()` 展示源站配额使用率；失败则仅显示内部估算。
 
 ### 6.4 写入失败 UX
 
-- `QuotaExceededError`：友好文案 + 引导删除旧月 / 导出备份 / 关闭仓。  
+- `QuotaExceededError` / 硬配额：友好文案 + 引导删除旧月/年 / 导出备份 / 关闭仓。  
 - 不静默截断 CGM 导致「看起来像数据丢了却无提示」。
 
 ---
@@ -573,24 +599,27 @@ clearAllStores():
   clear / reset warehouseMeta（consent.granted=false）
   clear settings store（若有）
 
-// 可选细分 API
-clearWarehouseOnly():  // 关仓数据但保留摘要/事件
+// 可选细分 API（已实现）
+clearWarehouseOnly():                 // 清空仓数据；关授权路径使用
+clearWarehousePayloadKeepConsent():   // 仅清 domainChunks / 占用，**保留 consent.granted**
 revokeConsentAndClearWarehouse():
 ```
 
 文案更新：
 
 - wipeHint 增加：「若曾开启原始数据仓，将同时删除本机 CGM 等明细。」  
-- 关闭授权开关时：默认 **立即清空 domainChunks**（避免「关授权但数据仍在磁盘」的虚假安全感）；摘要历史是否保留由用户勾选（默认保留）。
+- 关闭授权开关时：默认 **立即清空 domainChunks**（避免「关授权但数据仍在磁盘」的虚假安全感）；摘要历史是否保留由用户勾选（默认保留）。  
+- 「仅清空仓内明细」：清空分片但**不撤销授权**，下次分析可再自动 persist。
 
 ### 7.4 备份与 wipe 的关系
 
-| 操作 | 仓 | 摘要/事件/批次 | 内存分析 |
-|------|----|----------------|----------|
-| 导出备份 | 读 | 可选纳入 | 不变 |
-| 恢复备份（替换） | 覆写 | 按选项 | 重 hydrate |
-| 一键清除 | 清空 | 清空 | 清空 |
-| 仅关授权 | 清空仓 | 默认保留 | 可保留至刷新 |
+| 操作 | 仓 | 授权 consent | 摘要/事件/批次 | 内存分析 |
+|------|----|--------------|----------------|----------|
+| 导出备份 | 读 | 不变 | 可选纳入 | 不变 |
+| 恢复备份（替换） | 覆写 | 随备份 / 可要求重确认 | 按选项 | 重 hydrate |
+| 仅清空仓内明细 | 清空分片 | **保留** | 保留 | 可仍显示当前会话 |
+| 一键清除 | 清空 | **重置关闭** | 清空 | 清空 |
+| 仅关授权 | 清空仓 | 关闭 | 默认保留 | 可保留至刷新 |
 
 ---
 
@@ -776,12 +805,14 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
     └── step-export「数据管理」          ← v1.68 主入口
         ├── 导出 JSON / CSV / 就诊相关入口（既有）
         ├── 试验性 FHIR（折叠，既有）
-        ├── 【新】本机原始数据仓
-        │     ├── 授权开关 + 政策摘要
-        │     ├── 占用与分域统计
-        │     ├── 保留策略
-        │     ├── 导出 / 导入备份
-        │     └── 清空仓
+        ├── 【已实现】本机原始数据仓
+        │     ├── 授权开关 + 政策摘要（默认关）
+        │     ├── 占用与分域统计 + 配额条
+        │     ├── CGM 月分片列表（多选删 / 保留近 N 月）
+        │     ├── 血压 / 体重年分片列表（多选删 / 保留近 N 年；体脂随体重）
+        │     ├── 导出 / 导入备份（口令可选）
+        │     ├── 仅清空仓内明细（保留 consent）
+        │     └── 关授权 / 一键清除 wipe 仓
         ├── 隐私与本机数据（一键清除，扩展文案）
         └── 摘要快照历史（既有）
 ```
@@ -999,7 +1030,7 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 
 见完成报告「需要用户拍板的 3–5 个产品决策」；正文内嵌默认建议如下：
 
-1. **默认保留策略：** 不按天滚动，仅配额淘汰最旧 CGM 月片。  
+1. **默认保留策略：** 不按天滚动；超软配额先淘汰最旧 CGM 月片，再淘汰 BP/体重年片；用户可手动「仅保留近 N 月/年」。  
 2. **关授权即删仓：** 是。  
 3. **备份默认明文：** 是；加密为高级选项。  
 4. **恢复策略 MVP：** 仅 replace，不做三方 merge。  
@@ -1010,6 +1041,7 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | 草案 v1 | 2026-07-30 | 首版设计，对齐 history-db v4 与 v1.66 IA |
+| 实现对照 v1.75–v1.81 | 2026-07-30 | 对齐 `core\|full` + `cgm\|YYYY-MM` + `bloodPressure\|YYYY` / `weight\|YYYY`；软硬配额；写入串行；面板删片与 keep-N；clear payload 保留 consent |
 
 ---
 
@@ -1017,14 +1049,16 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 
 | 路径 | 说明 |
 |------|------|
-| `web-ui/public/history-db.js` | 当前 IDB v4 与 `HealthHistory` |
-| `web-ui/public/app.js` | `currentAnalysis`、wipe、importBatches 接线 |
-| `web-ui/public/index.html` | `#step-export` 数据管理 / 隐私 |
+| `web-ui/public/history-db.js` | IDB v5、`HealthHistory`、分片 persist / 删片 / 配额 / 备份 |
+| `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 多选删、wipe |
+| `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年） |
+| `e2e/warehouse.spec.js` | 仓 / 年分片 / 备份自动化 |
 | `lib/src/types.ts` | `HealthData` / `FullAnalysis` |
 | `lib/src/snapshot.ts` | 摘要快照（非明细） |
 | `lib/src/provenance.ts` | `ImportBatchRecord` |
 | `lib/src/hae-import.ts` | 增量合并与去重 |
 | `docs/README.md` | 产品叙事与版本史 |
+| `docs/MANUAL_QA.md` | 真机手测（含仓分片） |
 
 ---
 

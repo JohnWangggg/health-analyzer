@@ -5,6 +5,7 @@
   "scripts": {
     "smoke": "node scripts/smoke.mjs",
     "perf:parse": "node scripts/perf-parse-baseline.mjs",
+    "perf:parse:json": "node scripts/perf-parse-baseline.mjs --json",
     "test:lib": "npm --prefix lib test",
     "build:lib": "npm --prefix lib run build",
     "test:fhir": "node scripts/fhir-structure-check.mjs && node scripts/fhir-exchange-check.mjs && node scripts/fhir-hl7-validator.mjs",

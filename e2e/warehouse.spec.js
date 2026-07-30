@@ -570,6 +570,169 @@ test.describe('v1.68 raw warehouse', () => {
     await expect(page.locator('#warehouse-weight-year-list li')).toHaveCount(4);
   });
 
+  test('keep recent N years: weight N=2 leaves newest 2 of 4; BP untouched', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.bloodPressure = [
+        { datetime: '2023-03-10T08:00:00', systolic: 120, diastolic: 80 },
+        { datetime: '2024-03-10T08:00:00', systolic: 118, diastolic: 78 },
+        { datetime: '2025-03-10T08:00:00', systolic: 122, diastolic: 81 },
+        { datetime: '2026-03-10T08:00:00', systolic: 119, diastolic: 79 },
+      ];
+      data.weight = [
+        { datetime: '2023-02-01T07:00:00', value: 72.0 },
+        { datetime: '2024-02-01T07:00:00', value: 71.0 },
+        { datetime: '2025-02-01T07:00:00', value: 70.0 },
+        { datetime: '2026-02-01T07:00:00', value: 69.0 },
+      ];
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasWeight = true;
+      await HH.persistHealthDataWarehouse(data);
+    });
+
+    const before = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      return {
+        bp: (st.bpYears || []).slice().sort(),
+        weight: (st.weightYears || []).slice().sort(),
+      };
+    });
+    expect(before.bp).toEqual(['2023', '2024', '2025', '2026']);
+    expect(before.weight).toEqual(['2023', '2024', '2025', '2026']);
+
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+
+    await setWorkspace(page, 'more');
+    await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+    await expect(page.locator('#warehouse-weight-years')).toBeVisible({ timeout: 8_000 });
+    await expect(page.locator('#warehouse-weight-year-list li')).toHaveCount(4, {
+      timeout: 8_000,
+    });
+
+    await page.locator('#warehouse-weight-keep-years').selectOption('2');
+    await expect
+      .poll(async () => page.evaluate(() => localStorage.getItem('health-analyzer-year-keep-years')))
+      .toBe('2');
+    await expect(page.locator('#btn-warehouse-weight-keep-recent')).toContainText(/2/);
+    // Shared N also syncs BP select
+    await expect(page.locator('#warehouse-bp-keep-years')).toHaveValue('2');
+
+    page.once('dialog', async (d) => {
+      expect(d.message()).toMatch(/2/);
+      await d.accept();
+    });
+    await page.locator('#btn-warehouse-weight-keep-recent').click();
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const st = await window.HealthHistory.getWarehouseStatus();
+            return {
+              bp: (st.bpYears || []).slice().sort(),
+              weight: (st.weightYears || []).slice().sort(),
+            };
+          }),
+        { timeout: 10_000 }
+      )
+      .toEqual({
+        bp: ['2023', '2024', '2025', '2026'],
+        weight: ['2025', '2026'],
+      });
+
+    await expect(page.locator('#warehouse-weight-year-list li')).toHaveCount(2, { timeout: 8_000 });
+    await expect(page.locator('#warehouse-bp-year-list li')).toHaveCount(4);
+  });
+
+  test('keep recent N years both domains: N=2 trims BP and weight together', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.bloodPressure = [
+        { datetime: '2023-03-10T08:00:00', systolic: 120, diastolic: 80 },
+        { datetime: '2024-03-10T08:00:00', systolic: 118, diastolic: 78 },
+        { datetime: '2025-03-10T08:00:00', systolic: 122, diastolic: 81 },
+        { datetime: '2026-03-10T08:00:00', systolic: 119, diastolic: 79 },
+      ];
+      data.weight = [
+        { datetime: '2023-02-01T07:00:00', value: 72.0 },
+        { datetime: '2024-02-01T07:00:00', value: 71.0 },
+        { datetime: '2025-02-01T07:00:00', value: 70.0 },
+        { datetime: '2026-02-01T07:00:00', value: 69.0 },
+      ];
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasWeight = true;
+      await HH.persistHealthDataWarehouse(data);
+    });
+
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+
+    await setWorkspace(page, 'more');
+    await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+    await expect(page.locator('#warehouse-years-both-actions')).toBeVisible({ timeout: 8_000 });
+    await page.locator('#warehouse-bp-keep-years').selectOption('2');
+    await expect(page.locator('#btn-warehouse-years-keep-both')).toContainText(/2/);
+
+    page.once('dialog', async (d) => {
+      expect(d.message()).toMatch(/2/);
+      await d.accept();
+    });
+    await page.locator('#btn-warehouse-years-keep-both').click();
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const st = await window.HealthHistory.getWarehouseStatus();
+            return {
+              bp: (st.bpYears || []).slice().sort(),
+              weight: (st.weightYears || []).slice().sort(),
+            };
+          }),
+        { timeout: 10_000 }
+      )
+      .toEqual({
+        bp: ['2025', '2026'],
+        weight: ['2025', '2026'],
+      });
+
+    await expect(page.locator('#warehouse-bp-year-list li')).toHaveCount(2, { timeout: 8_000 });
+    await expect(page.locator('#warehouse-weight-year-list li')).toHaveCount(2);
+  });
+
   test('encrypted backup roundtrip with passphrase', async ({ page }) => {
     await waitAppReady(page);
     await selectXmlOnly(page);
