@@ -1,6 +1,7 @@
 /**
  * IndexedDB：本地保存分析摘要快照 + 周报历史 + 事件时间线 + 导入批次可追溯
  * + v1.68 可选原始 HealthData 仓（须用户授权；默认不落盘明细）
+ * + v1.75 CGM 按月分片 domainChunks（core|full + cgm|YYYY-MM；兼容 healthData|full）
  * 不上传；摘要仓不含完整 CGM；原始仓仅在 consent 开启后写入
  */
 (function (global) {
@@ -22,8 +23,10 @@
   /** Soft / hard byte caps for raw warehouse (approx JSON size) */
   const WAREHOUSE_SOFT_BYTES = 150 * 1024 * 1024;
   const WAREHOUSE_HARD_BYTES = 200 * 1024 * 1024;
-  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.68.0';
+  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.75.0';
+  /** @deprecated legacy single-blob id; still read for migrate */
   const WH_CHUNK_HEALTH = 'healthData|full';
+  const WH_CHUNK_CORE = 'core|full';
   const WH_META_ID = 'primary';
 
   function openDb() {
@@ -356,20 +359,104 @@
     );
   }
 
+  function monthKeyFromDatetime(dt) {
+    const s = String(dt || '').slice(0, 7);
+    return /^\d{4}-\d{2}$/.test(s) ? s : 'unknown';
+  }
+
   /**
-   * Persist merged HealthData into warehouse (replace full working set).
-   * @param {object} healthData
-   * @param {{ batchId?: string|null }} [opts]
-   * @returns {Promise<{ ok: boolean, reason?: string, meta?: object, approxBytes?: number }>}
+   * Split HealthData into core (no cgm) + monthly CGM shards.
+   * @returns {{ core: object, months: { month: string, points: object[] }[], totalBytes: number }}
    */
+  function splitHealthDataShards(healthData) {
+    const full = clonePlain(healthData);
+    const cgm = Array.isArray(full.cgm) ? full.cgm : [];
+    full.cgm = [];
+    /** @type {Record<string, object[]>} */
+    const byMonth = {};
+    cgm.forEach((p) => {
+      const m = monthKeyFromDatetime(p && p.datetime);
+      if (!byMonth[m]) byMonth[m] = [];
+      byMonth[m].push(p);
+    });
+    const months = Object.keys(byMonth)
+      .sort()
+      .map((month) => ({
+        month,
+        points: byMonth[month],
+        approxBytes: approxJsonBytes(byMonth[month]),
+        recordCount: byMonth[month].length,
+      }));
+    const coreBytes = approxJsonBytes(full);
+    const totalBytes = coreBytes + months.reduce((s, m) => s + m.approxBytes, 0);
+    return { core: full, months, coreBytes, totalBytes };
+  }
+
   /**
-   * Drop oldest CGM samples until under soft quota (or CGM nearly empty).
-   * Returns { payload, trimmed, removedCgm, beforeBytes, afterBytes }.
+   * Drop oldest CGM months until under soft quota. Mutates split result.
+   */
+  function evictOldestCgmMonths(split) {
+    let removedCgm = 0;
+    let removedMonths = 0;
+    const beforeBytes = split.totalBytes;
+    while (split.totalBytes > WAREHOUSE_SOFT_BYTES && split.months.length > 0) {
+      // Always keep at least the newest month if possible
+      if (split.months.length === 1 && split.months[0].recordCount <= 500) break;
+      const oldest = split.months.shift();
+      removedCgm += oldest.recordCount || 0;
+      removedMonths += 1;
+      split.totalBytes = split.coreBytes + split.months.reduce((s, m) => s + m.approxBytes, 0);
+    }
+    // Fallback: if still over soft with one fat month, point-trim that month
+    if (split.totalBytes > WAREHOUSE_SOFT_BYTES && split.months.length === 1) {
+      const m = split.months[0];
+      let pts = m.points.slice().sort((a, b) =>
+        String(a && a.datetime || '').localeCompare(String(b && b.datetime || ''))
+      );
+      while (approxJsonBytes(pts) + split.coreBytes > WAREHOUSE_SOFT_BYTES && pts.length > 500) {
+        const drop = Math.max(50, Math.floor(pts.length * 0.1));
+        removedCgm += drop;
+        pts = pts.slice(drop);
+      }
+      m.points = pts;
+      m.recordCount = pts.length;
+      m.approxBytes = approxJsonBytes(pts);
+      split.totalBytes = split.coreBytes + m.approxBytes;
+    }
+    return {
+      trimmed: removedCgm > 0,
+      removedCgm,
+      removedMonths,
+      beforeBytes,
+      afterBytes: split.totalBytes,
+    };
+  }
+
+  /**
+   * Drop oldest CGM samples until under soft quota (legacy helper name for API).
+   * Prefer monthly eviction; falls back to point trim inside newest month.
    */
   function trimCgmForSoftQuota(healthData) {
-    let payload;
     try {
-      payload = clonePlain(healthData);
+      const split = splitHealthDataShards(healthData);
+      const ev = evictOldestCgmMonths(split);
+      // Reassemble for callers expecting full payload
+      const payload = clonePlain(split.core);
+      payload.cgm = [];
+      split.months.forEach((m) => {
+        payload.cgm = payload.cgm.concat(m.points);
+      });
+      if (payload.dataAvailability) {
+        payload.dataAvailability.hasCgm = payload.cgm.length > 0;
+      }
+      return {
+        payload,
+        trimmed: ev.trimmed,
+        removedCgm: ev.removedCgm,
+        removedMonths: ev.removedMonths,
+        beforeBytes: ev.beforeBytes,
+        afterBytes: approxJsonBytes(payload),
+      };
     } catch (e) {
       return {
         payload: healthData,
@@ -380,43 +467,50 @@
         error: String((e && e.message) || e),
       };
     }
-    const beforeBytes = approxJsonBytes(payload);
-    if (beforeBytes <= WAREHOUSE_SOFT_BYTES) {
-      return {
-        payload,
-        trimmed: false,
-        removedCgm: 0,
-        beforeBytes,
-        afterBytes: beforeBytes,
-      };
-    }
-    let removed = 0;
-    const minKeep = 500;
-    // Prefer drop by age: sort ascending, remove oldest chunks
-    while (approxJsonBytes(payload) > WAREHOUSE_SOFT_BYTES) {
-      const cgm = Array.isArray(payload.cgm) ? payload.cgm : [];
-      if (cgm.length <= minKeep) break;
-      const sorted = cgm
-        .slice()
-        .sort((a, b) => String(a && a.datetime || '').localeCompare(String(b && b.datetime || '')));
-      const drop = Math.max(50, Math.floor(sorted.length * 0.08));
-      const keep = sorted.slice(drop);
-      removed += sorted.length - keep.length;
-      payload.cgm = keep;
-      if (payload.dataAvailability) {
-        payload.dataAvailability.hasCgm = keep.length > 0;
-      }
-    }
-    const afterBytes = approxJsonBytes(payload);
-    return {
-      payload,
-      trimmed: removed > 0,
-      removedCgm: removed,
-      beforeBytes,
-      afterBytes,
-    };
   }
 
+  function reassembleFromChunks(allChunks) {
+    if (!allChunks || !allChunks.length) return null;
+    // Legacy single blob
+    const legacy = allChunks.find((c) => c && c.id === WH_CHUNK_HEALTH && c.payload);
+    if (legacy) {
+      return { data: legacy.payload, legacy: true, chunks: [legacy] };
+    }
+    const core = allChunks.find((c) => c && (c.id === WH_CHUNK_CORE || c.domain === 'core'));
+    if (!core || !core.payload) return null;
+    const data = clonePlain(core.payload);
+    data.cgm = [];
+    const cgmChunks = allChunks
+      .filter((c) => c && c.domain === 'cgm' && Array.isArray(c.payload))
+      .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+    cgmChunks.forEach((c) => {
+      data.cgm = data.cgm.concat(c.payload);
+    });
+    if (data.dataAvailability) {
+      data.dataAvailability.hasCgm = data.cgm.length > 0;
+    }
+    return { data, legacy: false, chunks: allChunks, core, cgmChunks };
+  }
+
+  function listAllWarehouseChunks(db) {
+    return new Promise((resolve, reject) => {
+      if (!db.objectStoreNames.contains(STORE_WH_CHUNKS)) {
+        resolve([]);
+        return;
+      }
+      const tx = db.transaction(STORE_WH_CHUNKS, 'readonly');
+      const req = tx.objectStore(STORE_WH_CHUNKS).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /**
+   * Persist merged HealthData into warehouse (sharded CGM by month).
+   * @param {object} healthData
+   * @param {{ batchId?: string|null }} [opts]
+   * @returns {Promise<{ ok: boolean, reason?: string, meta?: object, approxBytes?: number }>}
+   */
   function persistHealthDataWarehouse(healthData, opts) {
     opts = opts || {};
     if (!healthData || typeof healthData !== 'object') {
@@ -426,51 +520,80 @@
       if (!meta.consent || !meta.consent.granted) {
         return { ok: false, reason: 'no_consent' };
       }
-      const trimResult = trimCgmForSoftQuota(healthData);
-      let payload = trimResult.payload;
+      let split;
+      let trimMeta;
       try {
-        if (!trimResult.trimmed) payload = clonePlain(healthData);
+        split = splitHealthDataShards(healthData);
+        trimMeta = evictOldestCgmMonths(split);
       } catch (e) {
         return { ok: false, reason: 'clone_failed', message: String((e && e.message) || e) };
       }
-      let approxBytes = approxJsonBytes(payload);
-      // Still over hard after trim → fail
+      let approxBytes = split.totalBytes;
       if (approxBytes > WAREHOUSE_HARD_BYTES) {
         return {
           ok: false,
           reason: 'quota_hard',
           approxBytes,
           maxBytes: WAREHOUSE_HARD_BYTES,
-          trimmedCgm: trimResult.removedCgm,
+          trimmedCgm: trimMeta.removedCgm,
         };
       }
+
+      // Reassemble for stats
+      const payload = clonePlain(split.core);
+      payload.cgm = [];
+      split.months.forEach((m) => {
+        payload.cgm = payload.cgm.concat(m.points);
+      });
+      if (payload.dataAvailability) {
+        payload.dataAvailability.hasCgm = payload.cgm.length > 0;
+      }
+
       const recordCount = countHealthRecords(payload);
       const dateRange = inferDateRange(payload);
       const now = new Date().toISOString();
-      const chunk = {
-        id: WH_CHUNK_HEALTH,
-        domain: 'healthData',
+      const batchId = opts.batchId || null;
+
+      const coreChunk = {
+        id: WH_CHUNK_CORE,
+        domain: 'core',
         shard: 'full',
         dateStart: dateRange ? dateRange.start : null,
         dateEnd: dateRange ? dateRange.end : null,
-        payload,
-        approxBytes,
-        recordCount,
-        batchId: opts.batchId || null,
+        payload: split.core,
+        approxBytes: split.coreBytes,
+        recordCount: countHealthRecords(Object.assign({}, split.core, { cgm: [] })),
+        batchId,
         updatedAt: now,
         codec: 'json',
       };
+      const cgmChunks = split.months.map((m) => ({
+        id: 'cgm|' + m.month,
+        domain: 'cgm',
+        shard: m.month,
+        dateStart: m.month + '-01',
+        dateEnd: m.month + '-28',
+        payload: m.points,
+        approxBytes: m.approxBytes,
+        recordCount: m.recordCount,
+        batchId,
+        updatedAt: now,
+        codec: 'json',
+      }));
+
       meta.dateRange = dateRange;
       meta.domainStats = buildDomainStats(payload);
       meta.totalApproxBytes = approxBytes;
       meta.totalRecordCount = recordCount;
-      meta.lastImportBatchId = opts.batchId || meta.lastImportBatchId || null;
+      meta.lastImportBatchId = batchId || meta.lastImportBatchId || null;
       meta.lastWrittenAt = now;
       meta.codec = 'json';
+      meta.layout = 'sharded-v1';
+      meta.cgmMonths = cgmChunks.map((c) => c.shard);
       if (approxBytes > WAREHOUSE_SOFT_BYTES) {
         meta.notes = ['soft_quota_exceeded'];
-      } else if (trimResult.trimmed) {
-        meta.notes = ['cgm_trimmed_for_quota'];
+      } else if (trimMeta.trimmed) {
+        meta.notes = ['cgm_months_evicted_for_quota'];
       } else {
         meta.notes = [];
       }
@@ -487,7 +610,11 @@
               return;
             }
             const tx = db.transaction([STORE_WH_CHUNKS, STORE_WH_META], 'readwrite');
-            tx.objectStore(STORE_WH_CHUNKS).put(chunk);
+            const store = tx.objectStore(STORE_WH_CHUNKS);
+            // Clear previous warehouse chunks then write new set
+            store.clear();
+            store.put(coreChunk);
+            cgmChunks.forEach((c) => store.put(c));
             tx.objectStore(STORE_WH_META).put(Object.assign(defaultWarehouseMeta(), meta, { id: WH_META_ID }));
             tx.oncomplete = () => {
               db.close();
@@ -496,8 +623,11 @@
                 meta,
                 approxBytes,
                 softWarn: approxBytes > WAREHOUSE_SOFT_BYTES,
-                trimmedCgm: trimResult.removedCgm || 0,
-                trimmed: !!trimResult.trimmed,
+                trimmedCgm: trimMeta.removedCgm || 0,
+                trimmed: !!trimMeta.trimmed,
+                removedMonths: trimMeta.removedMonths || 0,
+                layout: 'sharded-v1',
+                cgmMonthCount: cgmChunks.length,
               });
             };
             tx.onerror = () => {
@@ -516,35 +646,30 @@
   }
 
   /**
-   * @returns {Promise<{ data: object, meta: object, chunk: object }|null>}
+   * @returns {Promise<{ data: object, meta: object, chunk?: object, chunks?: object[], layout?: string }|null>}
    */
   function loadHealthDataWarehouse() {
     return getWarehouseMeta().then((meta) => {
       if (!meta.consent || !meta.consent.granted) return null;
-      return openDb().then(
-        (db) =>
-          new Promise((resolve, reject) => {
-            if (!db.objectStoreNames.contains(STORE_WH_CHUNKS)) {
-              db.close();
-              resolve(null);
-              return;
-            }
-            const tx = db.transaction(STORE_WH_CHUNKS, 'readonly');
-            const req = tx.objectStore(STORE_WH_CHUNKS).get(WH_CHUNK_HEALTH);
-            req.onsuccess = () => {
-              const chunk = req.result;
-              if (!chunk || !chunk.payload) {
-                resolve(null);
-                return;
-              }
-              resolve({ data: chunk.payload, meta, chunk });
+      return openDb().then((db) =>
+        listAllWarehouseChunks(db)
+          .then((all) => {
+            db.close();
+            const assembled = reassembleFromChunks(all);
+            if (!assembled || !assembled.data) return null;
+            return {
+              data: assembled.data,
+              meta,
+              chunk: assembled.legacy
+                ? assembled.chunks[0]
+                : assembled.core,
+              chunks: assembled.chunks,
+              layout: assembled.legacy ? 'legacy-full' : 'sharded-v1',
             };
-            req.onerror = () => reject(req.error);
-            tx.oncomplete = () => db.close();
-            tx.onerror = () => {
-              db.close();
-              reject(tx.error);
-            };
+          })
+          .catch((e) => {
+            try { db.close(); } catch (err) { /* ignore */ }
+            throw e;
           })
       );
     });
@@ -562,43 +687,41 @@
         hasPayload: granted && (meta.totalRecordCount > 0 || meta.totalApproxBytes > 0),
         domainStats: meta.domainStats || {},
         softWarn: !!(meta.totalApproxBytes > WAREHOUSE_SOFT_BYTES),
+        layout: meta.layout || null,
+        cgmMonths: meta.cgmMonths || [],
       };
     }).then((status) => {
       if (!status.granted) return status;
-      // Confirm chunk exists for accurate hasPayload; refresh domainStats if missing
-      return openDb().then(
-        (db) =>
-          new Promise((resolve) => {
-            if (!db.objectStoreNames.contains(STORE_WH_CHUNKS)) {
-              db.close();
-              resolve(status);
-              return;
-            }
-            const tx = db.transaction(STORE_WH_CHUNKS, 'readonly');
-            const req = tx.objectStore(STORE_WH_CHUNKS).get(WH_CHUNK_HEALTH);
-            req.onsuccess = () => {
-              const chunk = req.result;
-              status.hasPayload = !!(chunk && chunk.payload);
-              status.approxBytes = (chunk && chunk.approxBytes) || status.meta.totalApproxBytes || 0;
-              if (chunk && chunk.payload) {
-                const stats = status.domainStats && Object.keys(status.domainStats).length
+      return openDb().then((db) =>
+        listAllWarehouseChunks(db)
+          .then((all) => {
+            db.close();
+            const assembled = reassembleFromChunks(all);
+            status.hasPayload = !!(assembled && assembled.data);
+            let bytes = 0;
+            (all || []).forEach((c) => {
+              bytes += (c && c.approxBytes) || 0;
+            });
+            status.approxBytes = bytes || status.meta.totalApproxBytes || 0;
+            if (assembled && assembled.data) {
+              const stats =
+                status.domainStats && Object.keys(status.domainStats).length
                   ? status.domainStats
-                  : buildDomainStats(chunk.payload);
-                status.domainStats = stats;
-                if (!status.meta.domainStats || !Object.keys(status.meta.domainStats).length) {
-                  status.meta.domainStats = stats;
-                }
-              }
-              status.softWarn = status.approxBytes > WAREHOUSE_SOFT_BYTES;
-            };
-            tx.oncomplete = () => {
-              db.close();
-              resolve(status);
-            };
-            tx.onerror = () => {
-              db.close();
-              resolve(status);
-            };
+                  : buildDomainStats(assembled.data);
+              status.domainStats = stats;
+              status.layout = assembled.legacy ? 'legacy-full' : 'sharded-v1';
+              status.cgmMonths = (all || [])
+                .filter((c) => c && c.domain === 'cgm')
+                .map((c) => c.shard)
+                .filter(Boolean)
+                .sort();
+            }
+            status.softWarn = status.approxBytes > WAREHOUSE_SOFT_BYTES;
+            return status;
+          })
+          .catch(() => {
+            try { db.close(); } catch (e) { /* ignore */ }
+            return status;
           })
       );
     });
@@ -687,9 +810,15 @@
     return getWarehouseMeta().then(async (meta) => {
       const loaded = await loadHealthDataWarehouse();
       /** @type {any} */
+      let domainChunks = [];
+      if (loaded && Array.isArray(loaded.chunks) && loaded.chunks.length) {
+        domainChunks = loaded.chunks;
+      } else if (loaded && loaded.chunk) {
+        domainChunks = [loaded.chunk];
+      }
       const payload = {
         warehouseMeta: meta,
-        domainChunks: loaded && loaded.chunk ? [loaded.chunk] : [],
+        domainChunks,
       };
       if (opts.includeSnapshots) {
         try { payload.snapshots = await listSnapshots(); } catch (e) { payload.snapshots = []; }
@@ -737,8 +866,8 @@
       return Promise.reject(new Error('missing_payload'));
     }
     const chunks = Array.isArray(body.domainChunks) ? body.domainChunks : [];
-    const healthChunk = chunks.find((c) => c && (c.id === WH_CHUNK_HEALTH || c.domain === 'healthData'));
-    if (!healthChunk || !healthChunk.payload) {
+    const assembled = reassembleFromChunks(chunks);
+    if (!assembled || !assembled.data) {
       return Promise.reject(new Error('backup_missing_health_data'));
     }
 
@@ -757,13 +886,25 @@
 
           tx.objectStore(STORE_WH_CHUNKS).clear();
           const now = new Date().toISOString();
-          const chunk = Object.assign({}, healthChunk, {
-            id: WH_CHUNK_HEALTH,
-            domain: 'healthData',
-            shard: 'full',
-            updatedAt: now,
-          });
-          tx.objectStore(STORE_WH_CHUNKS).put(chunk);
+          // Re-persist via same sharded layout when possible
+          const toWrite = [];
+          if (assembled.legacy && assembled.chunks[0]) {
+            toWrite.push(
+              Object.assign({}, assembled.chunks[0], {
+                id: WH_CHUNK_HEALTH,
+                domain: 'healthData',
+                shard: 'full',
+                updatedAt: now,
+              })
+            );
+          } else {
+            chunks.forEach((c) => {
+              if (c && c.id) {
+                toWrite.push(Object.assign({}, c, { updatedAt: now }));
+              }
+            });
+          }
+          toWrite.forEach((c) => tx.objectStore(STORE_WH_CHUNKS).put(c));
 
           let meta = Object.assign(defaultWarehouseMeta(), body.warehouseMeta || {}, { id: WH_META_ID });
           if (opts.regrantConsent !== false) {
@@ -774,10 +915,12 @@
               policyVersion: WAREHOUSE_POLICY_VERSION,
             };
           }
-          meta.totalApproxBytes = chunk.approxBytes || approxJsonBytes(chunk.payload);
-          meta.totalRecordCount = chunk.recordCount || countHealthRecords(chunk.payload);
-          meta.dateRange = inferDateRange(chunk.payload);
+          meta.totalApproxBytes = toWrite.reduce((s, c) => s + (c.approxBytes || 0), 0)
+            || approxJsonBytes(assembled.data);
+          meta.totalRecordCount = countHealthRecords(assembled.data);
+          meta.dateRange = inferDateRange(assembled.data);
           meta.lastWrittenAt = now;
+          meta.layout = assembled.legacy ? 'legacy-full' : 'sharded-v1';
           tx.objectStore(STORE_WH_META).put(meta);
 
           if (body.snapshots && unique.indexOf(STORE) >= 0) {

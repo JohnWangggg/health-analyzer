@@ -166,6 +166,43 @@ test.describe('v1.68 raw warehouse', () => {
     await expect(page.locator('#warehouse-restored-banner')).toBeVisible();
   });
 
+  test('sharded layout: core + cgm months persist and reload', async ({ page }) => {
+    await waitAppReady(page);
+    await selectXmlOnly(page);
+    await page.locator('#file-input').setInputFiles(FIXTURE);
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+
+    await setWorkspace(page, 'more');
+    page.once('dialog', async (d) => {
+      await d.accept();
+    });
+    await page.locator('#warehouse-consent').check();
+    await expect
+      .poll(async () => page.evaluate(() => window.HealthHistory.isWarehouseConsentGranted()), {
+        timeout: 8_000,
+      })
+      .toBe(true);
+
+    const layout = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+      return {
+        layout: st.layout || loaded.layout,
+        hasPayload: st.hasPayload,
+        cgmLen: loaded && loaded.data && loaded.data.cgm ? loaded.data.cgm.length : 0,
+        chunkCount: loaded && loaded.chunks ? loaded.chunks.length : 0,
+      };
+    });
+    expect(layout.hasPayload).toBe(true);
+    expect(layout.layout).toMatch(/sharded|legacy/);
+    // Sharded writes at least core chunk
+    expect(layout.chunkCount).toBeGreaterThan(0);
+
+    await page.reload();
+    await page.waitForFunction(() => !!(window.HealthHistory && window.HealthAnalyzer));
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+  });
+
   test('encrypted backup roundtrip with passphrase', async ({ page }) => {
     await waitAppReady(page);
     await selectXmlOnly(page);

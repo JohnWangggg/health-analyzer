@@ -7434,7 +7434,13 @@
           });
         }
         if (res.trimmed && res.trimmedCgm) {
-          showToast(t('warehouse.cgmTrimmed', { n: String(res.trimmedCgm) }), { ms: 3600 });
+          const months = res.removedMonths != null ? String(res.removedMonths) : '';
+          showToast(
+            months
+              ? t('warehouse.cgmMonthsEvicted', { n: String(res.trimmedCgm), m: months })
+              : t('warehouse.cgmTrimmed', { n: String(res.trimmedCgm) }),
+            { ms: 3600 }
+          );
         } else if (res.softWarn) {
           showToast(t('warehouse.softQuota'), { ms: 3200 });
         }
