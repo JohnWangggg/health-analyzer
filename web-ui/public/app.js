@@ -7323,6 +7323,10 @@
     const layoutEl = $('warehouse-layout-line');
     const monthsWrap = $('warehouse-cgm-months');
     const monthsList = $('warehouse-cgm-month-list');
+    const bpWrap = $('warehouse-bp-years');
+    const bpList = $('warehouse-bp-year-list');
+    const weightWrap = $('warehouse-weight-years');
+    const weightList = $('warehouse-weight-year-list');
     const HH = window.HealthHistory;
     if (!HH || typeof HH.getWarehouseStatus !== 'function') {
       if (statusEl) statusEl.textContent = t('warehouse.unavailable');
@@ -7351,6 +7355,14 @@
       }
       if (monthsWrap) monthsWrap.classList.add('hidden');
       if (monthsList) monthsList.innerHTML = '';
+      if (bpWrap) bpWrap.classList.add('hidden');
+      if (bpList) bpList.innerHTML = '';
+      if (weightWrap) weightWrap.classList.add('hidden');
+      if (weightList) weightList.innerHTML = '';
+      const bpSelectAll = $('warehouse-bp-select-all');
+      const weightSelectAll = $('warehouse-weight-select-all');
+      if (bpSelectAll) bpSelectAll.checked = false;
+      if (weightSelectAll) weightSelectAll.checked = false;
 
       if (!statusEl) {
         await refreshWarehouseHomeBanner();
@@ -7459,6 +7471,10 @@
         });
       }
 
+      // BP / weight yearly shards (newest first)
+      renderYearShardList(bpWrap, bpList, st.bpYearDetails || [], 'bp', 'bloodPressure');
+      renderYearShardList(weightWrap, weightList, st.weightYearDetails || [], 'weight', 'weight');
+
       // Browser origin storage estimate (best-effort)
       if (storageEl && navigator.storage && typeof navigator.storage.estimate === 'function') {
         try {
@@ -7477,14 +7493,8 @@
     }
   }
 
-  function filterAnalysisCgmMonths(months) {
-    if (!currentAnalysis || !currentAnalysis.data || !Array.isArray(currentAnalysis.data.cgm)) return;
-    const prefixes = (months || []).map((m) => String(m).slice(0, 7)).filter(Boolean);
-    if (!prefixes.length) return;
-    currentAnalysis.data.cgm = currentAnalysis.data.cgm.filter((p) => {
-      const dt = String(p && p.datetime || '');
-      return !prefixes.some((pre) => dt.startsWith(pre));
-    });
+  function reanalyzeAfterWarehouseTrim() {
+    if (!currentAnalysis || !currentAnalysis.data) return;
     try {
       recoveryWeights = loadRecoveryWeights();
       currentAnalysis = window.HealthAnalyzer.analyzeAll(currentAnalysis.data, {
@@ -7493,9 +7503,157 @@
       });
       renderResults(currentAnalysis);
     } catch (e) {
-      console.warn('re-analyze after month delete', e);
+      console.warn('re-analyze after warehouse trim', e);
     }
   }
+
+  function filterAnalysisCgmMonths(months) {
+    if (!currentAnalysis || !currentAnalysis.data || !Array.isArray(currentAnalysis.data.cgm)) return;
+    const prefixes = (months || []).map((m) => String(m).slice(0, 7)).filter(Boolean);
+    if (!prefixes.length) return;
+    currentAnalysis.data.cgm = currentAnalysis.data.cgm.filter((p) => {
+      const dt = String(p && p.datetime || '');
+      return !prefixes.some((pre) => dt.startsWith(pre));
+    });
+    reanalyzeAfterWarehouseTrim();
+  }
+
+  function filterAnalysisDomainYears(domain, years) {
+    if (!currentAnalysis || !currentAnalysis.data) return;
+    const ys = (years || []).map((y) => String(y).slice(0, 4)).filter((y) => /^\d{4}$/.test(y));
+    if (!ys.length) return;
+    const dropYear = (dt) => ys.some((y) => String(dt || '').startsWith(y));
+    if (domain === 'bloodPressure' && Array.isArray(currentAnalysis.data.bloodPressure)) {
+      currentAnalysis.data.bloodPressure = currentAnalysis.data.bloodPressure.filter(
+        (p) => !dropYear(p && p.datetime)
+      );
+    }
+    if (domain === 'weight') {
+      if (Array.isArray(currentAnalysis.data.weight)) {
+        currentAnalysis.data.weight = currentAnalysis.data.weight.filter(
+          (p) => !dropYear(p && p.datetime)
+        );
+      }
+      if (Array.isArray(currentAnalysis.data.bodyFat)) {
+        currentAnalysis.data.bodyFat = currentAnalysis.data.bodyFat.filter(
+          (p) => !dropYear(p && p.datetime)
+        );
+      }
+    }
+    reanalyzeAfterWarehouseTrim();
+  }
+
+  /**
+   * @param {HTMLElement|null} wrap
+   * @param {HTMLElement|null} listEl
+   * @param {Array<{year?: string, recordCount?: number, approxBytes?: number}>} details
+   * @param {'bp'|'weight'} kind
+   * @param {'bloodPressure'|'weight'} domain
+   */
+  function renderYearShardList(wrap, listEl, details, kind, domain) {
+    if (!wrap || !listEl) return;
+    const rows = Array.isArray(details) ? details.slice() : [];
+    if (!rows.length) {
+      wrap.classList.add('hidden');
+      listEl.innerHTML = '';
+      return;
+    }
+    rows.sort((a, b) => String(b.year || '').localeCompare(String(a.year || '')));
+    wrap.classList.remove('hidden');
+    const delLabel = escapeHtml(t('warehouse.yearDelete'));
+    listEl.innerHTML = rows
+      .map((row) => {
+        const rawY = String(row.year || '');
+        const y = escapeHtml(rawY || '—');
+        const n = escapeHtml(String(row.recordCount || 0));
+        const b = escapeHtml(formatBytes(row.approxBytes || 0));
+        return `<li class="wh-month-row">`
+          + `<label class="wh-month-check"><input type="checkbox" class="wh-year-cb" data-domain="${escapeHtml(domain)}" data-year="${escapeHtml(rawY)}" />`
+          + `<span class="wh-month">${y}</span></label>`
+          + `<span class="wh-month-meta">${n} · ${b}</span>`
+          + `<button type="button" class="btn-danger-text btn-sm wh-year-del" data-domain="${escapeHtml(domain)}" data-year="${escapeHtml(rawY)}" aria-label="${delLabel} ${y}">${delLabel}</button>`
+          + `</li>`;
+      })
+      .join('');
+    listEl.querySelectorAll('.wh-year-del[data-year]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const year = btn.getAttribute('data-year');
+        const dom = btn.getAttribute('data-domain');
+        if (year && dom) deleteDomainYearShardsUi(dom, [year], t('warehouse.yearDeleteConfirm', { year, domain: domainLabel(dom) }));
+      });
+    });
+  }
+
+  function domainLabel(domain) {
+    if (domain === 'bloodPressure') return t('warehouse.domain.bp');
+    if (domain === 'weight') return t('warehouse.domain.weight');
+    return domain;
+  }
+
+  function getSelectedYearsFromUi(listId) {
+    return Array.from(document.querySelectorAll(`#${listId} .wh-year-cb:checked`))
+      .map((el) => el.getAttribute('data-year'))
+      .filter(Boolean);
+  }
+
+  async function deleteDomainYearShardsUi(domain, years, confirmMsg) {
+    const HH = window.HealthHistory;
+    if (!HH) return;
+    const api =
+      domain === 'bloodPressure'
+        ? HH.deleteBloodPressureYearShards
+        : domain === 'weight'
+          ? HH.deleteWeightYearShards
+          : null;
+    if (typeof api !== 'function') return;
+    const list = (years || []).map((y) => String(y).slice(0, 4)).filter((y) => /^\d{4}$/.test(y));
+    if (!list.length) {
+      showToast(t('warehouse.yearNoneSelected'), { ms: 2200 });
+      return;
+    }
+    if (!window.confirm(confirmMsg || t('warehouse.yearDeleteSelectedConfirm', {
+      n: String(list.length),
+      domain: domainLabel(domain),
+    }))) {
+      return;
+    }
+    try {
+      const res = await api.call(HH, list);
+      if (!res || !res.ok) {
+        showToast(t('warehouse.err', { msg: (res && res.reason) || 'fail' }), { ms: 2800 });
+        return;
+      }
+      const msg =
+        list.length === 1
+          ? t('warehouse.yearDeleted', { year: list[0], domain: domainLabel(domain) })
+          : t('warehouse.yearsDeleted', { n: String(list.length), domain: domainLabel(domain) });
+      showToast(msg, { ok: true, ms: 2400 });
+      showWarehouseStatusMsg(msg);
+      filterAnalysisDomainYears(domain, list);
+      await refreshWarehousePanel();
+    } catch (e) {
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+    }
+  }
+
+  $('warehouse-bp-select-all')?.addEventListener('change', (e) => {
+    const on = !!(e.target && e.target.checked);
+    document.querySelectorAll('#warehouse-bp-year-list .wh-year-cb').forEach((cb) => {
+      cb.checked = on;
+    });
+  });
+  $('warehouse-weight-select-all')?.addEventListener('change', (e) => {
+    const on = !!(e.target && e.target.checked);
+    document.querySelectorAll('#warehouse-weight-year-list .wh-year-cb').forEach((cb) => {
+      cb.checked = on;
+    });
+  });
+  $('btn-warehouse-bp-delete-selected')?.addEventListener('click', () => {
+    deleteDomainYearShardsUi('bloodPressure', getSelectedYearsFromUi('warehouse-bp-year-list'));
+  });
+  $('btn-warehouse-weight-delete-selected')?.addEventListener('click', () => {
+    deleteDomainYearShardsUi('weight', getSelectedYearsFromUi('warehouse-weight-year-list'));
+  });
 
   async function deleteCgmMonthShardsUi(months, confirmMsg) {
     const HH = window.HealthHistory;

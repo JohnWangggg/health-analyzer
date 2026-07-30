@@ -549,8 +549,17 @@ body.has-results .result-bottom-nav:not(.hidden) {
   background: color-mix(in srgb, var(--chart-bg, var(--surface)) 88%, var(--primary-light));
 }
 
-.warehouse-cgm-months.hidden {
+.warehouse-cgm-months.hidden,
+.warehouse-year-shards.hidden {
   display: none !important;
+}
+
+.warehouse-year-shards {
+  margin: 0 0 14px;
+  padding: 12px 12px 10px;
+  border-radius: var(--radius-sm, 10px);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--chart-bg, var(--surface)) 90%, var(--muted-surface));
 }
 
 .warehouse-cgm-months-title {

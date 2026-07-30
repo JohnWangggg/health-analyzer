@@ -312,6 +312,27 @@ test.describe('v1.68 raw warehouse', () => {
     expect(del.bodyFatLen).toBe(1);
     expect(del.has2025Bp).toBe(false);
     expect(del.has2026Bp).toBe(true);
+
+    // UI: reload hydrate → 「更多」仓面板年列表（仅剩 2026）
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+    await setWorkspace(page, 'more');
+    await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+    await expect(page.locator('#warehouse-bp-years')).toBeVisible({ timeout: 8_000 });
+    await expect(page.locator('#warehouse-weight-years')).toBeVisible({ timeout: 8_000 });
+    await expect(page.locator('#warehouse-bp-year-list li')).toHaveCount(1);
+    await expect(page.locator('#warehouse-weight-year-list li')).toHaveCount(1);
+    await expect(page.locator('#warehouse-bp-year-list .wh-month').first()).toHaveText('2026');
+    await expect(page.locator('#warehouse-weight-year-list .wh-month').first()).toHaveText('2026');
   });
 
   test('deleteCgmMonthShards bulk removes months and updates status', async ({ page }) => {
