@@ -114,13 +114,18 @@ export interface ClinicalReportOptions extends LocaleOptions {
   includeSensitiveContext?: boolean;
   /** 是否附带逐条原始样本表（默认 false） */
   includeRawSamples?: boolean;
+  /**
+   * 是否附带本机事件时间线（默认 false）。
+   * 事件可含症状、漏服、疾病与备注，属敏感内容；须显式勾选。
+   */
+  includeEvents?: boolean;
   /** CGM 窗口末日；默认分析 dateRange.end */
   cgmWindowEnd?: string;
   /** 家庭血压评估天数 3|7，默认 7 */
   bpProtocolDays?: 3 | 7;
   /**
    * 用户本机健康事件时间线（仅时间共现复盘，不作因果/调药建议）。
-   * 提供时纳入报告（按分析 dateRange 过滤；无窗口则全部）。
+   * 仅当 includeEvents === true 时写入报告；并按分析 dateRange 过滤（空结果不回退全量）。
    */
   events?: HealthEvent[] | null;
 }
@@ -308,8 +313,13 @@ export function buildCgm14DayReport(
   };
 }
 
-/** 同日同时段内两条读数间隔 ≤ 3 分钟视为「双次测量」 */
-const BP_DOUBLE_GAP_MS = 3 * 60 * 1000;
+/**
+ * AHA 家庭血压：同一次测量取两次读数，间隔约 1 分钟。
+ * 仅当相邻两条间隔在 [BP_DOUBLE_MIN_GAP_MS, BP_DOUBLE_MAX_GAP_MS] 内记为「双次」。
+ * 同日同时段任意两条、或相隔数小时，不得记为规范双测。
+ */
+const BP_DOUBLE_MIN_GAP_MS = 15 * 1000; // 15s：排除同一秒重复写入
+const BP_DOUBLE_MAX_GAP_MS = 3 * 60 * 1000; // 3 分钟：覆盖「约 1 分钟」及略慢复测
 
 function sessionStats(
   records: BloodPressureRecord[]
@@ -322,23 +332,30 @@ function sessionStats(
   for (let i = 1; i < sorted.length; i++) {
     const dt =
       parseAppleDate(sorted[i].datetime) - parseAppleDate(sorted[i - 1].datetime);
-    if (dt >= 0 && dt <= BP_DOUBLE_GAP_MS) {
+    if (dt >= BP_DOUBLE_MIN_GAP_MS && dt <= BP_DOUBLE_MAX_GAP_MS) {
       double = true;
       break;
     }
   }
-  // 若有 ≥2 条同日同时段也记为 double（宽松：间隔可稍大到 5 分钟）
-  if (!double && sorted.length >= 2) {
-    const dt =
-      parseAppleDate(sorted[sorted.length - 1].datetime) -
-      parseAppleDate(sorted[0].datetime);
-    if (dt >= 0 && dt <= 5 * 60 * 1000) double = true;
+  // 双次均值：优先取间隔合格的相邻对的均值；否则用全部读数均值作展示
+  let meanSys = mean(sorted.map((r) => r.systolic));
+  let meanDia = mean(sorted.map((r) => r.diastolic));
+  if (double) {
+    for (let i = 1; i < sorted.length; i++) {
+      const dt =
+        parseAppleDate(sorted[i].datetime) - parseAppleDate(sorted[i - 1].datetime);
+      if (dt >= BP_DOUBLE_MIN_GAP_MS && dt <= BP_DOUBLE_MAX_GAP_MS) {
+        meanSys = mean([sorted[i - 1].systolic, sorted[i].systolic]);
+        meanDia = mean([sorted[i - 1].diastolic, sorted[i].diastolic]);
+        break;
+      }
+    }
   }
   return {
     count: sorted.length,
-    double: double || sorted.length >= 2,
-    meanSys: mean(sorted.map((r) => r.systolic)),
-    meanDia: mean(sorted.map((r) => r.diastolic)),
+    double,
+    meanSys,
+    meanDia,
   };
 }
 
@@ -398,48 +415,48 @@ export function assessHomeBpProtocol(
     });
   }
 
-  // 3 天：窗口内每一天都有早晚
+  // 规范日：早晚均有「短间隔双测」（AHA：每次两次、约 1 分钟间隔）
+  const isProtocolDay = (det: HomeBpDayDetail | undefined) =>
+    !!(det && det.amDouble && det.pmDouble);
+
+  // 3 天：连续 3 个日历日均为规范日
   const qualifies3d =
     protocolDays >= 3 &&
     (() => {
       const w3 = calendarWindowEndInclusive(winEnd, 3);
-      let both = 0;
+      let ok = 0;
       for (let i = 0; i < 3; i++) {
         const d = addDaysIso(w3.start, i);
-        const det = dayDetails.find((x) => x.date === d);
-        if (det && det.amCount > 0 && det.pmCount > 0) both += 1;
+        if (isProtocolDay(dayDetails.find((x) => x.date === d))) ok += 1;
       }
-      return both >= 3;
+      return ok >= 3;
     })();
 
-  // 7 天：至少 5 天有早晚（接近 AHA 连续测量精神）
-  const qualifies7d = protocolDays >= 7 && daysWithBoth >= 5;
+  // 7 天：至少 5 天为规范日（早晚双测齐全）
+  const protocolCompleteDays = dayDetails.filter((d) => d.amDouble && d.pmDouble).length;
+  const qualifies7d = protocolDays >= 7 && protocolCompleteDays >= 5;
 
   let mode: HomeBpMode = 'imported_mixed';
   if (qualifies7d || qualifies3d) mode = 'home_protocol';
   else if (daysWithBoth === 0 && inWin.length > 0) mode = 'imported_mixed';
   else if (inWin.length === 0) mode = 'insufficient';
-  else if (daysWithBoth < 3) mode = 'insufficient';
+  else if (protocolCompleteDays === 0 && daysWithBoth < 3) mode = 'insufficient';
 
   const noteZh =
     mode === 'home_protocol'
-      ? `按家庭血压流程解读：近 ${protocolDays} 日中 ${daysWithBoth} 天具备早晚读数` +
-        (daysWithAmDouble + daysWithPmDouble > 0
-          ? `；其中晨双次 ${daysWithAmDouble} 天、晚双次 ${daysWithPmDouble} 天`
-          : '（双次测量偏少，建议每次间隔约 1 分钟测两次）')
+      ? `按家庭血压流程解读：近 ${protocolDays} 日中 ${protocolCompleteDays} 天满足「早晚各短间隔双测」` +
+        `（晨双次 ${daysWithAmDouble} 天、晚双次 ${daysWithPmDouble} 天；仅有单次早晚不算规范日）`
       : mode === 'insufficient'
-        ? `数据不足以按家庭血压流程评估（近 ${protocolDays} 日仅 ${daysWithBoth} 天有早晚读数）。以下仅作普通导入数据展示。`
-        : `当前更接近「普通导入数据」：近 ${protocolDays} 日 ${daysWithBoth} 天有早晚读数，未达就诊前连续 3–7 天家庭测量建议。`;
+        ? `数据不足以按家庭血压流程评估（近 ${protocolDays} 日仅 ${protocolCompleteDays} 天满足早晚双测；有早晚但未双测 ${daysWithBoth} 天）。以下仅作普通导入数据展示。`
+        : `当前更接近「普通导入数据」：近 ${protocolDays} 日 ${daysWithBoth} 天有早晚读数，但仅 ${protocolCompleteDays} 天满足短间隔双测，未达就诊前连续 3–7 天家庭测量规范。`;
 
   const noteEn =
     mode === 'home_protocol'
-      ? `Interpret as home BP protocol: ${daysWithBoth}/${protocolDays} days have AM+PM readings` +
-        (daysWithAmDouble + daysWithPmDouble > 0
-          ? `; AM doubles ${daysWithAmDouble}d, PM doubles ${daysWithPmDouble}d`
-          : ' (few double readings—prefer two readings ~1 min apart)')
+      ? `Interpret as home BP protocol: ${protocolCompleteDays}/${protocolDays} days meet AM+PM short-interval doubles` +
+        ` (AM doubles ${daysWithAmDouble}d, PM doubles ${daysWithPmDouble}d; single AM/PM alone does not qualify)`
       : mode === 'insufficient'
-        ? `Insufficient for home BP protocol (only ${daysWithBoth}/${protocolDays} days with AM+PM). Shown as general imported data only.`
-        : `Closer to general imported data: ${daysWithBoth}/${protocolDays} days with AM+PM; below typical 3–7 day home protocol before a visit.`;
+        ? `Insufficient for home BP protocol (only ${protocolCompleteDays}/${protocolDays} days with AM+PM doubles; ${daysWithBoth} days have AM+PM at all). Shown as general imported data only.`
+        : `Closer to general imported data: ${daysWithBoth}/${protocolDays} days with AM+PM, but only ${protocolCompleteDays} with short-interval doubles; below typical 3–7 day home protocol.`;
 
   return {
     windowStart: start,
@@ -510,6 +527,7 @@ export function generateClinicalReviewMarkdown(
   const L = createL(locale);
   const includeSensitive = !!options?.includeSensitiveContext;
   const includeRaw = !!options?.includeRawSamples;
+  const includeEvents = !!options?.includeEvents;
   const lines: string[] = [];
 
   lines.push(L('# 规范化健康复盘 / 就诊报告', '# Structured health review / clinic report'));
@@ -545,8 +563,8 @@ export function generateClinicalReviewMarkdown(
   } else {
     lines.push(
       L(
-        '> 默认**已脱敏**：未附带用药/病史明细。导出时勾选「包含敏感背景」可附加。',
-        '> **Redacted by default**: medications/history not attached. Opt in when exporting to include sensitive context.'
+        '> 默认**已脱敏**：未附带用药/病史明细与事件时间线。导出时勾选「包含敏感背景」「包含事件时间线」可附加。',
+        '> **Redacted by default**: medications/history and event timeline not attached. Opt in when exporting to include sensitive context or events.'
       )
     );
     lines.push('');
@@ -747,14 +765,29 @@ export function generateClinicalReviewMarkdown(
     });
   }
 
-  // —— 本机事件时间线（用户提供时；仅时间共现，非因果）——
-  if (options?.events?.length) {
+  // —— 本机事件时间线（须 includeEvents；仅时间共现，非因果；不回退全量）——
+  if (includeEvents) {
     const rangeStart = analysis.dateRange?.start || null;
     const rangeEnd = analysis.dateRange?.end || null;
-    const filtered = filterEventsInRange(options.events, rangeStart, rangeEnd);
-    const toShow = filtered.length ? filtered : options.events;
-    lines.push(formatEventsMarkdown(toShow, { locale }).trimEnd());
-    lines.push('');
+    const rawEvents = options?.events || [];
+    const filtered =
+      rangeStart || rangeEnd
+        ? filterEventsInRange(rawEvents, rangeStart, rangeEnd)
+        : rawEvents;
+    if (filtered.length) {
+      lines.push(formatEventsMarkdown(filtered, { locale }).trimEnd());
+      lines.push('');
+    } else {
+      lines.push(L('## 事件时间线', '## Events timeline'));
+      lines.push('');
+      lines.push(
+        L(
+          '> 已勾选附带事件，但当前分析窗口内无记录（不回退展示窗口外历史）。',
+          '> Events opted in, but none fall in the analysis window (no fallback to out-of-range history).'
+        )
+      );
+      lines.push('');
+    }
   }
 
   // —— 监测摘要 ——

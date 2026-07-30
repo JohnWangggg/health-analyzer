@@ -6512,7 +6512,8 @@ List 5\u20137 working hypotheses that best fit the available data
       hourlyProfile
     };
   }
-  var BP_DOUBLE_GAP_MS = 3 * 60 * 1e3;
+  var BP_DOUBLE_MIN_GAP_MS = 15 * 1e3;
+  var BP_DOUBLE_MAX_GAP_MS = 3 * 60 * 1e3;
   function sessionStats(records) {
     if (!records.length) {
       return { count: 0, double: false, meanSys: null, meanDia: null };
@@ -6521,20 +6522,28 @@ List 5\u20137 working hypotheses that best fit the available data
     let double = false;
     for (let i = 1; i < sorted.length; i++) {
       const dt = parseAppleDate(sorted[i].datetime) - parseAppleDate(sorted[i - 1].datetime);
-      if (dt >= 0 && dt <= BP_DOUBLE_GAP_MS) {
+      if (dt >= BP_DOUBLE_MIN_GAP_MS && dt <= BP_DOUBLE_MAX_GAP_MS) {
         double = true;
         break;
       }
     }
-    if (!double && sorted.length >= 2) {
-      const dt = parseAppleDate(sorted[sorted.length - 1].datetime) - parseAppleDate(sorted[0].datetime);
-      if (dt >= 0 && dt <= 5 * 60 * 1e3) double = true;
+    let meanSys = mean2(sorted.map((r) => r.systolic));
+    let meanDia = mean2(sorted.map((r) => r.diastolic));
+    if (double) {
+      for (let i = 1; i < sorted.length; i++) {
+        const dt = parseAppleDate(sorted[i].datetime) - parseAppleDate(sorted[i - 1].datetime);
+        if (dt >= BP_DOUBLE_MIN_GAP_MS && dt <= BP_DOUBLE_MAX_GAP_MS) {
+          meanSys = mean2([sorted[i - 1].systolic, sorted[i].systolic]);
+          meanDia = mean2([sorted[i - 1].diastolic, sorted[i].diastolic]);
+          break;
+        }
+      }
     }
     return {
       count: sorted.length,
-      double: double || sorted.length >= 2,
-      meanSys: mean2(sorted.map((r) => r.systolic)),
-      meanDia: mean2(sorted.map((r) => r.diastolic))
+      double,
+      meanSys,
+      meanDia
     };
   }
   function assessHomeBpProtocol(analysis, options) {
@@ -6580,24 +6589,25 @@ List 5\u20137 working hypotheses that best fit the available data
         pmMeanDia: pmS.meanDia
       });
     }
+    const isProtocolDay = (det) => !!(det && det.amDouble && det.pmDouble);
     const qualifies3d = protocolDays >= 3 && (() => {
       const w3 = calendarWindowEndInclusive(winEnd, 3);
-      let both = 0;
+      let ok = 0;
       for (let i = 0; i < 3; i++) {
         const d = addDaysIso(w3.start, i);
-        const det = dayDetails.find((x) => x.date === d);
-        if (det && det.amCount > 0 && det.pmCount > 0) both += 1;
+        if (isProtocolDay(dayDetails.find((x) => x.date === d))) ok += 1;
       }
-      return both >= 3;
+      return ok >= 3;
     })();
-    const qualifies7d = protocolDays >= 7 && daysWithBoth >= 5;
+    const protocolCompleteDays = dayDetails.filter((d) => d.amDouble && d.pmDouble).length;
+    const qualifies7d = protocolDays >= 7 && protocolCompleteDays >= 5;
     let mode = "imported_mixed";
     if (qualifies7d || qualifies3d) mode = "home_protocol";
     else if (daysWithBoth === 0 && inWin.length > 0) mode = "imported_mixed";
     else if (inWin.length === 0) mode = "insufficient";
-    else if (daysWithBoth < 3) mode = "insufficient";
-    const noteZh = mode === "home_protocol" ? `\u6309\u5BB6\u5EAD\u8840\u538B\u6D41\u7A0B\u89E3\u8BFB\uFF1A\u8FD1 ${protocolDays} \u65E5\u4E2D ${daysWithBoth} \u5929\u5177\u5907\u65E9\u665A\u8BFB\u6570` + (daysWithAmDouble + daysWithPmDouble > 0 ? `\uFF1B\u5176\u4E2D\u6668\u53CC\u6B21 ${daysWithAmDouble} \u5929\u3001\u665A\u53CC\u6B21 ${daysWithPmDouble} \u5929` : "\uFF08\u53CC\u6B21\u6D4B\u91CF\u504F\u5C11\uFF0C\u5EFA\u8BAE\u6BCF\u6B21\u95F4\u9694\u7EA6 1 \u5206\u949F\u6D4B\u4E24\u6B21\uFF09") : mode === "insufficient" ? `\u6570\u636E\u4E0D\u8DB3\u4EE5\u6309\u5BB6\u5EAD\u8840\u538B\u6D41\u7A0B\u8BC4\u4F30\uFF08\u8FD1 ${protocolDays} \u65E5\u4EC5 ${daysWithBoth} \u5929\u6709\u65E9\u665A\u8BFB\u6570\uFF09\u3002\u4EE5\u4E0B\u4EC5\u4F5C\u666E\u901A\u5BFC\u5165\u6570\u636E\u5C55\u793A\u3002` : `\u5F53\u524D\u66F4\u63A5\u8FD1\u300C\u666E\u901A\u5BFC\u5165\u6570\u636E\u300D\uFF1A\u8FD1 ${protocolDays} \u65E5 ${daysWithBoth} \u5929\u6709\u65E9\u665A\u8BFB\u6570\uFF0C\u672A\u8FBE\u5C31\u8BCA\u524D\u8FDE\u7EED 3\u20137 \u5929\u5BB6\u5EAD\u6D4B\u91CF\u5EFA\u8BAE\u3002`;
-    const noteEn = mode === "home_protocol" ? `Interpret as home BP protocol: ${daysWithBoth}/${protocolDays} days have AM+PM readings` + (daysWithAmDouble + daysWithPmDouble > 0 ? `; AM doubles ${daysWithAmDouble}d, PM doubles ${daysWithPmDouble}d` : " (few double readings\u2014prefer two readings ~1 min apart)") : mode === "insufficient" ? `Insufficient for home BP protocol (only ${daysWithBoth}/${protocolDays} days with AM+PM). Shown as general imported data only.` : `Closer to general imported data: ${daysWithBoth}/${protocolDays} days with AM+PM; below typical 3\u20137 day home protocol before a visit.`;
+    else if (protocolCompleteDays === 0 && daysWithBoth < 3) mode = "insufficient";
+    const noteZh = mode === "home_protocol" ? `\u6309\u5BB6\u5EAD\u8840\u538B\u6D41\u7A0B\u89E3\u8BFB\uFF1A\u8FD1 ${protocolDays} \u65E5\u4E2D ${protocolCompleteDays} \u5929\u6EE1\u8DB3\u300C\u65E9\u665A\u5404\u77ED\u95F4\u9694\u53CC\u6D4B\u300D\uFF08\u6668\u53CC\u6B21 ${daysWithAmDouble} \u5929\u3001\u665A\u53CC\u6B21 ${daysWithPmDouble} \u5929\uFF1B\u4EC5\u6709\u5355\u6B21\u65E9\u665A\u4E0D\u7B97\u89C4\u8303\u65E5\uFF09` : mode === "insufficient" ? `\u6570\u636E\u4E0D\u8DB3\u4EE5\u6309\u5BB6\u5EAD\u8840\u538B\u6D41\u7A0B\u8BC4\u4F30\uFF08\u8FD1 ${protocolDays} \u65E5\u4EC5 ${protocolCompleteDays} \u5929\u6EE1\u8DB3\u65E9\u665A\u53CC\u6D4B\uFF1B\u6709\u65E9\u665A\u4F46\u672A\u53CC\u6D4B ${daysWithBoth} \u5929\uFF09\u3002\u4EE5\u4E0B\u4EC5\u4F5C\u666E\u901A\u5BFC\u5165\u6570\u636E\u5C55\u793A\u3002` : `\u5F53\u524D\u66F4\u63A5\u8FD1\u300C\u666E\u901A\u5BFC\u5165\u6570\u636E\u300D\uFF1A\u8FD1 ${protocolDays} \u65E5 ${daysWithBoth} \u5929\u6709\u65E9\u665A\u8BFB\u6570\uFF0C\u4F46\u4EC5 ${protocolCompleteDays} \u5929\u6EE1\u8DB3\u77ED\u95F4\u9694\u53CC\u6D4B\uFF0C\u672A\u8FBE\u5C31\u8BCA\u524D\u8FDE\u7EED 3\u20137 \u5929\u5BB6\u5EAD\u6D4B\u91CF\u89C4\u8303\u3002`;
+    const noteEn = mode === "home_protocol" ? `Interpret as home BP protocol: ${protocolCompleteDays}/${protocolDays} days meet AM+PM short-interval doubles (AM doubles ${daysWithAmDouble}d, PM doubles ${daysWithPmDouble}d; single AM/PM alone does not qualify)` : mode === "insufficient" ? `Insufficient for home BP protocol (only ${protocolCompleteDays}/${protocolDays} days with AM+PM doubles; ${daysWithBoth} days have AM+PM at all). Shown as general imported data only.` : `Closer to general imported data: ${daysWithBoth}/${protocolDays} days with AM+PM, but only ${protocolCompleteDays} with short-interval doubles; below typical 3\u20137 day home protocol.`;
     return {
       windowStart: start,
       windowEnd: winEnd,
@@ -6648,6 +6658,7 @@ List 5\u20137 working hypotheses that best fit the available data
     const L = createL(locale);
     const includeSensitive = !!options?.includeSensitiveContext;
     const includeRaw = !!options?.includeRawSamples;
+    const includeEvents = !!options?.includeEvents;
     const lines = [];
     lines.push(L("# \u89C4\u8303\u5316\u5065\u5EB7\u590D\u76D8 / \u5C31\u8BCA\u62A5\u544A", "# Structured health review / clinic report"));
     lines.push("");
@@ -6680,8 +6691,8 @@ List 5\u20137 working hypotheses that best fit the available data
     } else {
       lines.push(
         L(
-          "> \u9ED8\u8BA4**\u5DF2\u8131\u654F**\uFF1A\u672A\u9644\u5E26\u7528\u836F/\u75C5\u53F2\u660E\u7EC6\u3002\u5BFC\u51FA\u65F6\u52FE\u9009\u300C\u5305\u542B\u654F\u611F\u80CC\u666F\u300D\u53EF\u9644\u52A0\u3002",
-          "> **Redacted by default**: medications/history not attached. Opt in when exporting to include sensitive context."
+          "> \u9ED8\u8BA4**\u5DF2\u8131\u654F**\uFF1A\u672A\u9644\u5E26\u7528\u836F/\u75C5\u53F2\u660E\u7EC6\u4E0E\u4E8B\u4EF6\u65F6\u95F4\u7EBF\u3002\u5BFC\u51FA\u65F6\u52FE\u9009\u300C\u5305\u542B\u654F\u611F\u80CC\u666F\u300D\u300C\u5305\u542B\u4E8B\u4EF6\u65F6\u95F4\u7EBF\u300D\u53EF\u9644\u52A0\u3002",
+          "> **Redacted by default**: medications/history and event timeline not attached. Opt in when exporting to include sensitive context or events."
         )
       );
       lines.push("");
@@ -6862,13 +6873,25 @@ List 5\u20137 working hypotheses that best fit the available data
         lines.push("");
       });
     }
-    if (options?.events?.length) {
+    if (includeEvents) {
       const rangeStart = analysis.dateRange?.start || null;
       const rangeEnd = analysis.dateRange?.end || null;
-      const filtered = filterEventsInRange(options.events, rangeStart, rangeEnd);
-      const toShow = filtered.length ? filtered : options.events;
-      lines.push(formatEventsMarkdown(toShow, { locale }).trimEnd());
-      lines.push("");
+      const rawEvents = options?.events || [];
+      const filtered = rangeStart || rangeEnd ? filterEventsInRange(rawEvents, rangeStart, rangeEnd) : rawEvents;
+      if (filtered.length) {
+        lines.push(formatEventsMarkdown(filtered, { locale }).trimEnd());
+        lines.push("");
+      } else {
+        lines.push(L("## \u4E8B\u4EF6\u65F6\u95F4\u7EBF", "## Events timeline"));
+        lines.push("");
+        lines.push(
+          L(
+            "> \u5DF2\u52FE\u9009\u9644\u5E26\u4E8B\u4EF6\uFF0C\u4F46\u5F53\u524D\u5206\u6790\u7A97\u53E3\u5185\u65E0\u8BB0\u5F55\uFF08\u4E0D\u56DE\u9000\u5C55\u793A\u7A97\u53E3\u5916\u5386\u53F2\uFF09\u3002",
+            "> Events opted in, but none fall in the analysis window (no fallback to out-of-range history)."
+          )
+        );
+        lines.push("");
+      }
     }
     const bullets = buildInsightBullets(analysis, { locale }).slice(0, 6);
     if (bullets.length) {

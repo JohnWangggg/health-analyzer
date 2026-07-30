@@ -450,10 +450,14 @@
       </div>
       <div class="clinical-export-opts" role="group" aria-labelledby="clinical-export-opts-label">
         <h3 class="panel-subhead" id="clinical-export-opts-label" data-i18n="export.clinical.title">规范化就诊复盘报告</h3>
-        <p class="hint compact-hint" data-i18n="export.clinical.optsHint">含 CGM 14 天质量门槛、家庭血压流程判断与信号证据。默认脱敏；导出 HTML 后可用浏览器打印为 PDF。</p>
+        <p class="hint compact-hint" data-i18n="export.clinical.optsHint">含 CGM 14 天质量门槛、家庭血压流程判断与信号证据。默认脱敏（不含用药/病史、事件时间线与原始样本）；导出 HTML 后可用浏览器打印为 PDF。</p>
         <label class="check-inline">
           <input type="checkbox" id="clinical-include-sensitive" />
           <span data-i18n="export.clinical.includeSensitive">包含用药/病史等敏感背景</span>
+        </label>
+        <label class="check-inline">
+          <input type="checkbox" id="clinical-include-events" />
+          <span data-i18n="export.clinical.includeEvents">包含本机事件时间线（症状/漏服等）</span>
         </label>
         <label class="check-inline">
           <input type="checkbox" id="clinical-include-raw" />

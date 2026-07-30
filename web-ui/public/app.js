@@ -3059,9 +3059,11 @@
   function clinicalReportOpts() {
     const sensitive = !!($('clinical-include-sensitive') && $('clinical-include-sensitive').checked);
     const raw = !!($('clinical-include-raw') && $('clinical-include-raw').checked);
+    const events = !!($('clinical-include-events') && $('clinical-include-events').checked);
     return Object.assign({}, analysisLocaleOpts(), {
       includeSensitiveContext: sensitive,
       includeRawSamples: raw,
+      includeEvents: events,
     });
   }
 
@@ -3070,9 +3072,10 @@
       if (!currentAnalysis) throw new Error(t('export.err.needAnalysis'));
       if (!window.HealthAnalyzer) throw new Error(t('export.err.needAnalysis'));
       const opts = clinicalReportOpts();
-      const events = await loadEventsForClinicalExport();
-      if (events && events.length) {
-        opts.events = events;
+      // 默认脱敏：仅勾选「包含事件时间线」时才加载并附带事件
+      if (opts.includeEvents) {
+        const events = await loadEventsForClinicalExport();
+        opts.events = events || [];
       }
       const ctx =
         opts.includeSensitiveContext && typeof getUserContextForPrompt === 'function'
