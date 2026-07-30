@@ -69,20 +69,19 @@ const archive = HA.buildFhirExportBundle(analysis, {
   includeProvenance: false,
 });
 ok(archive.exportTier === 'local-archive', 'exportTier === local-archive');
+ok(archive.exchangePurpose == null, 'local-archive exchangePurpose is null');
 ok(archive.exchangeReady === true, 'local-archive exchangeReady === true');
 ok(archive.validation && archive.validation.ok, 'local-archive self-check ok');
-// archive may omit exchangeValidation unless forced
-ok(
-  archive.exchangeValidation == null || archive.exchangeValidation.ok === true,
-  'local-archive does not require failing exchange gate'
-);
 
-console.log('\nexternal-exchange tier');
+console.log('\nexternal-exchange anonymous-share (default)');
 const exchange = HA.buildFhirExportBundle(analysis, {
   exportTier: 'external-exchange',
+  exchangePurpose: 'anonymous-share',
   includeProvenance: false,
 });
 ok(exchange.exportTier === 'external-exchange', 'exportTier === external-exchange');
+ok(exchange.exchangePurpose === 'anonymous-share', 'purpose === anonymous-share');
+ok(exchange.counts.patients === 0, 'anonymous: Patient=0');
 ok(!!exchange.exchangeValidation, 'exchangeValidation present');
 ok(
   exchange.exchangeValidation.engine === HA.FHIR_EXCHANGE_GATE_ENGINE,
@@ -93,19 +92,30 @@ if (exchange.exchangeValidation && !exchange.exchangeValidation.ok) {
     console.error('    exchange issue:', issue);
   }
 }
-ok(exchange.exchangeValidation.ok === true, 'exchange-gate ok on built Bundle');
+ok(exchange.exchangeValidation.ok === true, 'exchange-gate ok on anonymous Bundle');
 ok(exchange.exchangeReady === true, 'exchangeReady === true');
 ok(exchange.validation && exchange.validation.ok, 'self-check also ok on exchange Bundle');
-ok((exchange.counts.devices || 0) >= 1, 'external-exchange includes Device(s)');
 
-// meta export-kind tag
 const tags = (exchange.bundle.meta && exchange.bundle.meta.tag) || [];
 ok(
   tags.some((t) => t && t.system === 'urn:health-analyzer:export-kind' && t.code === 'external-exchange'),
   'Bundle meta.tag export-kind=external-exchange'
 );
+ok(
+  tags.some((t) => t && t.system === 'urn:health-analyzer:exchange-purpose' && t.code === 'anonymous-share'),
+  'Bundle meta.tag exchange-purpose=anonymous-share'
+);
 
-// Observations have category
+// Devices: only measurement classes if present
+const devices = (exchange.bundle.entry || [])
+  .map((e) => e.resource)
+  .filter((r) => r && r.resourceType === 'Device');
+ok(
+  devices.every((d) => !/hae|apple-health/i.test(String(d.id || ''))),
+  'no HAE/aggregate Device resources'
+);
+
+// Observations have category; none have subject under anonymous
 const obsList = (exchange.bundle.entry || [])
   .map((e) => e.resource)
   .filter((r) => r && r.resourceType === 'Observation');
@@ -114,6 +124,34 @@ ok(
   obsList.every((o) => Array.isArray(o.category) && o.category.length > 0),
   'all Observations have category (exchange interoperability)'
 );
+ok(
+  obsList.every((o) => !o.subject),
+  'anonymous-share Observations have no subject'
+);
+
+console.log('\npersonal-handoff requires persistent id');
+const handoffFail = HA.buildFhirExportBundle(analysis, {
+  exportTier: 'external-exchange',
+  exchangePurpose: 'personal-handoff',
+  patientDisplay: 'X',
+  includeProvenance: false,
+});
+ok(handoffFail.exchangeReady === false, 'handoff without persistent id is blocked');
+ok(
+  handoffFail.exchangeValidation &&
+    handoffFail.exchangeValidation.issues.some((i) => /persistent|personal-handoff/i.test(i)),
+  'gate mentions persistent id / personal-handoff'
+);
+
+const handoffOk = HA.buildFhirExportBundle(analysis, {
+  exportTier: 'external-exchange',
+  exchangePurpose: 'personal-handoff',
+  patientDisplay: 'X',
+  patientPersistentId: 'pid-exchange-check-1',
+  includeProvenance: false,
+});
+ok(handoffOk.exchangeReady === true, 'handoff with persistent id passes');
+ok(handoffOk.counts.patients === 1, 'handoff has Patient');
 
 // Independent gate rejects bad fullUrl
 console.log('\nexchange-gate rejects non-urn fullUrl');

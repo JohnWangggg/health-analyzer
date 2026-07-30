@@ -201,10 +201,11 @@ test.describe('health-analyzer PWA smoke', () => {
   });
 
   /**
-   * v1.56–1.57: assert the *downloaded* Bundle JSON (not only in-page construct),
-   * covering date-precision Period, Patient merge-safe semantics, and Device wiring.
+   * v1.56–1.59: assert the *downloaded* Bundle JSON (not only in-page construct),
+   * covering date-precision Period, Patient merge-safe semantics, Device wiring,
+   * and external-exchange success / gate-block branches.
    */
-  test('v1.56–1.57: FHIR export download Bundle period/Patient/Device semantics', async ({
+  test('v1.56–1.59: FHIR export download period/Patient/Device + exchange branches', async ({
     page,
   }) => {
     await page.goto('/');
@@ -307,11 +308,80 @@ test.describe('health-analyzer PWA smoke', () => {
           return Array.isArray(dn) && dn[0] ? String(dn[0].name || '') : '';
         })
         .join(' ');
-      // At least one of the clinical-review classes should appear
-      expect(/Apple Watch|iPhone|Apple Health|HAE|Health Auto Export/i.test(deviceNames)).toBe(
-        true
-      );
+      // Only high-confidence measurement devices (not HAE / aggregate)
+      expect(/Apple Watch|iPhone/i.test(deviceNames)).toBe(true);
+      expect(/Health Auto Export|HAE/i.test(deviceNames)).toBe(false);
+      expect(
+        devices.every((e) => !/hae|apple-health/i.test(String(e.resource.id || '')))
+      ).toBe(true);
     }
+
+    // --- External exchange anonymous: download succeeds, no Patient ---
+    await page.locator('#fhir-tier-exchange').check();
+    await page.locator('#fhir-purpose-anonymous').check();
+    {
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: 15_000 }),
+        page.locator('#btn-export-fhir').click(),
+      ]);
+      const p = await download.path();
+      expect(p).toBeTruthy();
+      const suggested = download.suggestedFilename();
+      expect(suggested).toMatch(/fhir-exchange-bundle/i);
+      const bundle = JSON.parse(fs.readFileSync(/** @type {string} */ (p), 'utf8'));
+      const entries = Array.isArray(bundle.entry) ? bundle.entry : [];
+      expect(
+        entries.filter((e) => e.resource && e.resource.resourceType === 'Patient').length
+      ).toBe(0);
+      expect(
+        entries
+          .filter((e) => e.resource && e.resource.resourceType === 'Observation')
+          .every((e) => !e.resource.subject)
+      ).toBe(true);
+      const purposeTag = ((bundle.meta && bundle.meta.tag) || []).find(
+        (t) => t && t.system === 'urn:health-analyzer:exchange-purpose'
+      );
+      expect(purposeTag && purposeTag.code).toBe('anonymous-share');
+    }
+
+    // --- External exchange personal-handoff without id: download blocked ---
+    await page.locator('#fhir-purpose-handoff').check();
+    await page.locator('#fhir-patient-display').fill('E2E-Handoff');
+    await page.locator('#fhir-patient-persistent-id').fill('');
+    {
+      let gotDownload = false;
+      page.once('download', () => {
+        gotDownload = true;
+      });
+      await page.locator('#btn-export-fhir').click();
+      await expect
+        .poll(async () => page.locator('#export-status').innerText(), { timeout: 8_000 })
+        .toMatch(/交换门禁|未下载|blocked|exchange|失败|FAIL|伪名|persistent/i);
+      await page.waitForTimeout(400);
+      expect(gotDownload).toBe(false);
+    }
+
+    // --- personal-handoff with persistent id: download ok ---
+    await page.locator('#fhir-patient-persistent-id').fill('e2e-persistent-uuid-001');
+    {
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: 15_000 }),
+        page.locator('#btn-export-fhir').click(),
+      ]);
+      const p = await download.path();
+      expect(p).toBeTruthy();
+      const bundle = JSON.parse(fs.readFileSync(/** @type {string} */ (p), 'utf8'));
+      const patient = (bundle.entry || [])
+        .map((e) => e.resource)
+        .find((r) => r && r.resourceType === 'Patient');
+      expect(patient).toBeTruthy();
+      expect(
+        (patient.identifier || []).some((id) => id && id.value === 'e2e-persistent-uuid-001')
+      ).toBe(true);
+    }
+
+    // reset to archive for remaining Patient checkbox path
+    await page.locator('#fhir-tier-archive').check();
 
     // --- With Patient: no fixed local-patient identifier ---
     await page.locator('#fhir-include-patient').check();

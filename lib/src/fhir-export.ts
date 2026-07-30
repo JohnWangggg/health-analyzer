@@ -7,8 +7,10 @@
  * - v1.53：按 domainSourceBatches 为每个导入批次生成细粒度 Provenance（仅 target 该域 Observation）
  * - v1.55：可选本机伪名 Patient（默认关闭，无身份 / 无 subject）
  * - v1.56：日汇总日期精度；Patient 默认无固定 identifier；birthDate 仅年
- * - v1.57：可选 Device（Apple Watch / iPhone / HAE / Apple Health 聚合）+ Observation.device
+ * - v1.57：可选 Device + Observation.device
  * - v1.58：导出档位 local-archive / external-exchange；后者须独立 R4 交换门禁校验
+ * - v1.59：Device 仅高置信度测量设备（Watch/iPhone）；HAE/聚合不进 device；
+ *          外部交换分 anonymous-share / personal-handoff
  * - 项目自检 validateFhirExportBundle ≠ 官方 HL7 校验器；交换门禁为独立规则引擎
  */
 
@@ -29,18 +31,26 @@ import {
 import { buildAgpSvg, buildCgm14DayReport } from './clinical-report';
 import {
   FhirExportTier,
+  FhirExchangePurpose,
   FhirExchangeValidation,
   FHIR_EXCHANGE_GATE_ENGINE,
   normalizeFhirExportTier,
+  normalizeFhirExchangePurpose,
   validateFhirR4ExchangeGate,
 } from './fhir-r4-exchange';
 
-export type { FhirExportTier, FhirExchangeValidation } from './fhir-r4-exchange';
+export type {
+  FhirExportTier,
+  FhirExchangePurpose,
+  FhirExchangeValidation,
+} from './fhir-r4-exchange';
 export {
   FHIR_EXPORT_TIERS,
+  FHIR_EXCHANGE_PURPOSES,
   FHIR_EXCHANGE_GATE_ENGINE,
   isValidR4DateTime,
   normalizeFhirExportTier,
+  normalizeFhirExchangePurpose,
   validateFhirR4ExchangeGate,
 } from './fhir-r4-exchange';
 
@@ -48,7 +58,7 @@ export {
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.8.0';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.9.0';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
@@ -65,6 +75,8 @@ const EXT_BIRTH_YEAR_ONLY = 'urn:health-analyzer:extension:birth-year-only';
 const EXT_PATIENT_DISCLAIMER = 'urn:health-analyzer:extension:patient-disclaimer';
 /** Device extension: local device class (not a verified UDI) */
 const EXT_DEVICE_CLASS = 'urn:health-analyzer:extension:device-class';
+/** Device extension: confidence of device mapping (v1.59 high only wired) */
+const EXT_DEVICE_CONFIDENCE = 'urn:health-analyzer:extension:device-confidence';
 /** Stable local patient identifier system / value (no real identity) */
 const PATIENT_ID_SYSTEM = 'urn:health-analyzer:patient';
 const PATIENT_LOCAL_ID = 'patient-local-1';
@@ -73,20 +85,27 @@ const PATIENT_IDENTIFIER_VALUE_LEGACY = 'local-patient';
 const FHIR_ADMIN_GENDERS = new Set(['male', 'female', 'other', 'unknown']);
 
 /**
- * Local device class keys for clinical-review readability (not verified UDI/serial).
- * - apple-watch: Watch-derived metrics
- * - iphone: Health app / phone entry (e.g. many BP entries)
- * - hae-import: Health Auto Export merge path
- * - apple-health: multi-source aggregates or generic Apple Health export
+ * Measurement device classes only (v1.59).
+ * HAE / Apple Health aggregate are import channels — use Provenance, not Observation.device.
+ * @see https://hl7.org/fhir/R4/device.html (Device = manufactured item that performed the observation)
  */
-export type FhirDeviceClass = 'apple-watch' | 'iphone' | 'hae-import' | 'apple-health';
+export type FhirDeviceClass = 'apple-watch' | 'iphone';
 
 export const FHIR_DEVICE_CLASSES: readonly FhirDeviceClass[] = [
   'apple-watch',
   'iphone',
-  'hae-import',
-  'apple-health',
 ] as const;
+
+/** @deprecated legacy labels — never emit as Device for Observation.device */
+export type FhirLegacyImportChannel = 'hae-import' | 'apple-health';
+
+export interface FhirDeviceResolution {
+  /** null when confidence is not high enough to wire Observation.device */
+  deviceClass: FhirDeviceClass | null;
+  confidence: 'high' | 'none';
+  /** short machine reason for notes / debugging */
+  reason: string;
+}
 
 const DEVICE_CLASS_META: Record<
   FhirDeviceClass,
@@ -102,21 +121,21 @@ const DEVICE_CLASS_META: Record<
     id: 'device-iphone',
     display: 'iPhone',
     manufacturer: 'Apple Inc.',
-    typeText: 'Smartphone / Health app entry device (iPhone class)',
-  },
-  'hae-import': {
-    id: 'device-hae-import',
-    display: 'Health Auto Export (HAE)',
-    manufacturer: 'Third-party HAE / local import',
-    typeText: 'Health Auto Export import path (not a physical sensor UDI)',
-  },
-  'apple-health': {
-    id: 'device-apple-health',
-    display: 'Apple Health (aggregate / multi-source)',
-    manufacturer: 'Apple Inc. / mixed sources',
-    typeText: 'Apple Health export aggregate or multi-source daily total',
+    typeText: 'Smartphone sensor / Health app device (iPhone class)',
   },
 };
+
+/** Domains known to be built only from Apple Watch watchDaily / Watch-filtered records */
+const HIGH_CONFIDENCE_WATCH_TYPES = new Set([
+  'spo2',
+  'vo2Max',
+  'breathingDisturbance',
+  'wristTemperature',
+  'nightHeartRate',
+  'respiratoryRate',
+  'restingHeartRate',
+  'sleep',
+]);
 
 /**
  * FHIR Observation byType key → analysis domain key (domainSourceBatches / HAE byDomain).
@@ -183,11 +202,22 @@ export interface FhirExportOptions {
   /** optional birthYear only (not full DOB) for privacy */
   patientBirthYear?: number | null;
   /**
-   * Emit local Device resources and wire Observation.device (default true).
-   * Classes: Apple Watch / iPhone / HAE import / Apple Health aggregate.
-   * Not verified UDI — clinical-review readability only.
+   * Emit Device resources and wire Observation.device when **high confidence**
+   * (default true). Only Apple Watch / iPhone measurement classes.
+   * HAE / multi-source aggregates are NOT Devices (use Provenance).
    */
   includeDevices?: boolean;
+  /**
+   * When exportTier=external-exchange:
+   * - anonymous-share (default): force no Patient / no subject; mark anonymous purpose
+   * - personal-handoff: require Patient + subject + persistent local pseudonym id
+   */
+  exchangePurpose?: FhirExchangePurpose | string | null;
+  /**
+   * Required for personal-handoff: random local-persisted pseudonym id
+   * (never the fixed value "local-patient").
+   */
+  patientPersistentId?: string | null;
   /**
    * Attach a local clinical review document as DocumentReference (default false).
    * Provide markdown and/or html; content is truncated if over maxClinicalDocChars.
@@ -237,6 +267,8 @@ export interface FhirExportResult {
   notes: string[];
   /** Resolved export tier */
   exportTier: FhirExportTier;
+  /** Resolved exchange purpose (null when local-archive) */
+  exchangePurpose: FhirExchangePurpose | null;
   /** Project self-check (not official HL7 validator) */
   validation?: FhirExportValidation;
   /**
@@ -500,8 +532,8 @@ function entryFor(
 }
 
 /**
- * Local device class resource for Observation.device wiring (v1.57).
- * Pseudonym device class only — not a verified UDI / serial / model.
+ * Local measurement Device for Observation.device (v1.59: high-confidence only).
+ * Pseudonym device class — not a verified UDI / serial / model.
  */
 export function buildLocalDeviceResource(
   deviceClass: FhirDeviceClass
@@ -533,14 +565,18 @@ export function buildLocalDeviceResource(
         valueCode: deviceClass,
       },
       {
+        url: EXT_DEVICE_CONFIDENCE,
+        valueCode: 'high',
+      },
+      {
         url: 'urn:health-analyzer:extension:device-disclaimer',
         valueString:
-          'Local device class for clinical review readability only. Not a verified UDI, serial number, or legal device identity.',
+          'High-confidence measurement device class only (Apple Watch / iPhone). Not a verified UDI or serial. Import channels (HAE / Apple Health aggregate) are not Devices — see Provenance.',
       },
     ],
     note: [
       {
-        text: 'Mapped from Apple Health / HAE import heuristics (source class, not calibrated instrument metadata).',
+        text: 'Wired only when source confidence is high (watch-only domains or exclusive steps source).',
       },
     ],
   };
@@ -556,8 +592,59 @@ export function deviceDisplayName(deviceClass: FhirDeviceClass): string {
 }
 
 /**
- * Heuristic Observation → device class mapping (domain / steps breakdown / HAE batches).
- * Per-sample sourceName is often dropped after parse; this is intentionally coarse.
+ * v1.59 high-confidence device resolution for Observation.device.
+ * - Only apple-watch / iphone (measurement devices)
+ * - Never HAE / Apple Health aggregate (import channels → Provenance)
+ * - BP / CGM / weight: no per-record source retained → omit device
+ */
+export function resolveObservationDevice(
+  byTypeKey: string,
+  opts?: {
+    stepsDay?: { watch?: number; iphone?: number; max?: number } | null;
+    /** ignored for device mapping (v1.59); kept for call-site compatibility */
+    hasHaeImport?: boolean;
+  }
+): FhirDeviceResolution {
+  const key = String(byTypeKey || '');
+  if (HIGH_CONFIDENCE_WATCH_TYPES.has(key)) {
+    return {
+      deviceClass: 'apple-watch',
+      confidence: 'high',
+      reason: 'watch-sourced-domain',
+    };
+  }
+  if (key === 'steps') {
+    const day = opts?.stepsDay;
+    const w = day && Number.isFinite(Number(day.watch)) ? Number(day.watch) : 0;
+    const p = day && Number.isFinite(Number(day.iphone)) ? Number(day.iphone) : 0;
+    if (w > 0 && p <= 0) {
+      return { deviceClass: 'apple-watch', confidence: 'high', reason: 'steps-watch-only' };
+    }
+    if (p > 0 && w <= 0) {
+      return { deviceClass: 'iphone', confidence: 'high', reason: 'steps-iphone-only' };
+    }
+    if (w > 0 && p > 0) {
+      return {
+        deviceClass: null,
+        confidence: 'none',
+        reason: 'steps-multi-source-omit-device',
+      };
+    }
+    return { deviceClass: null, confidence: 'none', reason: 'steps-source-unknown' };
+  }
+  // BP / glucose / weight: sourceName not retained on records — do not invent Device
+  if (key === 'bloodPressure' || key === 'glucose' || key === 'bodyWeight') {
+    return {
+      deviceClass: null,
+      confidence: 'none',
+      reason: 'per-sample-source-not-retained',
+    };
+  }
+  return { deviceClass: null, confidence: 'none', reason: 'no-high-confidence-mapping' };
+}
+
+/**
+ * @deprecated use resolveObservationDevice; returns null when confidence is not high.
  */
 export function resolveObservationDeviceClass(
   byTypeKey: string,
@@ -565,37 +652,8 @@ export function resolveObservationDeviceClass(
     hasHaeImport?: boolean;
     stepsDay?: { watch?: number; iphone?: number; max?: number } | null;
   }
-): FhirDeviceClass {
-  const key = String(byTypeKey || '');
-  // Watch-native daily metrics
-  if (
-    key === 'spo2' ||
-    key === 'vo2Max' ||
-    key === 'breathingDisturbance' ||
-    key === 'wristTemperature' ||
-    key === 'nightHeartRate' ||
-    key === 'respiratoryRate' ||
-    key === 'restingHeartRate' ||
-    key === 'sleep'
-  ) {
-    return 'apple-watch';
-  }
-  if (key === 'steps') {
-    const day = opts?.stepsDay;
-    const w = day && Number.isFinite(Number(day.watch)) ? Number(day.watch) : 0;
-    const p = day && Number.isFinite(Number(day.iphone)) ? Number(day.iphone) : 0;
-    if (w > 0 && p > 0) return 'apple-health';
-    if (p > 0 && w <= 0) return 'iphone';
-    if (w > 0) return 'apple-watch';
-    return 'apple-health';
-  }
-  // Many BP entries come from Health app on iPhone (fixture uses sourceName=iPhone)
-  if (key === 'bloodPressure') return 'iphone';
-  // CGM / weight often via HAE JSON merge when hae batches present
-  if (key === 'glucose' || key === 'bodyWeight') {
-    return opts?.hasHaeImport ? 'hae-import' : 'apple-health';
-  }
-  return 'apple-health';
+): FhirDeviceClass | null {
+  return resolveObservationDevice(byTypeKey, opts).deviceClass;
 }
 
 /**
@@ -1531,9 +1589,12 @@ export function buildFhirExportBundle(
   const opts = options || {};
   const exportTier: FhirExportTier = normalizeFhirExportTier(opts.exportTier);
   const isExchange = exportTier === 'external-exchange';
+  const exchangePurpose: FhirExchangePurpose | null = isExchange
+    ? normalizeFhirExchangePurpose(opts.exchangePurpose)
+    : null;
   if (isExchange) {
     notes.push(
-      'export tier: external-exchange — independent R4 exchange-gate required before sharing; not HL7 Java validator'
+      `export tier: external-exchange (${exchangePurpose}) — independent R4 exchange-gate required; not HL7 Java validator`
     );
   } else {
     notes.push('export tier: local-archive — personal archive; project self-check only');
@@ -1596,15 +1657,17 @@ export function buildFhirExportBundle(
   const observationDeviceClasses: (FhirDeviceClass | null)[] = [];
   const domainSourceBatches = analysis.domainSourceBatches;
 
-  // Device wiring (v1.57): default on; external-exchange forces devices for reviewability
-  const includeDevices = isExchange ? true : opts.includeDevices !== false;
-  if (isExchange && opts.includeDevices === false) {
-    notes.push('external-exchange forces includeDevices=true (UI opt-out ignored for this tier)');
-  }
+  // Device wiring (v1.59): high-confidence measurement devices only (Watch/iPhone)
+  const includeDevices = opts.includeDevices !== false;
   const batchesEarly = (Array.isArray(opts.importBatches) ? opts.importBatches : [])
     .map((b) => normalizeImportBatch(b))
     .filter((b): b is ImportBatchRecord => !!b);
   const hasHaeImport = batchesEarly.some((b) => b.source === 'hae');
+  if (hasHaeImport) {
+    notes.push(
+      'HAE import batches present — recorded in Provenance when enabled; not used as Observation.device'
+    );
+  }
 
   const pushObs = (
     obs: Record<string, unknown>,
@@ -1628,11 +1691,11 @@ export function buildFhirExportBundle(
       observationDeviceClasses.push(deviceHint.deviceClass);
       return;
     }
+    const resolved = resolveObservationDevice(byTypeKey, {
+      stepsDay: deviceHint?.stepsDay,
+    });
     observationDeviceClasses.push(
-      resolveObservationDeviceClass(byTypeKey, {
-        hasHaeImport,
-        stepsDay: deviceHint?.stepsDay,
-      })
+      resolved.confidence === 'high' ? resolved.deviceClass : null
     );
   };
 
@@ -1918,11 +1981,34 @@ export function buildFhirExportBundle(
     }
   }
 
-  // --- Optional local pseudonym Patient (v1.55; default off — no identity) ---
-  const includePatient = opts.includePatient === true;
+  // --- Patient / subject (v1.59 exchange purposes) ---
+  // anonymous-share: force no Patient
+  // personal-handoff: require Patient + persistentId
+  let wantPatient = opts.includePatient === true;
+  if (isExchange && exchangePurpose === 'anonymous-share') {
+    if (wantPatient) {
+      notes.push(
+        'anonymous-share: includePatient ignored — forced no subject for anonymous data share'
+      );
+    }
+    wantPatient = false;
+  }
+  if (isExchange && exchangePurpose === 'personal-handoff') {
+    wantPatient = true;
+  }
+
+  const persistentIdRaw =
+    opts.patientPersistentId != null && String(opts.patientPersistentId).trim()
+      ? String(opts.patientPersistentId).trim()
+      : '';
+  const persistentId =
+    persistentIdRaw && persistentIdRaw !== PATIENT_IDENTIFIER_VALUE_LEGACY
+      ? persistentIdRaw
+      : '';
+
   let patientResource: Record<string, unknown> | null = null;
   let patientDisplayText = 'Local patient';
-  if (includePatient) {
+  if (wantPatient) {
     patientDisplayText =
       opts.patientDisplay != null && String(opts.patientDisplay).trim()
         ? String(opts.patientDisplay).trim()
@@ -1931,17 +2017,23 @@ export function buildFhirExportBundle(
       display: patientDisplayText,
       gender: opts.patientGender,
       birthYear: opts.patientBirthYear,
+      persistentId: persistentId || null,
     });
     notes.push(
       'includePatient: local pseudonym Patient (not verified identity); subjects wire to Patient fullUrl'
     );
-  } else if (opts.patientDisplay) {
+    if (isExchange && exchangePurpose === 'personal-handoff' && !persistentId) {
+      notes.push(
+        'personal-handoff: patientPersistentId missing — exchange-gate will block (need random local id)'
+      );
+    }
+  } else if (opts.patientDisplay && !(isExchange && exchangePurpose === 'anonymous-share')) {
     notes.push(
       'patientDisplay ignored for subject wiring (includePatient is false; default has no identity)'
     );
   }
 
-  // --- Optional Devices (v1.57; default on) ---
+  // --- Optional Devices (v1.59: high-confidence Watch/iPhone only) ---
   const usedDeviceClasses = new Set<FhirDeviceClass>();
   if (includeDevices) {
     for (const cls of observationDeviceClasses) {
@@ -1954,13 +2046,19 @@ export function buildFhirExportBundle(
       if (!usedDeviceClasses.has(cls)) continue;
       deviceResources.push(buildLocalDeviceResource(cls));
     }
+    const wired = observationDeviceClasses.filter(Boolean).length;
+    const total = observationDeviceClasses.length;
     notes.push(
-      `includeDevices: ${deviceResources.length} Device class(es) (${[...usedDeviceClasses].join(
-        ', '
-      )}); Observation.device wires to Device fullUrl`
+      `includeDevices: ${deviceResources.length} high-confidence Device class(es) (${[
+        ...usedDeviceClasses,
+      ].join(', ')}); wired ${wired}/${total} Observations (omit when source uncertain)`
     );
   } else if (!includeDevices) {
     notes.push('includeDevices: false — no Device resources / no Observation.device');
+  } else {
+    notes.push(
+      'includeDevices: no high-confidence measurement devices for this export (HAE/aggregate not Devices)'
+    );
   }
 
   // --- Provenance ---
@@ -2141,6 +2239,18 @@ export function buildFhirExportBundle(
               ? 'External exchange candidate (must pass independent exchange-gate; not hospital submission)'
               : 'Local archive collection (not transaction/submission)',
         },
+        ...(exchangePurpose
+          ? [
+              {
+                system: 'urn:health-analyzer:exchange-purpose',
+                code: exchangePurpose,
+                display:
+                  exchangePurpose === 'anonymous-share'
+                    ? 'Anonymous data share (no subject / no Patient)'
+                    : 'Personal data handoff (Patient subject + local persistent pseudonym id)',
+              },
+            ]
+          : []),
       ],
       // profile is informal — not a published IG
       profile: [`urn:health-analyzer:StructureDefinition/${FHIR_EXPORT_PROFILE}`],
@@ -2163,8 +2273,9 @@ export function buildFhirExportBundle(
   notes.push(
     `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} ` +
       `Patient=${counts.patients} Device=${counts.devices} Provenance=${counts.provenances} ` +
-      `tier=${exportTier} ` +
-      `(bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, ` +
+      `tier=${exportTier}` +
+      (exchangePurpose ? ` purpose=${exchangePurpose}` : '') +
+      ` (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, ` +
       `steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, ` +
       `sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, ` +
       `wristTemp=${byType.wristTemperature}, nightHr=${byType.nightHeartRate}, rr=${byType.respiratoryRate}, ` +
@@ -2191,7 +2302,10 @@ export function buildFhirExportBundle(
     (isExchange && opts.runExchangeValidation !== false);
   let exchangeValidation: FhirExchangeValidation | undefined;
   if (runExchange) {
-    exchangeValidation = validateFhirR4ExchangeGate(bundle);
+    exchangeValidation = validateFhirR4ExchangeGate(bundle, {
+      exportTier,
+      exchangePurpose: exchangePurpose || undefined,
+    });
     if (exchangeValidation.ok) {
       notes.push(
         `exchange-gate (${FHIR_EXCHANGE_GATE_ENGINE}): ok — still not HL7 validator_cli`
@@ -2224,6 +2338,7 @@ export function buildFhirExportBundle(
     counts,
     notes,
     exportTier,
+    exchangePurpose,
     validation,
     exchangeValidation,
     exchangeReady,

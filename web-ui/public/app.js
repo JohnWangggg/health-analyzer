@@ -3752,6 +3752,22 @@
       }
       const isExchange = exportTier === 'external-exchange';
 
+      // v1.59 exchange purpose: anonymous-share (default) | personal-handoff
+      let exchangePurpose = 'anonymous-share';
+      const purposeEl = document.querySelector(
+        'input[name="fhir-exchange-purpose"]:checked'
+      );
+      if (purposeEl && purposeEl.value) {
+        exchangePurpose = String(purposeEl.value);
+      }
+      if (
+        window.HealthAnalyzer &&
+        typeof window.HealthAnalyzer.normalizeFhirExchangePurpose === 'function'
+      ) {
+        exchangePurpose =
+          window.HealthAnalyzer.normalizeFhirExchangePurpose(exchangePurpose);
+      }
+
       const opts = Object.assign({}, analysisLocaleOpts(), {
         windowStart: range.start || undefined,
         windowEnd: range.end || undefined,
@@ -3759,6 +3775,9 @@
         importBatches: batches,
         exportTier,
       });
+      if (isExchange) {
+        opts.exchangePurpose = exchangePurpose;
+      }
 
       // Optional DocumentReference: clinical review under same privacy defaults as HTML export
       if ($('fhir-include-clinical-doc') && $('fhir-include-clinical-doc').checked) {
@@ -3799,16 +3818,16 @@
         opts.includeAgpSvg = true;
       }
 
-      // Optional Devices (v1.57): default checked; external-exchange forces devices on in lib
+      // Devices (v1.59): high-confidence Watch/iPhone only when checked
       if ($('fhir-include-devices')) {
-        opts.includeDevices = isExchange ? true : !!$('fhir-include-devices').checked;
-      } else if (isExchange) {
-        opts.includeDevices = true;
+        opts.includeDevices = !!$('fhir-include-devices').checked;
       }
 
-      // Optional local pseudonym Patient (default off — no identity / no subject)
-      // Do not auto-pull age/sex from user context; display name only when opted in.
-      if ($('fhir-include-patient') && $('fhir-include-patient').checked) {
+      // Patient / handoff identity
+      // anonymous-share: lib forces no Patient
+      // personal-handoff: require Patient + persistent id
+      const isHandoff = isExchange && exchangePurpose === 'personal-handoff';
+      if (isHandoff) {
         opts.includePatient = true;
         const displayEl = $('fhir-patient-display');
         const raw =
@@ -3819,6 +3838,30 @@
           raw ||
           t('export.fhir.patientDefault') ||
           'Local patient';
+        const pidEl = $('fhir-patient-persistent-id');
+        const pid =
+          pidEl && pidEl.value != null ? String(pidEl.value).trim() : '';
+        if (pid) {
+          opts.patientPersistentId = pid;
+        }
+      } else if ($('fhir-include-patient') && $('fhir-include-patient').checked) {
+        // Optional local pseudonym Patient for archive / non-handoff only
+        opts.includePatient = true;
+        const displayEl = $('fhir-patient-display');
+        const raw =
+          displayEl && displayEl.value != null
+            ? String(displayEl.value).trim()
+            : '';
+        opts.patientDisplay =
+          raw ||
+          t('export.fhir.patientDefault') ||
+          'Local patient';
+        const pidEl = $('fhir-patient-persistent-id');
+        const pid =
+          pidEl && pidEl.value != null ? String(pidEl.value).trim() : '';
+        if (pid) {
+          opts.patientPersistentId = pid;
+        }
       }
 
       const result = window.HealthAnalyzer.buildFhirExportBundle(

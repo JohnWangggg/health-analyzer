@@ -507,6 +507,21 @@
             <span data-i18n="export.fhir.tierExchange">外部交换（须通过独立 R4 交换门禁；失败则不下载）</span>
           </label>
         </fieldset>
+        <fieldset class="fhir-purpose-fieldset" id="fhir-exchange-purpose-panel">
+          <legend data-i18n="export.fhir.purposeLegend">外部交换用途</legend>
+          <label class="check-inline" for="fhir-purpose-anonymous">
+            <input type="radio" name="fhir-exchange-purpose" id="fhir-purpose-anonymous" value="anonymous-share" checked />
+            <span data-i18n="export.fhir.purposeAnonymous">匿名数据分享（强制无 Patient / 无 subject）</span>
+          </label>
+          <label class="check-inline" for="fhir-purpose-handoff">
+            <input type="radio" name="fhir-exchange-purpose" id="fhir-purpose-handoff" value="personal-handoff" />
+            <span data-i18n="export.fhir.purposeHandoff">个人数据转交（须 Patient + 本机随机伪名 ID）</span>
+          </label>
+          <label class="date-field" for="fhir-patient-persistent-id">
+            <span data-i18n="export.fhir.patientPersistentId">本机伪名 ID（个人转交必填）</span>
+            <input type="text" id="fhir-patient-persistent-id" maxlength="80" placeholder="例如 本机随机 UUID" data-i18n-placeholder="export.fhir.patientPersistentIdPh" />
+          </label>
+        </fieldset>
         <label class="check-inline" for="fhir-include-clinical-doc">
           <input type="checkbox" id="fhir-include-clinical-doc" />
           <span data-i18n="export.fhir.includeClinicalDoc">附带就诊复盘文档（DocumentReference，默认脱敏规则）</span>
@@ -643,7 +658,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.58</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.59</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

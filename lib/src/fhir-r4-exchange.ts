@@ -1,16 +1,17 @@
 /**
- * FHIR R4 exchange-gate validator (v1.58) — independent of project self-check.
+ * FHIR R4 exchange-gate validator (v1.58–v1.59) — independent of project self-check.
  *
  * Purpose:
  * - Gate "external-exchange" exports with a second, standards-oriented rule set
  * - Does NOT call validateFhirExportBundle (project self-check)
  * - Does NOT upload data / does NOT invoke HL7 Java validator by default
  *
- * This is still NOT a certified HL7 FHIR Validator substitute. It encodes a
- * conservative subset of R4 structural + datatype rules relevant to this app's
- * Bundle (collection of Observation / Device / Patient / Provenance / DocumentReference).
+ * v1.59 additions:
+ * - exchange purpose: anonymous-share | personal-handoff
+ * - Device must be measurement class (Watch/iPhone) with high-confidence extension
+ * - Reject HAE / Apple Health aggregate as Observation.device targets
  *
- * Official HL7 validator_cli.jar remains optional offline tooling outside the PWA.
+ * This is still NOT a certified HL7 FHIR Validator substitute.
  */
 
 // ============================================================
@@ -24,14 +25,27 @@ export const FHIR_EXPORT_TIERS: readonly FhirExportTier[] = [
   'external-exchange',
 ] as const;
 
+/** External-exchange purpose (v1.59) */
+export type FhirExchangePurpose = 'anonymous-share' | 'personal-handoff';
+
+export const FHIR_EXCHANGE_PURPOSES: readonly FhirExchangePurpose[] = [
+  'anonymous-share',
+  'personal-handoff',
+] as const;
+
 /** Engine id for exchange gate (bump when rules change) */
-export const FHIR_EXCHANGE_GATE_ENGINE = 'health-analyzer-r4-exchange-gate-v1';
+export const FHIR_EXCHANGE_GATE_ENGINE = 'health-analyzer-r4-exchange-gate-v2';
 
 export interface FhirExchangeValidation {
   ok: boolean;
   issues: string[];
   engine: string;
   resourceCounts: Record<string, number>;
+}
+
+export interface FhirExchangeGateOptions {
+  exportTier?: FhirExportTier | string | null;
+  exchangePurpose?: FhirExchangePurpose | string | null;
 }
 
 const URN_UUID_RE =
@@ -75,9 +89,44 @@ export function normalizeFhirExportTier(raw: unknown): FhirExportTier {
   return 'local-archive';
 }
 
+export function normalizeFhirExchangePurpose(raw: unknown): FhirExchangePurpose {
+  const s = raw != null ? String(raw).trim().toLowerCase() : '';
+  if (
+    s === 'personal-handoff' ||
+    s === 'handoff' ||
+    s === 'personal' ||
+    s === 'identified'
+  ) {
+    return 'personal-handoff';
+  }
+  // default for external exchange: anonymous share
+  return 'anonymous-share';
+}
+
 function pushIssue(issues: string[], msg: string): void {
   issues.push(msg);
 }
+
+function readMetaTagCode(
+  bundle: Record<string, unknown>,
+  system: string
+): string | null {
+  const meta = bundle.meta as { tag?: { system?: string; code?: string }[] } | undefined;
+  if (!meta || !Array.isArray(meta.tag)) return null;
+  for (const t of meta.tag) {
+    if (t && String(t.system || '') === system && t.code != null) {
+      return String(t.code);
+    }
+  }
+  return null;
+}
+
+const MEASUREMENT_DEVICE_IDS = new Set(['device-apple-watch', 'device-iphone']);
+const FORBIDDEN_DEVICE_IDS = new Set([
+  'device-hae-import',
+  'device-apple-health',
+  'device-hae',
+]);
 
 /**
  * Independent R4-oriented exchange gate for health-analyzer Bundles.
@@ -88,9 +137,11 @@ function pushIssue(issues: string[], msg: string): void {
  * - valueQuantity.system should be UCUM when quantity present
  * - dateTime timezone rule (R4)
  * - cross-references must resolve to entry fullUrl
+ * - v1.59 purpose + high-confidence Device rules
  */
 export function validateFhirR4ExchangeGate(
-  bundle: Record<string, unknown> | null | undefined
+  bundle: Record<string, unknown> | null | undefined,
+  gateOpts?: FhirExchangeGateOptions
 ): FhirExchangeValidation {
   const issues: string[] = [];
   const resourceCounts: Record<string, number> = {};
@@ -103,6 +154,39 @@ export function validateFhirR4ExchangeGate(
       engine,
       resourceCounts,
     };
+  }
+
+  const tierFromMeta = readMetaTagCode(bundle, 'urn:health-analyzer:export-kind');
+  const purposeFromMeta = readMetaTagCode(bundle, 'urn:health-analyzer:exchange-purpose');
+  const tier = normalizeFhirExportTier(
+    gateOpts?.exportTier != null ? gateOpts.exportTier : tierFromMeta || 'local-archive'
+  );
+  const isExchange = tier === 'external-exchange';
+  const purpose = isExchange
+    ? normalizeFhirExchangePurpose(
+        gateOpts?.exchangePurpose != null
+          ? gateOpts.exchangePurpose
+          : purposeFromMeta || 'anonymous-share'
+      )
+    : null;
+
+  if (isExchange && !purposeFromMeta) {
+    pushIssue(
+      issues,
+      'external-exchange Bundle missing meta.tag exchange-purpose (anonymous-share | personal-handoff)'
+    );
+  }
+  if (isExchange && purposeFromMeta && purposeFromMeta !== purpose) {
+    // prefer explicit gate option when both present; still require valid purpose tag
+    if (
+      purposeFromMeta !== 'anonymous-share' &&
+      purposeFromMeta !== 'personal-handoff'
+    ) {
+      pushIssue(
+        issues,
+        `unknown exchange-purpose tag: ${purposeFromMeta}`
+      );
+    }
   }
 
   if (bundle.resourceType !== 'Bundle') {
@@ -278,6 +362,52 @@ export function validateFhirR4ExchangeGate(
       if (!hasIdentity) {
         pushIssue(issues, `Device/${id} needs deviceName, type, or manufacturer`);
       }
+      // v1.59: only measurement device classes; reject import-channel "devices"
+      if (FORBIDDEN_DEVICE_IDS.has(id) || /hae|apple-health|aggregate/i.test(id)) {
+        pushIssue(
+          issues,
+          `Device/${id} is an import channel / aggregate, not a measurement Device — omit from Observation.device`
+        );
+      }
+      if (isExchange) {
+        const exts = Array.isArray(r.extension) ? r.extension : [];
+        const classExt = exts.find(
+          (x: { url?: string; valueCode?: string }) =>
+            x && String(x.url || '') === 'urn:health-analyzer:extension:device-class'
+        ) as { valueCode?: string } | undefined;
+        const confExt = exts.find(
+          (x: { url?: string; valueCode?: string }) =>
+            x && String(x.url || '') === 'urn:health-analyzer:extension:device-confidence'
+        ) as { valueCode?: string } | undefined;
+        const cls = classExt && classExt.valueCode != null ? String(classExt.valueCode) : '';
+        if (cls && cls !== 'apple-watch' && cls !== 'iphone') {
+          pushIssue(
+            issues,
+            `Device/${id} device-class "${cls}" not allowed for exchange (only apple-watch|iphone)`
+          );
+        }
+        if (!MEASUREMENT_DEVICE_IDS.has(id) && (!cls || (cls !== 'apple-watch' && cls !== 'iphone'))) {
+          // allow if id is custom but class is ok; otherwise flag
+          if (!cls) {
+            pushIssue(
+              issues,
+              `Device/${id} missing high-confidence measurement class extension for exchange`
+            );
+          }
+        }
+        if (confExt && String(confExt.valueCode || '') !== 'high') {
+          pushIssue(
+            issues,
+            `Device/${id} device-confidence must be high for exchange (got ${confExt.valueCode})`
+          );
+        }
+        if (!confExt) {
+          pushIssue(
+            issues,
+            `Device/${id} missing device-confidence=high extension (reject global-inference devices)`
+          );
+        }
+      }
     } else if (rt === 'Patient') {
       if (
         Array.isArray(r.identifier) &&
@@ -335,8 +465,74 @@ export function validateFhirR4ExchangeGate(
   }
 
   // Exchange expects at least one Observation
-  if ((resourceCounts.Observation || 0) < 1) {
+  if (isExchange && (resourceCounts.Observation || 0) < 1) {
     pushIssue(issues, 'external-exchange Bundle must contain ≥1 Observation');
+  }
+
+  // --- v1.59 purpose semantics ---
+  if (isExchange && purpose === 'anonymous-share') {
+    if ((resourceCounts.Patient || 0) > 0) {
+      pushIssue(
+        issues,
+        'anonymous-share must not include Patient resource (no subject identity)'
+      );
+    }
+    for (let i = 0; i < entry.length; i++) {
+      const r = (entry[i]?.resource || null) as Record<string, unknown> | null;
+      if (!r || r.resourceType !== 'Observation') continue;
+      if (r.subject != null) {
+        pushIssue(
+          issues,
+          `Observation/${String(r.id || i)} must not have subject under anonymous-share`
+        );
+      }
+    }
+  }
+
+  if (isExchange && purpose === 'personal-handoff') {
+    if ((resourceCounts.Patient || 0) < 1) {
+      pushIssue(
+        issues,
+        'personal-handoff requires Patient resource and Observation.subject'
+      );
+    } else {
+      // every Observation must have subject → Patient
+      for (let i = 0; i < entry.length; i++) {
+        const r = (entry[i]?.resource || null) as Record<string, unknown> | null;
+        if (!r || r.resourceType !== 'Observation') continue;
+        const sub = r.subject as { reference?: string } | undefined;
+        const ref = sub && sub.reference != null ? String(sub.reference) : '';
+        if (!ref) {
+          pushIssue(
+            issues,
+            `Observation/${String(r.id || i)} missing subject (required for personal-handoff)`
+          );
+        } else if (patientFullUrls.size > 0 && !patientFullUrls.has(ref)) {
+          pushIssue(
+            issues,
+            `Observation/${String(r.id || i)} subject must resolve to Patient fullUrl`
+          );
+        }
+      }
+      // Patient must carry non-legacy persistent identifier for cross-bundle handoff
+      for (let i = 0; i < entry.length; i++) {
+        const r = (entry[i]?.resource || null) as Record<string, unknown> | null;
+        if (!r || r.resourceType !== 'Patient') continue;
+        const ids = Array.isArray(r.identifier) ? r.identifier : [];
+        const hasPersistent = ids.some(
+          (idObj: { value?: string }) =>
+            idObj &&
+            String(idObj.value || '').trim() &&
+            String(idObj.value || '') !== 'local-patient'
+        );
+        if (!hasPersistent) {
+          pushIssue(
+            issues,
+            `Patient/${String(r.id || i)} personal-handoff requires persistent identifier (random local id; not local-patient)`
+          );
+        }
+      }
+    }
   }
 
   return {

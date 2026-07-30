@@ -31,6 +31,7 @@ var HealthAnalyzer = (() => {
     DEFAULT_RECOVERY_WEIGHTS: () => DEFAULT_RECOVERY_WEIGHTS,
     FHIR_DEVICE_CLASSES: () => FHIR_DEVICE_CLASSES,
     FHIR_EXCHANGE_GATE_ENGINE: () => FHIR_EXCHANGE_GATE_ENGINE,
+    FHIR_EXCHANGE_PURPOSES: () => FHIR_EXCHANGE_PURPOSES,
     FHIR_EXPORT_PROFILE: () => FHIR_EXPORT_PROFILE,
     FHIR_EXPORT_TIERS: () => FHIR_EXPORT_TIERS,
     FHIR_OBS_TYPE_TO_DOMAIN: () => FHIR_OBS_TYPE_TO_DOMAIN,
@@ -112,6 +113,7 @@ var HealthAnalyzer = (() => {
     mergeHaeIntoData: () => mergeHaeIntoData,
     mergeHaeJsonIntoData: () => mergeHaeJsonIntoData,
     newBundleUuid: () => newBundleUuid,
+    normalizeFhirExchangePurpose: () => normalizeFhirExchangePurpose,
     normalizeFhirExportTier: () => normalizeFhirExportTier,
     normalizeHaeMetricName: () => normalizeHaeMetricName,
     normalizeHealthEvent: () => normalizeHealthEvent,
@@ -136,6 +138,7 @@ var HealthAnalyzer = (() => {
     processWorkoutBlock: () => processWorkoutBlock,
     processXmlLine: () => processXmlLine,
     recomputeRecovery: () => recomputeRecovery,
+    resolveObservationDevice: () => resolveObservationDevice,
     resolveObservationDeviceClass: () => resolveObservationDeviceClass,
     shortImportBatchIdForProv: () => shortImportBatchIdForProv,
     shortWorkoutType: () => shortWorkoutType,
@@ -7786,7 +7789,11 @@ List 5\u20137 working hypotheses that best fit the available data
     "local-archive",
     "external-exchange"
   ];
-  var FHIR_EXCHANGE_GATE_ENGINE = "health-analyzer-r4-exchange-gate-v1";
+  var FHIR_EXCHANGE_PURPOSES = [
+    "anonymous-share",
+    "personal-handoff"
+  ];
+  var FHIR_EXCHANGE_GATE_ENGINE = "health-analyzer-r4-exchange-gate-v2";
   var URN_UUID_RE = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   var OBS_STATUS = /* @__PURE__ */ new Set([
     "registered",
@@ -7817,10 +7824,33 @@ List 5\u20137 working hypotheses that best fit the available data
     }
     return "local-archive";
   }
+  function normalizeFhirExchangePurpose(raw) {
+    const s = raw != null ? String(raw).trim().toLowerCase() : "";
+    if (s === "personal-handoff" || s === "handoff" || s === "personal" || s === "identified") {
+      return "personal-handoff";
+    }
+    return "anonymous-share";
+  }
   function pushIssue(issues, msg) {
     issues.push(msg);
   }
-  function validateFhirR4ExchangeGate(bundle) {
+  function readMetaTagCode(bundle, system) {
+    const meta = bundle.meta;
+    if (!meta || !Array.isArray(meta.tag)) return null;
+    for (const t of meta.tag) {
+      if (t && String(t.system || "") === system && t.code != null) {
+        return String(t.code);
+      }
+    }
+    return null;
+  }
+  var MEASUREMENT_DEVICE_IDS = /* @__PURE__ */ new Set(["device-apple-watch", "device-iphone"]);
+  var FORBIDDEN_DEVICE_IDS = /* @__PURE__ */ new Set([
+    "device-hae-import",
+    "device-apple-health",
+    "device-hae"
+  ]);
+  function validateFhirR4ExchangeGate(bundle, gateOpts) {
     const issues = [];
     const resourceCounts = {};
     const engine = FHIR_EXCHANGE_GATE_ENGINE;
@@ -7831,6 +7861,29 @@ List 5\u20137 working hypotheses that best fit the available data
         engine,
         resourceCounts
       };
+    }
+    const tierFromMeta = readMetaTagCode(bundle, "urn:health-analyzer:export-kind");
+    const purposeFromMeta = readMetaTagCode(bundle, "urn:health-analyzer:exchange-purpose");
+    const tier = normalizeFhirExportTier(
+      gateOpts?.exportTier != null ? gateOpts.exportTier : tierFromMeta || "local-archive"
+    );
+    const isExchange = tier === "external-exchange";
+    const purpose = isExchange ? normalizeFhirExchangePurpose(
+      gateOpts?.exchangePurpose != null ? gateOpts.exchangePurpose : purposeFromMeta || "anonymous-share"
+    ) : null;
+    if (isExchange && !purposeFromMeta) {
+      pushIssue(
+        issues,
+        "external-exchange Bundle missing meta.tag exchange-purpose (anonymous-share | personal-handoff)"
+      );
+    }
+    if (isExchange && purposeFromMeta && purposeFromMeta !== purpose) {
+      if (purposeFromMeta !== "anonymous-share" && purposeFromMeta !== "personal-handoff") {
+        pushIssue(
+          issues,
+          `unknown exchange-purpose tag: ${purposeFromMeta}`
+        );
+      }
     }
     if (bundle.resourceType !== "Bundle") {
       pushIssue(issues, `resourceType expected Bundle, got ${String(bundle.resourceType)}`);
@@ -7979,6 +8032,48 @@ List 5\u20137 working hypotheses that best fit the available data
         if (!hasIdentity) {
           pushIssue(issues, `Device/${id} needs deviceName, type, or manufacturer`);
         }
+        if (FORBIDDEN_DEVICE_IDS.has(id) || /hae|apple-health|aggregate/i.test(id)) {
+          pushIssue(
+            issues,
+            `Device/${id} is an import channel / aggregate, not a measurement Device \u2014 omit from Observation.device`
+          );
+        }
+        if (isExchange) {
+          const exts = Array.isArray(r.extension) ? r.extension : [];
+          const classExt = exts.find(
+            (x) => x && String(x.url || "") === "urn:health-analyzer:extension:device-class"
+          );
+          const confExt = exts.find(
+            (x) => x && String(x.url || "") === "urn:health-analyzer:extension:device-confidence"
+          );
+          const cls = classExt && classExt.valueCode != null ? String(classExt.valueCode) : "";
+          if (cls && cls !== "apple-watch" && cls !== "iphone") {
+            pushIssue(
+              issues,
+              `Device/${id} device-class "${cls}" not allowed for exchange (only apple-watch|iphone)`
+            );
+          }
+          if (!MEASUREMENT_DEVICE_IDS.has(id) && (!cls || cls !== "apple-watch" && cls !== "iphone")) {
+            if (!cls) {
+              pushIssue(
+                issues,
+                `Device/${id} missing high-confidence measurement class extension for exchange`
+              );
+            }
+          }
+          if (confExt && String(confExt.valueCode || "") !== "high") {
+            pushIssue(
+              issues,
+              `Device/${id} device-confidence must be high for exchange (got ${confExt.valueCode})`
+            );
+          }
+          if (!confExt) {
+            pushIssue(
+              issues,
+              `Device/${id} missing device-confidence=high extension (reject global-inference devices)`
+            );
+          }
+        }
       } else if (rt === "Patient") {
         if (Array.isArray(r.identifier) && r.identifier.some(
           (idObj) => idObj && String(idObj.value || "") === "local-patient"
@@ -8030,8 +8125,66 @@ List 5\u20137 working hypotheses that best fit the available data
         }
       }
     }
-    if ((resourceCounts.Observation || 0) < 1) {
+    if (isExchange && (resourceCounts.Observation || 0) < 1) {
       pushIssue(issues, "external-exchange Bundle must contain \u22651 Observation");
+    }
+    if (isExchange && purpose === "anonymous-share") {
+      if ((resourceCounts.Patient || 0) > 0) {
+        pushIssue(
+          issues,
+          "anonymous-share must not include Patient resource (no subject identity)"
+        );
+      }
+      for (let i = 0; i < entry.length; i++) {
+        const r = entry[i]?.resource || null;
+        if (!r || r.resourceType !== "Observation") continue;
+        if (r.subject != null) {
+          pushIssue(
+            issues,
+            `Observation/${String(r.id || i)} must not have subject under anonymous-share`
+          );
+        }
+      }
+    }
+    if (isExchange && purpose === "personal-handoff") {
+      if ((resourceCounts.Patient || 0) < 1) {
+        pushIssue(
+          issues,
+          "personal-handoff requires Patient resource and Observation.subject"
+        );
+      } else {
+        for (let i = 0; i < entry.length; i++) {
+          const r = entry[i]?.resource || null;
+          if (!r || r.resourceType !== "Observation") continue;
+          const sub = r.subject;
+          const ref = sub && sub.reference != null ? String(sub.reference) : "";
+          if (!ref) {
+            pushIssue(
+              issues,
+              `Observation/${String(r.id || i)} missing subject (required for personal-handoff)`
+            );
+          } else if (patientFullUrls.size > 0 && !patientFullUrls.has(ref)) {
+            pushIssue(
+              issues,
+              `Observation/${String(r.id || i)} subject must resolve to Patient fullUrl`
+            );
+          }
+        }
+        for (let i = 0; i < entry.length; i++) {
+          const r = entry[i]?.resource || null;
+          if (!r || r.resourceType !== "Patient") continue;
+          const ids = Array.isArray(r.identifier) ? r.identifier : [];
+          const hasPersistent = ids.some(
+            (idObj) => idObj && String(idObj.value || "").trim() && String(idObj.value || "") !== "local-patient"
+          );
+          if (!hasPersistent) {
+            pushIssue(
+              issues,
+              `Patient/${String(r.id || i)} personal-handoff requires persistent identifier (random local id; not local-patient)`
+            );
+          }
+        }
+      }
     }
     return {
       ok: issues.length === 0,
@@ -8042,7 +8195,7 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.8.0";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.9.0";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
@@ -8053,15 +8206,14 @@ List 5\u20137 working hypotheses that best fit the available data
   var EXT_BIRTH_YEAR_ONLY = "urn:health-analyzer:extension:birth-year-only";
   var EXT_PATIENT_DISCLAIMER = "urn:health-analyzer:extension:patient-disclaimer";
   var EXT_DEVICE_CLASS = "urn:health-analyzer:extension:device-class";
+  var EXT_DEVICE_CONFIDENCE = "urn:health-analyzer:extension:device-confidence";
   var PATIENT_ID_SYSTEM = "urn:health-analyzer:patient";
   var PATIENT_LOCAL_ID = "patient-local-1";
   var PATIENT_IDENTIFIER_VALUE_LEGACY = "local-patient";
   var FHIR_ADMIN_GENDERS = /* @__PURE__ */ new Set(["male", "female", "other", "unknown"]);
   var FHIR_DEVICE_CLASSES = [
     "apple-watch",
-    "iphone",
-    "hae-import",
-    "apple-health"
+    "iphone"
   ];
   var DEVICE_CLASS_META = {
     "apple-watch": {
@@ -8074,21 +8226,19 @@ List 5\u20137 working hypotheses that best fit the available data
       id: "device-iphone",
       display: "iPhone",
       manufacturer: "Apple Inc.",
-      typeText: "Smartphone / Health app entry device (iPhone class)"
-    },
-    "hae-import": {
-      id: "device-hae-import",
-      display: "Health Auto Export (HAE)",
-      manufacturer: "Third-party HAE / local import",
-      typeText: "Health Auto Export import path (not a physical sensor UDI)"
-    },
-    "apple-health": {
-      id: "device-apple-health",
-      display: "Apple Health (aggregate / multi-source)",
-      manufacturer: "Apple Inc. / mixed sources",
-      typeText: "Apple Health export aggregate or multi-source daily total"
+      typeText: "Smartphone sensor / Health app device (iPhone class)"
     }
   };
+  var HIGH_CONFIDENCE_WATCH_TYPES = /* @__PURE__ */ new Set([
+    "spo2",
+    "vo2Max",
+    "breathingDisturbance",
+    "wristTemperature",
+    "nightHeartRate",
+    "respiratoryRate",
+    "restingHeartRate",
+    "sleep"
+  ]);
   var FHIR_OBS_TYPE_TO_DOMAIN = {
     bloodPressure: "bloodPressure",
     bodyWeight: "weight",
@@ -8328,13 +8478,17 @@ List 5\u20137 working hypotheses that best fit the available data
           valueCode: deviceClass
         },
         {
+          url: EXT_DEVICE_CONFIDENCE,
+          valueCode: "high"
+        },
+        {
           url: "urn:health-analyzer:extension:device-disclaimer",
-          valueString: "Local device class for clinical review readability only. Not a verified UDI, serial number, or legal device identity."
+          valueString: "High-confidence measurement device class only (Apple Watch / iPhone). Not a verified UDI or serial. Import channels (HAE / Apple Health aggregate) are not Devices \u2014 see Provenance."
         }
       ],
       note: [
         {
-          text: "Mapped from Apple Health / HAE import heuristics (source class, not calibrated instrument metadata)."
+          text: "Wired only when source confidence is high (watch-only domains or exclusive steps source)."
         }
       ]
     };
@@ -8345,25 +8499,45 @@ List 5\u20137 working hypotheses that best fit the available data
   function deviceDisplayName(deviceClass) {
     return DEVICE_CLASS_META[deviceClass].display;
   }
-  function resolveObservationDeviceClass(byTypeKey, opts) {
+  function resolveObservationDevice(byTypeKey, opts) {
     const key = String(byTypeKey || "");
-    if (key === "spo2" || key === "vo2Max" || key === "breathingDisturbance" || key === "wristTemperature" || key === "nightHeartRate" || key === "respiratoryRate" || key === "restingHeartRate" || key === "sleep") {
-      return "apple-watch";
+    if (HIGH_CONFIDENCE_WATCH_TYPES.has(key)) {
+      return {
+        deviceClass: "apple-watch",
+        confidence: "high",
+        reason: "watch-sourced-domain"
+      };
     }
     if (key === "steps") {
       const day = opts?.stepsDay;
       const w = day && Number.isFinite(Number(day.watch)) ? Number(day.watch) : 0;
       const p = day && Number.isFinite(Number(day.iphone)) ? Number(day.iphone) : 0;
-      if (w > 0 && p > 0) return "apple-health";
-      if (p > 0 && w <= 0) return "iphone";
-      if (w > 0) return "apple-watch";
-      return "apple-health";
+      if (w > 0 && p <= 0) {
+        return { deviceClass: "apple-watch", confidence: "high", reason: "steps-watch-only" };
+      }
+      if (p > 0 && w <= 0) {
+        return { deviceClass: "iphone", confidence: "high", reason: "steps-iphone-only" };
+      }
+      if (w > 0 && p > 0) {
+        return {
+          deviceClass: null,
+          confidence: "none",
+          reason: "steps-multi-source-omit-device"
+        };
+      }
+      return { deviceClass: null, confidence: "none", reason: "steps-source-unknown" };
     }
-    if (key === "bloodPressure") return "iphone";
-    if (key === "glucose" || key === "bodyWeight") {
-      return opts?.hasHaeImport ? "hae-import" : "apple-health";
+    if (key === "bloodPressure" || key === "glucose" || key === "bodyWeight") {
+      return {
+        deviceClass: null,
+        confidence: "none",
+        reason: "per-sample-source-not-retained"
+      };
     }
-    return "apple-health";
+    return { deviceClass: null, confidence: "none", reason: "no-high-confidence-mapping" };
+  }
+  function resolveObservationDeviceClass(byTypeKey, opts) {
+    return resolveObservationDevice(byTypeKey, opts).deviceClass;
   }
   function buildLocalPatientResource(opts) {
     const display = opts?.display != null && String(opts.display).trim() ? String(opts.display).trim() : "Local patient";
@@ -9099,9 +9273,10 @@ List 5\u20137 working hypotheses that best fit the available data
     const opts = options || {};
     const exportTier = normalizeFhirExportTier(opts.exportTier);
     const isExchange = exportTier === "external-exchange";
+    const exchangePurpose = isExchange ? normalizeFhirExchangePurpose(opts.exchangePurpose) : null;
     if (isExchange) {
       notes.push(
-        "export tier: external-exchange \u2014 independent R4 exchange-gate required before sharing; not HL7 Java validator"
+        `export tier: external-exchange (${exchangePurpose}) \u2014 independent R4 exchange-gate required; not HL7 Java validator`
       );
     } else {
       notes.push("export tier: local-archive \u2014 personal archive; project self-check only");
@@ -9151,12 +9326,14 @@ List 5\u20137 working hypotheses that best fit the available data
     const observationDomains = [];
     const observationDeviceClasses = [];
     const domainSourceBatches = analysis.domainSourceBatches;
-    const includeDevices = isExchange ? true : opts.includeDevices !== false;
-    if (isExchange && opts.includeDevices === false) {
-      notes.push("external-exchange forces includeDevices=true (UI opt-out ignored for this tier)");
-    }
+    const includeDevices = opts.includeDevices !== false;
     const batchesEarly = (Array.isArray(opts.importBatches) ? opts.importBatches : []).map((b) => normalizeImportBatch(b)).filter((b) => !!b);
     const hasHaeImport = batchesEarly.some((b) => b.source === "hae");
+    if (hasHaeImport) {
+      notes.push(
+        "HAE import batches present \u2014 recorded in Provenance when enabled; not used as Observation.device"
+      );
+    }
     const pushObs = (obs, byTypeKey, deviceHint) => {
       const domain = FHIR_OBS_TYPE_TO_DOMAIN[byTypeKey] || byTypeKey;
       attachObservationCategory(obs, byTypeKey);
@@ -9172,11 +9349,11 @@ List 5\u20137 working hypotheses that best fit the available data
         observationDeviceClasses.push(deviceHint.deviceClass);
         return;
       }
+      const resolved = resolveObservationDevice(byTypeKey, {
+        stepsDay: deviceHint?.stepsDay
+      });
       observationDeviceClasses.push(
-        resolveObservationDeviceClass(byTypeKey, {
-          hasHaeImport,
-          stepsDay: deviceHint?.stepsDay
-        })
+        resolved.confidence === "high" ? resolved.deviceClass : null
       );
     };
     const bpAll = (data?.bloodPressure || []).filter(
@@ -9386,20 +9563,39 @@ List 5\u20137 working hypotheses that best fit the available data
         byType.agpSvg = 1;
       }
     }
-    const includePatient = opts.includePatient === true;
+    let wantPatient = opts.includePatient === true;
+    if (isExchange && exchangePurpose === "anonymous-share") {
+      if (wantPatient) {
+        notes.push(
+          "anonymous-share: includePatient ignored \u2014 forced no subject for anonymous data share"
+        );
+      }
+      wantPatient = false;
+    }
+    if (isExchange && exchangePurpose === "personal-handoff") {
+      wantPatient = true;
+    }
+    const persistentIdRaw = opts.patientPersistentId != null && String(opts.patientPersistentId).trim() ? String(opts.patientPersistentId).trim() : "";
+    const persistentId = persistentIdRaw && persistentIdRaw !== PATIENT_IDENTIFIER_VALUE_LEGACY ? persistentIdRaw : "";
     let patientResource = null;
     let patientDisplayText = "Local patient";
-    if (includePatient) {
+    if (wantPatient) {
       patientDisplayText = opts.patientDisplay != null && String(opts.patientDisplay).trim() ? String(opts.patientDisplay).trim() : "Local patient";
       patientResource = buildLocalPatientResource({
         display: patientDisplayText,
         gender: opts.patientGender,
-        birthYear: opts.patientBirthYear
+        birthYear: opts.patientBirthYear,
+        persistentId: persistentId || null
       });
       notes.push(
         "includePatient: local pseudonym Patient (not verified identity); subjects wire to Patient fullUrl"
       );
-    } else if (opts.patientDisplay) {
+      if (isExchange && exchangePurpose === "personal-handoff" && !persistentId) {
+        notes.push(
+          "personal-handoff: patientPersistentId missing \u2014 exchange-gate will block (need random local id)"
+        );
+      }
+    } else if (opts.patientDisplay && !(isExchange && exchangePurpose === "anonymous-share")) {
       notes.push(
         "patientDisplay ignored for subject wiring (includePatient is false; default has no identity)"
       );
@@ -9416,13 +9612,19 @@ List 5\u20137 working hypotheses that best fit the available data
         if (!usedDeviceClasses.has(cls)) continue;
         deviceResources.push(buildLocalDeviceResource(cls));
       }
+      const wired = observationDeviceClasses.filter(Boolean).length;
+      const total = observationDeviceClasses.length;
       notes.push(
-        `includeDevices: ${deviceResources.length} Device class(es) (${[...usedDeviceClasses].join(
-          ", "
-        )}); Observation.device wires to Device fullUrl`
+        `includeDevices: ${deviceResources.length} high-confidence Device class(es) (${[
+          ...usedDeviceClasses
+        ].join(", ")}); wired ${wired}/${total} Observations (omit when source uncertain)`
       );
     } else if (!includeDevices) {
       notes.push("includeDevices: false \u2014 no Device resources / no Observation.device");
+    } else {
+      notes.push(
+        "includeDevices: no high-confidence measurement devices for this export (HAE/aggregate not Devices)"
+      );
     }
     const batches = batchesEarly;
     const includeProvenance = opts.includeProvenance === false ? false : opts.includeProvenance === true ? true : batches.length > 0;
@@ -9569,7 +9771,14 @@ List 5\u20137 working hypotheses that best fit the available data
             system: "urn:health-analyzer:export-kind",
             code: exportTier,
             display: exportTier === "external-exchange" ? "External exchange candidate (must pass independent exchange-gate; not hospital submission)" : "Local archive collection (not transaction/submission)"
-          }
+          },
+          ...exchangePurpose ? [
+            {
+              system: "urn:health-analyzer:exchange-purpose",
+              code: exchangePurpose,
+              display: exchangePurpose === "anonymous-share" ? "Anonymous data share (no subject / no Patient)" : "Personal data handoff (Patient subject + local persistent pseudonym id)"
+            }
+          ] : []
         ],
         // profile is informal — not a published IG
         profile: [`urn:health-analyzer:StructureDefinition/${FHIR_EXPORT_PROFILE}`]
@@ -9588,7 +9797,7 @@ List 5\u20137 working hypotheses that best fit the available data
       byType
     };
     notes.push(
-      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Patient=${counts.patients} Device=${counts.devices} Provenance=${counts.provenances} tier=${exportTier} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, wristTemp=${byType.wristTemperature}, nightHr=${byType.nightHeartRate}, rr=${byType.respiratoryRate}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
+      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Patient=${counts.patients} Device=${counts.devices} Provenance=${counts.provenances} tier=${exportTier}` + (exchangePurpose ? ` purpose=${exchangePurpose}` : "") + ` (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, wristTemp=${byType.wristTemperature}, nightHr=${byType.nightHeartRate}, rr=${byType.respiratoryRate}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
     );
     let validation;
     if (opts.validate !== false) {
@@ -9604,7 +9813,10 @@ List 5\u20137 working hypotheses that best fit the available data
     const runExchange = opts.runExchangeValidation === true || isExchange && opts.runExchangeValidation !== false;
     let exchangeValidation;
     if (runExchange) {
-      exchangeValidation = validateFhirR4ExchangeGate(bundle);
+      exchangeValidation = validateFhirR4ExchangeGate(bundle, {
+        exportTier,
+        exchangePurpose: exchangePurpose || void 0
+      });
       if (exchangeValidation.ok) {
         notes.push(
           `exchange-gate (${FHIR_EXCHANGE_GATE_ENGINE}): ok \u2014 still not HL7 validator_cli`
@@ -9628,6 +9840,7 @@ List 5\u20137 working hypotheses that best fit the available data
       counts,
       notes,
       exportTier,
+      exchangePurpose,
       validation,
       exchangeValidation,
       exchangeReady

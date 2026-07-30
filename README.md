@@ -177,6 +177,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v1.59 | Device 仅高置信度 Watch/iPhone；外部交换分匿名分享/个人转交；门禁拒绝误标 Device |
 | v1.58 | FHIR 导出分档：本地归档 / 外部交换；后者经独立 R4 交换门禁（非 HL7 Java 校验器） |
 | v1.57 | FHIR 可选 Device（Apple Watch / iPhone / HAE / 聚合）+ Observation.device 引用 |
 | v1.56 | FHIR 日汇总日期精度 Period；Patient 默认无固定 identifier；birthDate 仅年 |
