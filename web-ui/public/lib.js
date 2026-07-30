@@ -7767,7 +7767,7 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.1";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
@@ -7778,6 +7778,9 @@ List 5\u20137 working hypotheses that best fit the available data
   var DEFAULT_MAX_WEIGHT = 500;
   var DEFAULT_MAX_STEPS_DAYS = 366;
   var DEFAULT_MAX_RESTING_HR_DAYS = 366;
+  var DEFAULT_MAX_SPO2_DAYS = 366;
+  var DEFAULT_MAX_SLEEP_DAYS = 366;
+  var DEFAULT_MAX_CLINICAL_DOC_CHARS = 4e5;
   function toIsoDateTime(appleDt) {
     if (appleDt == null) return "";
     const s = String(appleDt).trim();
@@ -7948,6 +7951,152 @@ List 5\u20137 working hypotheses that best fit the available data
     obs.note.push({ text: "resting heart rate (daily summary)" });
     return obs;
   }
+  function buildSpo2Observation(date, spo2Pct, index) {
+    const id = `obs-spo2-${index}`;
+    const effective = toIsoDateTime(date);
+    const obs = baseObservation(
+      id,
+      loincCoding("59408-5", "Oxygen saturation in Arterial blood by Pulse oximetry"),
+      effective
+    );
+    obs.valueQuantity = quantity(spo2Pct, "%", "%");
+    obs.note.push({ text: "daily mean SpO\u2082 (Watch summary)" });
+    return obs;
+  }
+  function buildSleepObservation(date, sleep, index) {
+    const id = `obs-sleep-${index}`;
+    const effective = toIsoDateTime(date);
+    const obs = baseObservation(
+      id,
+      loincCoding("93832-4", "Sleep duration"),
+      effective
+    );
+    if (sleep.total != null && Number.isFinite(sleep.total)) {
+      obs.valueQuantity = quantity(sleep.total, "h", "h");
+    }
+    const components = [];
+    const stage = (code, display, hours) => {
+      if (hours == null || !Number.isFinite(hours)) return;
+      components.push({
+        code: loincCoding(code, display),
+        valueQuantity: quantity(hours, "h", "h")
+      });
+    };
+    stage("93829-0", "Deep sleep duration", sleep.deep);
+    stage("93830-8", "REM sleep duration", sleep.rem);
+    stage("93831-6", "Light/core sleep duration", sleep.core);
+    stage("93828-2", "Awake duration in sleep period", sleep.awake);
+    if (components.length) obs.component = components;
+    obs.note.push({
+      text: "daily sleep summary (total + stages when present); experimental mapping"
+    });
+    return obs;
+  }
+  function utf8Bytes(text) {
+    return new TextEncoder().encode(text);
+  }
+  function utf8ToBase64(text) {
+    const bytes = utf8Bytes(text);
+    const g = globalThis;
+    if (g.Buffer && typeof g.Buffer.from === "function") {
+      return g.Buffer.from(bytes).toString("base64");
+    }
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    if (typeof g.btoa === "function") return g.btoa(binary);
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let out = "";
+    for (let i = 0; i < bytes.length; i += 3) {
+      const a = bytes[i];
+      const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
+      const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+      const triple = a << 16 | b << 8 | c;
+      out += alphabet[triple >> 18 & 63];
+      out += alphabet[triple >> 12 & 63];
+      out += i + 1 < bytes.length ? alphabet[triple >> 6 & 63] : "=";
+      out += i + 2 < bytes.length ? alphabet[triple & 63] : "=";
+    }
+    return out;
+  }
+  function utf8ByteLength(text) {
+    return utf8Bytes(text).length;
+  }
+  function buildClinicalDocumentReference(markdown, html, maxChars, notes) {
+    const md = markdown != null ? String(markdown) : "";
+    const ht = html != null ? String(html) : "";
+    if (!md.trim() && !ht.trim()) {
+      notes.push("includeClinicalDocument set but no clinicalMarkdown/clinicalHtml provided");
+      return null;
+    }
+    const content = [];
+    const attach = (data, contentType, title) => {
+      let body = data;
+      if (body.length > maxChars) {
+        body = body.slice(0, maxChars);
+        notes.push(
+          `Clinical ${contentType} truncated to ${maxChars} chars for DocumentReference attachment`
+        );
+      }
+      content.push({
+        attachment: {
+          contentType,
+          title,
+          data: utf8ToBase64(body),
+          size: utf8ByteLength(body)
+        }
+      });
+    };
+    if (md.trim()) attach(md, "text/markdown", "clinical-review.md");
+    if (ht.trim()) attach(ht, "text/html", "clinical-review.html");
+    const recorded = (/* @__PURE__ */ new Date()).toISOString();
+    return {
+      resourceType: "DocumentReference",
+      id: "docref-clinical-review-1",
+      meta: {
+        source: META_SOURCE,
+        tag: [
+          {
+            system: "urn:health-analyzer:tag",
+            code: FHIR_EXPORT_PROFILE,
+            display: "Experimental local FHIR-shaped export"
+          }
+        ]
+      },
+      status: "current",
+      docStatus: "preliminary",
+      type: {
+        coding: [
+          {
+            system: LOINC,
+            code: "11506-3",
+            display: "Progress note"
+          }
+        ],
+        text: "Local structured health review / clinic report (experimental)"
+      },
+      category: [
+        {
+          coding: [
+            {
+              system: "http://hl7.org/fhir/us/core/CodeSystem/us-core-documentreference-category",
+              code: "clinical-note",
+              display: "Clinical Note"
+            }
+          ],
+          text: "clinical-note (local archive)"
+        }
+      ],
+      date: recorded,
+      description: "Locally generated clinical review document; not a certified medical record; no diagnosis or medication advice.",
+      content,
+      extension: [
+        {
+          url: "urn:health-analyzer:extension:document-disclaimer",
+          valueString: "Generated on-device by Health Analyzer for personal archive only. Not clinical authentication."
+        }
+      ]
+    };
+  }
   function buildFhirExportBundle(analysis, options) {
     const notes = [];
     notes.push(
@@ -7963,6 +8112,12 @@ List 5\u20137 working hypotheses that best fit the available data
     const maxWeight = Math.max(0, opts.maxWeight ?? DEFAULT_MAX_WEIGHT);
     const maxStepsDays = Math.max(0, opts.maxStepsDays ?? DEFAULT_MAX_STEPS_DAYS);
     const maxRestingHrDays = DEFAULT_MAX_RESTING_HR_DAYS;
+    const maxSpo2Days = Math.max(0, opts.maxSpo2Days ?? DEFAULT_MAX_SPO2_DAYS);
+    const maxSleepDays = Math.max(0, opts.maxSleepDays ?? DEFAULT_MAX_SLEEP_DAYS);
+    const maxClinicalDocChars = Math.max(
+      1e3,
+      opts.maxClinicalDocChars ?? DEFAULT_MAX_CLINICAL_DOC_CHARS
+    );
     const range = analysis.dateRange || { start: "", end: "" };
     const windowStart = (opts.windowStart != null && opts.windowStart !== "" ? String(opts.windowStart).slice(0, 10) : range.start || "").slice(0, 10);
     const windowEnd = (opts.windowEnd != null && opts.windowEnd !== "" ? String(opts.windowEnd).slice(0, 10) : range.end || "").slice(0, 10);
@@ -7977,7 +8132,10 @@ List 5\u20137 working hypotheses that best fit the available data
       bodyWeight: 0,
       glucose: 0,
       steps: 0,
-      restingHeartRate: 0
+      restingHeartRate: 0,
+      spo2: 0,
+      sleep: 0,
+      clinicalDocument: 0
     };
     const observations = [];
     const bpAll = (data?.bloodPressure || []).filter(
@@ -8046,6 +8204,40 @@ List 5\u20137 working hypotheses that best fit the available data
       observations.push(buildRestingHrObservation(d, rhrMap[d], i));
       byType.restingHeartRate += 1;
     }
+    const watchDays = analysis.watchStats?.days || [];
+    const spo2Days = watchDays.filter(
+      (d) => d && d.date && inWindow(d.date, windowStart, windowEnd) && d.spo2Mean != null && Number.isFinite(d.spo2Mean)
+    ).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    let spo2Used = spo2Days;
+    if (spo2Days.length > maxSpo2Days) {
+      spo2Used = sampleEvenly(spo2Days, maxSpo2Days);
+      notes.push(
+        `SpO2 days capped: ${spo2Days.length} \u2192 ${spo2Used.length} (maxSpo2Days=${maxSpo2Days})`
+      );
+    }
+    for (let i = 0; i < spo2Used.length; i++) {
+      const d = spo2Used[i];
+      observations.push(buildSpo2Observation(d.date, d.spo2Mean, i));
+      byType.spo2 += 1;
+    }
+    const sleepMap = analysis.sleepByDate || data?.sleep || {};
+    const sleepDates = Object.keys(sleepMap).filter((d) => {
+      if (!inWindow(d, windowStart, windowEnd)) return false;
+      const s = sleepMap[d];
+      return s && s.total != null && Number.isFinite(s.total);
+    }).sort();
+    let sleepDatesUsed = sleepDates;
+    if (sleepDates.length > maxSleepDays) {
+      sleepDatesUsed = sampleEvenly(sleepDates, maxSleepDays);
+      notes.push(
+        `Sleep days capped: ${sleepDates.length} \u2192 ${sleepDatesUsed.length} (maxSleepDays=${maxSleepDays})`
+      );
+    }
+    for (let i = 0; i < sleepDatesUsed.length; i++) {
+      const d = sleepDatesUsed[i];
+      observations.push(buildSleepObservation(d, sleepMap[d], i));
+      byType.sleep += 1;
+    }
     if (opts.patientDisplay) {
       const subject = {
         display: String(opts.patientDisplay),
@@ -8055,15 +8247,39 @@ List 5\u20137 working hypotheses that best fit the available data
         obs.subject = subject;
       }
     }
+    const documentReferences = [];
+    if (opts.includeClinicalDocument) {
+      const doc = buildClinicalDocumentReference(
+        opts.clinicalMarkdown,
+        opts.clinicalHtml,
+        maxClinicalDocChars,
+        notes
+      );
+      if (doc) {
+        if (opts.patientDisplay) {
+          doc.subject = {
+            display: String(opts.patientDisplay),
+            reference: "Patient/local-patient"
+          };
+        }
+        documentReferences.push(doc);
+        byType.clinicalDocument = 1;
+      }
+    }
     const batchesRaw = opts.importBatches;
     const batches = (Array.isArray(batchesRaw) ? batchesRaw : []).map((b) => normalizeImportBatch(b)).filter((b) => !!b);
     const includeProvenance = opts.includeProvenance === false ? false : opts.includeProvenance === true ? true : batches.length > 0;
     const provenances = [];
     if (includeProvenance) {
       const recorded = (/* @__PURE__ */ new Date()).toISOString();
-      const target = observations.map((o) => ({
-        reference: `Observation/${o.id}`
-      }));
+      const target = [
+        ...observations.map((o) => ({
+          reference: `Observation/${o.id}`
+        })),
+        ...documentReferences.map((d) => ({
+          reference: `DocumentReference/${d.id}`
+        }))
+      ];
       const entities = batches.map((b) => ({
         role: "source",
         what: {
@@ -8102,7 +8318,7 @@ List 5\u20137 working hypotheses that best fit the available data
               display: "create"
             }
           ],
-          text: "assemble local Observations from Apple Health / HAE import"
+          text: "assemble local Observations / DocumentReference from Apple Health / HAE import"
         },
         agent: [
           {
@@ -8150,6 +8366,7 @@ List 5\u20137 working hypotheses that best fit the available data
     const timestamp = (/* @__PURE__ */ new Date()).toISOString();
     const entries = [
       ...observations.map(entryFor),
+      ...documentReferences.map(entryFor),
       ...provenances.map(entryFor)
     ];
     const bundle = {
@@ -8162,7 +8379,7 @@ List 5\u20137 working hypotheses that best fit the available data
           {
             system: "urn:health-analyzer:tag",
             code: FHIR_EXPORT_PROFILE,
-            display: "health-analyzer FHIR export profile v1"
+            display: "health-analyzer FHIR export profile v1.1"
           },
           {
             system: "urn:health-analyzer:rule-version",
@@ -8186,10 +8403,11 @@ List 5\u20137 working hypotheses that best fit the available data
     const counts = {
       observations: observations.length,
       provenances: provenances.length,
+      documentReferences: documentReferences.length,
       byType
     };
     notes.push(
-      `exported Observations=${counts.observations} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate})`
+      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, clinicalDoc=${byType.clinicalDocument})`
     );
     const json = JSON.stringify(bundle, null, 2);
     return { bundle, json, counts, notes };

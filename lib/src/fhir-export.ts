@@ -1,5 +1,5 @@
 /**
- * 本机 FHIR R4-shaped Observation + Provenance 导出（试验性 v1.48）
+ * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference 导出（试验性 v1.49）
  *
  * - 仅生成本地可下载 JSON Bundle；非医院系统对接、非 FHIR 认证提交
  * - 资源为 experimental / trial-use 形状，供个人归档与互操作试验
@@ -7,7 +7,14 @@
  * - 默认由调用方/UI 选择导出；本模块仅在被调用时构建
  */
 
-import { FullAnalysis, BloodPressureRecord, CgmPoint, WeightRecord } from './types';
+import {
+  FullAnalysis,
+  BloodPressureRecord,
+  CgmPoint,
+  WeightRecord,
+  SleepDaySummary,
+  WatchDayView,
+} from './types';
 import { getDate } from './parser';
 import {
   ImportBatchRecord,
@@ -19,7 +26,7 @@ import {
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.1';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
@@ -32,6 +39,10 @@ const DEFAULT_MAX_BP = 500;
 const DEFAULT_MAX_WEIGHT = 500;
 const DEFAULT_MAX_STEPS_DAYS = 366;
 const DEFAULT_MAX_RESTING_HR_DAYS = 366;
+const DEFAULT_MAX_SPO2_DAYS = 366;
+const DEFAULT_MAX_SLEEP_DAYS = 366;
+/** Clinical document attachment size cap (UTF-8 chars) */
+const DEFAULT_MAX_CLINICAL_DOC_CHARS = 400_000;
 
 export interface FhirExportOptions {
   locale?: string;
@@ -43,15 +54,30 @@ export interface FhirExportOptions {
   maxBp?: number; // default 500
   maxWeight?: number; // default 500
   maxStepsDays?: number; // default 366
+  maxSpo2Days?: number; // default 366
+  maxSleepDays?: number; // default 366
   includeProvenance?: boolean; // default true when batches provided
   importBatches?: ImportBatchRecord[] | null; // from provenance.ts
   patientDisplay?: string | null; // optional "local-patient" display only
+  /**
+   * Attach a local clinical review document as DocumentReference (default false).
+   * Provide markdown and/or html; content is truncated if over maxClinicalDocChars.
+   */
+  includeClinicalDocument?: boolean;
+  clinicalMarkdown?: string | null;
+  clinicalHtml?: string | null;
+  maxClinicalDocChars?: number;
 }
 
 export interface FhirExportResult {
   bundle: Record<string, unknown>; // FHIR Bundle
   json: string; // pretty JSON
-  counts: { observations: number; provenances: number; byType: Record<string, number> };
+  counts: {
+    observations: number;
+    provenances: number;
+    documentReferences: number;
+    byType: Record<string, number>;
+  };
   notes: string[];
 }
 
@@ -279,13 +305,195 @@ function buildRestingHrObservation(
   return obs;
 }
 
+/** Daily SpO2 mean from Watch day view — LOINC 59408-5 */
+function buildSpo2Observation(date: string, spo2Pct: number, index: number): Record<string, unknown> {
+  const id = `obs-spo2-${index}`;
+  const effective = toIsoDateTime(date);
+  const obs = baseObservation(
+    id,
+    loincCoding('59408-5', 'Oxygen saturation in Arterial blood by Pulse oximetry'),
+    effective
+  );
+  obs.valueQuantity = quantity(spo2Pct, '%', '%');
+  (obs.note as { text: string }[]).push({ text: 'daily mean SpO₂ (Watch summary)' });
+  return obs;
+}
+
+/**
+ * Sleep duration + stage components when available.
+ * LOINC 93832-4 Sleep duration; stages as components (deep/REM/core/awake hours).
+ */
+function buildSleepObservation(
+  date: string,
+  sleep: SleepDaySummary,
+  index: number
+): Record<string, unknown> {
+  const id = `obs-sleep-${index}`;
+  const effective = toIsoDateTime(date);
+  const obs = baseObservation(
+    id,
+    loincCoding('93832-4', 'Sleep duration'),
+    effective
+  );
+  if (sleep.total != null && Number.isFinite(sleep.total)) {
+    obs.valueQuantity = quantity(sleep.total, 'h', 'h');
+  }
+  const components: Record<string, unknown>[] = [];
+  const stage = (
+    code: string,
+    display: string,
+    hours: number | undefined
+  ) => {
+    if (hours == null || !Number.isFinite(hours)) return;
+    components.push({
+      code: loincCoding(code, display),
+      valueQuantity: quantity(hours, 'h', 'h'),
+    });
+  };
+  // Stage LOINCs approximate; labeled in text for local archive clarity
+  stage('93829-0', 'Deep sleep duration', sleep.deep);
+  stage('93830-8', 'REM sleep duration', sleep.rem);
+  stage('93831-6', 'Light/core sleep duration', sleep.core);
+  stage('93828-2', 'Awake duration in sleep period', sleep.awake);
+  if (components.length) obs.component = components;
+  (obs.note as { text: string }[]).push({
+    text: 'daily sleep summary (total + stages when present); experimental mapping',
+  });
+  return obs;
+}
+
+/** UTF-8 bytes (TextEncoder is available in modern Node + browsers) */
+function utf8Bytes(text: string): Uint8Array {
+  return new TextEncoder().encode(text);
+}
+
+/** UTF-8 → base64 (browser btoa or Node buffer polyfill via globalThis) */
+function utf8ToBase64(text: string): string {
+  const bytes = utf8Bytes(text);
+  const g = globalThis as unknown as {
+    Buffer?: { from: (u: Uint8Array) => { toString: (enc: string) => string } };
+    btoa?: (s: string) => string;
+  };
+  if (g.Buffer && typeof g.Buffer.from === 'function') {
+    return g.Buffer.from(bytes).toString('base64');
+  }
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  if (typeof g.btoa === 'function') return g.btoa(binary);
+  // Minimal base64 fallback
+  const alphabet =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i];
+    const b = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const c = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    const triple = (a << 16) | (b << 8) | c;
+    out += alphabet[(triple >> 18) & 63];
+    out += alphabet[(triple >> 12) & 63];
+    out += i + 1 < bytes.length ? alphabet[(triple >> 6) & 63] : '=';
+    out += i + 2 < bytes.length ? alphabet[triple & 63] : '=';
+  }
+  return out;
+}
+
+function utf8ByteLength(text: string): number {
+  return utf8Bytes(text).length;
+}
+
+function buildClinicalDocumentReference(
+  markdown: string | null | undefined,
+  html: string | null | undefined,
+  maxChars: number,
+  notes: string[]
+): Record<string, unknown> | null {
+  const md = markdown != null ? String(markdown) : '';
+  const ht = html != null ? String(html) : '';
+  if (!md.trim() && !ht.trim()) {
+    notes.push('includeClinicalDocument set but no clinicalMarkdown/clinicalHtml provided');
+    return null;
+  }
+  const content: Record<string, unknown>[] = [];
+  const attach = (data: string, contentType: string, title: string) => {
+    let body = data;
+    if (body.length > maxChars) {
+      body = body.slice(0, maxChars);
+      notes.push(
+        `Clinical ${contentType} truncated to ${maxChars} chars for DocumentReference attachment`
+      );
+    }
+    content.push({
+      attachment: {
+        contentType,
+        title,
+        data: utf8ToBase64(body),
+        size: utf8ByteLength(body),
+      },
+    });
+  };
+  if (md.trim()) attach(md, 'text/markdown', 'clinical-review.md');
+  if (ht.trim()) attach(ht, 'text/html', 'clinical-review.html');
+
+  const recorded = new Date().toISOString();
+  return {
+    resourceType: 'DocumentReference',
+    id: 'docref-clinical-review-1',
+    meta: {
+      source: META_SOURCE,
+      tag: [
+        {
+          system: 'urn:health-analyzer:tag',
+          code: FHIR_EXPORT_PROFILE,
+          display: 'Experimental local FHIR-shaped export',
+        },
+      ],
+    },
+    status: 'current',
+    docStatus: 'preliminary',
+    type: {
+      coding: [
+        {
+          system: LOINC,
+          code: '11506-3',
+          display: 'Progress note',
+        },
+      ],
+      text: 'Local structured health review / clinic report (experimental)',
+    },
+    category: [
+      {
+        coding: [
+          {
+            system: 'http://hl7.org/fhir/us/core/CodeSystem/us-core-documentreference-category',
+            code: 'clinical-note',
+            display: 'Clinical Note',
+          },
+        ],
+        text: 'clinical-note (local archive)',
+      },
+    ],
+    date: recorded,
+    description:
+      'Locally generated clinical review document; not a certified medical record; no diagnosis or medication advice.',
+    content,
+    extension: [
+      {
+        url: 'urn:health-analyzer:extension:document-disclaimer',
+        valueString:
+          'Generated on-device by Health Analyzer for personal archive only. Not clinical authentication.',
+      },
+    ],
+  };
+}
+
 // ============================================================
 // Main export
 // ============================================================
 
 /**
- * Build a local FHIR R4-shaped Bundle (collection) of Observations
- * and optional Provenance. Not for unvalidated clinical submission.
+ * Build a local FHIR R4-shaped Bundle (collection) of Observations,
+ * optional DocumentReference (clinical review), and optional Provenance.
+ * Not for unvalidated clinical submission.
  */
 export function buildFhirExportBundle(
   analysis: FullAnalysis,
@@ -306,6 +514,12 @@ export function buildFhirExportBundle(
   const maxWeight = Math.max(0, opts.maxWeight ?? DEFAULT_MAX_WEIGHT);
   const maxStepsDays = Math.max(0, opts.maxStepsDays ?? DEFAULT_MAX_STEPS_DAYS);
   const maxRestingHrDays = DEFAULT_MAX_RESTING_HR_DAYS;
+  const maxSpo2Days = Math.max(0, opts.maxSpo2Days ?? DEFAULT_MAX_SPO2_DAYS);
+  const maxSleepDays = Math.max(0, opts.maxSleepDays ?? DEFAULT_MAX_SLEEP_DAYS);
+  const maxClinicalDocChars = Math.max(
+    1000,
+    opts.maxClinicalDocChars ?? DEFAULT_MAX_CLINICAL_DOC_CHARS
+  );
 
   const range = analysis.dateRange || { start: '', end: '' };
   const windowStart = (opts.windowStart != null && opts.windowStart !== ''
@@ -330,6 +544,9 @@ export function buildFhirExportBundle(
     glucose: 0,
     steps: 0,
     restingHeartRate: 0,
+    spo2: 0,
+    sleep: 0,
+    clinicalDocument: 0,
   };
   const observations: Record<string, unknown>[] = [];
 
@@ -413,6 +630,53 @@ export function buildFhirExportBundle(
     byType.restingHeartRate += 1;
   }
 
+  // --- SpO2 daily mean (Watch stats days) ---
+  const watchDays: WatchDayView[] = analysis.watchStats?.days || [];
+  const spo2Days = watchDays
+    .filter(
+      (d) =>
+        d &&
+        d.date &&
+        inWindow(d.date, windowStart, windowEnd) &&
+        d.spo2Mean != null &&
+        Number.isFinite(d.spo2Mean)
+    )
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  let spo2Used = spo2Days;
+  if (spo2Days.length > maxSpo2Days) {
+    spo2Used = sampleEvenly(spo2Days, maxSpo2Days);
+    notes.push(
+      `SpO2 days capped: ${spo2Days.length} → ${spo2Used.length} (maxSpo2Days=${maxSpo2Days})`
+    );
+  }
+  for (let i = 0; i < spo2Used.length; i++) {
+    const d = spo2Used[i];
+    observations.push(buildSpo2Observation(d.date, d.spo2Mean as number, i));
+    byType.spo2 += 1;
+  }
+
+  // --- Sleep daily ---
+  const sleepMap = analysis.sleepByDate || data?.sleep || {};
+  const sleepDates = Object.keys(sleepMap)
+    .filter((d) => {
+      if (!inWindow(d, windowStart, windowEnd)) return false;
+      const s = sleepMap[d];
+      return s && s.total != null && Number.isFinite(s.total);
+    })
+    .sort();
+  let sleepDatesUsed = sleepDates;
+  if (sleepDates.length > maxSleepDays) {
+    sleepDatesUsed = sampleEvenly(sleepDates, maxSleepDays);
+    notes.push(
+      `Sleep days capped: ${sleepDates.length} → ${sleepDatesUsed.length} (maxSleepDays=${maxSleepDays})`
+    );
+  }
+  for (let i = 0; i < sleepDatesUsed.length; i++) {
+    const d = sleepDatesUsed[i];
+    observations.push(buildSleepObservation(d, sleepMap[d], i));
+    byType.sleep += 1;
+  }
+
   // Optional subject display on each observation
   if (opts.patientDisplay) {
     const subject = {
@@ -421,6 +685,27 @@ export function buildFhirExportBundle(
     };
     for (const obs of observations) {
       obs.subject = subject;
+    }
+  }
+
+  // --- DocumentReference (clinical review, opt-in) ---
+  const documentReferences: Record<string, unknown>[] = [];
+  if (opts.includeClinicalDocument) {
+    const doc = buildClinicalDocumentReference(
+      opts.clinicalMarkdown,
+      opts.clinicalHtml,
+      maxClinicalDocChars,
+      notes
+    );
+    if (doc) {
+      if (opts.patientDisplay) {
+        doc.subject = {
+          display: String(opts.patientDisplay),
+          reference: 'Patient/local-patient',
+        };
+      }
+      documentReferences.push(doc);
+      byType.clinicalDocument = 1;
     }
   }
 
@@ -441,9 +726,14 @@ export function buildFhirExportBundle(
 
   if (includeProvenance) {
     const recorded = new Date().toISOString();
-    const target = observations.map((o) => ({
-      reference: `Observation/${o.id}`,
-    }));
+    const target = [
+      ...observations.map((o) => ({
+        reference: `Observation/${o.id}`,
+      })),
+      ...documentReferences.map((d) => ({
+        reference: `DocumentReference/${d.id}`,
+      })),
+    ];
 
     const entities: Record<string, unknown>[] = batches.map((b) => ({
       role: 'source',
@@ -485,7 +775,7 @@ export function buildFhirExportBundle(
             display: 'create',
           },
         ],
-        text: 'assemble local Observations from Apple Health / HAE import',
+        text: 'assemble local Observations / DocumentReference from Apple Health / HAE import',
       },
       agent: [
         {
@@ -539,6 +829,7 @@ export function buildFhirExportBundle(
   const timestamp = new Date().toISOString();
   const entries = [
     ...observations.map(entryFor),
+    ...documentReferences.map(entryFor),
     ...provenances.map(entryFor),
   ];
 
@@ -552,7 +843,7 @@ export function buildFhirExportBundle(
         {
           system: 'urn:health-analyzer:tag',
           code: FHIR_EXPORT_PROFILE,
-          display: 'health-analyzer FHIR export profile v1',
+          display: 'health-analyzer FHIR export profile v1.1',
         },
         {
           system: 'urn:health-analyzer:rule-version',
@@ -577,13 +868,16 @@ export function buildFhirExportBundle(
   const counts = {
     observations: observations.length,
     provenances: provenances.length,
+    documentReferences: documentReferences.length,
     byType,
   };
 
   notes.push(
-    `exported Observations=${counts.observations} Provenance=${counts.provenances} ` +
+    `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} ` +
+      `Provenance=${counts.provenances} ` +
       `(bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, ` +
-      `steps=${byType.steps}, restingHr=${byType.restingHeartRate})`
+      `steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, ` +
+      `sleep=${byType.sleep}, clinicalDoc=${byType.clinicalDocument})`
   );
 
   const json = JSON.stringify(bundle, null, 2);

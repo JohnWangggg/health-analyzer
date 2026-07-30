@@ -3675,6 +3675,41 @@
         importBatches: batches,
       });
 
+      // Optional DocumentReference: clinical review under same privacy defaults as HTML export
+      if ($('fhir-include-clinical-doc') && $('fhir-include-clinical-doc').checked) {
+        opts.includeClinicalDocument = true;
+        try {
+          if (typeof window.HealthAnalyzer.generateClinicalReviewMarkdown === 'function') {
+            const clinOpts = Object.assign({}, analysisLocaleOpts(), {
+              includeSensitiveContext: false,
+              includeRawSamples: false,
+              includeEvents: false,
+              includeProvenanceAppendix: false,
+            });
+            opts.clinicalMarkdown = window.HealthAnalyzer.generateClinicalReviewMarkdown(
+              currentAnalysis,
+              null,
+              clinOpts
+            );
+          }
+          if (typeof window.HealthAnalyzer.generateClinicalReviewHtml === 'function') {
+            const clinOpts = Object.assign({}, analysisLocaleOpts(), {
+              includeSensitiveContext: false,
+              includeRawSamples: false,
+              includeEvents: false,
+              includeProvenanceAppendix: false,
+            });
+            opts.clinicalHtml = window.HealthAnalyzer.generateClinicalReviewHtml(
+              currentAnalysis,
+              null,
+              clinOpts
+            );
+          }
+        } catch (docErr) {
+          console.warn('clinical document for FHIR skipped', docErr);
+        }
+      }
+
       const result = window.HealthAnalyzer.buildFhirExportBundle(
         currentAnalysis,
         opts
