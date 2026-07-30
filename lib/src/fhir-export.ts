@@ -29,7 +29,7 @@ import { buildAgpSvg, buildCgm14DayReport } from './clinical-report';
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.6.0';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.6.1';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
@@ -45,7 +45,8 @@ const EXT_PATIENT_DISCLAIMER = 'urn:health-analyzer:extension:patient-disclaimer
 /** Stable local patient identifier system / value (no real identity) */
 const PATIENT_ID_SYSTEM = 'urn:health-analyzer:patient';
 const PATIENT_LOCAL_ID = 'patient-local-1';
-const PATIENT_IDENTIFIER_VALUE = 'local-patient';
+/** @deprecated Do not use a fixed identifier across exports (merge risk). */
+const PATIENT_IDENTIFIER_VALUE_LEGACY = 'local-patient';
 const FHIR_ADMIN_GENDERS = new Set(['male', 'female', 'other', 'unknown']);
 
 /**
@@ -287,13 +288,35 @@ type EffectiveSpec =
   | { kind: 'instant'; value: string }
   | { kind: 'period'; start: string; end: string; summaryNote?: string };
 
-/** Calendar-day period for daily aggregates (local wall date, no false Z claim). */
+/**
+ * Calendar-day period for daily aggregates.
+ * Uses **date precision only** (YYYY-MM-DD) so FHIR dateTime rules do not require a timezone.
+ * (R4: if hour/minute are present, timezone is mandatory.)
+ */
 export function dayEffectivePeriod(dateYmd: string): { start: string; end: string } {
   const d = String(dateYmd || '').slice(0, 10);
   return {
-    start: `${d}T00:00:00`,
-    end: `${d}T23:59:59`,
+    start: d,
+    end: d,
   };
+}
+
+/**
+ * R4 dateTime: if precision includes hour/minute, a timezone offset or Z is required.
+ * Date-only (YYYY / YYYY-MM / YYYY-MM-DD) is allowed without zone.
+ */
+export function isValidFhirDateTime(value: string): boolean {
+  const s = String(value || '').trim();
+  if (!s) return false;
+  // year / year-month / full date
+  if (/^\d{4}$/.test(s)) return true;
+  if (/^\d{4}-\d{2}$/.test(s)) return true;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return true;
+  // dateTime with time → must end with Z or ±HH:MM (or ±HHMM)
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) {
+    return /(Z|[+-]\d{2}:\d{2}|[+-]\d{4})$/.test(s);
+  }
+  return false;
 }
 
 function baseObservation(
@@ -349,12 +372,19 @@ function entryFor(
 
 /**
  * Local pseudonym Patient for optional Bundle subject wiring.
- * Not a verified identity; id is fixed as patient-local-1.
+ * - Default: **no identifier** (avoids cross-person merge on fixed `local-patient`)
+ * - Optional persistentId: only when caller supplies a real random local id for cross-bundle link
+ * - birthDate uses year precision only (YYYY), never fabricated Jan 1
  */
 export function buildLocalPatientResource(opts?: {
   display?: string | null;
   gender?: string | null;
   birthYear?: number | null;
+  /**
+   * When set, write identifier with this value (should be random & local-persisted).
+   * When omitted, no Patient.identifier is written (default, safer for multi-user archives).
+   */
+  persistentId?: string | null;
 }): Record<string, unknown> {
   const display =
     opts?.display != null && String(opts.display).trim()
@@ -373,21 +403,28 @@ export function buildLocalPatientResource(opts?: {
         },
       ],
     },
-    identifier: [
-      {
-        system: PATIENT_ID_SYSTEM,
-        value: PATIENT_IDENTIFIER_VALUE,
-      },
-    ],
     name: [{ text: display }],
     extension: [
       {
         url: EXT_PATIENT_DISCLAIMER,
         valueString:
-          'Local pseudonym only; not a verified identity. Optional subject for personal archive — never a legal name requirement.',
+          'Local pseudonym only; not a verified identity. Optional subject for personal archive — never a legal name requirement. No shared default identifier across exports.',
       },
     ],
   };
+
+  const pid =
+    opts?.persistentId != null && String(opts.persistentId).trim()
+      ? String(opts.persistentId).trim()
+      : '';
+  if (pid && pid !== PATIENT_IDENTIFIER_VALUE_LEGACY) {
+    patient.identifier = [
+      {
+        system: PATIENT_ID_SYSTEM,
+        value: pid,
+      },
+    ];
+  }
 
   const genderRaw = opts?.gender != null ? String(opts.gender).trim().toLowerCase() : '';
   if (genderRaw && FHIR_ADMIN_GENDERS.has(genderRaw)) {
@@ -398,11 +435,11 @@ export function buildLocalPatientResource(opts?: {
   if (by != null && Number.isFinite(by)) {
     const year = Math.trunc(Number(by));
     if (year >= 1900 && year <= 2100) {
-      // FHIR birthDate requires full date; year-only privacy → Jan 1 + extension note
-      patient.birthDate = `${year}-01-01`;
+      // FHIR date allows year-only precision — do not fabricate YYYY-01-01
+      patient.birthDate = String(year);
       (patient.extension as Record<string, unknown>[]).push({
         url: EXT_BIRTH_YEAR_ONLY,
-        valueString: 'year-only approximate',
+        valueString: 'year-only precision (not day-of-year)',
       });
     }
   }
@@ -895,10 +932,29 @@ export function validateFhirExportBundle(
       if (!r.effectiveDateTime && !r.effectivePeriod) {
         issues.push(`Observation/${id || i} missing effectiveDateTime/effectivePeriod`);
       }
+      if (r.effectiveDateTime != null) {
+        const edt = String(r.effectiveDateTime);
+        if (!isValidFhirDateTime(edt)) {
+          issues.push(
+            `Observation/${id || i} effectiveDateTime invalid or missing timezone when time present: ${edt}`
+          );
+        }
+      }
       if (r.effectivePeriod && typeof r.effectivePeriod === 'object') {
         const p = r.effectivePeriod as { start?: string; end?: string };
         if (!p.start || !p.end) {
           issues.push(`Observation/${id || i} effectivePeriod needs start and end`);
+        } else {
+          if (!isValidFhirDateTime(String(p.start))) {
+            issues.push(
+              `Observation/${id || i} effectivePeriod.start invalid/missing TZ when timed: ${p.start}`
+            );
+          }
+          if (!isValidFhirDateTime(String(p.end))) {
+            issues.push(
+              `Observation/${id || i} effectivePeriod.end invalid/missing TZ when timed: ${p.end}`
+            );
+          }
         }
       }
       const hasValue =
@@ -928,9 +984,24 @@ export function validateFhirExportBundle(
         }
       }
     } else if (rt === 'Patient') {
-      // id already required above; light checks for local-pseudonym shape
-      if (!Array.isArray(r.identifier) || !r.identifier.length) {
-        issues.push(`Patient/${id || i} missing identifier`);
+      // identifier optional (v1.56: default no shared identifier to avoid cross-person merge)
+      if (r.birthDate != null) {
+        const bd = String(r.birthDate);
+        // year-only or full date; reject fabricated patterns only via guidance in builder
+        if (!/^\d{4}(-\d{2}(-\d{2})?)?$/.test(bd)) {
+          issues.push(`Patient/${id || i} birthDate invalid: ${bd}`);
+        }
+      }
+      if (
+        Array.isArray(r.identifier) &&
+        r.identifier.some(
+          (idObj: { value?: string }) =>
+            idObj && String(idObj.value || '') === PATIENT_IDENTIFIER_VALUE_LEGACY
+        )
+      ) {
+        issues.push(
+          `Patient/${id || i} uses fixed identifier "local-patient" (merge risk; omit or use random persistent id)`
+        );
       }
     }
   }

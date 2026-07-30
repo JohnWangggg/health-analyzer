@@ -35,6 +35,7 @@ export {
   toIsoDateTime,
   newBundleUuid,
   dayEffectivePeriod,
+  isValidFhirDateTime,
   shortImportBatchIdForProv,
   buildLocalPatientResource,
   buildFhirExportBundle,

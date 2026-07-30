@@ -71,12 +71,25 @@ ok(
   'steps Observation has effectivePeriod.start/end'
 );
 ok(!steps?.effectiveDateTime, 'steps Observation does not use effectiveDateTime');
+// v1.56: daily period uses date precision only (no time without timezone)
+ok(
+  steps &&
+    /^\d{4}-\d{2}-\d{2}$/.test(String(steps.effectivePeriod.start)) &&
+    /^\d{4}-\d{2}-\d{2}$/.test(String(steps.effectivePeriod.end)),
+  'steps effectivePeriod uses date precision YYYY-MM-DD (no unzoned time)'
+);
 
 const glucose = entries
   .map((e) => e?.resource)
   .find((r) => r && r.resourceType === 'Observation' && String(r.id || '').startsWith('obs-glucose-'));
 ok(!!glucose, 'has glucose Observation (obs-glucose-*)');
 ok(!!glucose?.effectiveDateTime, 'glucose Observation has effectiveDateTime');
+ok(
+  glucose &&
+    (/(Z|[+-]\d{2}:\d{2}|[+-]\d{4})$/.test(String(glucose.effectiveDateTime)) ||
+      /^\d{4}-\d{2}-\d{2}$/.test(String(glucose.effectiveDateTime))),
+  'glucose effectiveDateTime has timezone when time is present'
+);
 
 const prov = entries.map((e) => e?.resource).find((r) => r && r.resourceType === 'Provenance');
 ok(!!prov, 'has Provenance');

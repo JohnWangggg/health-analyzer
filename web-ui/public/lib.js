@@ -7773,7 +7773,7 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.6.0";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.6.1";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
@@ -7784,7 +7784,7 @@ List 5\u20137 working hypotheses that best fit the available data
   var EXT_PATIENT_DISCLAIMER = "urn:health-analyzer:extension:patient-disclaimer";
   var PATIENT_ID_SYSTEM = "urn:health-analyzer:patient";
   var PATIENT_LOCAL_ID = "patient-local-1";
-  var PATIENT_IDENTIFIER_VALUE = "local-patient";
+  var PATIENT_IDENTIFIER_VALUE_LEGACY = "local-patient";
   var FHIR_ADMIN_GENDERS = /* @__PURE__ */ new Set(["male", "female", "other", "unknown"]);
   var FHIR_OBS_TYPE_TO_DOMAIN = {
     bloodPressure: "bloodPressure",
@@ -7918,9 +7918,20 @@ List 5\u20137 working hypotheses that best fit the available data
   function dayEffectivePeriod(dateYmd) {
     const d = String(dateYmd || "").slice(0, 10);
     return {
-      start: `${d}T00:00:00`,
-      end: `${d}T23:59:59`
+      start: d,
+      end: d
     };
+  }
+  function isValidFhirDateTime(value) {
+    const s = String(value || "").trim();
+    if (!s) return false;
+    if (/^\d{4}$/.test(s)) return true;
+    if (/^\d{4}-\d{2}$/.test(s)) return true;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return true;
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) {
+      return /(Z|[+-]\d{2}:\d{2}|[+-]\d{4})$/.test(s);
+    }
+    return false;
   }
   function baseObservation(id, code, effective) {
     const obs = {
@@ -7975,20 +7986,23 @@ List 5\u20137 working hypotheses that best fit the available data
           }
         ]
       },
-      identifier: [
-        {
-          system: PATIENT_ID_SYSTEM,
-          value: PATIENT_IDENTIFIER_VALUE
-        }
-      ],
       name: [{ text: display }],
       extension: [
         {
           url: EXT_PATIENT_DISCLAIMER,
-          valueString: "Local pseudonym only; not a verified identity. Optional subject for personal archive \u2014 never a legal name requirement."
+          valueString: "Local pseudonym only; not a verified identity. Optional subject for personal archive \u2014 never a legal name requirement. No shared default identifier across exports."
         }
       ]
     };
+    const pid = opts?.persistentId != null && String(opts.persistentId).trim() ? String(opts.persistentId).trim() : "";
+    if (pid && pid !== PATIENT_IDENTIFIER_VALUE_LEGACY) {
+      patient.identifier = [
+        {
+          system: PATIENT_ID_SYSTEM,
+          value: pid
+        }
+      ];
+    }
     const genderRaw = opts?.gender != null ? String(opts.gender).trim().toLowerCase() : "";
     if (genderRaw && FHIR_ADMIN_GENDERS.has(genderRaw)) {
       patient.gender = genderRaw;
@@ -7997,10 +8011,10 @@ List 5\u20137 working hypotheses that best fit the available data
     if (by != null && Number.isFinite(by)) {
       const year = Math.trunc(Number(by));
       if (year >= 1900 && year <= 2100) {
-        patient.birthDate = `${year}-01-01`;
+        patient.birthDate = String(year);
         patient.extension.push({
           url: EXT_BIRTH_YEAR_ONLY,
-          valueString: "year-only approximate"
+          valueString: "year-only precision (not day-of-year)"
         });
       }
     }
@@ -8382,10 +8396,29 @@ List 5\u20137 working hypotheses that best fit the available data
         if (!r.effectiveDateTime && !r.effectivePeriod) {
           issues.push(`Observation/${id || i} missing effectiveDateTime/effectivePeriod`);
         }
+        if (r.effectiveDateTime != null) {
+          const edt = String(r.effectiveDateTime);
+          if (!isValidFhirDateTime(edt)) {
+            issues.push(
+              `Observation/${id || i} effectiveDateTime invalid or missing timezone when time present: ${edt}`
+            );
+          }
+        }
         if (r.effectivePeriod && typeof r.effectivePeriod === "object") {
           const p = r.effectivePeriod;
           if (!p.start || !p.end) {
             issues.push(`Observation/${id || i} effectivePeriod needs start and end`);
+          } else {
+            if (!isValidFhirDateTime(String(p.start))) {
+              issues.push(
+                `Observation/${id || i} effectivePeriod.start invalid/missing TZ when timed: ${p.start}`
+              );
+            }
+            if (!isValidFhirDateTime(String(p.end))) {
+              issues.push(
+                `Observation/${id || i} effectivePeriod.end invalid/missing TZ when timed: ${p.end}`
+              );
+            }
           }
         }
         const hasValue = r.valueQuantity != null || r.valueString != null || Array.isArray(r.component) && r.component.length > 0;
@@ -8411,8 +8444,18 @@ List 5\u20137 working hypotheses that best fit the available data
           }
         }
       } else if (rt === "Patient") {
-        if (!Array.isArray(r.identifier) || !r.identifier.length) {
-          issues.push(`Patient/${id || i} missing identifier`);
+        if (r.birthDate != null) {
+          const bd = String(r.birthDate);
+          if (!/^\d{4}(-\d{2}(-\d{2})?)?$/.test(bd)) {
+            issues.push(`Patient/${id || i} birthDate invalid: ${bd}`);
+          }
+        }
+        if (Array.isArray(r.identifier) && r.identifier.some(
+          (idObj) => idObj && String(idObj.value || "") === PATIENT_IDENTIFIER_VALUE_LEGACY
+        )) {
+          issues.push(
+            `Patient/${id || i} uses fixed identifier "local-patient" (merge risk; omit or use random persistent id)`
+          );
         }
       }
     }
