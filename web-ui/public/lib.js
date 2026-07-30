@@ -7750,8 +7750,26 @@ ${f.content}`).join("\n");
   function sameMinute2(a, b) {
     return a.slice(0, 16) === b.slice(0, 16);
   }
+  function minuteKey(dt) {
+    return dt.slice(0, 16);
+  }
   function approxEq(a, b, eps = 0.05) {
     return Math.abs(a - b) < eps;
+  }
+  function hasApproxInList(values, value, eps) {
+    if (!values || values.length === 0) return false;
+    for (let i = 0; i < values.length; i++) {
+      if (approxEq(values[i], value, eps)) return true;
+    }
+    return false;
+  }
+  function pushToMinuteValues(map, key, value) {
+    let arr = map.get(key);
+    if (!arr) {
+      arr = [];
+      map.set(key, arr);
+    }
+    arr.push(value);
   }
   function parseNum2(v) {
     if (v == null || v === "") return null;
@@ -8148,6 +8166,10 @@ ${f.content}`).join("\n");
       }
       inferred = inferGlucoseUnitFromValues(raws);
     }
+    const byMinute = /* @__PURE__ */ new Map();
+    for (const c of data.cgm) {
+      pushToMinuteValues(byMinute, minuteKey(c.datetime), c.value);
+    }
     for (const pt of points) {
       const datetime = datetimeFromPoint(pt);
       const qty = qtyFromPoint(pt);
@@ -8175,10 +8197,8 @@ ${f.content}`).join("\n");
         unitPending = true;
         meta.unknownUnitCount += 1;
       }
-      const hit = data.cgm.find(
-        (c) => sameMinute2(c.datetime, datetime) && approxEq(c.value, value, 0.02)
-      );
-      if (hit) {
+      const mk = minuteKey(datetime);
+      if (hasApproxInList(byMinute.get(mk), value, 0.02)) {
         bump(stats, "cgm", "skipped");
         continue;
       }
@@ -8190,11 +8210,18 @@ ${f.content}`).join("\n");
       };
       if (unitPending) rec.unitPending = true;
       data.cgm.push(rec);
+      pushToMinuteValues(byMinute, mk, value);
       data.dataAvailability.hasCgm = true;
       bump(stats, "cgm", "added");
     }
   }
   function mergeBloodPressure(data, points, stats) {
+    const minutes = /* @__PURE__ */ new Set();
+    const dateSysDia = /* @__PURE__ */ new Set();
+    for (const b of data.bloodPressure) {
+      minutes.add(minuteKey(b.datetime));
+      dateSysDia.add(`${b.date}|${b.systolic}|${b.diastolic}`);
+    }
     for (const pt of points) {
       const datetime = datetimeFromPoint(pt);
       if (!datetime) {
@@ -8212,20 +8239,30 @@ ${f.content}`).join("\n");
         bump(stats, "bloodPressure", "skipped");
         continue;
       }
-      const hit = data.bloodPressure.find(
-        (b) => sameMinute2(b.datetime, datetime) || b.date === date && b.systolic === sys && b.diastolic === dia
-      );
-      if (hit) {
+      const mk = minuteKey(datetime);
+      const dsd = `${date}|${sys}|${dia}`;
+      if (minutes.has(mk) || dateSysDia.has(dsd)) {
         bump(stats, "bloodPressure", "skipped");
         continue;
       }
       const rec = { datetime, date, systolic: sys, diastolic: dia };
       data.bloodPressure.push(rec);
+      minutes.add(mk);
+      dateSysDia.add(dsd);
       data.dataAvailability.hasBloodPressure = true;
       bump(stats, "bloodPressure", "added");
     }
   }
   function mergeWeight(data, points, stats, mode) {
+    const byDate = /* @__PURE__ */ new Map();
+    for (const w of data.weight) {
+      let arr = byDate.get(w.date);
+      if (!arr) {
+        arr = [];
+        byDate.set(w.date, arr);
+      }
+      arr.push(w);
+    }
     for (const pt of points) {
       const datetime = datetimeFromPoint(pt);
       if (!datetime) {
@@ -8239,7 +8276,7 @@ ${f.content}`).join("\n");
           bump(stats, "weight", "skipped");
           continue;
         }
-        const sameDay = data.weight.filter((w) => w.date === date);
+        const sameDay = byDate.get(date) || [];
         if (sameDay.length) {
           let updated = false;
           for (const w of sameDay) {
@@ -8262,8 +8299,9 @@ ${f.content}`).join("\n");
       }
       const bodyFat = parseNum2(pt.bodyFat ?? pt.body_fat ?? pt.fat);
       const bmi = parseNum2(pt.bmi ?? pt.BMI);
-      const hit = data.weight.find(
-        (w) => sameMinute2(w.datetime, datetime) || w.date === date && approxEq(w.value, value, 0.05)
+      const dayList = byDate.get(date);
+      const hit = dayList?.find(
+        (w) => sameMinute2(w.datetime, datetime) || approxEq(w.value, value, 0.05)
       );
       if (hit) {
         let updated = false;
@@ -8283,12 +8321,31 @@ ${f.content}`).join("\n");
       if (bodyFat != null && bodyFat > 0 && bodyFat < 80) rec.bodyFat = bodyFat;
       if (bmi != null) rec.bmi = bmi;
       data.weight.push(rec);
+      let arr = byDate.get(date);
+      if (!arr) {
+        arr = [];
+        byDate.set(date, arr);
+      }
+      arr.push(rec);
       data.dataAvailability.hasWeight = true;
       if (rec.bodyFat != null) data.dataAvailability.hasBodyFat = true;
       bump(stats, "weight", "added");
     }
   }
   function mergeBodyFat(data, points, stats) {
+    const weightByDate = /* @__PURE__ */ new Map();
+    for (const w of data.weight) {
+      let arr = weightByDate.get(w.date);
+      if (!arr) {
+        arr = [];
+        weightByDate.set(w.date, arr);
+      }
+      arr.push(w);
+    }
+    const bodyFatByMinute = /* @__PURE__ */ new Map();
+    for (const b of data.bodyFat) {
+      pushToMinuteValues(bodyFatByMinute, minuteKey(b.datetime), b.value);
+    }
     for (const pt of points) {
       const datetime = datetimeFromPoint(pt);
       if (!datetime) {
@@ -8306,7 +8363,8 @@ ${f.content}`).join("\n");
         bump(stats, "bodyFat", "skipped");
         continue;
       }
-      const weightHit = data.weight.find(
+      const dayWeights = weightByDate.get(date);
+      const weightHit = dayWeights?.find(
         (w) => sameMinute2(w.datetime, datetime) || w.date === date
       );
       if (weightHit) {
@@ -8317,28 +8375,26 @@ ${f.content}`).join("\n");
         } else if (approxEq(weightHit.bodyFat, value, 0.2)) {
           bump(stats, "bodyFat", "skipped");
         } else {
-          const exists2 = data.bodyFat.some(
-            (b) => sameMinute2(b.datetime, datetime) && approxEq(b.value, value, 0.2)
-          );
-          if (exists2) {
+          const mk2 = minuteKey(datetime);
+          if (hasApproxInList(bodyFatByMinute.get(mk2), value, 0.2)) {
             bump(stats, "bodyFat", "skipped");
           } else {
             data.bodyFat.push({ datetime, date, value, source: "hae" });
+            pushToMinuteValues(bodyFatByMinute, mk2, value);
             data.dataAvailability.hasBodyFat = true;
             bump(stats, "bodyFat", "added");
           }
         }
         continue;
       }
-      const exists = data.bodyFat.some(
-        (b) => sameMinute2(b.datetime, datetime) && approxEq(b.value, value, 0.2)
-      );
-      if (exists) {
+      const mk = minuteKey(datetime);
+      if (hasApproxInList(bodyFatByMinute.get(mk), value, 0.2)) {
         bump(stats, "bodyFat", "skipped");
         continue;
       }
       const rec = { datetime, date, value, source: "hae" };
       data.bodyFat.push(rec);
+      pushToMinuteValues(bodyFatByMinute, mk, value);
       data.dataAvailability.hasBodyFat = true;
       bump(stats, "bodyFat", "added");
     }
@@ -8634,6 +8690,11 @@ ${f.content}`).join("\n");
   }
   function mergeWorkouts(data, workouts, stats) {
     if (!data.workouts) data.workouts = [];
+    const byStartAct = /* @__PURE__ */ new Map();
+    for (const w of data.workouts) {
+      const k = `${minuteKey(w.startDate)}|${w.activityType}`;
+      pushToMinuteValues(byStartAct, k, w.durationMin);
+    }
     for (const wo of workouts) {
       const startRaw = wo.startDate ?? wo.start ?? wo.start_date;
       const startDate = normalizeDt2(startRaw);
@@ -8660,10 +8721,8 @@ ${f.content}`).join("\n");
       if (durationMin > 24 * 60 && durationMin < 24 * 3600) {
         durationMin = durationMin / 60;
       }
-      const dup = data.workouts.find(
-        (w) => sameMinute2(w.startDate, startDate) && w.activityType === activityType && approxEq(w.durationMin, durationMin, 0.5)
-      );
-      if (dup) {
+      const idxKey = `${minuteKey(startDate)}|${activityType}`;
+      if (hasApproxInList(byStartAct.get(idxKey), durationMin, 0.5)) {
         bump(stats, "workouts", "skipped");
         continue;
       }
@@ -8693,6 +8752,7 @@ ${f.content}`).join("\n");
       if (mets != null) session.avgMets = mets;
       if (typeof wo.indoor === "boolean") session.indoor = wo.indoor;
       data.workouts.push(session);
+      pushToMinuteValues(byStartAct, idxKey, durationMin);
       data.dataAvailability.hasWorkouts = true;
       bump(stats, "workouts", "added");
     }
