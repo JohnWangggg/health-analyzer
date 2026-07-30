@@ -74,8 +74,14 @@ test.describe('v1.67 trends workbench', () => {
         opts.map((o) => /** @type {HTMLOptionElement} */ (o).value).filter(Boolean)
       );
     if (compareOptions.length) {
-      await page.locator('#chart-compare-metric').selectOption(compareOptions[0]);
-      await expect(page.locator('#charts-content .chart-block-compare, #charts-content .chart-block').first()).toBeVisible();
+      const primary = await page.locator('#chart-primary-metric').inputValue();
+      const compareVal = compareOptions.find((v) => v && v !== primary) || compareOptions[0];
+      await page.locator('#chart-compare-metric').selectOption(compareVal);
+      // v1.70: compare overlays on primary (no separate compare card)
+      await expect(page.locator('#charts-content.charts-content--overlay')).toBeVisible();
+      await expect(page.locator('#charts-content .chart-block-overlay, #charts-content .chart-block-primary').first()).toBeVisible();
+      // Standalone compare block should not appear
+      await expect(page.locator(`#charts-content .chart-block-compare`)).toHaveCount(0);
     }
 
     expect(pageErrors).toEqual([]);

@@ -60,6 +60,8 @@
       hourLabel: '{h}时',
       legendBaseline: '个人基线',
       legendEvents: '事件',
+      legendCompare: '对比',
+      overlayTitle: '{primary} + {compare}',
       conclusionInsufficient: '数据不足，暂无法概括趋势（非诊断）',
       conclusionSparse: '约 {days} 天有数据，点偏少，趋势仅供参考（非诊断）',
       conclusionStable: '近 {range} · 约 {days} 天有数据 · 大致稳定（描述性，非诊断）',
@@ -132,6 +134,8 @@
       hourLabel: '{h}h',
       legendBaseline: 'Personal baseline',
       legendEvents: 'Events',
+      legendCompare: 'Compare',
+      overlayTitle: '{primary} + {compare}',
       conclusionInsufficient: 'Not enough data to summarize the trend (not a diagnosis)',
       conclusionSparse: 'About {days} day(s) with data — sparse; trend is illustrative only (not a diagnosis)',
       conclusionStable: 'Last {range} · ~{days} days with data · roughly stable (descriptive, not a diagnosis)',
@@ -317,10 +321,67 @@
     });
   }
 
+  function dateKeyOf(x) {
+    return String(x == null ? '' : x).slice(0, 10);
+  }
+
+  /**
+   * Align two series on union of dates (YYYY-MM-DD). Missing days → null.
+   * @returns {{ dates: string[], a: (number|null)[], b: (number|null)[] }}
+   */
+  function alignSeriesByDate(pointsA, pointsB) {
+    const mapA = new Map();
+    (pointsA || []).forEach((p) => {
+      if (!p || !Number.isFinite(p.y)) return;
+      mapA.set(dateKeyOf(p.x), p.y);
+    });
+    const mapB = new Map();
+    (pointsB || []).forEach((p) => {
+      if (!p || !Number.isFinite(p.y)) return;
+      mapB.set(dateKeyOf(p.x), p.y);
+    });
+    const dates = Array.from(new Set([...mapA.keys(), ...mapB.keys()]))
+      .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+      .sort();
+    return {
+      dates,
+      a: dates.map((d) => (mapA.has(d) ? mapA.get(d) : null)),
+      b: dates.map((d) => (mapB.has(d) ? mapB.get(d) : null)),
+    };
+  }
+
+  function strokeSeriesPath(ctx, n, xAt, yAtFn, values, color, lineWidth, dashed) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth || 2;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    if (dashed) ctx.setLineDash([5, 4]);
+    let started = false;
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) {
+      const v = values[i];
+      if (v == null || !Number.isFinite(v)) {
+        started = false;
+        continue;
+      }
+      const x = xAt(i);
+      const y = yAtFn(v);
+      if (!started) {
+        ctx.moveTo(x, y);
+        started = true;
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
   /**
    * @param {HTMLCanvasElement} canvas
    * @param {{ label: string, x: number|string, y: number }[]} points
-   * @param {{ color?: string, yLabel?: string, fill?: boolean, thresholds?: {y:number,color:string,label?:string}[], baseline?: {y:number,color?:string,label?:string}, events?: {date:string,title?:string}[], onHover?: function, unit?: string, strings?: object }} options
+   * @param {{ color?: string, yLabel?: string, fill?: boolean, thresholds?: {y:number,color:string,label?:string}[], baseline?: {y:number,color?:string,label?:string}, events?: {date:string,title?:string}[], onHover?: function, unit?: string, strings?: object, secondary?: { points: object[], color?: string, unit?: string, yLabel?: string, label?: string } }} options
    */
   function drawLineChart(canvas, points, options) {
     options = options || {};
@@ -341,12 +402,38 @@
     if (!ctx) return null;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    const pad = { top: 16, right: 12, bottom: 28, left: 44 };
+    const sec = options.secondary && options.secondary.points && options.secondary.points.length
+      ? options.secondary
+      : null;
+    const dualY =
+      !!(sec && String(sec.unit || '') !== String(options.unit || ''));
+    const pad = { top: 16, right: dualY ? 48 : 12, bottom: 28, left: 44 };
     const w = cssW - pad.left - pad.right;
     const h = cssH - pad.top - pad.bottom;
     if (w <= 0 || h <= 0) return null;
 
-    const ys = points.map((p) => p.y).filter(Number.isFinite);
+    // Build plot series (optionally date-aligned when overlaying)
+    let plotDates = null;
+    let primaryVals = null;
+    let secondaryVals = null;
+    let plotPoints = points;
+    if (sec) {
+      const aligned = alignSeriesByDate(points, sec.points);
+      if (aligned.dates.length >= 2) {
+        plotDates = aligned.dates;
+        primaryVals = aligned.a;
+        secondaryVals = aligned.b;
+        plotPoints = aligned.dates.map((d, i) => ({
+          x: d,
+          y: aligned.a[i] != null ? aligned.a[i] : NaN,
+        })).filter((p) => Number.isFinite(p.y));
+        // Keep full aligned arrays for drawing gaps
+      }
+    }
+
+    const ys = (primaryVals
+      ? primaryVals.filter((v) => v != null && Number.isFinite(v))
+      : points.map((p) => p.y).filter(Number.isFinite));
     if (ys.length === 0) return null;
     let yMin = Math.min(...ys);
     let yMax = Math.max(...ys);
@@ -362,6 +449,15 @@
       yMin = Math.min(yMin, options.baseline.y);
       yMax = Math.max(yMax, options.baseline.y);
     }
+    // Same-scale overlay: include secondary in primary range
+    if (sec && !dualY && secondaryVals) {
+      for (const v of secondaryVals) {
+        if (v != null && Number.isFinite(v)) {
+          yMin = Math.min(yMin, v);
+          yMax = Math.max(yMax, v);
+        }
+      }
+    }
     if (yMin === yMax) {
       yMin -= 1;
       yMax += 1;
@@ -370,9 +466,33 @@
     yMin -= yPad;
     yMax += yPad;
 
-    const n = points.length;
+    // Secondary independent scale
+    let y2Min = 0;
+    let y2Max = 1;
+    if (sec && dualY) {
+      const ys2 = (secondaryVals || sec.points.map((p) => p.y)).filter(
+        (v) => v != null && Number.isFinite(v)
+      );
+      if (ys2.length) {
+        y2Min = Math.min(...ys2);
+        y2Max = Math.max(...ys2);
+        if (y2Min === y2Max) {
+          y2Min -= 1;
+          y2Max += 1;
+        }
+        const p2 = (y2Max - y2Min) * 0.08;
+        y2Min -= p2;
+        y2Max += p2;
+      }
+    }
+
+    const n = primaryVals ? primaryVals.length : points.length;
     const xAt = (i) => pad.left + (n === 1 ? w / 2 : (i / (n - 1)) * w);
     const yAt = (v) => pad.top + h - ((v - yMin) / (yMax - yMin)) * h;
+    const y2At = (v) => pad.top + h - ((v - y2Min) / (y2Max - y2Min)) * h;
+    const seriesA = primaryVals || points.map((p) => p.y);
+    const seriesB = secondaryVals || (sec ? sec.points.map((p) => p.y) : null);
+    const xLabels = plotDates || points.map((p) => p.x);
 
     function paint(activeIndex) {
       ctx.clearRect(0, 0, cssW, cssH);
@@ -402,6 +522,17 @@
         ctx.textBaseline = 'middle';
         ctx.fillText(v.toFixed(v >= 100 ? 0 : 1), pad.left - 6, y);
       }
+      // Right axis for dual-Y overlay
+      if (sec && dualY) {
+        ctx.fillStyle = sec.color || '#e67e22';
+        for (let i = 0; i <= ticks; i++) {
+          const v = y2Min + ((y2Max - y2Min) * i) / ticks;
+          const y = y2At(v);
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(v.toFixed(v >= 100 ? 0 : 1), pad.left + w + 6, y);
+        }
+      }
 
       // Event markers (vertical) — behind series
       if (options.events && options.events.length) {
@@ -413,14 +544,16 @@
         ctx.globalAlpha = 0.55;
         ctx.font = '500 10px ' + fontBase;
         let labeled = 0;
+        const refPts = plotDates
+          ? plotDates.map((d) => ({ x: d, y: 0 }))
+          : points;
         for (const ev of options.events) {
-          const x = eventXFromDate(ev.date || ev.x, points, pad, w);
+          const x = eventXFromDate(ev.date || ev.x, refPts, pad, w);
           if (x == null) continue;
           ctx.beginPath();
           ctx.moveTo(x, pad.top);
           ctx.lineTo(x, pad.top + h);
           ctx.stroke();
-          // top tick
           ctx.globalAlpha = 0.85;
           ctx.beginPath();
           ctx.arc(x, pad.top + 3, 2.5, 0, Math.PI * 2);
@@ -461,7 +594,7 @@
         ctx.restore();
       }
 
-      // Personal baseline (median) — solid-ish dashed, distinct from clinical thresholds
+      // Personal baseline (median) — primary scale only
       if (options.baseline && Number.isFinite(options.baseline.y)) {
         ctx.save();
         const by = yAt(options.baseline.y);
@@ -485,12 +618,14 @@
       }
 
       const color = options.color || theme.primary;
+      const secColor = (sec && sec.color) || '#e67e22';
 
-      if (options.fill !== false) {
+      // Primary fill (only continuous segments without dual overlay clutter when dual)
+      if (options.fill !== false && !sec) {
         ctx.beginPath();
         for (let i = 0; i < n; i++) {
           const x = xAt(i);
-          const y = yAt(points[i].y);
+          const y = yAt(seriesA[i]);
           if (i === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
         }
@@ -501,21 +636,25 @@
         ctx.fill();
       }
 
-      ctx.beginPath();
-      for (let i = 0; i < n; i++) {
-        const x = xAt(i);
-        const y = yAt(points[i].y);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+      strokeSeriesPath(ctx, n, xAt, yAt, seriesA, color, 2, false);
+      if (sec && seriesB) {
+        strokeSeriesPath(
+          ctx,
+          n,
+          xAt,
+          dualY ? y2At : yAt,
+          seriesB,
+          secColor,
+          2,
+          true
+        );
       }
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
-      ctx.stroke();
 
+      // Endpoint dots for primary finite values
       for (const i of [0, n - 1]) {
-        const ex = xAt(i), ey = yAt(points[i].y);
+        if (seriesA[i] == null || !Number.isFinite(seriesA[i])) continue;
+        const ex = xAt(i);
+        const ey = yAt(seriesA[i]);
         ctx.beginPath();
         ctx.arc(ex, ey, 3.5, 0, Math.PI * 2);
         ctx.fillStyle = theme.bg;
@@ -528,7 +667,6 @@
 
       if (activeIndex != null && activeIndex >= 0 && activeIndex < n) {
         const ax = xAt(activeIndex);
-        const ay = yAt(points[activeIndex].y);
         ctx.save();
         ctx.strokeStyle = theme.label;
         ctx.lineWidth = 1;
@@ -539,13 +677,26 @@
         ctx.lineTo(ax, pad.top + h);
         ctx.stroke();
         ctx.restore();
-        ctx.beginPath();
-        ctx.arc(ax, ay, 5, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.fill();
-        ctx.strokeStyle = theme.bg;
-        ctx.lineWidth = 2.5;
-        ctx.stroke();
+        if (seriesA[activeIndex] != null && Number.isFinite(seriesA[activeIndex])) {
+          const ay = yAt(seriesA[activeIndex]);
+          ctx.beginPath();
+          ctx.arc(ax, ay, 5, 0, Math.PI * 2);
+          ctx.fillStyle = color;
+          ctx.fill();
+          ctx.strokeStyle = theme.bg;
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+        }
+        if (sec && seriesB && seriesB[activeIndex] != null && Number.isFinite(seriesB[activeIndex])) {
+          const ay2 = (dualY ? y2At : yAt)(seriesB[activeIndex]);
+          ctx.beginPath();
+          ctx.arc(ax, ay2, 4, 0, Math.PI * 2);
+          ctx.fillStyle = secColor;
+          ctx.fill();
+          ctx.strokeStyle = theme.bg;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
       }
 
       ctx.fillStyle = theme.text;
@@ -553,7 +704,7 @@
       ctx.textBaseline = 'top';
       const labelIdx = n === 1 ? [0] : n === 2 ? [0, 1] : [0, Math.floor((n - 1) / 2), n - 1];
       for (const i of labelIdx) {
-        const label = formatX(points[i].x);
+        const label = formatX(xLabels[i]);
         ctx.textAlign = i === 0 ? 'left' : i === n - 1 ? 'right' : 'center';
         ctx.fillText(label, xAt(i), pad.top + h + 8);
       }
@@ -569,6 +720,17 @@
         ctx.fillText(options.yLabel, 0, 0);
         ctx.restore();
       }
+      if (sec && dualY && (sec.yLabel || sec.unit)) {
+        ctx.save();
+        ctx.fillStyle = secColor;
+        ctx.font = '600 11px ' + fontBase;
+        ctx.translate(cssW - 12, pad.top + h / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(sec.yLabel || sec.unit || '', 0, 0);
+        ctx.restore();
+      }
     }
 
     paint(null);
@@ -582,27 +744,45 @@
       return Math.max(0, Math.min(n - 1, idx));
     }
 
+    function fmtNum(v) {
+      if (v == null || !Number.isFinite(v)) return '—';
+      return Number(v).toFixed(v >= 100 ? 0 : 2);
+    }
+
     function bindHover(readoutEl) {
       const onMove = (clientX) => {
         const idx = indexFromClientX(clientX);
         paint(idx);
-        const p = points[idx];
-        if (readoutEl && p) {
+        if (readoutEl) {
           readoutEl.classList.add('is-hover');
-          const xv = formatXFull(p.x);
-          readoutEl.textContent = `${xv}  ·  ${Number(p.y).toFixed(p.y >= 100 ? 0 : 2)}${options.unit ? ' ' + options.unit : ''}`;
+          const xv = formatXFull(xLabels[idx]);
+          let text = `${xv}  ·  ${fmtNum(seriesA[idx])}${options.unit ? ' ' + options.unit : ''}`;
+          if (sec && seriesB) {
+            text += `  ·  ${fmtNum(seriesB[idx])}${sec.unit ? ' ' + sec.unit : ''}`;
+          }
+          readoutEl.textContent = text;
         }
-        if (typeof options.onHover === 'function') options.onHover(points[idx], idx);
+        if (typeof options.onHover === 'function') {
+          options.onHover({ x: xLabels[idx], y: seriesA[idx] }, idx);
+        }
       };
       const onLeave = () => {
         paint(null);
         if (readoutEl) {
           readoutEl.classList.remove('is-hover');
-          const last = points[n - 1];
+          const lastA = [...seriesA].reverse().find((v) => v != null && Number.isFinite(v));
           const min = Math.min(...ys);
           const max = Math.max(...ys);
-          readoutEl.textContent =
-            `${S.latest} ${Number(last.y).toFixed(last.y >= 100 ? 0 : 2)}  ·  ${S.range} ${min.toFixed(min >= 100 ? 0 : 1)}–${max.toFixed(max >= 100 ? 0 : 1)}`;
+          let text =
+            `${S.latest} ${fmtNum(lastA)}  ·  ${S.range} ${min.toFixed(min >= 100 ? 0 : 1)}–${max.toFixed(max >= 100 ? 0 : 1)}`;
+          if (sec && seriesB) {
+            const ys2 = seriesB.filter((v) => v != null && Number.isFinite(v));
+            if (ys2.length) {
+              const lastB = [...seriesB].reverse().find((v) => v != null && Number.isFinite(v));
+              text += `  ·  ${sec.label || S.legendCompare || 'B'}: ${fmtNum(lastB)}`;
+            }
+          }
+          readoutEl.textContent = text;
         }
       };
       canvas.addEventListener('pointermove', (e) => onMove(e.clientX));
@@ -611,7 +791,7 @@
       onLeave();
     }
 
-    return { paint, bindHover, points, yMin, yMax };
+    return { paint, bindHover, points: plotPoints, yMin, yMax, dualY: !!dualY };
   }
 
   /**
@@ -1420,33 +1600,40 @@
       return;
     }
 
-    // Dual-column layout shell when compare is active
+    // v1.70: compare overlays on primary (dual-Y when units differ); AGP stays separate
     const compareKey = options.compareKey ? String(options.compareKey) : '';
     const primaryKey = options.primaryKey ? String(options.primaryKey) : '';
-    const hasCompare =
-      !!(compareKey && primaryKey && compareKey !== primaryKey &&
-        blocks.some((b) => b.key === compareKey));
-    if (hasCompare) {
-      container.classList.add('charts-content--compare');
-    } else {
-      container.classList.remove('charts-content--compare');
-    }
+    const compareBlock =
+      compareKey && primaryKey && compareKey !== primaryKey
+        ? blocks.find((b) => b.key === compareKey && b.type !== 'agp' && b.points && b.points.length)
+        : null;
+    const hasCompare = !!compareBlock;
+    // Overlay mode — single column (no dual sticky cards)
+    container.classList.remove('charts-content--compare');
+    if (hasCompare) container.classList.add('charts-content--overlay');
+    else container.classList.remove('charts-content--overlay');
 
     const events = Array.isArray(options.events) ? options.events : [];
     const showBaseline = !!options.showBaseline;
 
     for (const b of blocks) {
       const isAgp = b.type === 'agp';
+      // Skip standalone compare chart — drawn as secondary on primary
+      if (hasCompare && b.key === compareKey) continue;
       if (!isAgp && (!b.points || b.points.length === 0)) continue;
       if (isAgp && (!b.bins || !b.bins.length)) continue;
 
+      const isPrimaryOverlay =
+        hasCompare && b.key === primaryKey && !isAgp && compareBlock;
+
       const wrap = document.createElement('div');
       let roleClass = '';
-      if (b.key && primaryKey && b.key === primaryKey) roleClass = ' chart-block-primary';
-      else if (b.key && compareKey && b.key === compareKey) roleClass = ' chart-block-compare';
-      else if (b.key === 'agp' && primaryKey === 'cgm') roleClass = ' chart-block-primary-aux';
+      if (b.key && primaryKey && b.key === primaryKey) {
+        roleClass = ' chart-block-primary' + (isPrimaryOverlay ? ' chart-block-overlay' : '');
+      } else if (b.key === 'agp' && primaryKey === 'cgm') roleClass = ' chart-block-primary-aux';
       wrap.className = 'chart-block' + (isAgp ? ' chart-block-agp' : '') + roleClass;
       if (b.key) wrap.setAttribute('data-chart', b.key);
+      if (isPrimaryOverlay) wrap.setAttribute('data-compare', compareKey);
       wrap.id = b.key ? `chart-block-${b.key}` : undefined;
 
       // Conclusion summary (line charts only; non-diagnostic)
@@ -1465,7 +1652,18 @@
       }
 
       const title = document.createElement('h3');
-      title.textContent = b.title;
+      if (isPrimaryOverlay) {
+        const pName = (b.legend && b.legend[0] && b.legend[0].label) || b.title;
+        const cName =
+          (compareBlock.legend && compareBlock.legend[0] && compareBlock.legend[0].label) ||
+          compareBlock.title;
+        title.textContent = fmt(S.overlayTitle || '{primary} + {compare}', {
+          primary: pName,
+          compare: cName,
+        });
+      } else {
+        title.textContent = b.title;
+      }
       wrap.appendChild(title);
 
       if (b.subtitle) {
@@ -1478,11 +1676,20 @@
       const canvas = document.createElement('canvas');
       canvas.className = 'chart-canvas';
       canvas.setAttribute('role', 'img');
-      canvas.setAttribute('aria-label', b.title + S.ariaInteractive);
+      canvas.setAttribute('aria-label', title.textContent + S.ariaInteractive);
       wrap.appendChild(canvas);
 
-      // Legend (+ baseline / events when enabled)
+      // Legend (+ baseline / events / compare when enabled)
       const legendItems = (b.legend && b.legend.slice()) || [];
+      if (isPrimaryOverlay && compareBlock) {
+        legendItems.push({
+          color: compareBlock.color || '#e67e22',
+          label:
+            (compareBlock.legend && compareBlock.legend[0] && compareBlock.legend[0].label) ||
+            S.legendCompare,
+          dashed: true,
+        });
+      }
       if (!isAgp && showBaseline) {
         legendItems.push({
           color: '#7f8c8d',
@@ -1536,6 +1743,18 @@
         }
       }
       const eventsOpt = !isAgp && events.length ? events : null;
+      const secondaryOpt =
+        isPrimaryOverlay && compareBlock
+          ? {
+              points: compareBlock.points,
+              color: compareBlock.color || '#e67e22',
+              unit: compareBlock.unit,
+              yLabel: compareBlock.yLabel || compareBlock.unit,
+              label:
+                (compareBlock.legend && compareBlock.legend[0] && compareBlock.legend[0].label) ||
+                S.legendCompare,
+            }
+          : null;
 
       requestAnimationFrame(() => {
         if (isAgp) {
@@ -1558,6 +1777,7 @@
             locale: options.locale,
             baseline: baselineOpt,
             events: eventsOpt,
+            secondary: secondaryOpt,
           });
           if (api && api.bindHover) api.bindHover(readout);
         }

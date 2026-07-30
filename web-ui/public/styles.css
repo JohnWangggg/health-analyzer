@@ -2545,7 +2545,7 @@ body.has-results .app-toast {
   border-style: dashed;
 }
 
-/* 桌面：主+对比并排；手机单列主指标突出 */
+/* 桌面：历史并排布局（v1.70 起对比改为同图叠加） */
 @media (min-width: 900px) {
   .charts-content.charts-content--compare {
     display: grid;
@@ -2557,6 +2557,14 @@ body.has-results .app-toast {
   .charts-content.charts-content--compare .chart-block-agp {
     grid-column: 1 / -1;
   }
+}
+
+/* v1.70：主+对比同图叠加 */
+.charts-content.charts-content--overlay .chart-block-overlay .chart-canvas {
+  min-height: 220px;
+}
+.chart-block-overlay {
+  box-shadow: var(--shadow), 0 0 0 1px color-mix(in srgb, var(--primary) 28%, transparent);
 }
 
 @media (max-width: 719px) {

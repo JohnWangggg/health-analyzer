@@ -7195,7 +7195,9 @@
             ms: 2200,
           });
         }
-        if (res.softWarn) {
+        if (res.trimmed && res.trimmedCgm) {
+          showToast(t('warehouse.cgmTrimmed', { n: String(res.trimmedCgm) }), { ms: 3600 });
+        } else if (res.softWarn) {
           showToast(t('warehouse.softQuota'), { ms: 3200 });
         }
       } else if (res && res.reason === 'quota_hard') {

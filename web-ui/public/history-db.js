@@ -362,6 +362,61 @@
    * @param {{ batchId?: string|null }} [opts]
    * @returns {Promise<{ ok: boolean, reason?: string, meta?: object, approxBytes?: number }>}
    */
+  /**
+   * Drop oldest CGM samples until under soft quota (or CGM nearly empty).
+   * Returns { payload, trimmed, removedCgm, beforeBytes, afterBytes }.
+   */
+  function trimCgmForSoftQuota(healthData) {
+    let payload;
+    try {
+      payload = clonePlain(healthData);
+    } catch (e) {
+      return {
+        payload: healthData,
+        trimmed: false,
+        removedCgm: 0,
+        beforeBytes: 0,
+        afterBytes: 0,
+        error: String((e && e.message) || e),
+      };
+    }
+    const beforeBytes = approxJsonBytes(payload);
+    if (beforeBytes <= WAREHOUSE_SOFT_BYTES) {
+      return {
+        payload,
+        trimmed: false,
+        removedCgm: 0,
+        beforeBytes,
+        afterBytes: beforeBytes,
+      };
+    }
+    let removed = 0;
+    const minKeep = 500;
+    // Prefer drop by age: sort ascending, remove oldest chunks
+    while (approxJsonBytes(payload) > WAREHOUSE_SOFT_BYTES) {
+      const cgm = Array.isArray(payload.cgm) ? payload.cgm : [];
+      if (cgm.length <= minKeep) break;
+      const sorted = cgm
+        .slice()
+        .sort((a, b) => String(a && a.datetime || '').localeCompare(String(b && b.datetime || '')));
+      const drop = Math.max(50, Math.floor(sorted.length * 0.08));
+      const keep = sorted.slice(drop);
+      removed += sorted.length - keep.length;
+      payload.cgm = keep;
+      if (payload.dataAvailability) {
+        payload.dataAvailability.hasCgm = keep.length > 0;
+      }
+    }
+    const afterBytes = approxJsonBytes(payload);
+    return {
+      payload,
+      trimmed: removed > 0,
+      removedCgm: removed,
+      beforeBytes,
+      afterBytes,
+    };
+  }
+
   function persistHealthDataWarehouse(healthData, opts) {
     opts = opts || {};
     if (!healthData || typeof healthData !== 'object') {
@@ -371,19 +426,22 @@
       if (!meta.consent || !meta.consent.granted) {
         return { ok: false, reason: 'no_consent' };
       }
-      let payload;
+      const trimResult = trimCgmForSoftQuota(healthData);
+      let payload = trimResult.payload;
       try {
-        payload = clonePlain(healthData);
+        if (!trimResult.trimmed) payload = clonePlain(healthData);
       } catch (e) {
         return { ok: false, reason: 'clone_failed', message: String((e && e.message) || e) };
       }
-      const approxBytes = approxJsonBytes(payload);
+      let approxBytes = approxJsonBytes(payload);
+      // Still over hard after trim → fail
       if (approxBytes > WAREHOUSE_HARD_BYTES) {
         return {
           ok: false,
           reason: 'quota_hard',
           approxBytes,
           maxBytes: WAREHOUSE_HARD_BYTES,
+          trimmedCgm: trimResult.removedCgm,
         };
       }
       const recordCount = countHealthRecords(payload);
@@ -411,6 +469,8 @@
       meta.codec = 'json';
       if (approxBytes > WAREHOUSE_SOFT_BYTES) {
         meta.notes = ['soft_quota_exceeded'];
+      } else if (trimResult.trimmed) {
+        meta.notes = ['cgm_trimmed_for_quota'];
       } else {
         meta.notes = [];
       }
@@ -436,6 +496,8 @@
                 meta,
                 approxBytes,
                 softWarn: approxBytes > WAREHOUSE_SOFT_BYTES,
+                trimmedCgm: trimResult.removedCgm || 0,
+                trimmed: !!trimResult.trimmed,
               });
             };
             tx.onerror = () => {
@@ -1452,6 +1514,7 @@
     clearWarehouseOnly,
     clearWarehousePayloadKeepConsent,
     buildDomainStats,
+    trimCgmForSoftQuota,
     persistHealthDataWarehouse,
     loadHealthDataWarehouse,
     exportWarehouseBackup,
