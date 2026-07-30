@@ -290,7 +290,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - v1.76：数据管理页展示分片布局与 CGM 月列表。
 - v1.77：可手动删除单个 CGM 月分片；删除后更新仓元数据与当前分析。
 - v1.78：CGM 月分片多选批量删除；「仅保留近 6 个月」。
-- v1.79：血压/体重按年分片（`bloodPressure|YYYY`、`weight|YYYY`，bodyFat 并入 weight）；超软配额可淘汰最旧年片；兼容旧 full 与仅 CGM 分片。
+- v1.79：血压/体重按年分片；CGM 保留近 N 个月可配置；`npm run perf:parse` 解析性能基线。
 
 ## 许可
 
