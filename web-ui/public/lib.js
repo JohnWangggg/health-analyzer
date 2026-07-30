@@ -30,7 +30,9 @@ var HealthAnalyzer = (() => {
     CGM_REPORT_DAYS: () => CGM_REPORT_DAYS,
     DEFAULT_RECOVERY_WEIGHTS: () => DEFAULT_RECOVERY_WEIGHTS,
     FHIR_DEVICE_CLASSES: () => FHIR_DEVICE_CLASSES,
+    FHIR_EXCHANGE_GATE_ENGINE: () => FHIR_EXCHANGE_GATE_ENGINE,
     FHIR_EXPORT_PROFILE: () => FHIR_EXPORT_PROFILE,
+    FHIR_EXPORT_TIERS: () => FHIR_EXPORT_TIERS,
     FHIR_OBS_TYPE_TO_DOMAIN: () => FHIR_OBS_TYPE_TO_DOMAIN,
     FHIR_R4: () => FHIR_R4,
     HEALTH_EVENT_KINDS: () => HEALTH_EVENT_KINDS,
@@ -110,6 +112,7 @@ var HealthAnalyzer = (() => {
     mergeHaeIntoData: () => mergeHaeIntoData,
     mergeHaeJsonIntoData: () => mergeHaeJsonIntoData,
     newBundleUuid: () => newBundleUuid,
+    normalizeFhirExportTier: () => normalizeFhirExportTier,
     normalizeHaeMetricName: () => normalizeHaeMetricName,
     normalizeHealthEvent: () => normalizeHealthEvent,
     normalizeImportBatch: () => normalizeImportBatch,
@@ -145,6 +148,7 @@ var HealthAnalyzer = (() => {
     traditionalizeAnalysisCopy: () => traditionalizeAnalysisCopy,
     traditionalizeMarkdownHeadings: () => traditionalizeMarkdownHeadings,
     validateFhirExportBundle: () => validateFhirExportBundle,
+    validateFhirR4ExchangeGate: () => validateFhirR4ExchangeGate,
     workoutTypeLabel: () => workoutTypeLabel,
     xmlAttr: () => xmlAttr
   });
@@ -7777,11 +7781,272 @@ List 5\u20137 working hypotheses that best fit the available data
     return out.join("\n");
   }
 
+  // src/fhir-r4-exchange.ts
+  var FHIR_EXPORT_TIERS = [
+    "local-archive",
+    "external-exchange"
+  ];
+  var FHIR_EXCHANGE_GATE_ENGINE = "health-analyzer-r4-exchange-gate-v1";
+  var URN_UUID_RE = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  var OBS_STATUS = /* @__PURE__ */ new Set([
+    "registered",
+    "preliminary",
+    "final",
+    "amended",
+    "corrected",
+    "cancelled",
+    "entered-in-error",
+    "unknown"
+  ]);
+  var DEVICE_STATUS = /* @__PURE__ */ new Set(["active", "inactive", "entered-in-error", "unknown"]);
+  function isValidR4DateTime(value) {
+    const s = String(value || "").trim();
+    if (!s) return false;
+    if (/^\d{4}$/.test(s)) return true;
+    if (/^\d{4}-\d{2}$/.test(s)) return true;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return true;
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) {
+      return /(Z|[+-]\d{2}:\d{2}|[+-]\d{4})$/.test(s);
+    }
+    return false;
+  }
+  function normalizeFhirExportTier(raw) {
+    const s = raw != null ? String(raw).trim().toLowerCase() : "";
+    if (s === "external-exchange" || s === "exchange" || s === "external") {
+      return "external-exchange";
+    }
+    return "local-archive";
+  }
+  function pushIssue(issues, msg) {
+    issues.push(msg);
+  }
+  function validateFhirR4ExchangeGate(bundle) {
+    const issues = [];
+    const resourceCounts = {};
+    const engine = FHIR_EXCHANGE_GATE_ENGINE;
+    if (!bundle || typeof bundle !== "object") {
+      return {
+        ok: false,
+        issues: ["bundle missing or not an object"],
+        engine,
+        resourceCounts
+      };
+    }
+    if (bundle.resourceType !== "Bundle") {
+      pushIssue(issues, `resourceType expected Bundle, got ${String(bundle.resourceType)}`);
+    }
+    if (bundle.type !== "collection") {
+      pushIssue(
+        issues,
+        `Bundle.type expected collection for exchange archive, got ${String(bundle.type)}`
+      );
+    }
+    if (bundle.timestamp != null && !isValidR4DateTime(String(bundle.timestamp))) {
+      pushIssue(issues, `Bundle.timestamp invalid dateTime: ${String(bundle.timestamp)}`);
+    }
+    const entry = Array.isArray(bundle.entry) ? bundle.entry : [];
+    if (!entry.length) {
+      pushIssue(issues, "Bundle.entry is empty");
+    }
+    const fullUrls = /* @__PURE__ */ new Set();
+    const patientFullUrls = /* @__PURE__ */ new Set();
+    const deviceFullUrls = /* @__PURE__ */ new Set();
+    for (let i = 0; i < entry.length; i++) {
+      const e = entry[i] || {};
+      const fullUrl = e.fullUrl != null ? String(e.fullUrl) : "";
+      if (!fullUrl) {
+        pushIssue(issues, `entry[${i}] missing fullUrl`);
+      } else if (!URN_UUID_RE.test(fullUrl)) {
+        pushIssue(
+          issues,
+          `entry[${i}] fullUrl must be urn:uuid: for external exchange (got ${fullUrl})`
+        );
+      } else if (fullUrls.has(fullUrl)) {
+        pushIssue(issues, `duplicate fullUrl ${fullUrl}`);
+      } else {
+        fullUrls.add(fullUrl);
+      }
+      const r = e.resource || null;
+      if (!r || typeof r !== "object") {
+        pushIssue(issues, `entry[${i}] missing resource`);
+        continue;
+      }
+      const rt = String(r.resourceType || "");
+      if (!rt) {
+        pushIssue(issues, `entry[${i}] resource missing resourceType`);
+        continue;
+      }
+      resourceCounts[rt] = (resourceCounts[rt] || 0) + 1;
+      if (r.id == null || String(r.id).trim() === "") {
+        pushIssue(issues, `entry[${i}] ${rt} missing id`);
+      }
+      if (rt === "Patient" && fullUrl) patientFullUrls.add(fullUrl);
+      if (rt === "Device" && fullUrl) deviceFullUrls.add(fullUrl);
+    }
+    for (let i = 0; i < entry.length; i++) {
+      const e = entry[i] || {};
+      const r = e.resource || null;
+      if (!r) continue;
+      const rt = String(r.resourceType || "");
+      const id = r.id != null ? String(r.id) : String(i);
+      if (rt === "Observation") {
+        const status = r.status != null ? String(r.status) : "";
+        if (!status || !OBS_STATUS.has(status)) {
+          pushIssue(issues, `Observation/${id} status missing or not in R4 ObservationStatus`);
+        }
+        if (!Array.isArray(r.category) || r.category.length === 0) {
+          pushIssue(issues, `Observation/${id} missing category (required for external-exchange)`);
+        } else {
+          const cat0 = r.category[0];
+          const hasCatCode = cat0 && Array.isArray(cat0.coding) && cat0.coding.some((c) => c && c.system && c.code);
+          if (!hasCatCode) {
+            pushIssue(issues, `Observation/${id} category[0] needs coding.system+code`);
+          }
+        }
+        const code = r.code;
+        if (!code || typeof code !== "object") {
+          pushIssue(issues, `Observation/${id} missing code`);
+        } else {
+          const codings = Array.isArray(code.coding) ? code.coding : [];
+          const okCoding = codings.some((c) => c && c.system && c.code);
+          if (!okCoding) {
+            pushIssue(issues, `Observation/${id} code.coding needs system+code`);
+          }
+        }
+        if (r.effectiveDateTime == null && r.effectivePeriod == null) {
+          pushIssue(issues, `Observation/${id} missing effectiveDateTime/effectivePeriod`);
+        }
+        if (r.effectiveDateTime != null && !isValidR4DateTime(String(r.effectiveDateTime))) {
+          pushIssue(
+            issues,
+            `Observation/${id} effectiveDateTime fails R4 dateTime (timezone required when time present): ${r.effectiveDateTime}`
+          );
+        }
+        if (r.effectivePeriod && typeof r.effectivePeriod === "object") {
+          const p = r.effectivePeriod;
+          if (!p.start || !p.end) {
+            pushIssue(issues, `Observation/${id} effectivePeriod needs start and end`);
+          } else {
+            if (!isValidR4DateTime(String(p.start))) {
+              pushIssue(issues, `Observation/${id} effectivePeriod.start invalid R4 dateTime: ${p.start}`);
+            }
+            if (!isValidR4DateTime(String(p.end))) {
+              pushIssue(issues, `Observation/${id} effectivePeriod.end invalid R4 dateTime: ${p.end}`);
+            }
+          }
+        }
+        const hasValue = r.valueQuantity != null || r.valueString != null || r.valueCodeableConcept != null || Array.isArray(r.component) && r.component.length > 0;
+        if (!hasValue) {
+          pushIssue(issues, `Observation/${id} missing value/component`);
+        }
+        if (r.valueQuantity && typeof r.valueQuantity === "object") {
+          const vq = r.valueQuantity;
+          if (vq.value == null || !Number.isFinite(Number(vq.value))) {
+            pushIssue(issues, `Observation/${id} valueQuantity.value missing/not numeric`);
+          }
+          if (vq.system != null && String(vq.system) !== "http://unitsofmeasure.org") {
+            pushIssue(
+              issues,
+              `Observation/${id} valueQuantity.system should be UCUM (http://unitsofmeasure.org)`
+            );
+          }
+          if (vq.system == null || vq.code == null) {
+            pushIssue(issues, `Observation/${id} valueQuantity should include UCUM system+code`);
+          }
+        }
+        if (r.subject && typeof r.subject === "object") {
+          const ref = String(r.subject.reference || "");
+          if (ref && !fullUrls.has(ref)) {
+            pushIssue(issues, `Observation/${id} subject.reference not in Bundle fullUrl set`);
+          } else if (ref && patientFullUrls.size > 0 && !patientFullUrls.has(ref)) {
+            pushIssue(issues, `Observation/${id} subject.reference must resolve to Patient fullUrl`);
+          }
+        }
+        if (r.device && typeof r.device === "object") {
+          const ref = String(r.device.reference || "");
+          if (ref && !fullUrls.has(ref)) {
+            pushIssue(issues, `Observation/${id} device.reference not in Bundle fullUrl set`);
+          } else if (ref && deviceFullUrls.size > 0 && !deviceFullUrls.has(ref)) {
+            pushIssue(issues, `Observation/${id} device.reference must resolve to Device fullUrl`);
+          }
+        }
+      } else if (rt === "Device") {
+        const status = r.status != null ? String(r.status) : "";
+        if (status && !DEVICE_STATUS.has(status)) {
+          pushIssue(issues, `Device/${id} unexpected status ${status}`);
+        }
+        const hasIdentity = Array.isArray(r.deviceName) && r.deviceName.length > 0 || r.type != null || r.manufacturer != null;
+        if (!hasIdentity) {
+          pushIssue(issues, `Device/${id} needs deviceName, type, or manufacturer`);
+        }
+      } else if (rt === "Patient") {
+        if (Array.isArray(r.identifier) && r.identifier.some(
+          (idObj) => idObj && String(idObj.value || "") === "local-patient"
+        )) {
+          pushIssue(
+            issues,
+            `Patient/${id} uses fixed identifier "local-patient" (merge risk for external exchange)`
+          );
+        }
+        if (r.birthDate != null) {
+          const bd = String(r.birthDate);
+          if (!/^\d{4}(-\d{2}(-\d{2})?)?$/.test(bd)) {
+            pushIssue(issues, `Patient/${id} birthDate invalid R4 date: ${bd}`);
+          }
+        }
+      } else if (rt === "Provenance") {
+        if (r.recorded == null || !isValidR4DateTime(String(r.recorded))) {
+          pushIssue(issues, `Provenance/${id} recorded missing or invalid dateTime`);
+        }
+        if (!Array.isArray(r.agent) || !r.agent.length) {
+          pushIssue(issues, `Provenance/${id} missing agent`);
+        }
+        if (!Array.isArray(r.target) || !r.target.length) {
+          pushIssue(issues, `Provenance/${id} missing target`);
+        } else {
+          for (const t of r.target) {
+            const ref = String(t && t.reference || "");
+            if (!ref) {
+              pushIssue(issues, `Provenance/${id} target missing reference`);
+            } else if (!fullUrls.has(ref)) {
+              pushIssue(
+                issues,
+                `Provenance/${id} target ${ref} does not match entry.fullUrl`
+              );
+            }
+          }
+        }
+      } else if (rt === "DocumentReference") {
+        if (!Array.isArray(r.content) || !r.content.length) {
+          pushIssue(issues, `DocumentReference/${id} missing content`);
+        } else {
+          const att = r.content[0]?.attachment;
+          if (!att || !att.data) {
+            pushIssue(issues, `DocumentReference/${id} content[0].attachment.data missing`);
+          }
+          if (att && !att.contentType) {
+            pushIssue(issues, `DocumentReference/${id} attachment.contentType missing`);
+          }
+        }
+      }
+    }
+    if ((resourceCounts.Observation || 0) < 1) {
+      pushIssue(issues, "external-exchange Bundle must contain \u22651 Observation");
+    }
+    return {
+      ok: issues.length === 0,
+      issues,
+      engine,
+      resourceCounts
+    };
+  }
+
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.7.0";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.8.0";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
+  var OBS_CATEGORY_SYSTEM = "http://terminology.hl7.org/CodeSystem/observation-category";
   var META_SOURCE = "urn:health-analyzer:local";
   var DEVICE_NOTE = "local Apple Health / HAE import";
   var EXT_SOURCE_BATCH_IDS = "urn:health-analyzer:extension:source-batch-ids";
@@ -7939,6 +8204,32 @@ List 5\u20137 working hypotheses that best fit the available data
       system,
       code
     };
+  }
+  function observationCategory(byTypeKey) {
+    const key = String(byTypeKey || "");
+    let code = "vital-signs";
+    let display = "Vital Signs";
+    if (key === "glucose") {
+      code = "laboratory";
+      display = "Laboratory";
+    } else if (key === "steps" || key === "sleep") {
+      code = "activity";
+      display = "Activity";
+    }
+    return {
+      coding: [
+        {
+          system: OBS_CATEGORY_SYSTEM,
+          code,
+          display
+        }
+      ],
+      text: display
+    };
+  }
+  function attachObservationCategory(obs, byTypeKey) {
+    if (Array.isArray(obs.category) && obs.category.length > 0) return;
+    obs.category = [observationCategory(byTypeKey)];
   }
   function newBundleUuid() {
     const g = globalThis;
@@ -8433,7 +8724,7 @@ List 5\u20137 working hypotheses that best fit the available data
     obs.valueQuantity = quantity(rate, "/min", "/min");
     return obs;
   }
-  var URN_UUID_RE = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  var URN_UUID_RE2 = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   function validateFhirExportBundle(bundle) {
     const issues = [];
     const resourceCounts = {};
@@ -8459,11 +8750,11 @@ List 5\u20137 working hypotheses that best fit the available data
       if (!fullUrl) {
         issues.push(`entry[${i}] missing fullUrl`);
       } else {
-        const isUri = URN_UUID_RE.test(fullUrl) || /^https?:\/\//i.test(fullUrl) || /^urn:/i.test(fullUrl);
+        const isUri = URN_UUID_RE2.test(fullUrl) || /^https?:\/\//i.test(fullUrl) || /^urn:/i.test(fullUrl);
         if (!isUri) {
           issues.push(`entry[${i}] fullUrl is not a URI: ${fullUrl}`);
         }
-        if (!URN_UUID_RE.test(fullUrl) && !/^https?:\/\//i.test(fullUrl)) {
+        if (!URN_UUID_RE2.test(fullUrl) && !/^https?:\/\//i.test(fullUrl)) {
           if (/^[A-Za-z]+\/[\w.-]+$/.test(fullUrl)) {
             issues.push(
               `entry[${i}] fullUrl looks like relative Resource/id (${fullUrl}); prefer urn:uuid:`
@@ -8806,6 +9097,15 @@ List 5\u20137 working hypotheses that best fit the available data
     );
     notes.push("Local-only JSON; no hospital system integration or remote POST.");
     const opts = options || {};
+    const exportTier = normalizeFhirExportTier(opts.exportTier);
+    const isExchange = exportTier === "external-exchange";
+    if (isExchange) {
+      notes.push(
+        "export tier: external-exchange \u2014 independent R4 exchange-gate required before sharing; not HL7 Java validator"
+      );
+    } else {
+      notes.push("export tier: local-archive \u2014 personal archive; project self-check only");
+    }
     const maxCgm = Math.max(0, opts.maxCgm ?? DEFAULT_MAX_CGM);
     const maxBp = Math.max(0, opts.maxBp ?? DEFAULT_MAX_BP);
     const maxWeight = Math.max(0, opts.maxWeight ?? DEFAULT_MAX_WEIGHT);
@@ -8851,11 +9151,15 @@ List 5\u20137 working hypotheses that best fit the available data
     const observationDomains = [];
     const observationDeviceClasses = [];
     const domainSourceBatches = analysis.domainSourceBatches;
-    const includeDevices = opts.includeDevices !== false;
+    const includeDevices = isExchange ? true : opts.includeDevices !== false;
+    if (isExchange && opts.includeDevices === false) {
+      notes.push("external-exchange forces includeDevices=true (UI opt-out ignored for this tier)");
+    }
     const batchesEarly = (Array.isArray(opts.importBatches) ? opts.importBatches : []).map((b) => normalizeImportBatch(b)).filter((b) => !!b);
     const hasHaeImport = batchesEarly.some((b) => b.source === "hae");
     const pushObs = (obs, byTypeKey, deviceHint) => {
       const domain = FHIR_OBS_TYPE_TO_DOMAIN[byTypeKey] || byTypeKey;
+      attachObservationCategory(obs, byTypeKey);
       attachSourceBatchExtension(obs, domain, domainSourceBatches);
       observations.push(obs);
       observationDomains.push(domain);
@@ -9263,8 +9567,8 @@ List 5\u20137 working hypotheses that best fit the available data
           },
           {
             system: "urn:health-analyzer:export-kind",
-            code: "local-collection",
-            display: "Local collection (not transaction/submission)"
+            code: exportTier,
+            display: exportTier === "external-exchange" ? "External exchange candidate (must pass independent exchange-gate; not hospital submission)" : "Local archive collection (not transaction/submission)"
           }
         ],
         // profile is informal — not a published IG
@@ -9284,21 +9588,50 @@ List 5\u20137 working hypotheses that best fit the available data
       byType
     };
     notes.push(
-      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Patient=${counts.patients} Device=${counts.devices} Provenance=${counts.provenances} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, wristTemp=${byType.wristTemperature}, nightHr=${byType.nightHeartRate}, rr=${byType.respiratoryRate}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
+      `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} Patient=${counts.patients} Device=${counts.devices} Provenance=${counts.provenances} tier=${exportTier} (bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, wristTemp=${byType.wristTemperature}, nightHr=${byType.nightHeartRate}, rr=${byType.respiratoryRate}, clinicalDoc=${byType.clinicalDocument}, agpSvg=${byType.agpSvg})`
     );
     let validation;
     if (opts.validate !== false) {
       validation = validateFhirExportBundle(bundle);
       if (validation.ok) {
-        notes.push("structure self-check: ok (not official FHIR validator)");
+        notes.push("structure self-check: ok (project check \u2014 not official HL7 FHIR validator)");
       } else {
         notes.push(
           `structure self-check: ${validation.issues.length} issue(s) \u2014 ${validation.issues.slice(0, 3).join("; ")}`
         );
       }
     }
+    const runExchange = opts.runExchangeValidation === true || isExchange && opts.runExchangeValidation !== false;
+    let exchangeValidation;
+    if (runExchange) {
+      exchangeValidation = validateFhirR4ExchangeGate(bundle);
+      if (exchangeValidation.ok) {
+        notes.push(
+          `exchange-gate (${FHIR_EXCHANGE_GATE_ENGINE}): ok \u2014 still not HL7 validator_cli`
+        );
+      } else {
+        notes.push(
+          `exchange-gate (${FHIR_EXCHANGE_GATE_ENGINE}): FAIL ${exchangeValidation.issues.length} issue(s) \u2014 ${exchangeValidation.issues.slice(0, 3).join("; ")}`
+        );
+      }
+    }
+    const exchangeReady = !isExchange ? true : !!(exchangeValidation && exchangeValidation.ok);
+    if (isExchange && !exchangeReady) {
+      notes.push(
+        "external-exchange blocked: exchange-gate failed \u2014 do not share this Bundle externally"
+      );
+    }
     const json = JSON.stringify(bundle, null, 2);
-    return { bundle, json, counts, notes, validation };
+    return {
+      bundle,
+      json,
+      counts,
+      notes,
+      exportTier,
+      validation,
+      exchangeValidation,
+      exchangeReady
+    };
   }
 
   // src/export.ts

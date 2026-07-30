@@ -226,6 +226,10 @@ test.describe('health-analyzer PWA smoke', () => {
 
     await page.locator('#step-export').scrollIntoViewIfNeeded();
     await expect(page.locator('#btn-export-fhir')).toBeVisible({ timeout: 10_000 });
+    // v1.58 tiers
+    await expect(page.locator('#fhir-tier-archive')).toBeAttached();
+    await expect(page.locator('#fhir-tier-exchange')).toBeAttached();
+    await expect(page.locator('#fhir-tier-archive')).toBeChecked();
 
     // --- Default download: no Patient ---
     {

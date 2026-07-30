@@ -1,5 +1,5 @@
 /**
- * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference / Patient / Device 导出（试验性 v1.57）
+ * 本机 FHIR R4-shaped Observation + Provenance + 可选 DocumentReference / Patient / Device 导出（试验性 v1.58）
  *
  * - 仅生成本地可下载 JSON Bundle；非医院系统对接、非 FHIR 认证提交
  * - Bundle entry.fullUrl 使用 urn:uuid:；Provenance.target 与之匹配
@@ -8,7 +8,8 @@
  * - v1.55：可选本机伪名 Patient（默认关闭，无身份 / 无 subject）
  * - v1.56：日汇总日期精度；Patient 默认无固定 identifier；birthDate 仅年
  * - v1.57：可选 Device（Apple Watch / iPhone / HAE / Apple Health 聚合）+ Observation.device
- * - 含结构自检 validateFhirExportBundle（非官方 FHIR 校验器）
+ * - v1.58：导出档位 local-archive / external-exchange；后者须独立 R4 交换门禁校验
+ * - 项目自检 validateFhirExportBundle ≠ 官方 HL7 校验器；交换门禁为独立规则引擎
  */
 
 import {
@@ -26,16 +27,34 @@ import {
   normalizeImportBatch,
 } from './provenance';
 import { buildAgpSvg, buildCgm14DayReport } from './clinical-report';
+import {
+  FhirExportTier,
+  FhirExchangeValidation,
+  FHIR_EXCHANGE_GATE_ENGINE,
+  normalizeFhirExportTier,
+  validateFhirR4ExchangeGate,
+} from './fhir-r4-exchange';
+
+export type { FhirExportTier, FhirExchangeValidation } from './fhir-r4-exchange';
+export {
+  FHIR_EXPORT_TIERS,
+  FHIR_EXCHANGE_GATE_ENGINE,
+  isValidR4DateTime,
+  normalizeFhirExportTier,
+  validateFhirR4ExchangeGate,
+} from './fhir-r4-exchange';
 
 // ============================================================
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.7.0';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.8.0';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
 const UCUM = 'http://unitsofmeasure.org';
+/** HL7 observation-category codesystem */
+const OBS_CATEGORY_SYSTEM = 'http://terminology.hl7.org/CodeSystem/observation-category';
 const META_SOURCE = 'urn:health-analyzer:local';
 const DEVICE_NOTE = 'local Apple Health / HAE import';
 /** Observation extension: comma-separated import batch ids for this domain */
@@ -185,6 +204,17 @@ export interface FhirExportOptions {
   agpSvg?: string | null;
   /** run lightweight structure self-check (default true) */
   validate?: boolean;
+  /**
+   * Export tier (v1.58):
+   * - local-archive (default): personal archive; project self-check only
+   * - external-exchange: stricter shaping + independent R4 exchange-gate validation
+   */
+  exportTier?: FhirExportTier | string | null;
+  /**
+   * When exportTier=external-exchange, run independent exchange gate (default true).
+   * Does not invoke HL7 Java validator; see FHIR_EXCHANGE_GATE_ENGINE.
+   */
+  runExchangeValidation?: boolean;
 }
 
 export interface FhirExportValidation {
@@ -205,7 +235,20 @@ export interface FhirExportResult {
     byType: Record<string, number>;
   };
   notes: string[];
+  /** Resolved export tier */
+  exportTier: FhirExportTier;
+  /** Project self-check (not official HL7 validator) */
   validation?: FhirExportValidation;
+  /**
+   * Independent R4 exchange-gate result (present when tier=external-exchange
+   * or runExchangeValidation forced).
+   */
+  exchangeValidation?: FhirExchangeValidation;
+  /**
+   * true when local-archive, or when external-exchange exchangeValidation.ok.
+   * UI should block download of external-exchange when false.
+   */
+  exchangeReady: boolean;
 }
 
 // ============================================================
@@ -321,6 +364,35 @@ function quantity(
     system,
     code,
   };
+}
+
+/** observation-category for interoperability (required by external-exchange gate) */
+function observationCategory(byTypeKey: string): Record<string, unknown> {
+  const key = String(byTypeKey || '');
+  let code = 'vital-signs';
+  let display = 'Vital Signs';
+  if (key === 'glucose') {
+    code = 'laboratory';
+    display = 'Laboratory';
+  } else if (key === 'steps' || key === 'sleep') {
+    code = 'activity';
+    display = 'Activity';
+  }
+  return {
+    coding: [
+      {
+        system: OBS_CATEGORY_SYSTEM,
+        code,
+        display,
+      },
+    ],
+    text: display,
+  };
+}
+
+function attachObservationCategory(obs: Record<string, unknown>, byTypeKey: string): void {
+  if (Array.isArray(obs.category) && obs.category.length > 0) return;
+  obs.category = [observationCategory(byTypeKey)];
 }
 
 /** RFC4122-ish UUID for Bundle fullUrl (crypto.randomUUID when available) */
@@ -1457,6 +1529,16 @@ export function buildFhirExportBundle(
   notes.push('Local-only JSON; no hospital system integration or remote POST.');
 
   const opts = options || {};
+  const exportTier: FhirExportTier = normalizeFhirExportTier(opts.exportTier);
+  const isExchange = exportTier === 'external-exchange';
+  if (isExchange) {
+    notes.push(
+      'export tier: external-exchange — independent R4 exchange-gate required before sharing; not HL7 Java validator'
+    );
+  } else {
+    notes.push('export tier: local-archive — personal archive; project self-check only');
+  }
+
   const maxCgm = Math.max(0, opts.maxCgm ?? DEFAULT_MAX_CGM);
   const maxBp = Math.max(0, opts.maxBp ?? DEFAULT_MAX_BP);
   const maxWeight = Math.max(0, opts.maxWeight ?? DEFAULT_MAX_WEIGHT);
@@ -1514,8 +1596,11 @@ export function buildFhirExportBundle(
   const observationDeviceClasses: (FhirDeviceClass | null)[] = [];
   const domainSourceBatches = analysis.domainSourceBatches;
 
-  // Device wiring (v1.57): default on for clinical review readability
-  const includeDevices = opts.includeDevices !== false;
+  // Device wiring (v1.57): default on; external-exchange forces devices for reviewability
+  const includeDevices = isExchange ? true : opts.includeDevices !== false;
+  if (isExchange && opts.includeDevices === false) {
+    notes.push('external-exchange forces includeDevices=true (UI opt-out ignored for this tier)');
+  }
   const batchesEarly = (Array.isArray(opts.importBatches) ? opts.importBatches : [])
     .map((b) => normalizeImportBatch(b))
     .filter((b): b is ImportBatchRecord => !!b);
@@ -1530,6 +1615,7 @@ export function buildFhirExportBundle(
     }
   ): void => {
     const domain = FHIR_OBS_TYPE_TO_DOMAIN[byTypeKey] || byTypeKey;
+    attachObservationCategory(obs, byTypeKey);
     attachSourceBatchExtension(obs, domain, domainSourceBatches);
     observations.push(obs);
     observationDomains.push(domain);
@@ -2049,8 +2135,11 @@ export function buildFhirExportBundle(
         },
         {
           system: 'urn:health-analyzer:export-kind',
-          code: 'local-collection',
-          display: 'Local collection (not transaction/submission)',
+          code: exportTier,
+          display:
+            exportTier === 'external-exchange'
+              ? 'External exchange candidate (must pass independent exchange-gate; not hospital submission)'
+              : 'Local archive collection (not transaction/submission)',
         },
       ],
       // profile is informal — not a published IG
@@ -2074,6 +2163,7 @@ export function buildFhirExportBundle(
   notes.push(
     `exported Observations=${counts.observations} DocumentReference=${counts.documentReferences} ` +
       `Patient=${counts.patients} Device=${counts.devices} Provenance=${counts.provenances} ` +
+      `tier=${exportTier} ` +
       `(bp=${byType.bloodPressure}, weight=${byType.bodyWeight}, glucose=${byType.glucose}, ` +
       `steps=${byType.steps}, restingHr=${byType.restingHeartRate}, spo2=${byType.spo2}, ` +
       `sleep=${byType.sleep}, vo2=${byType.vo2Max}, breathing=${byType.breathingDisturbance}, ` +
@@ -2085,7 +2175,7 @@ export function buildFhirExportBundle(
   if (opts.validate !== false) {
     validation = validateFhirExportBundle(bundle);
     if (validation.ok) {
-      notes.push('structure self-check: ok (not official FHIR validator)');
+      notes.push('structure self-check: ok (project check — not official HL7 FHIR validator)');
     } else {
       notes.push(
         `structure self-check: ${validation.issues.length} issue(s) — ${validation.issues
@@ -2095,7 +2185,47 @@ export function buildFhirExportBundle(
     }
   }
 
+  // Independent exchange gate (separate module from project self-check)
+  const runExchange =
+    opts.runExchangeValidation === true ||
+    (isExchange && opts.runExchangeValidation !== false);
+  let exchangeValidation: FhirExchangeValidation | undefined;
+  if (runExchange) {
+    exchangeValidation = validateFhirR4ExchangeGate(bundle);
+    if (exchangeValidation.ok) {
+      notes.push(
+        `exchange-gate (${FHIR_EXCHANGE_GATE_ENGINE}): ok — still not HL7 validator_cli`
+      );
+    } else {
+      notes.push(
+        `exchange-gate (${FHIR_EXCHANGE_GATE_ENGINE}): FAIL ${exchangeValidation.issues.length} issue(s) — ${exchangeValidation.issues
+          .slice(0, 3)
+          .join('; ')}`
+      );
+    }
+  }
+
+  // local-archive is always "ready" for personal download; exchange requires gate pass
+  const exchangeReady = !isExchange
+    ? true
+    : !!(exchangeValidation && exchangeValidation.ok);
+
+  if (isExchange && !exchangeReady) {
+    notes.push(
+      'external-exchange blocked: exchange-gate failed — do not share this Bundle externally'
+    );
+  }
+
   const json = JSON.stringify(bundle, null, 2);
 
-  return { bundle, json, counts, notes, validation };
+  return {
+    bundle,
+    json,
+    counts,
+    notes,
+    exportTier,
+    validation,
+    exchangeValidation,
+    exchangeReady,
+  };
 }

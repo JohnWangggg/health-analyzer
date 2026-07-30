@@ -3736,11 +3736,28 @@
 
       const batches = (await loadImportBatchesForExport()) || [];
       const range = currentAnalysis.dateRange || {};
+      // v1.58 tiers: local-archive (default) vs external-exchange
+      const tierEl = document.querySelector(
+        'input[name="fhir-export-tier"]:checked'
+      );
+      let exportTier = 'local-archive';
+      if (tierEl && tierEl.value) {
+        exportTier = String(tierEl.value);
+      }
+      if (
+        window.HealthAnalyzer &&
+        typeof window.HealthAnalyzer.normalizeFhirExportTier === 'function'
+      ) {
+        exportTier = window.HealthAnalyzer.normalizeFhirExportTier(exportTier);
+      }
+      const isExchange = exportTier === 'external-exchange';
+
       const opts = Object.assign({}, analysisLocaleOpts(), {
         windowStart: range.start || undefined,
         windowEnd: range.end || undefined,
         includeProvenance: batches.length > 0,
         importBatches: batches,
+        exportTier,
       });
 
       // Optional DocumentReference: clinical review under same privacy defaults as HTML export
@@ -3782,9 +3799,11 @@
         opts.includeAgpSvg = true;
       }
 
-      // Optional Devices (v1.57): default checked in UI; wire Observation.device
+      // Optional Devices (v1.57): default checked; external-exchange forces devices on in lib
       if ($('fhir-include-devices')) {
-        opts.includeDevices = !!$('fhir-include-devices').checked;
+        opts.includeDevices = isExchange ? true : !!$('fhir-include-devices').checked;
+      } else if (isExchange) {
+        opts.includeDevices = true;
       }
 
       // Optional local pseudonym Patient (default off — no identity / no subject)
@@ -3810,6 +3829,23 @@
         throw new Error('empty result');
       }
 
+      // external-exchange: block download when independent exchange-gate fails
+      if (isExchange && result.exchangeReady === false) {
+        const gateIssues =
+          (result.exchangeValidation && result.exchangeValidation.issues) || [];
+        const nIss = gateIssues.length;
+        const preview = gateIssues.slice(0, 2).join('; ');
+        showExportStatus(
+          t('export.fhir.exchangeBlocked', { n: nIss }) +
+            (preview ? ' · ' + preview : '')
+        );
+        showToast(
+          t('export.fhir.exchangeBlockedToast', { n: nIss }),
+          { ms: 4200 }
+        );
+        return;
+      }
+
       const json =
         result.json != null
           ? String(result.json)
@@ -3817,7 +3853,8 @@
       const end =
         range.end ||
         new Date().toISOString().slice(0, 10);
-      downloadText(`fhir-bundle-${end}.json`, json, 'application/fhir+json');
+      const filePrefix = isExchange ? 'fhir-exchange-bundle' : 'fhir-archive-bundle';
+      downloadText(`${filePrefix}-${end}.json`, json, 'application/fhir+json');
 
       const counts = result.counts || {};
       const nObs =
@@ -3835,7 +3872,9 @@
                       String(e.resource.resourceType || '') === 'Observation'
                   ).length
                 : 0;
-      let statusMsg = t('export.fhir.ok', { n: nObs });
+      let statusMsg = isExchange
+        ? t('export.fhir.okExchange', { n: nObs })
+        : t('export.fhir.ok', { n: nObs });
       const notes = Array.isArray(result.notes)
         ? result.notes.filter(Boolean)
         : result.notes
@@ -3851,6 +3890,18 @@
             statusMsg +
             ' · ' +
             t('export.fhir.validateWarn', { n: nIss });
+        }
+      }
+      if (isExchange && result.exchangeValidation) {
+        if (result.exchangeValidation.ok) {
+          statusMsg = statusMsg + ' · ' + t('export.fhir.exchangeOk');
+        } else {
+          const nIss =
+            (result.exchangeValidation.issues &&
+              result.exchangeValidation.issues.length) ||
+            0;
+          statusMsg =
+            statusMsg + ' · ' + t('export.fhir.exchangeWarn', { n: nIss });
         }
       }
       if (notes.length) {

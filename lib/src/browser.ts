@@ -122,6 +122,8 @@ export {
   FHIR_R4,
   FHIR_OBS_TYPE_TO_DOMAIN,
   FHIR_DEVICE_CLASSES,
+  FHIR_EXPORT_TIERS,
+  FHIR_EXCHANGE_GATE_ENGINE,
   toIsoDateTime,
   newBundleUuid,
   dayEffectivePeriod,
@@ -131,6 +133,8 @@ export {
   deviceLogicalId,
   deviceDisplayName,
   resolveObservationDeviceClass,
+  normalizeFhirExportTier,
+  validateFhirR4ExchangeGate,
   buildFhirExportBundle,
   validateFhirExportBundle,
 } from './export';
@@ -138,9 +142,11 @@ export type {
   WeeklyReportOptions,
   ClinicalReportOptions,
   FhirDeviceClass,
+  FhirExportTier,
   FhirExportOptions,
   FhirExportResult,
   FhirExportValidation,
+  FhirExchangeValidation,
 } from './export';
 
 export {

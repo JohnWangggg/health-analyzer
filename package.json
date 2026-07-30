@@ -6,7 +6,9 @@
     "smoke": "node scripts/smoke.mjs",
     "test:lib": "npm --prefix lib test",
     "build:lib": "npm --prefix lib run build",
-    "test:fhir": "node scripts/fhir-structure-check.mjs",
+    "test:fhir": "node scripts/fhir-structure-check.mjs && node scripts/fhir-exchange-check.mjs",
+    "test:fhir:structure": "node scripts/fhir-structure-check.mjs",
+    "test:fhir:exchange": "node scripts/fhir-exchange-check.mjs",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "test:all": "npm run test:lib && npm run build:lib && npm run smoke && npm run test:fhir && npm run test:e2e"

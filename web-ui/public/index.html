@@ -495,7 +495,18 @@
 
       <div class="fhir-export-panel" role="region" aria-labelledby="fhir-export-title">
         <h3 class="panel-subhead" id="fhir-export-title" data-i18n="export.fhir.title">试验性 FHIR 导出</h3>
-        <p class="hint compact-hint" data-i18n="export.fhir.hint">本机生成 R4 形 Observation + Provenance Bundle JSON；含血压/体重/CGM/步数/静息心率/夜心率/呼吸频率/血氧/睡眠/VO₂/呼吸紊乱/腕温。默认可含 Device（Watch/iPhone/HAE）；默认不含 Patient 身份。导出时做结构自检（非官方校验器）。不上传、非医院对接、非医疗认证。</p>
+        <p class="hint compact-hint" data-i18n="export.fhir.hint">本机生成 R4 形 Observation Bundle JSON。两档：本地归档（自检）与外部交换（独立 R4 交换门禁，非 HL7 Java 校验器）。默认可含 Device；默认不含 Patient。不上传、非医院对接、非医疗认证。</p>
+        <fieldset class="fhir-tier-fieldset">
+          <legend data-i18n="export.fhir.tierLegend">导出档位</legend>
+          <label class="check-inline" for="fhir-tier-archive">
+            <input type="radio" name="fhir-export-tier" id="fhir-tier-archive" value="local-archive" checked />
+            <span data-i18n="export.fhir.tierArchive">本地归档（个人备份，项目结构自检）</span>
+          </label>
+          <label class="check-inline" for="fhir-tier-exchange">
+            <input type="radio" name="fhir-export-tier" id="fhir-tier-exchange" value="external-exchange" />
+            <span data-i18n="export.fhir.tierExchange">外部交换（须通过独立 R4 交换门禁；失败则不下载）</span>
+          </label>
+        </fieldset>
         <label class="check-inline" for="fhir-include-clinical-doc">
           <input type="checkbox" id="fhir-include-clinical-doc" />
           <span data-i18n="export.fhir.includeClinicalDoc">附带就诊复盘文档（DocumentReference，默认脱敏规则）</span>
@@ -632,7 +643,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.57</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.58</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

@@ -33,24 +33,31 @@ export {
   FHIR_R4,
   FHIR_OBS_TYPE_TO_DOMAIN,
   FHIR_DEVICE_CLASSES,
+  FHIR_EXPORT_TIERS,
+  FHIR_EXCHANGE_GATE_ENGINE,
   toIsoDateTime,
   newBundleUuid,
   dayEffectivePeriod,
   isValidFhirDateTime,
+  isValidR4DateTime,
   shortImportBatchIdForProv,
   buildLocalPatientResource,
   buildLocalDeviceResource,
   deviceLogicalId,
   deviceDisplayName,
   resolveObservationDeviceClass,
+  normalizeFhirExportTier,
+  validateFhirR4ExchangeGate,
   buildFhirExportBundle,
   validateFhirExportBundle,
 } from './fhir-export';
 export type {
   FhirDeviceClass,
+  FhirExportTier,
   FhirExportOptions,
   FhirExportResult,
   FhirExportValidation,
+  FhirExchangeValidation,
 } from './fhir-export';
 
 function csvEscape(value: unknown): string {
