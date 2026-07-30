@@ -12,6 +12,7 @@
  * - v1.59：Device 仅高置信度测量设备（Watch/iPhone）；HAE/聚合不进 device；
  *          外部交换分 anonymous-share / personal-handoff
  * - v1.61：逐条保留 sourceName；Device 优先用逐条来源；stripPrivateFhirExtensions 供 HL7 校验
+ * - v1.62：匿名分享净化层 — 移除 sourceName 扩展/note、导入文件名等直接标识
  * - 项目自检 validateFhirExportBundle ≠ 官方 HL7 校验器；交换门禁为独立规则引擎
  */
 
@@ -59,7 +60,7 @@ export {
 // Constants & public types
 // ============================================================
 
-export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.9.1';
+export const FHIR_EXPORT_PROFILE = 'health-analyzer-fhir-export-v1.9.2';
 export const FHIR_R4 = 'http://hl7.org/fhir';
 
 const LOINC = 'http://loinc.org';
@@ -70,8 +71,8 @@ const META_SOURCE = 'urn:health-analyzer:local';
 const DEVICE_NOTE = 'local Apple Health / HAE import';
 /** Observation extension: comma-separated import batch ids for this domain */
 const EXT_SOURCE_BATCH_IDS = 'urn:health-analyzer:extension:source-batch-ids';
-/** Observation extension: raw sourceName / import channel label (v1.61) */
-const EXT_SOURCE_NAME = 'urn:health-analyzer:extension:source-name';
+/** Observation extension: raw sourceName / import channel label (v1.61; scrubbed in anonymous-share) */
+export const EXT_SOURCE_NAME = 'urn:health-analyzer:extension:source-name';
 /** Patient extension: year-only birthDate is approximate */
 const EXT_BIRTH_YEAR_ONLY = 'urn:health-analyzer:extension:birth-year-only';
 /** Patient extension: local pseudonym disclaimer */
@@ -732,6 +733,97 @@ function attachSourceNameMeta(obs: Record<string, unknown>, source: string | nul
   obs.note = notes;
 }
 
+/** True when a note/extension value looks like a retained raw sourceName (privacy leak if shared anonymously). */
+export function isSourceNameLeakText(text: unknown): boolean {
+  const s = String(text || '');
+  if (!s) return false;
+  if (/^sourceName\s*:/i.test(s.trim())) return true;
+  if (s.includes('sourceName:')) return true;
+  return false;
+}
+
+/**
+ * v1.62 anonymous-share sanitizer.
+ * Removes direct identifiers that must not leave the device on anonymous export:
+ * - source-name extensions and "sourceName: …" notes (often contain "张三的 iPhone")
+ * - Provenance entity displays that embed import file names
+ * - DocumentReference free-text that may re-identify (defensive)
+ * Device class display stays generic ("Apple Watch" / "iPhone"), never personalized names.
+ */
+export function sanitizeAnonymousFhirBundle(
+  bundle: Record<string, unknown> | null | undefined
+): Record<string, unknown> {
+  if (!bundle || typeof bundle !== 'object') {
+    return { resourceType: 'Bundle', type: 'collection', entry: [] };
+  }
+  const cloned = JSON.parse(JSON.stringify(bundle)) as Record<string, unknown>;
+  const entry = Array.isArray(cloned.entry) ? (cloned.entry as Record<string, unknown>[]) : [];
+
+  for (const e of entry) {
+    if (!e || typeof e !== 'object') continue;
+    const r = e.resource as Record<string, unknown> | undefined;
+    if (!r || typeof r !== 'object') continue;
+    const rt = String(r.resourceType || '');
+
+    // Strip source-name extensions everywhere
+    if (Array.isArray(r.extension)) {
+      r.extension = (r.extension as { url?: string; valueString?: string }[]).filter(
+        (x) => x && String(x.url || '') !== EXT_SOURCE_NAME
+      );
+      if (!(r.extension as unknown[]).length) delete r.extension;
+    }
+
+    // Strip sourceName notes (and any note that embeds the marker)
+    if (Array.isArray(r.note)) {
+      r.note = (r.note as { text?: string }[]).filter((n) => n && !isSourceNameLeakText(n.text));
+      if (!(r.note as unknown[]).length) delete r.note;
+    }
+
+    if (rt === 'Provenance' && Array.isArray(r.entity)) {
+      for (const ent of r.entity as Record<string, unknown>[]) {
+        if (!ent || typeof ent !== 'object') continue;
+        const what = ent.what as Record<string, unknown> | undefined;
+        if (!what || typeof what !== 'object') continue;
+        // Keep channel only (hae / apple_xml); drop file names
+        if (what.display != null) {
+          const d = String(what.display);
+          // "hae: Foo.json, Bar.json" → "hae"
+          const channel = d.split(':')[0].trim();
+          what.display = channel || 'import-batch';
+        }
+        // identifier.value is batch id (opaque) — keep
+      }
+    }
+
+    if (rt === 'DocumentReference') {
+      // Defensive: drop description / author display that may carry free text
+      if (r.description != null) delete r.description;
+      if (Array.isArray(r.author)) {
+        for (const a of r.author as Record<string, unknown>[]) {
+          if (a && a.display != null) a.display = 'local-export';
+        }
+      }
+    }
+
+    if (rt === 'Device') {
+      // Ensure deviceName stays class-only (already is); strip any accidental personalized note
+      if (Array.isArray(r.note)) {
+        r.note = (r.note as { text?: string }[]).filter((n) => {
+          if (!n || n.text == null) return false;
+          const t = String(n.text);
+          // drop notes that look like personalized device labels
+          if (/的\s*(iPhone|iPad|Apple\s*Watch|Watch|手机)/i.test(t)) return false;
+          if (/\b(iPhone|Watch)\b.+(的|'s)/i.test(t)) return false;
+          return true;
+        });
+        if (!(r.note as unknown[]).length) delete r.note;
+      }
+    }
+  }
+
+  return cloned;
+}
+
 /**
  * Deep-clone Bundle and strip project-private extensions / tags so the
  * official HL7 Base R4 validator can run without a private IG.
@@ -869,7 +961,14 @@ export function buildLocalPatientResource(opts?: {
   return patient;
 }
 
-function batchDisplay(b: ImportBatchRecord): string {
+function batchDisplay(
+  b: ImportBatchRecord,
+  opts?: { redactFileNames?: boolean }
+): string {
+  if (opts?.redactFileNames) {
+    // Anonymous: channel only — never embed export file names (may contain personal tokens)
+    return String(b.source || 'import');
+  }
   const fileNames = (b.files || []).map((f) => f.name).filter(Boolean);
   const filesPart =
     fileNames.length === 0
@@ -992,7 +1091,10 @@ function buildAssemblerProvenance(params: {
   return prov;
 }
 
-function entityForBatch(b: ImportBatchRecord): Record<string, unknown> {
+function entityForBatch(
+  b: ImportBatchRecord,
+  opts?: { redactFileNames?: boolean }
+): Record<string, unknown> {
   return {
     role: 'source',
     what: {
@@ -1000,7 +1102,7 @@ function entityForBatch(b: ImportBatchRecord): Record<string, unknown> {
         system: 'urn:health-analyzer:import-batch',
         value: b.id,
       },
-      display: batchDisplay(b),
+      display: batchDisplay(b, opts),
     },
   };
 }
@@ -1737,12 +1839,18 @@ export function buildFhirExportBundle(
   const exchangePurpose: FhirExchangePurpose | null = isExchange
     ? normalizeFhirExchangePurpose(opts.exchangePurpose)
     : null;
+  const isAnonymousShare = isExchange && exchangePurpose === 'anonymous-share';
   if (isExchange) {
     notes.push(
       `export tier: external-exchange (${exchangePurpose}) — independent R4 exchange-gate required; not HL7 Java validator`
     );
   } else {
     notes.push('export tier: local-archive — personal archive; project self-check only');
+  }
+  if (isAnonymousShare) {
+    notes.push(
+      'anonymous-share privacy: raw sourceName, import file names, and clinical attachments scrubbed before download'
+    );
   }
 
   const maxCgm = Math.max(0, opts.maxCgm ?? DEFAULT_MAX_CGM);
@@ -1826,7 +1934,8 @@ export function buildFhirExportBundle(
     const domain = FHIR_OBS_TYPE_TO_DOMAIN[byTypeKey] || byTypeKey;
     attachObservationCategory(obs, byTypeKey);
     attachSourceBatchExtension(obs, domain, domainSourceBatches);
-    if (deviceHint?.sampleSource) {
+    // v1.62: never attach raw sourceName on anonymous-share (may contain "张三的 iPhone")
+    if (deviceHint?.sampleSource && !isAnonymousShare) {
       attachSourceNameMeta(obs, deviceHint.sampleSource);
     }
     observations.push(obs);
@@ -2095,8 +2204,26 @@ export function buildFhirExportBundle(
   }
 
   // --- DocumentReference (clinical review + optional AGP SVG) ---
+  // Anonymous-share: omit free-text clinical attachments by default (re-identification risk)
+  let wantClinicalDoc = opts.includeClinicalDocument === true;
+  let wantAgpSvg = opts.includeAgpSvg === true;
+  if (isAnonymousShare) {
+    if (wantClinicalDoc) {
+      notes.push(
+        'anonymous-share: clinical DocumentReference omitted (free text may re-identify)'
+      );
+    }
+    if (wantAgpSvg) {
+      notes.push(
+        'anonymous-share: AGP DocumentReference omitted (keep metrics only; optional charts not attached)'
+      );
+    }
+    wantClinicalDoc = false;
+    wantAgpSvg = false;
+  }
+
   const documentReferences: Record<string, unknown>[] = [];
-  if (opts.includeClinicalDocument) {
+  if (wantClinicalDoc) {
     const doc = buildClinicalDocumentReference(
       opts.clinicalMarkdown,
       opts.clinicalHtml,
@@ -2109,7 +2236,7 @@ export function buildFhirExportBundle(
     }
   }
 
-  if (opts.includeAgpSvg) {
+  if (wantAgpSvg) {
     let svg = opts.agpSvg != null ? String(opts.agpSvg) : '';
     if (!svg.trim()) {
       try {
@@ -2323,7 +2450,7 @@ export function buildFhirExportBundle(
           buildAssemblerProvenance({
             id: `prov-batch-${shortImportBatchIdForProv(bid)}`,
             target: targets,
-            entities: [entityForBatch(b)],
+            entities: [entityForBatch(b, { redactFileNames: isAnonymousShare })],
             recorded,
           })
         );
@@ -2333,7 +2460,9 @@ export function buildFhirExportBundle(
         notes.push(
           'domain map available but no batch-observation links; coarse provenance fallback'
         );
-        const entities = batches.map(entityForBatch);
+        const entities = batches.map((b) =>
+          entityForBatch(b, { redactFileNames: isAnonymousShare })
+        );
         provenances.push(
           buildAssemblerProvenance({
             id: 'prov-export-1',
@@ -2348,7 +2477,9 @@ export function buildFhirExportBundle(
       if (batches.length > 0 && !hasDomainSourceBatches(domainSourceBatches)) {
         notes.push('domain map unavailable; coarse provenance');
       }
-      const entities = batches.map(entityForBatch);
+      const entities = batches.map((b) =>
+        entityForBatch(b, { redactFileNames: isAnonymousShare })
+      );
       if (!entities.length) {
         notes.push(
           'Provenance included without import batch entities (no importBatches provided).'
@@ -2370,7 +2501,7 @@ export function buildFhirExportBundle(
     ...provenances.map((p) => entryFor(p, idToFullUrl)),
   ];
 
-  const bundle: Record<string, unknown> = {
+  let bundle: Record<string, unknown> = {
     resourceType: 'Bundle',
     id: `hae-fhir-export-${timestamp.slice(0, 10)}`,
     meta: {
@@ -2416,6 +2547,14 @@ export function buildFhirExportBundle(
     total: entries.length,
     entry: entries,
   };
+
+  // v1.62: final anonymous scrub (defense in depth — even if a path leaked earlier)
+  if (isAnonymousShare) {
+    bundle = sanitizeAnonymousFhirBundle(bundle);
+    notes.push(
+      'anonymous-share sanitizer applied: removed sourceName extensions/notes and import file displays'
+    );
+  }
 
   const counts = {
     observations: observations.length,

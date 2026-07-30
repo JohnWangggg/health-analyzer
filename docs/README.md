@@ -268,6 +268,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - Jar 下载到 `tools/validator_cli.jar`（gitignore，不提交）。
 - 本机需要 JDK（如 `brew install openjdk@21`），并将 `JAVA_HOME`/`PATH` 指向该 JDK。
 - v1.61：解析保留逐条 `sourceName`；Device 仅在 Watch/iPhone 高置信度时接线。
+- v1.62：**匿名分享**会净化 raw `sourceName` / 导入文件名；门禁拦截泄漏后的 Bundle。
 
 ## 许可
 

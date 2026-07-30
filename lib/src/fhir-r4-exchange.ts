@@ -10,6 +10,8 @@
  * - exchange purpose: anonymous-share | personal-handoff
  * - Device must be measurement class (Watch/iPhone) with high-confidence extension
  * - Reject HAE / Apple Health aggregate as Observation.device targets
+ * v1.62 additions:
+ * - anonymous-share must not contain raw sourceName extensions / "sourceName:" notes
  *
  * This is still NOT a certified HL7 FHIR Validator substitute.
  */
@@ -34,7 +36,9 @@ export const FHIR_EXCHANGE_PURPOSES: readonly FhirExchangePurpose[] = [
 ] as const;
 
 /** Engine id for exchange gate (bump when rules change) */
-export const FHIR_EXCHANGE_GATE_ENGINE = 'health-analyzer-r4-exchange-gate-v2';
+export const FHIR_EXCHANGE_GATE_ENGINE = 'health-analyzer-r4-exchange-gate-v3';
+
+const EXT_SOURCE_NAME = 'urn:health-analyzer:extension:source-name';
 
 export interface FhirExchangeValidation {
   ok: boolean;
@@ -469,7 +473,7 @@ export function validateFhirR4ExchangeGate(
     pushIssue(issues, 'external-exchange Bundle must contain ≥1 Observation');
   }
 
-  // --- v1.59 purpose semantics ---
+  // --- v1.59 / v1.62 purpose semantics ---
   if (isExchange && purpose === 'anonymous-share') {
     if ((resourceCounts.Patient || 0) > 0) {
       pushIssue(
@@ -479,12 +483,52 @@ export function validateFhirR4ExchangeGate(
     }
     for (let i = 0; i < entry.length; i++) {
       const r = (entry[i]?.resource || null) as Record<string, unknown> | null;
-      if (!r || r.resourceType !== 'Observation') continue;
-      if (r.subject != null) {
+      if (!r) continue;
+      const rt = String(r.resourceType || '');
+      const id = r.id != null ? String(r.id) : String(i);
+
+      if (rt === 'Observation' && r.subject != null) {
         pushIssue(
           issues,
-          `Observation/${String(r.id || i)} must not have subject under anonymous-share`
+          `Observation/${id} must not have subject under anonymous-share`
         );
+      }
+
+      // v1.62 privacy: raw Apple sourceName must not leave the device on anonymous share
+      if (Array.isArray(r.extension)) {
+        for (const ext of r.extension as { url?: string; valueString?: string }[]) {
+          if (ext && String(ext.url || '') === EXT_SOURCE_NAME) {
+            pushIssue(
+              issues,
+              `${rt}/${id} anonymous-share must not include source-name extension (raw sourceName may re-identify)`
+            );
+          }
+        }
+      }
+      if (Array.isArray(r.note)) {
+        for (const n of r.note as { text?: string }[]) {
+          const t = n && n.text != null ? String(n.text) : '';
+          if (/^sourceName\s*:/i.test(t.trim()) || t.includes('sourceName:')) {
+            pushIssue(
+              issues,
+              `${rt}/${id} anonymous-share must not include sourceName note (raw sourceName may re-identify)`
+            );
+          }
+        }
+      }
+
+      // Provenance must not embed import file names (often contain personal tokens)
+      if (rt === 'Provenance' && Array.isArray(r.entity)) {
+        for (const ent of r.entity as { what?: { display?: string } }[]) {
+          const disp = ent && ent.what && ent.what.display != null ? String(ent.what.display) : '';
+          // Channel-only is "hae" or "apple_xml"; file lists contain ": " + name or ".json"/".zip"
+          if (/\.(json|xml|zip|csv)\b/i.test(disp) || /:\s+.+\./.test(disp)) {
+            pushIssue(
+              issues,
+              `Provenance/${id} anonymous-share entity display must not include import file names (${disp.slice(0, 60)})`
+            );
+          }
+        }
       }
     }
   }

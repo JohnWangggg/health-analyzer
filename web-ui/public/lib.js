@@ -29,6 +29,7 @@ var HealthAnalyzer = (() => {
     CGM_MIN_COVERAGE_PCT: () => CGM_MIN_COVERAGE_PCT,
     CGM_REPORT_DAYS: () => CGM_REPORT_DAYS,
     DEFAULT_RECOVERY_WEIGHTS: () => DEFAULT_RECOVERY_WEIGHTS,
+    EXT_SOURCE_NAME: () => EXT_SOURCE_NAME2,
     FHIR_DEVICE_CLASSES: () => FHIR_DEVICE_CLASSES,
     FHIR_EXCHANGE_GATE_ENGINE: () => FHIR_EXCHANGE_GATE_ENGINE,
     FHIR_EXCHANGE_PURPOSES: () => FHIR_EXCHANGE_PURPOSES,
@@ -108,6 +109,7 @@ var HealthAnalyzer = (() => {
     inferGlucoseUnitFromValues: () => inferGlucoseUnitFromValues,
     isFutureDate: () => isFutureDate,
     isHealthEventKind: () => isHealthEventKind,
+    isSourceNameLeakText: () => isSourceNameLeakText,
     joinCsvBundle: () => joinCsvBundle,
     mergeEcgEntries: () => mergeEcgEntries,
     mergeExternalCsvIntoData: () => mergeExternalCsvIntoData,
@@ -141,6 +143,7 @@ var HealthAnalyzer = (() => {
     recomputeRecovery: () => recomputeRecovery,
     resolveObservationDevice: () => resolveObservationDevice,
     resolveObservationDeviceClass: () => resolveObservationDeviceClass,
+    sanitizeAnonymousFhirBundle: () => sanitizeAnonymousFhirBundle,
     shortImportBatchIdForProv: () => shortImportBatchIdForProv,
     shortWorkoutType: () => shortWorkoutType,
     sortHealthEvents: () => sortHealthEvents,
@@ -7806,7 +7809,8 @@ List 5\u20137 working hypotheses that best fit the available data
     "anonymous-share",
     "personal-handoff"
   ];
-  var FHIR_EXCHANGE_GATE_ENGINE = "health-analyzer-r4-exchange-gate-v2";
+  var FHIR_EXCHANGE_GATE_ENGINE = "health-analyzer-r4-exchange-gate-v3";
+  var EXT_SOURCE_NAME = "urn:health-analyzer:extension:source-name";
   var URN_UUID_RE = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   var OBS_STATUS = /* @__PURE__ */ new Set([
     "registered",
@@ -8150,12 +8154,46 @@ List 5\u20137 working hypotheses that best fit the available data
       }
       for (let i = 0; i < entry.length; i++) {
         const r = entry[i]?.resource || null;
-        if (!r || r.resourceType !== "Observation") continue;
-        if (r.subject != null) {
+        if (!r) continue;
+        const rt = String(r.resourceType || "");
+        const id = r.id != null ? String(r.id) : String(i);
+        if (rt === "Observation" && r.subject != null) {
           pushIssue(
             issues,
-            `Observation/${String(r.id || i)} must not have subject under anonymous-share`
+            `Observation/${id} must not have subject under anonymous-share`
           );
+        }
+        if (Array.isArray(r.extension)) {
+          for (const ext of r.extension) {
+            if (ext && String(ext.url || "") === EXT_SOURCE_NAME) {
+              pushIssue(
+                issues,
+                `${rt}/${id} anonymous-share must not include source-name extension (raw sourceName may re-identify)`
+              );
+            }
+          }
+        }
+        if (Array.isArray(r.note)) {
+          for (const n of r.note) {
+            const t = n && n.text != null ? String(n.text) : "";
+            if (/^sourceName\s*:/i.test(t.trim()) || t.includes("sourceName:")) {
+              pushIssue(
+                issues,
+                `${rt}/${id} anonymous-share must not include sourceName note (raw sourceName may re-identify)`
+              );
+            }
+          }
+        }
+        if (rt === "Provenance" && Array.isArray(r.entity)) {
+          for (const ent of r.entity) {
+            const disp = ent && ent.what && ent.what.display != null ? String(ent.what.display) : "";
+            if (/\.(json|xml|zip|csv)\b/i.test(disp) || /:\s+.+\./.test(disp)) {
+              pushIssue(
+                issues,
+                `Provenance/${id} anonymous-share entity display must not include import file names (${disp.slice(0, 60)})`
+              );
+            }
+          }
         }
       }
     }
@@ -8208,7 +8246,7 @@ List 5\u20137 working hypotheses that best fit the available data
   }
 
   // src/fhir-export.ts
-  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.9.1";
+  var FHIR_EXPORT_PROFILE = "health-analyzer-fhir-export-v1.9.2";
   var FHIR_R4 = "http://hl7.org/fhir";
   var LOINC = "http://loinc.org";
   var UCUM = "http://unitsofmeasure.org";
@@ -8216,7 +8254,7 @@ List 5\u20137 working hypotheses that best fit the available data
   var META_SOURCE = "urn:health-analyzer:local";
   var DEVICE_NOTE = "local Apple Health / HAE import";
   var EXT_SOURCE_BATCH_IDS = "urn:health-analyzer:extension:source-batch-ids";
-  var EXT_SOURCE_NAME = "urn:health-analyzer:extension:source-name";
+  var EXT_SOURCE_NAME2 = "urn:health-analyzer:extension:source-name";
   var EXT_BIRTH_YEAR_ONLY = "urn:health-analyzer:extension:birth-year-only";
   var EXT_PATIENT_DISCLAIMER = "urn:health-analyzer:extension:patient-disclaimer";
   var EXT_DEVICE_CLASS = "urn:health-analyzer:extension:device-class";
@@ -8589,11 +8627,74 @@ List 5\u20137 working hypotheses that best fit the available data
     const s = source != null ? String(source).trim() : "";
     if (!s) return;
     const ext = Array.isArray(obs.extension) ? obs.extension : [];
-    ext.push({ url: EXT_SOURCE_NAME, valueString: s });
+    ext.push({ url: EXT_SOURCE_NAME2, valueString: s });
     obs.extension = ext;
     const notes = Array.isArray(obs.note) ? obs.note : [];
     notes.push({ text: `sourceName: ${s}` });
     obs.note = notes;
+  }
+  function isSourceNameLeakText(text) {
+    const s = String(text || "");
+    if (!s) return false;
+    if (/^sourceName\s*:/i.test(s.trim())) return true;
+    if (s.includes("sourceName:")) return true;
+    return false;
+  }
+  function sanitizeAnonymousFhirBundle(bundle) {
+    if (!bundle || typeof bundle !== "object") {
+      return { resourceType: "Bundle", type: "collection", entry: [] };
+    }
+    const cloned = JSON.parse(JSON.stringify(bundle));
+    const entry = Array.isArray(cloned.entry) ? cloned.entry : [];
+    for (const e of entry) {
+      if (!e || typeof e !== "object") continue;
+      const r = e.resource;
+      if (!r || typeof r !== "object") continue;
+      const rt = String(r.resourceType || "");
+      if (Array.isArray(r.extension)) {
+        r.extension = r.extension.filter(
+          (x) => x && String(x.url || "") !== EXT_SOURCE_NAME2
+        );
+        if (!r.extension.length) delete r.extension;
+      }
+      if (Array.isArray(r.note)) {
+        r.note = r.note.filter((n) => n && !isSourceNameLeakText(n.text));
+        if (!r.note.length) delete r.note;
+      }
+      if (rt === "Provenance" && Array.isArray(r.entity)) {
+        for (const ent of r.entity) {
+          if (!ent || typeof ent !== "object") continue;
+          const what = ent.what;
+          if (!what || typeof what !== "object") continue;
+          if (what.display != null) {
+            const d = String(what.display);
+            const channel = d.split(":")[0].trim();
+            what.display = channel || "import-batch";
+          }
+        }
+      }
+      if (rt === "DocumentReference") {
+        if (r.description != null) delete r.description;
+        if (Array.isArray(r.author)) {
+          for (const a of r.author) {
+            if (a && a.display != null) a.display = "local-export";
+          }
+        }
+      }
+      if (rt === "Device") {
+        if (Array.isArray(r.note)) {
+          r.note = r.note.filter((n) => {
+            if (!n || n.text == null) return false;
+            const t = String(n.text);
+            if (/的\s*(iPhone|iPad|Apple\s*Watch|Watch|手机)/i.test(t)) return false;
+            if (/\b(iPhone|Watch)\b.+(的|'s)/i.test(t)) return false;
+            return true;
+          });
+          if (!r.note.length) delete r.note;
+        }
+      }
+    }
+    return cloned;
   }
   function stripPrivateFhirExtensions(bundle) {
     if (!bundle || typeof bundle !== "object") {
@@ -8686,7 +8787,10 @@ List 5\u20137 working hypotheses that best fit the available data
     }
     return patient;
   }
-  function batchDisplay(b) {
+  function batchDisplay(b, opts) {
+    if (opts?.redactFileNames) {
+      return String(b.source || "import");
+    }
     const fileNames = (b.files || []).map((f) => f.name).filter(Boolean);
     const filesPart = fileNames.length === 0 ? "no-files" : fileNames.length <= 3 ? fileNames.join(", ") : `${fileNames.slice(0, 3).join(", ")} +${fileNames.length - 3}`;
     return `${b.source}: ${filesPart}`;
@@ -8783,7 +8887,7 @@ List 5\u20137 working hypotheses that best fit the available data
     }
     return prov;
   }
-  function entityForBatch(b) {
+  function entityForBatch(b, opts) {
     return {
       role: "source",
       what: {
@@ -8791,7 +8895,7 @@ List 5\u20137 working hypotheses that best fit the available data
           system: "urn:health-analyzer:import-batch",
           value: b.id
         },
-        display: batchDisplay(b)
+        display: batchDisplay(b, opts)
       }
     };
   }
@@ -9378,12 +9482,18 @@ List 5\u20137 working hypotheses that best fit the available data
     const exportTier = normalizeFhirExportTier(opts.exportTier);
     const isExchange = exportTier === "external-exchange";
     const exchangePurpose = isExchange ? normalizeFhirExchangePurpose(opts.exchangePurpose) : null;
+    const isAnonymousShare = isExchange && exchangePurpose === "anonymous-share";
     if (isExchange) {
       notes.push(
         `export tier: external-exchange (${exchangePurpose}) \u2014 independent R4 exchange-gate required; not HL7 Java validator`
       );
     } else {
       notes.push("export tier: local-archive \u2014 personal archive; project self-check only");
+    }
+    if (isAnonymousShare) {
+      notes.push(
+        "anonymous-share privacy: raw sourceName, import file names, and clinical attachments scrubbed before download"
+      );
     }
     const maxCgm = Math.max(0, opts.maxCgm ?? DEFAULT_MAX_CGM);
     const maxBp = Math.max(0, opts.maxBp ?? DEFAULT_MAX_BP);
@@ -9442,7 +9552,7 @@ List 5\u20137 working hypotheses that best fit the available data
       const domain = FHIR_OBS_TYPE_TO_DOMAIN[byTypeKey] || byTypeKey;
       attachObservationCategory(obs, byTypeKey);
       attachSourceBatchExtension(obs, domain, domainSourceBatches);
-      if (deviceHint?.sampleSource) {
+      if (deviceHint?.sampleSource && !isAnonymousShare) {
         attachSourceNameMeta(obs, deviceHint.sampleSource);
       }
       observations.push(obs);
@@ -9637,8 +9747,24 @@ List 5\u20137 working hypotheses that best fit the available data
       const d = rrUsed[i];
       pushObs(buildRespiratoryRateObservation(d.date, d.rrMean, i), "respiratoryRate");
     }
+    let wantClinicalDoc = opts.includeClinicalDocument === true;
+    let wantAgpSvg = opts.includeAgpSvg === true;
+    if (isAnonymousShare) {
+      if (wantClinicalDoc) {
+        notes.push(
+          "anonymous-share: clinical DocumentReference omitted (free text may re-identify)"
+        );
+      }
+      if (wantAgpSvg) {
+        notes.push(
+          "anonymous-share: AGP DocumentReference omitted (keep metrics only; optional charts not attached)"
+        );
+      }
+      wantClinicalDoc = false;
+      wantAgpSvg = false;
+    }
     const documentReferences = [];
-    if (opts.includeClinicalDocument) {
+    if (wantClinicalDoc) {
       const doc = buildClinicalDocumentReference(
         opts.clinicalMarkdown,
         opts.clinicalHtml,
@@ -9650,7 +9776,7 @@ List 5\u20137 working hypotheses that best fit the available data
         byType.clinicalDocument = 1;
       }
     }
-    if (opts.includeAgpSvg) {
+    if (wantAgpSvg) {
       let svg = opts.agpSvg != null ? String(opts.agpSvg) : "";
       if (!svg.trim()) {
         try {
@@ -9821,7 +9947,7 @@ List 5\u20137 working hypotheses that best fit the available data
             buildAssemblerProvenance({
               id: `prov-batch-${shortImportBatchIdForProv(bid)}`,
               target: targets,
-              entities: [entityForBatch(b)],
+              entities: [entityForBatch(b, { redactFileNames: isAnonymousShare })],
               recorded
             })
           );
@@ -9830,7 +9956,9 @@ List 5\u20137 working hypotheses that best fit the available data
           notes.push(
             "domain map available but no batch-observation links; coarse provenance fallback"
           );
-          const entities = batches.map(entityForBatch);
+          const entities = batches.map(
+            (b) => entityForBatch(b, { redactFileNames: isAnonymousShare })
+          );
           provenances.push(
             buildAssemblerProvenance({
               id: "prov-export-1",
@@ -9844,7 +9972,9 @@ List 5\u20137 working hypotheses that best fit the available data
         if (batches.length > 0 && !hasDomainSourceBatches(domainSourceBatches)) {
           notes.push("domain map unavailable; coarse provenance");
         }
-        const entities = batches.map(entityForBatch);
+        const entities = batches.map(
+          (b) => entityForBatch(b, { redactFileNames: isAnonymousShare })
+        );
         if (!entities.length) {
           notes.push(
             "Provenance included without import batch entities (no importBatches provided)."
@@ -9864,7 +9994,7 @@ List 5\u20137 working hypotheses that best fit the available data
       ...resourceEntries,
       ...provenances.map((p) => entryFor(p, idToFullUrl))
     ];
-    const bundle = {
+    let bundle = {
       resourceType: "Bundle",
       id: `hae-fhir-export-${timestamp.slice(0, 10)}`,
       meta: {
@@ -9902,6 +10032,12 @@ List 5\u20137 working hypotheses that best fit the available data
       total: entries.length,
       entry: entries
     };
+    if (isAnonymousShare) {
+      bundle = sanitizeAnonymousFhirBundle(bundle);
+      notes.push(
+        "anonymous-share sanitizer applied: removed sourceName extensions/notes and import file displays"
+      );
+    }
     const counts = {
       observations: observations.length,
       provenances: provenances.length,
