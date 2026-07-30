@@ -27,6 +27,10 @@ import {
 } from './signals';
 import { formatUserContext } from './prompts/llm-prompt';
 import {
+  ImportBatchRecord,
+  formatProvenanceAppendixMarkdown,
+} from './provenance';
+import {
   HealthEvent,
   filterEventsInRange,
   formatEventsMarkdown,
@@ -134,6 +138,13 @@ export interface ClinicalReportOptions extends LocaleOptions {
    * 仅当 includeEvents === true 时写入报告；并按分析 dateRange 过滤（空结果不回退全量）。
    */
   events?: HealthEvent[] | null;
+  /**
+   * 是否附带本机导入批次可追溯附录（默认 false）。
+   * 仅记录导入来源/文件摘要/合并统计；非 FHIR、非医疗认证。
+   */
+  includeProvenanceAppendix?: boolean;
+  /** 本机导入批次列表（仅当 includeProvenanceAppendix 时写入） */
+  importBatches?: ImportBatchRecord[] | null;
 }
 
 function mean(values: number[]): number | null {
@@ -1124,6 +1135,22 @@ export function generateClinicalReviewMarkdown(
       )
     );
     lines.push('');
+  }
+
+  // —— 数据可追溯附录（须 includeProvenanceAppendix；非 FHIR）——
+  if (options?.includeProvenanceAppendix) {
+    const batches = options.importBatches || [];
+    if (batches.length) {
+      lines.push('---');
+      lines.push('');
+      lines.push(
+        formatProvenanceAppendixMarkdown(batches, {
+          locale,
+          max: 10,
+        }).trimEnd()
+      );
+      lines.push('');
+    }
   }
 
   lines.push('---');

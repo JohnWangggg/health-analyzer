@@ -12,12 +12,22 @@ import {
   filterEventsInRange,
   formatEventsMarkdown,
 } from './events';
+import {
+  ImportBatchRecord,
+  formatProvenanceAppendixMarkdown,
+} from './provenance';
 
 export type WeeklyReportOptions = {
   locale?: AppLocale | string;
   /** default false — events are sensitive */
   includeEvents?: boolean;
   events?: HealthEvent[] | null;
+  /**
+   * 是否附带本机导入批次可追溯附录（默认 false）。
+   * 仅记录导入来源/文件摘要/合并统计；非 FHIR。
+   */
+  includeProvenanceAppendix?: boolean;
+  importBatches?: ImportBatchRecord[] | null;
 };
 
 function addDaysIso(date: string, deltaDays: number): string {
@@ -436,6 +446,22 @@ export function generateWeeklyReportMarkdown(
           '本周窗口内无本机事件',
           'No local events in this week window'
         )
+      );
+      lines.push(``);
+    }
+  }
+
+  // —— 数据可追溯附录（可选）——
+  if (options?.includeProvenanceAppendix) {
+    const batches = options.importBatches || [];
+    if (batches.length) {
+      lines.push(`---`);
+      lines.push(``);
+      lines.push(
+        formatProvenanceAppendixMarkdown(batches, {
+          locale,
+          max: 5,
+        }).trimEnd()
       );
       lines.push(``);
     }

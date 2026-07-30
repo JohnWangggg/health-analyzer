@@ -33,6 +33,7 @@ var HealthAnalyzer = (() => {
     MAIN_PROMPT_TEMPLATE: () => MAIN_PROMPT_TEMPLATE,
     MAIN_PROMPT_TEMPLATE_EN: () => MAIN_PROMPT_TEMPLATE_EN,
     MGDL_PER_MMOL: () => MGDL_PER_MMOL,
+    PROVENANCE_RULE_VERSION: () => PROVENANCE_RULE_VERSION,
     RECOVERY_WEIGHT_PRESETS: () => RECOVERY_WEIGHT_PRESETS,
     SHORT_SYSTEM_PROMPT: () => SHORT_SYSTEM_PROMPT,
     SHORT_SYSTEM_PROMPT_EN: () => SHORT_SYSTEM_PROMPT_EN,
@@ -60,6 +61,7 @@ var HealthAnalyzer = (() => {
     countDaysWithData: () => countDaysWithData,
     createEmptyData: () => createEmptyData,
     createHealthEventId: () => createHealthEventId,
+    createImportBatchId: () => createImportBatchId,
     createL: () => createL,
     daysBetween: () => daysBetween,
     detectCrossSignals: () => detectCrossSignals,
@@ -76,6 +78,7 @@ var HealthAnalyzer = (() => {
     formatEventKindLabel: () => formatEventKindLabel,
     formatEventsMarkdown: () => formatEventsMarkdown,
     formatInsightsForLLM: () => formatInsightsForLLM,
+    formatProvenanceAppendixMarkdown: () => formatProvenanceAppendixMarkdown,
     formatUserContext: () => formatUserContext,
     generateClinicalReviewHtml: () => generateClinicalReviewHtml,
     generateClinicalReviewMarkdown: () => generateClinicalReviewMarkdown,
@@ -97,6 +100,7 @@ var HealthAnalyzer = (() => {
     mergeHaeJsonIntoData: () => mergeHaeJsonIntoData,
     normalizeHaeMetricName: () => normalizeHaeMetricName,
     normalizeHealthEvent: () => normalizeHealthEvent,
+    normalizeImportBatch: () => normalizeImportBatch,
     normalizeLocale: () => normalizeLocale,
     normalizeRecoveryWeights: () => normalizeRecoveryWeights,
     parseAppleDate: () => parseAppleDate,
@@ -5844,6 +5848,268 @@ List 5\u20137 working hypotheses that best fit the available data
     return rows;
   }
 
+  // src/provenance.ts
+  var PROVENANCE_RULE_VERSION = "health-analyzer-v1.46";
+  var IMPORT_SOURCES = /* @__PURE__ */ new Set([
+    "hae",
+    "apple_zip",
+    "apple_xml",
+    "csv_merge",
+    "other"
+  ]);
+  function createImportBatchId() {
+    return `batch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  }
+  function isImportSource(s) {
+    return typeof s === "string" && IMPORT_SOURCES.has(s);
+  }
+  function asNonNegInt(v, fallback = 0) {
+    const n = typeof v === "number" ? v : Number(v);
+    if (!Number.isFinite(n) || n < 0) return fallback;
+    return Math.floor(n);
+  }
+  function normalizeFileDigest(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const o = raw;
+    const name = o.name != null ? String(o.name).trim() : "";
+    if (!name) return null;
+    const bytes = asNonNegInt(o.bytes, 0);
+    let sha256;
+    if (o.sha256 == null || o.sha256 === "") {
+      sha256 = o.sha256 === null ? null : void 0;
+    } else {
+      const s = String(o.sha256).trim().toLowerCase();
+      sha256 = s || null;
+    }
+    const out = { name, bytes };
+    if (sha256 !== void 0) out.sha256 = sha256;
+    return out;
+  }
+  function normalizeDomainStats(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const o = raw;
+    const out = {};
+    if (o.added != null) out.added = asNonNegInt(o.added, 0);
+    if (o.updated != null) out.updated = asNonNegInt(o.updated, 0);
+    if (o.skipped != null) out.skipped = asNonNegInt(o.skipped, 0);
+    return out;
+  }
+  function normalizeStats(raw) {
+    const o = raw && typeof raw === "object" ? raw : {};
+    const stats = {
+      totalAdded: asNonNegInt(o.totalAdded, 0),
+      totalUpdated: asNonNegInt(o.totalUpdated, 0),
+      totalSkipped: asNonNegInt(o.totalSkipped, 0)
+    };
+    if (o.byDomain && typeof o.byDomain === "object" && !Array.isArray(o.byDomain)) {
+      const by = {};
+      for (const [k, v] of Object.entries(o.byDomain)) {
+        const d = normalizeDomainStats(v);
+        if (d && k) by[k] = d;
+      }
+      if (Object.keys(by).length) stats.byDomain = by;
+    }
+    if (Array.isArray(o.unknownMetricNames)) {
+      const names = o.unknownMetricNames.map((x) => String(x ?? "").trim()).filter(Boolean).slice(0, 80);
+      if (names.length) stats.unknownMetricNames = names;
+    }
+    return stats;
+  }
+  function normalizeImportBatch(partial) {
+    if (!partial || typeof partial !== "object") return null;
+    const o = partial;
+    let id = o.id != null ? String(o.id).trim() : "";
+    if (!id) id = createImportBatchId();
+    if (!/^batch_[\w.-]+$/i.test(id) && !id.startsWith("batch_")) {
+      if (!id) return null;
+    }
+    let source;
+    if (isImportSource(o.source)) {
+      source = o.source;
+    } else {
+      return null;
+    }
+    let createdAt = o.createdAt != null && String(o.createdAt).trim() ? String(o.createdAt).trim() : (/* @__PURE__ */ new Date()).toISOString();
+    if (!createdAt) return null;
+    const parsed = Date.parse(createdAt);
+    if (!Number.isFinite(parsed)) {
+      createdAt = (/* @__PURE__ */ new Date()).toISOString();
+    } else {
+      createdAt = new Date(parsed).toISOString();
+    }
+    const filesRaw = Array.isArray(o.files) ? o.files : [];
+    const files = [];
+    for (const f of filesRaw.slice(0, 200)) {
+      const dig = normalizeFileDigest(f);
+      if (dig) files.push(dig);
+    }
+    let totalBytes = asNonNegInt(o.totalBytes, -1);
+    if (totalBytes < 0) {
+      totalBytes = files.reduce((s, f) => s + (f.bytes || 0), 0);
+    }
+    const stats = normalizeStats(o.stats);
+    const ruleVersion = o.ruleVersion != null && String(o.ruleVersion).trim() ? String(o.ruleVersion).trim() : PROVENANCE_RULE_VERSION;
+    const notes = Array.isArray(o.notes) ? o.notes.map((n) => String(n ?? "").trim()).filter(Boolean).slice(0, 40) : void 0;
+    const record = {
+      id,
+      createdAt,
+      source,
+      files,
+      totalBytes,
+      stats,
+      ruleVersion
+    };
+    if (notes && notes.length) record.notes = notes;
+    if (o.cancelled === true) record.cancelled = true;
+    return record;
+  }
+  function sourceLabel(source, locale) {
+    const L = createL(locale);
+    switch (source) {
+      case "hae":
+        return L("Health Auto Export (HAE)", "Health Auto Export (HAE)");
+      case "apple_zip":
+        return L("Apple Health ZIP", "Apple Health ZIP");
+      case "apple_xml":
+        return L("Apple Health XML", "Apple Health XML");
+      case "csv_merge":
+        return L("\u5916\u90E8 CSV \u5408\u5E76", "External CSV merge");
+      default:
+        return L("\u5176\u4ED6", "Other");
+    }
+  }
+  function shortId(id) {
+    if (!id) return "\u2014";
+    const m = id.match(/^batch_(\d{6,})_(.+)$/);
+    if (m) return `${m[1].slice(-6)}_${m[2].slice(0, 6)}`;
+    return id.length > 18 ? id.slice(0, 18) : id;
+  }
+  function formatProvenanceAppendixMarkdown(batches, options) {
+    const locale = normalizeLocale(options?.locale);
+    const L = createL(locale);
+    const max = Math.max(1, Math.min(options?.max ?? 10, 50));
+    const list = (Array.isArray(batches) ? batches : []).map((b) => normalizeImportBatch(b)).filter((b) => !!b).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))).slice(0, max);
+    const lines = [];
+    lines.push(L("## \u6570\u636E\u53EF\u8FFD\u6EAF \xB7 \u5BFC\u5165\u6279\u6B21", "## Data provenance \xB7 Import batches"));
+    lines.push("");
+    lines.push(
+      L(
+        "> **\u672C\u9644\u5F55\u8BB0\u5F55\u672C\u673A\u5BFC\u5165\u4E0E\u7A0B\u5E8F\u5904\u7406\u4E0A\u4E0B\u6587\uFF0C\u4FBF\u4E8E\u590D\u6838\uFF1B\u975E\u533B\u7597\u8BA4\u8BC1\u3002** \u6570\u636E\u672A\u4E0A\u4F20\u672C\u5DE5\u5177\u670D\u52A1\u5668\uFF1B\u975E FHIR\u3002",
+        "> **This appendix records local import and processing context for review; not a medical certification.** Data is not uploaded to this tool\u2019s servers; not FHIR."
+      )
+    );
+    lines.push("");
+    if (!list.length) {
+      lines.push(L("\uFF08\u6682\u65E0\u672C\u673A\u5BFC\u5165\u6279\u6B21\u8BB0\u5F55\uFF09", "(No local import batch records)"));
+      lines.push("");
+      return lines.join("\n");
+    }
+    lines.push(
+      L(
+        `\u5171\u5C55\u793A\u6700\u8FD1 **${list.length}** \u6761\u5BFC\u5165\u6279\u6B21\uFF08\u672C\u673A IndexedDB\uFF09\u3002`,
+        `Showing the latest **${list.length}** import batch(es) (local IndexedDB).`
+      )
+    );
+    lines.push("");
+    list.forEach((b, i) => {
+      const n = i + 1;
+      const cancelled = b.cancelled ? L(" \xB7 **\u5DF2\u53D6\u6D88**", " \xB7 **cancelled**") : "";
+      lines.push(
+        L(
+          `### \u6279\u6B21 ${n} \xB7 \`${shortId(b.id)}\`${cancelled}`,
+          `### Batch ${n} \xB7 \`${shortId(b.id)}\`${cancelled}`
+        )
+      );
+      lines.push("");
+      lines.push(
+        L(
+          `- **\u6765\u6E90**\uFF1A${sourceLabel(b.source, locale)} (\`${b.source}\`)`,
+          `- **Source**: ${sourceLabel(b.source, locale)} (\`${b.source}\`)`
+        )
+      );
+      lines.push(
+        L(
+          `- **\u65F6\u95F4**\uFF1A${b.createdAt}`,
+          `- **When**: ${b.createdAt}`
+        )
+      );
+      lines.push(
+        L(
+          `- **\u89C4\u5219\u7248\u672C**\uFF1A\`${b.ruleVersion || PROVENANCE_RULE_VERSION}\``,
+          `- **Rule version**: \`${b.ruleVersion || PROVENANCE_RULE_VERSION}\``
+        )
+      );
+      lines.push(
+        L(
+          `- **\u5408\u5E76\u7EDF\u8BA1**\uFF1A\u65B0\u589E ${b.stats.totalAdded} \xB7 \u66F4\u65B0 ${b.stats.totalUpdated} \xB7 \u8DF3\u8FC7 ${b.stats.totalSkipped}`,
+          `- **Merge stats**: added ${b.stats.totalAdded} \xB7 updated ${b.stats.totalUpdated} \xB7 skipped ${b.stats.totalSkipped}`
+        )
+      );
+      if (b.files?.length) {
+        const totalB = b.totalBytes > 0 ? b.totalBytes : b.files.reduce((s, f) => s + (f.bytes || 0), 0);
+        lines.push(
+          L(
+            `- **\u6587\u4EF6**\uFF08${b.files.length}\uFF0C\u7EA6 ${totalB} bytes\uFF09\uFF1A`,
+            `- **Files** (${b.files.length}, ~${totalB} bytes):`
+          )
+        );
+        for (const f of b.files.slice(0, 20)) {
+          const hash = f.sha256 != null && String(f.sha256) ? ` \xB7 sha256=${String(f.sha256).slice(0, 16)}${String(f.sha256).length > 16 ? "\u2026" : ""}` : "";
+          lines.push(`  - \`${f.name}\` (${f.bytes || 0} B${hash})`);
+        }
+        if (b.files.length > 20) {
+          lines.push(
+            L(
+              `  - \u2026 \u53E6\u6709 ${b.files.length - 20} \u4E2A\u6587\u4EF6`,
+              `  - \u2026 and ${b.files.length - 20} more file(s)`
+            )
+          );
+        }
+      } else {
+        lines.push(L("- **\u6587\u4EF6**\uFF1A\uFF08\u65E0\uFF09", "- **Files**: (none)"));
+      }
+      if (b.stats.byDomain && Object.keys(b.stats.byDomain).length) {
+        const bits = Object.entries(b.stats.byDomain).slice(0, 24).map(([domain, d]) => {
+          const a = d?.added ?? 0;
+          const u = d?.updated ?? 0;
+          const s = d?.skipped ?? 0;
+          return `${domain} +${a}/~${u}/\u2212${s}`;
+        });
+        lines.push(
+          L(`- **\u5206\u57DF**\uFF1A${bits.join(" \xB7 ")}`, `- **By domain**: ${bits.join(" \xB7 ")}`)
+        );
+      }
+      if (b.stats.unknownMetricNames?.length) {
+        const names = b.stats.unknownMetricNames.slice(0, 12).join(", ");
+        const more = b.stats.unknownMetricNames.length > 12 ? L(
+          ` \u7B49 ${b.stats.unknownMetricNames.length} \u9879`,
+          ` (+${b.stats.unknownMetricNames.length - 12} more)`
+        ) : "";
+        lines.push(
+          L(
+            `- **\u672A\u77E5\u6307\u6807\u540D**\uFF1A${names}${more}`,
+            `- **Unknown metrics**: ${names}${more}`
+          )
+        );
+      }
+      if (b.notes?.length) {
+        lines.push(L("- **\u5907\u6CE8**\uFF1A", "- **Notes**:"));
+        for (const note of b.notes.slice(0, 12)) {
+          lines.push(`  - ${note}`);
+        }
+      }
+      lines.push("");
+    });
+    lines.push(
+      L(
+        "*\u6570\u636E\u53EF\u8FFD\u6EAF\u9644\u5F55\u7ED3\u675F\u3002\u4EC5\u53CD\u6620\u672C\u673A\u5BFC\u5165\u4E0E\u5904\u7406\u4E0A\u4E0B\u6587\u3002*",
+        "*End of provenance appendix. Reflects local import/processing context only.*"
+      )
+    );
+    lines.push("");
+    return lines.join("\n");
+  }
+
   // src/weekly-report.ts
   function addDaysIso2(date, deltaDays) {
     const t = Date.parse(`${date}T00:00:00Z`);
@@ -6192,6 +6458,20 @@ List 5\u20137 working hypotheses that best fit the available data
             "\u672C\u5468\u7A97\u53E3\u5185\u65E0\u672C\u673A\u4E8B\u4EF6",
             "No local events in this week window"
           )
+        );
+        lines.push(``);
+      }
+    }
+    if (options?.includeProvenanceAppendix) {
+      const batches = options.importBatches || [];
+      if (batches.length) {
+        lines.push(`---`);
+        lines.push(``);
+        lines.push(
+          formatProvenanceAppendixMarkdown(batches, {
+            locale,
+            max: 5
+          }).trimEnd()
         );
         lines.push(``);
       }
@@ -7235,6 +7515,20 @@ List 5\u20137 working hypotheses that best fit the available data
         )
       );
       lines.push("");
+    }
+    if (options?.includeProvenanceAppendix) {
+      const batches = options.importBatches || [];
+      if (batches.length) {
+        lines.push("---");
+        lines.push("");
+        lines.push(
+          formatProvenanceAppendixMarkdown(batches, {
+            locale,
+            max: 10
+          }).trimEnd()
+        );
+        lines.push("");
+      }
     }
     lines.push("---");
     lines.push(

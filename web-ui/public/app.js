@@ -31,6 +31,8 @@
   let lastCsvMergeNote = '';
   /** 最近一次导入诊断（本机展示/复制，不上传） */
   let lastImportDiagnostics = null;
+  /** 最近一次本机导入批次 id（可追溯，IndexedDB） */
+  let lastImportBatchId = null;
   const CTX_STORAGE_KEY = 'health-analyzer-user-context-v1';
   const RECOVERY_WEIGHTS_KEY = 'health-analyzer-recovery-weights';
   const SIGNAL_PREFS_KEY = 'health-analyzer-signal-prefs-v1';
@@ -1724,6 +1726,61 @@
       importDiag.domains = summarizeDomainCounts(data);
       lastImportDiagnostics = importDiag;
 
+      // 本机导入批次可追溯（v1.46）
+      try {
+        const isZip = importDiag.source === 'zip';
+        const source = isZip ? 'apple_zip' : 'apple_xml';
+        const digests = [];
+        if (isZip && importDiag.zipName) {
+          digests.push({
+            name: importDiag.zipName,
+            bytes: importDiag.zipBytes || 0,
+            sha256: null,
+          });
+        }
+        if (importDiag.xmlFileName) {
+          let sha = null;
+          try {
+            if (xmlText && xmlText.length <= 1024 * 1024) {
+              sha = await sha256HexPrefix(xmlText);
+            } else if (xmlBytes && xmlBytes.byteLength) {
+              sha = await sha256HexPrefix(xmlBytes);
+            }
+          } catch (_) { /* optional */ }
+          digests.push({
+            name: importDiag.xmlFileName,
+            bytes: importDiag.xmlBytes || 0,
+            sha256: sha,
+          });
+        }
+        const domains = importDiag.domains || {};
+        let totalAdded = 0;
+        const byDomain = {};
+        for (const [k, v] of Object.entries(domains)) {
+          const n = Number(v) || 0;
+          totalAdded += n;
+          byDomain[k] = { added: n, updated: 0, skipped: 0 };
+        }
+        const notes = Array.isArray(importDiag.notes) ? importDiag.notes.slice() : [];
+        if (lastCsvMergeNote) notes.push(String(lastCsvMergeNote));
+        const savedBatch = await recordImportBatch({
+          source,
+          files: digests,
+          stats: {
+            totalAdded,
+            totalUpdated: 0,
+            totalSkipped: 0,
+            byDomain,
+          },
+          notes,
+        });
+        if (savedBatch && savedBatch.id) {
+          lastImportBatchId = savedBatch.id;
+        }
+      } catch (e) {
+        console.warn('import provenance record skipped', e);
+      }
+
       setProgress(1, t('progress.doneText'), { stage: 'done', hint: t('progress.doneHint') });
       setTimeout(() => {
         hide('step-progress');
@@ -3250,9 +3307,22 @@
     }
   }
 
+  async function loadImportBatchesForExport() {
+    if (!window.HealthHistory || typeof window.HealthHistory.listImportBatches !== 'function') {
+      return [];
+    }
+    try {
+      return (await window.HealthHistory.listImportBatches()) || [];
+    } catch (e) {
+      console.warn('listImportBatches failed', e);
+      return [];
+    }
+  }
+
   /**
    * 生成周报 Markdown。默认不含事件；仅当 #weekly-include-events 勾选时加载并附带。
    * 与 clinical-include-events / ctx-include-events 相互独立。
+   * 导入可追溯附录同样默认关闭（#weekly-include-provenance）。
    */
   async function buildWeeklyReportMarkdown() {
     if (!currentAnalysis) throw new Error(t('common.needAnalysis'));
@@ -3267,6 +3337,10 @@
     if ($('weekly-include-events')?.checked) {
       opts.includeEvents = true;
       opts.events = (await loadEventsForClinicalExport()) || [];
+    }
+    if ($('weekly-include-provenance')?.checked) {
+      opts.includeProvenanceAppendix = true;
+      opts.importBatches = await loadImportBatchesForExport();
     }
     return window.HealthAnalyzer.generateWeeklyReportMarkdown(
       currentAnalysis,
@@ -3327,10 +3401,14 @@
     const sensitive = !!($('clinical-include-sensitive') && $('clinical-include-sensitive').checked);
     const raw = !!($('clinical-include-raw') && $('clinical-include-raw').checked);
     const events = !!($('clinical-include-events') && $('clinical-include-events').checked);
+    const provenance = !!(
+      $('clinical-include-provenance') && $('clinical-include-provenance').checked
+    );
     return Object.assign({}, analysisLocaleOpts(), {
       includeSensitiveContext: sensitive,
       includeRawSamples: raw,
       includeEvents: events,
+      includeProvenanceAppendix: provenance,
     });
   }
 
@@ -3343,6 +3421,21 @@
       if (opts.includeEvents) {
         const events = await loadEventsForClinicalExport();
         opts.events = events || [];
+      }
+      // 数据可追溯附录：仅勾选时加载本机导入批次
+      if (opts.includeProvenanceAppendix) {
+        try {
+          if (
+            window.HealthHistory &&
+            typeof window.HealthHistory.listImportBatches === 'function'
+          ) {
+            opts.importBatches = await window.HealthHistory.listImportBatches();
+          } else {
+            opts.importBatches = [];
+          }
+        } catch (_) {
+          opts.importBatches = [];
+        }
       }
       const ctx =
         opts.includeSensitiveContext && typeof getUserContextForPrompt === 'function'
@@ -3731,6 +3824,10 @@
 
   $('btn-csv-apply')?.addEventListener('click', () => { reapplyCsvAndRefresh(); });
   $('btn-hae-apply')?.addEventListener('click', () => { applyHaeImportAndRefresh(); });
+  $('btn-hae-cancel')?.addEventListener('click', () => {
+    haeImportAbort = true;
+    setHaeStatus(t('hae.err.cancelled'), false, { persist: true });
+  });
 
   function sourceLabel(source) {
     if (source === 'zip') return t('import.diag.source.zip');
@@ -4038,10 +4135,19 @@
     }
   }
 
-  /** Health Auto Export 增量导入（JSON/CSV，本机合并） */
-  const HAE_MAX_FILES = 80;
+  /** Health Auto Export 增量导入（JSON/CSV，本机合并）— 总量上限 + 分批合并 */
+  const HAE_LIMITS = {
+    MAX_FILES: 80,
+    MAX_SINGLE_BYTES: FILE_LIMITS.MAX_CSV_BYTES, // 20MB
+    MAX_TOTAL_BYTES: 150 * 1024 * 1024, // 150MB total text
+    BATCH_FILES: 8,
+    BATCH_MAX_BYTES: 32 * 1024 * 1024, // ~32MB per batch payload
+  };
   /** @type {Set<string>} */
   const haeIncludeUnknown = new Set();
+  /** Cancel flag for in-flight HAE import (checked between batches). */
+  let haeImportAbort = false;
+  let haeStatusTimer = null;
 
   function isHaeImportFile(file) {
     if (!file || !file.name) return false;
@@ -4070,15 +4176,203 @@
     return out;
   }
 
-  function setHaeStatus(text, ok) {
+  /**
+   * Apply MAX_FILES / MAX_SINGLE_BYTES / MAX_TOTAL_BYTES; return selected files + cap notes.
+   * @param {File[]} allFiles
+   * @returns {{ files: File[], capNotes: string[], totalBytes: number }}
+   */
+  function selectHaeFilesWithLimits(allFiles) {
+    const capNotes = [];
+    let candidates = allFiles || [];
+    if (candidates.length > HAE_LIMITS.MAX_FILES) {
+      capNotes.push(
+        t('hae.cap.truncated', { max: HAE_LIMITS.MAX_FILES, total: candidates.length })
+      );
+      candidates = candidates.slice(0, HAE_LIMITS.MAX_FILES);
+    }
+
+    const candidateTotalBytes = candidates.reduce((s, f) => s + (f.size || 0), 0);
+    const selected = [];
+    let totalBytes = 0;
+    let truncatedByTotal = false;
+
+    for (const f of candidates) {
+      const size = f.size || 0;
+      if (size > HAE_LIMITS.MAX_SINGLE_BYTES) {
+        capNotes.push(
+          t('hae.cap.fileSkipped', {
+            name: f.name || 'file',
+            limit: formatBytes(HAE_LIMITS.MAX_SINGLE_BYTES),
+          })
+        );
+        continue;
+      }
+      if (totalBytes + size > HAE_LIMITS.MAX_TOTAL_BYTES) {
+        truncatedByTotal = true;
+        break;
+      }
+      selected.push(f);
+      totalBytes += size;
+    }
+
+    if (truncatedByTotal) {
+      capNotes.push(
+        t('hae.cap.totalBytes', {
+          max: formatBytes(HAE_LIMITS.MAX_TOTAL_BYTES),
+          total: formatBytes(candidateTotalBytes),
+        })
+      );
+    }
+
+    return { files: selected, capNotes, totalBytes };
+  }
+
+  /**
+   * Split selected files into batches by BATCH_FILES / BATCH_MAX_BYTES (using File.size).
+   * @param {File[]} files
+   * @returns {File[][]}
+   */
+  function buildHaeBatches(files) {
+    const batches = [];
+    let cur = [];
+    let curBytes = 0;
+    for (const f of files) {
+      const size = f.size || 0;
+      const wouldExceed =
+        cur.length > 0 &&
+        (cur.length >= HAE_LIMITS.BATCH_FILES ||
+          curBytes + size > HAE_LIMITS.BATCH_MAX_BYTES);
+      if (wouldExceed) {
+        batches.push(cur);
+        cur = [];
+        curBytes = 0;
+      }
+      cur.push(f);
+      curBytes += size;
+    }
+    if (cur.length) batches.push(cur);
+    return batches;
+  }
+
+  function emptyHaeStats() {
+    return {
+      sourceFormat: 'empty',
+      files: [],
+      totalAdded: 0,
+      totalUpdated: 0,
+      totalSkipped: 0,
+      byDomain: {},
+      knownMetrics: [],
+      unknownMetrics: [],
+      notes: [],
+    };
+  }
+
+  /** Pure merge of two HaeImportStats-like objects. */
+  function mergeHaeStats(a, b) {
+    if (!a && !b) return emptyHaeStats();
+    if (!a) return mergeHaeStats(b, null);
+    if (!b) {
+      return {
+        sourceFormat: a.sourceFormat || 'empty',
+        files: Array.isArray(a.files) ? a.files.slice() : [],
+        totalAdded: a.totalAdded || 0,
+        totalUpdated: a.totalUpdated || 0,
+        totalSkipped: a.totalSkipped || 0,
+        byDomain: Object.assign({}, a.byDomain || {}),
+        knownMetrics: Array.isArray(a.knownMetrics) ? a.knownMetrics.slice() : [],
+        unknownMetrics: Array.isArray(a.unknownMetrics)
+          ? a.unknownMetrics.map((u) => Object.assign({}, u))
+          : [],
+        notes: Array.isArray(a.notes) ? a.notes.slice() : [],
+      };
+    }
+
+    const fmtA = a.sourceFormat || 'empty';
+    const fmtB = b.sourceFormat || 'empty';
+    let sourceFormat = 'empty';
+    if (fmtA === 'empty') sourceFormat = fmtB;
+    else if (fmtB === 'empty') sourceFormat = fmtA;
+    else if (fmtA === fmtB) sourceFormat = fmtA;
+    else sourceFormat = 'mixed';
+
+    const byDomain = Object.assign({}, a.byDomain || {});
+    const bDomains = b.byDomain || {};
+    for (const domain of Object.keys(bDomains)) {
+      const d = bDomains[domain] || {};
+      const prev = byDomain[domain] || { added: 0, updated: 0, skipped: 0 };
+      byDomain[domain] = {
+        added: (prev.added || 0) + (d.added || 0),
+        updated: (prev.updated || 0) + (d.updated || 0),
+        skipped: (prev.skipped || 0) + (d.skipped || 0),
+      };
+    }
+
+    const fileSet = new Set([...(a.files || []), ...(b.files || [])]);
+    const knownSet = new Set([...(a.knownMetrics || []), ...(b.knownMetrics || [])]);
+
+    const unkMap = new Map();
+    for (const u of [...(a.unknownMetrics || []), ...(b.unknownMetrics || [])]) {
+      if (!u || u.name == null) continue;
+      const name = String(u.name);
+      const prev = unkMap.get(name);
+      if (!prev) {
+        unkMap.set(name, {
+          name,
+          sampleCount: u.sampleCount || 0,
+          units: u.units,
+          sampleDates: Array.isArray(u.sampleDates) ? u.sampleDates.slice() : undefined,
+        });
+      } else {
+        prev.sampleCount = (prev.sampleCount || 0) + (u.sampleCount || 0);
+        if (!prev.units && u.units) prev.units = u.units;
+        if (Array.isArray(u.sampleDates) && u.sampleDates.length) {
+          const dates = new Set([...(prev.sampleDates || []), ...u.sampleDates]);
+          prev.sampleDates = [...dates];
+        }
+      }
+    }
+
+    return {
+      sourceFormat,
+      files: [...fileSet],
+      totalAdded: (a.totalAdded || 0) + (b.totalAdded || 0),
+      totalUpdated: (a.totalUpdated || 0) + (b.totalUpdated || 0),
+      totalSkipped: (a.totalSkipped || 0) + (b.totalSkipped || 0),
+      byDomain,
+      knownMetrics: [...knownSet],
+      unknownMetrics: [...unkMap.values()].sort((x, y) =>
+        String(x.name).localeCompare(String(y.name))
+      ),
+      notes: [...(a.notes || []), ...(b.notes || [])].filter(Boolean),
+    };
+  }
+
+  function setHaeStatus(text, ok, opts) {
     const st = $('hae-import-status');
     if (!st) return;
+    if (haeStatusTimer) {
+      clearTimeout(haeStatusTimer);
+      haeStatusTimer = null;
+    }
     st.textContent = text ? (ok ? '✓ ' : '') + text : '';
     if (text) {
       st.classList.add('show');
-      setTimeout(() => st.classList.remove('show'), 4000);
+      if (!(opts && opts.persist)) {
+        haeStatusTimer = setTimeout(() => st.classList.remove('show'), 4000);
+      }
     } else {
       st.classList.remove('show');
+    }
+  }
+
+  function setHaeImportUiBusy(busy) {
+    const applyBtn = $('btn-hae-apply');
+    const cancelBtn = $('btn-hae-cancel');
+    if (applyBtn) applyBtn.disabled = !!busy;
+    if (cancelBtn) {
+      if (busy) cancelBtn.classList.remove('hidden');
+      else cancelBtn.classList.add('hidden');
     }
   }
 
@@ -4135,6 +4429,13 @@
         )}</p>`
       );
     }
+    if (meta && meta.batchId) {
+      parts.push(
+        `<p class="hint hae-batch-id" style="margin:6px 0 0;">${escapeHtml(
+          t('hae.batch.recorded', { id: shortImportBatchId(meta.batchId) })
+        )}</p>`
+      );
+    }
 
     const notes = Array.isArray(result.notes) ? result.notes.filter(Boolean) : [];
     if (notes.length) {
@@ -4147,6 +4448,93 @@
 
     host.innerHTML = parts.join('');
     host.classList.remove('hidden');
+  }
+
+  /** Optional hex SHA-256 (full or first 1MB). Returns null if unavailable. */
+  async function sha256HexPrefix(data) {
+    try {
+      if (!window.crypto || !window.crypto.subtle) return null;
+      let buf;
+      if (typeof data === 'string') {
+        const enc = new TextEncoder().encode(data);
+        buf = enc.buffer.slice(enc.byteOffset, enc.byteOffset + enc.byteLength);
+      } else if (data instanceof ArrayBuffer) {
+        buf = data;
+      } else if (data && typeof data.byteLength === 'number') {
+        // Uint8Array / TypedArray
+        const u8 = data instanceof Uint8Array ? data : new Uint8Array(data);
+        buf = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+      } else {
+        return null;
+      }
+      const MAX = 1024 * 1024;
+      if (buf.byteLength > MAX) {
+        buf = buf.slice(0, MAX);
+      }
+      const hash = await window.crypto.subtle.digest('SHA-256', buf);
+      return Array.from(new Uint8Array(hash))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function shortImportBatchId(id) {
+    if (!id) return '—';
+    const m = String(id).match(/^batch_(\d{6,})_(.+)$/);
+    if (m) return `${m[1].slice(-6)}_${String(m[2]).slice(0, 6)}`;
+    return String(id).length > 18 ? String(id).slice(0, 18) : String(id);
+  }
+
+  /**
+   * Persist a local import batch for provenance (IndexedDB).
+   * Best-effort; never throws to callers if history-db unavailable.
+   */
+  async function recordImportBatch(partial) {
+    try {
+      if (!window.HealthHistory || typeof window.HealthHistory.saveImportBatch !== 'function') {
+        return null;
+      }
+      const HA = window.HealthAnalyzer || {};
+      const id =
+        (typeof HA.createImportBatchId === 'function' && HA.createImportBatchId()) ||
+        `batch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      const ruleVersion =
+        (typeof HA.PROVENANCE_RULE_VERSION === 'string' && HA.PROVENANCE_RULE_VERSION) ||
+        'health-analyzer-v1.46';
+      let record = {
+        id,
+        createdAt: new Date().toISOString(),
+        source: (partial && partial.source) || 'other',
+        files: (partial && partial.files) || [],
+        totalBytes:
+          partial && partial.totalBytes != null
+            ? partial.totalBytes
+            : ((partial && partial.files) || []).reduce(
+                (s, f) => s + (Number(f && f.bytes) || 0),
+                0
+              ),
+        stats: (partial && partial.stats) || {
+          totalAdded: 0,
+          totalUpdated: 0,
+          totalSkipped: 0,
+        },
+        ruleVersion,
+        notes: (partial && partial.notes) || undefined,
+        cancelled: !!(partial && partial.cancelled),
+      };
+      if (typeof HA.normalizeImportBatch === 'function') {
+        const n = HA.normalizeImportBatch(record);
+        if (n) record = n;
+      }
+      const saved = await window.HealthHistory.saveImportBatch(record);
+      if (saved && saved.id) lastImportBatchId = saved.id;
+      return saved || record;
+    } catch (e) {
+      console.warn('recordImportBatch failed', e);
+      return null;
+    }
   }
 
   function renderHaeUnknownMetrics(unknownMetrics) {
@@ -4201,6 +4589,55 @@
     });
   }
 
+  /**
+   * 将一次 HAE 导入（含取消的部分完成）写入本机 importBatches，便于报告可追溯。
+   * 失败静默（不影响合并结果）；成功返回已保存记录。
+   */
+  async function recordHaeImportBatch(meta) {
+    const digests = Array.isArray(meta && meta.fileDigests) ? meta.fileDigests : [];
+    if (
+      !digests.length &&
+      !(meta && meta.result && (meta.result.totalAdded || meta.result.totalUpdated))
+    ) {
+      return null;
+    }
+    try {
+      const result = (meta && meta.result) || emptyHaeStats();
+      const capNotes = Array.isArray(meta && meta.capNotes) ? meta.capNotes : [];
+      const unknownNames = Array.isArray(result.unknownMetrics)
+        ? result.unknownMetrics
+            .map((u) => (u && u.name != null ? String(u.name) : ''))
+            .filter(Boolean)
+            .slice(0, 80)
+        : [];
+      const notes = [...capNotes, ...(Array.isArray(result.notes) ? result.notes : [])]
+        .map((n) => String(n || '').trim())
+        .filter(Boolean)
+        .slice(0, 40);
+      if (meta && meta.cancelled) notes.push('cancelled mid-batch');
+      return await recordImportBatch({
+        source: 'hae',
+        files: digests.map((d) => ({
+          name: String((d && d.name) || 'file'),
+          bytes: (d && d.bytes) || 0,
+          sha256: d && d.sha256 != null ? d.sha256 : null,
+        })),
+        stats: {
+          totalAdded: result.totalAdded || 0,
+          totalUpdated: result.totalUpdated || 0,
+          totalSkipped: result.totalSkipped || 0,
+          byDomain: result.byDomain || {},
+          unknownMetricNames: unknownNames,
+        },
+        notes,
+        cancelled: !!(meta && meta.cancelled),
+      });
+    } catch (e) {
+      console.warn('recordHaeImportBatch failed', e);
+      return null;
+    }
+  }
+
   async function applyHaeImportAndRefresh() {
     if (!window.HealthAnalyzer || typeof window.HealthAnalyzer.mergeHaeIntoData !== 'function') {
       setHaeStatus(t('hae.err.needLib'), false);
@@ -4221,60 +4658,183 @@
       return;
     }
 
-    let capNote = '';
-    let files = allFiles;
-    if (allFiles.length > HAE_MAX_FILES) {
-      files = allFiles.slice(0, HAE_MAX_FILES);
-      capNote = t('hae.cap.truncated', { max: HAE_MAX_FILES, total: allFiles.length });
+    const { files, capNotes } = selectHaeFilesWithLimits(allFiles);
+    const capNote = capNotes.filter(Boolean).join(' · ');
+    if (!files.length) {
+      const msg = capNote || t('hae.err.noFiles');
+      setHaeStatus(msg, false);
+      showToast(msg, { ms: 3200 });
+      return;
     }
 
+    haeImportAbort = false;
+    setHaeImportUiBusy(true);
+
+    let cancelled = false;
+    let processedFiles = 0;
+    /** @type {{ name: string, bytes: number }[]} */
+    const processedDigests = [];
+    let result = emptyHaeStats();
+    // Worker 合并会结构化克隆 data；分批只克隆当前批次文本 + 递增 data
+    let workingData =
+      currentAnalysis && currentAnalysis.data
+        ? currentAnalysis.data
+        : window.HealthAnalyzer.createEmptyData();
+
     try {
-      setHaeStatus(t('hae.progress.reading', { n: files.length }), false);
-      const payloads = [];
-      for (const f of files) {
-        const text = await readFileAsText(f, FILE_LIMITS.MAX_CSV_BYTES);
-        payloads.push({ name: f.name || 'file', text: String(text || '') });
-      }
-
-      // Worker 合并会结构化克隆 data，需用返回的 data；失败时回退主线程并就地修改 baseData
-      const baseData =
-        currentAnalysis && currentAnalysis.data
-          ? currentAnalysis.data
-          : window.HealthAnalyzer.createEmptyData();
-
       const options = {
         onWorkerFallback: () => {
-          setHaeStatus(t('hae.progress.workerFallback'), false);
+          setHaeStatus(t('hae.progress.workerFallback'), false, { persist: true });
         },
       };
       if (haeIncludeUnknown.size) {
         options.includeUnknown = [...haeIncludeUnknown];
       }
 
-      setHaeStatus(t('hae.progress.merging'), false);
-      const { data: mergedData, stats: result } = await mergeHaeData(baseData, payloads, options);
+      const batches = buildHaeBatches(files);
+      const batchCount = batches.length;
+      let bytesDone = 0;
+
+      for (let bi = 0; bi < batchCount; bi++) {
+        if (haeImportAbort) {
+          cancelled = true;
+          break;
+        }
+
+        const batchFiles = batches[bi];
+        const batchBytes = batchFiles.reduce((s, f) => s + (f.size || 0), 0);
+
+        setHaeStatus(
+          t('hae.progress.batch', {
+            i: bi + 1,
+            n: batchCount,
+            added: result.totalAdded || 0,
+            bytes: formatBytes(bytesDone),
+          }),
+          false,
+          { persist: true }
+        );
+
+        const payloads = [];
+        /** @type {{ name: string, bytes: number, sha256?: string|null }[]} */
+        const batchDigests = [];
+        for (const f of batchFiles) {
+          if (haeImportAbort) {
+            cancelled = true;
+            break;
+          }
+          const text = await readFileAsText(f, HAE_LIMITS.MAX_SINGLE_BYTES);
+          const textStr = String(text || '');
+          payloads.push({ name: f.name || 'file', text: textStr });
+          let sha = null;
+          try {
+            if (textStr.length <= 1024 * 1024) {
+              sha = await sha256HexPrefix(textStr);
+            } else if (textStr.length) {
+              sha = await sha256HexPrefix(textStr.slice(0, 1024 * 1024));
+            }
+          } catch (_) { /* optional */ }
+          batchDigests.push({
+            name: f.name || 'file',
+            bytes: typeof f.size === 'number' ? f.size : textStr.length,
+            sha256: sha,
+          });
+        }
+        if (cancelled) break;
+        if (!payloads.length) continue;
+
+        const { data: nextData, stats: batchStats } = await mergeHaeData(
+          workingData,
+          payloads,
+          options
+        );
+        workingData = nextData;
+        result = mergeHaeStats(result, batchStats || emptyHaeStats());
+        processedFiles += payloads.length;
+        bytesDone += batchBytes;
+        for (const d of batchDigests) {
+          processedDigests.push(d);
+        }
+
+        setHaeStatus(
+          t('hae.progress.batch', {
+            i: bi + 1,
+            n: batchCount,
+            added: result.totalAdded || 0,
+            bytes: formatBytes(bytesDone),
+          }),
+          false,
+          { persist: true }
+        );
+
+        // Yield so cancel click can land between batches
+        await new Promise((r) => setTimeout(r, 0));
+        if (haeImportAbort) {
+          cancelled = true;
+          break;
+        }
+      }
 
       recoveryWeights = loadRecoveryWeights();
-      currentAnalysis = window.HealthAnalyzer.analyzeAll(mergedData, {
+      currentAnalysis = window.HealthAnalyzer.analyzeAll(workingData, {
         recoveryWeights,
         locale: getAnalysisLocale(),
       });
       renderResults(currentAnalysis);
 
-      const added = (result && result.totalAdded) || 0;
-      const updated = (result && result.totalUpdated) || 0;
-      const skipped = (result && result.totalSkipped) || 0;
-      renderHaeImportResult(result || {}, { capNote, fileCount: payloads.length });
-      renderHaeUnknownMetrics((result && result.unknownMetrics) || []);
+      const added = result.totalAdded || 0;
+      const updated = result.totalUpdated || 0;
+      const skipped = result.totalSkipped || 0;
 
-      const okMsg = t('hae.ok.merged', { added, updated, skipped });
-      setHaeStatus(okMsg + (capNote ? ' · ' + capNote : ''), true);
+      const savedBatch = await recordHaeImportBatch({
+        fileDigests: processedDigests,
+        result,
+        cancelled,
+        capNotes,
+      });
+      const batchId = savedBatch && savedBatch.id ? savedBatch.id : null;
+
+      renderHaeImportResult(result, { capNote, fileCount: processedFiles, batchId });
+      renderHaeUnknownMetrics(result.unknownMetrics || []);
+
+      const okMsg = cancelled
+        ? t('hae.ok.cancelled', { added, updated, skipped })
+        : t('hae.ok.merged', { added, updated, skipped });
+      const batchBit = batchId
+        ? ' · ' + t('hae.batch.short', { id: shortImportBatchId(batchId) })
+        : '';
+      setHaeStatus(okMsg + batchBit + (capNote ? ' · ' + capNote : ''), true);
       showToast(okMsg, { ok: true });
     } catch (e) {
       console.error(e);
+      // Partial data: if any batch succeeded, still analyze what we have
+      if (processedFiles > 0) {
+        try {
+          recoveryWeights = loadRecoveryWeights();
+          currentAnalysis = window.HealthAnalyzer.analyzeAll(workingData, {
+            recoveryWeights,
+            locale: getAnalysisLocale(),
+          });
+          renderResults(currentAnalysis);
+          const savedBatch = await recordHaeImportBatch({
+            fileDigests: processedDigests,
+            result,
+            cancelled: true,
+            capNotes: [...capNotes, String((e && e.message) || e)],
+          });
+          const batchId = savedBatch && savedBatch.id ? savedBatch.id : null;
+          renderHaeImportResult(result, { capNote, fileCount: processedFiles, batchId });
+          renderHaeUnknownMetrics(result.unknownMetrics || []);
+        } catch (analyzeErr) {
+          console.error(analyzeErr);
+        }
+      }
       const msg = t('hae.err.fail', { msg: (e && e.message) || e });
       setHaeStatus(msg, false);
       showToast(msg, { ms: 3200 });
+    } finally {
+      haeImportAbort = false;
+      setHaeImportUiBusy(false);
     }
   }
 
@@ -5386,12 +5946,16 @@
           if (typeof window.HealthHistory.clearHealthEvents === 'function') {
             await window.HealthHistory.clearHealthEvents();
           }
+          if (typeof window.HealthHistory.clearImportBatches === 'function') {
+            await window.HealthHistory.clearImportBatches();
+          }
         }
       }
     } catch (e) {
       alert(t('privacy.wipeFail', { msg: e && e.message ? e.message : String(e) }));
       return;
     }
+    lastImportBatchId = null;
     const labelEl = $('history-label');
     if (labelEl) labelEl.value = '';
     const wrLabel = $('weekly-report-label');
@@ -5413,6 +5977,7 @@
   function resetResultsUi(opts) {
     currentAnalysis = null;
     lastImportDiagnostics = null;
+    lastImportBatchId = null;
     lastCsvMergeNote = '';
     lastSelectedFiles = null;
     setResultsVisible(false);

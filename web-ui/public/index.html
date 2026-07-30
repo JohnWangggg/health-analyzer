@@ -146,9 +146,12 @@
             <input type="file" id="hae-folder-input" webkitdirectory directory multiple data-i18n-aria="hae.folder" aria-label="Health Auto Export folder">
           </label>
         </div>
-        <button type="button" id="btn-hae-apply" class="btn-secondary" style="margin-top:10px;" data-i18n="hae.apply">
-          合并 HAE 数据
-        </button>
+        <div class="hae-import-actions" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <button type="button" id="btn-hae-apply" class="btn-secondary" data-i18n="hae.apply">
+            合并 HAE 数据
+          </button>
+          <button type="button" id="btn-hae-cancel" class="btn-ghost hidden" data-i18n="hae.cancel">取消导入</button>
+        </div>
         <span id="hae-import-status" class="copy-status" aria-live="polite"></span>
         <div id="hae-import-result" class="hae-import-result hidden" aria-live="polite"></div>
         <div id="hae-unknown-metrics" class="hae-unknown-metrics hidden"></div>
@@ -478,6 +481,10 @@
           <input type="checkbox" id="clinical-include-raw" />
           <span data-i18n="export.clinical.includeRaw">包含逐条原始样本摘录</span>
         </label>
+        <label class="check-inline">
+          <input type="checkbox" id="clinical-include-provenance" />
+          <span data-i18n="export.clinical.includeProvenance">包含导入来源可追溯附录（本机批次）</span>
+        </label>
         <div class="export-actions clinical-export-btns">
           <button type="button" id="btn-export-clinical-html" class="btn-secondary" data-i18n="export.clinical.html">导出 HTML（可打印）</button>
           <button type="button" id="btn-export-clinical-md" class="btn-ghost" data-i18n="export.clinical.md">导出 Markdown</button>
@@ -487,7 +494,7 @@
 
       <div class="privacy-wipe-panel" role="region" aria-labelledby="privacy-wipe-title">
         <h3 class="panel-subhead" id="privacy-wipe-title" data-i18n="privacy.wipeTitle">隐私与本机数据</h3>
-        <p class="hint compact-hint" data-i18n="privacy.wipeHint">清除个人背景、恢复权重、信号偏好、图表范围及 IndexedDB 摘要/周报历史与事件时间线。主题与界面语言会保留。</p>
+        <p class="hint compact-hint" data-i18n="privacy.wipeHint">清除个人背景、恢复权重、信号偏好、图表范围及 IndexedDB 摘要/周报历史、事件时间线与导入批次。主题与界面语言会保留。</p>
         <button type="button" id="btn-clear-all-local" class="btn-danger-text" data-i18n="privacy.wipeBtn">清除所有本机健康数据</button>
       </div>
 
@@ -497,6 +504,10 @@
         <label class="check-inline weekly-include-events" for="weekly-include-events">
           <input type="checkbox" id="weekly-include-events" />
           <span data-i18n="weekly.includeEvents">周报包含本机事件时间线</span>
+        </label>
+        <label class="check-inline weekly-include-provenance" for="weekly-include-provenance">
+          <input type="checkbox" id="weekly-include-provenance" />
+          <span data-i18n="weekly.includeProvenance">周报包含导入来源可追溯附录</span>
         </label>
         <div class="history-save-row">
           <label class="date-field history-name-field">
@@ -590,7 +601,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.45</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.46</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

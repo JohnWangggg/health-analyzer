@@ -162,5 +162,18 @@ export type {
   HealthEventSource,
 } from './events';
 
+export {
+  PROVENANCE_RULE_VERSION,
+  createImportBatchId,
+  normalizeImportBatch,
+  formatProvenanceAppendixMarkdown,
+} from './provenance';
+export type {
+  ImportFileDigest,
+  ImportBatchRecord,
+  ImportBatchStats,
+  ImportSource,
+} from './provenance';
+
 // 兼容历史 lib.js：calcBpStats 别名
 export { calcBloodPressureStats as calcBpStats } from './stats';

@@ -1,19 +1,21 @@
 /**
- * IndexedDB：本地保存分析摘要快照 + 周报历史 + 事件时间线
- * 不上传；仅存压缩 metrics / markdown / 手录事件，不含完整 CGM 明细
+ * IndexedDB：本地保存分析摘要快照 + 周报历史 + 事件时间线 + 导入批次可追溯
+ * 不上传；仅存压缩 metrics / markdown / 手录事件 / 导入摘要，不含完整 CGM 明细
  */
 (function (global) {
   'use strict';
 
   const DB_NAME = 'health-analyzer-history';
-  /** v3：新增 healthEvents object store */
-  const DB_VERSION = 3;
+  /** v4：新增 importBatches object store（本机导入可追溯） */
+  const DB_VERSION = 4;
   const STORE = 'snapshots';
   const STORE_REPORTS = 'weeklyReports';
   const STORE_EVENTS = 'healthEvents';
+  const STORE_IMPORT_BATCHES = 'importBatches';
   const MAX_SNAPSHOTS = 30;
   const MAX_WEEKLY_REPORTS = 20;
   const MAX_EVENTS = 500;
+  const MAX_IMPORT_BATCHES = 50;
 
   function openDb() {
     return new Promise((resolve, reject) => {
@@ -38,7 +40,11 @@
           events.createIndex('date', 'date', { unique: false });
           events.createIndex('createdAt', 'createdAt', { unique: false });
         }
-        // 兼容：从 v1/v2 升到 v3 时确保各 store 存在
+        if (!db.objectStoreNames.contains(STORE_IMPORT_BATCHES)) {
+          const batches = db.createObjectStore(STORE_IMPORT_BATCHES, { keyPath: 'id' });
+          batches.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+        // 兼容：从 v1–v3 升到 v4 时确保各 store 存在
         void ev;
       };
       req.onsuccess = () => resolve(req.result);
@@ -152,7 +158,7 @@
   }
 
   /**
-   * 清空全部本机健康历史 store：摘要快照 + 周报历史 + 事件时间线
+   * 清空全部本机健康历史 store：摘要快照 + 周报历史 + 事件时间线 + 导入批次
    * 供「清除所有本机健康数据」一键使用
    */
   function clearAllStores() {
@@ -165,6 +171,9 @@
           }
           if (db.objectStoreNames.contains(STORE_EVENTS)) {
             names.push(STORE_EVENTS);
+          }
+          if (db.objectStoreNames.contains(STORE_IMPORT_BATCHES)) {
+            names.push(STORE_IMPORT_BATCHES);
           }
           const tx = db.transaction(names, 'readwrite');
           for (const n of names) {
@@ -590,6 +599,178 @@
     );
   }
 
+  // ---------- 导入批次可追溯（独立 store，最多 MAX_IMPORT_BATCHES） ----------
+
+  /**
+   * @typedef {object} ImportBatchRecord
+   * @property {string} id
+   * @property {string} createdAt ISO
+   * @property {string} source
+   * @property {Array<{name:string,bytes:number,sha256?:string|null}>} files
+   * @property {number} totalBytes
+   * @property {object} stats
+   * @property {string} ruleVersion
+   * @property {string[]} [notes]
+   * @property {boolean} [cancelled]
+   */
+
+  function listImportBatches() {
+    return openDb().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          if (!db.objectStoreNames.contains(STORE_IMPORT_BATCHES)) {
+            db.close();
+            resolve([]);
+            return;
+          }
+          const tx = db.transaction(STORE_IMPORT_BATCHES, 'readonly');
+          const store = tx.objectStore(STORE_IMPORT_BATCHES);
+          const req = store.getAll();
+          req.onsuccess = () => {
+            const rows = (req.result || []).sort((a, b) =>
+              String(b.createdAt).localeCompare(String(a.createdAt))
+            );
+            resolve(rows);
+          };
+          req.onerror = () => reject(req.error);
+          tx.oncomplete = () => db.close();
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        })
+    );
+  }
+
+  function getImportBatch(id) {
+    return openDb().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          if (!db.objectStoreNames.contains(STORE_IMPORT_BATCHES)) {
+            db.close();
+            resolve(null);
+            return;
+          }
+          const tx = db.transaction(STORE_IMPORT_BATCHES, 'readonly');
+          const store = tx.objectStore(STORE_IMPORT_BATCHES);
+          const req = store.get(id);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => reject(req.error);
+          tx.oncomplete = () => db.close();
+        })
+    );
+  }
+
+  function deleteImportBatch(id) {
+    return openDb().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          if (!db.objectStoreNames.contains(STORE_IMPORT_BATCHES)) {
+            db.close();
+            resolve();
+            return;
+          }
+          const tx = db.transaction(STORE_IMPORT_BATCHES, 'readwrite');
+          tx.objectStore(STORE_IMPORT_BATCHES).delete(id);
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        })
+    );
+  }
+
+  function saveImportBatch(batch) {
+    if (!batch || typeof batch !== 'object') {
+      return Promise.reject(new Error('invalid import batch'));
+    }
+    // Prefer lib normalizer when available
+    let record = batch;
+    try {
+      if (
+        global.HealthAnalyzer &&
+        typeof global.HealthAnalyzer.normalizeImportBatch === 'function'
+      ) {
+        const n = global.HealthAnalyzer.normalizeImportBatch(batch);
+        if (n) record = n;
+      }
+    } catch (_) {
+      /* keep raw */
+    }
+    if (!record.id) {
+      if (
+        global.HealthAnalyzer &&
+        typeof global.HealthAnalyzer.createImportBatchId === 'function'
+      ) {
+        record.id = global.HealthAnalyzer.createImportBatchId();
+      } else {
+        record.id = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+      }
+    }
+    if (!record.createdAt) record.createdAt = new Date().toISOString();
+
+    return openDb()
+      .then(
+        (db) =>
+          new Promise((resolve, reject) => {
+            if (!db.objectStoreNames.contains(STORE_IMPORT_BATCHES)) {
+              db.close();
+              reject(new Error('importBatches store missing'));
+              return;
+            }
+            const tx = db.transaction(STORE_IMPORT_BATCHES, 'readwrite');
+            tx.objectStore(STORE_IMPORT_BATCHES).put(record);
+            tx.oncomplete = () => {
+              db.close();
+              resolve(record);
+            };
+            tx.onerror = () => {
+              db.close();
+              reject(tx.error);
+            };
+          })
+      )
+      .then(async (saved) => {
+        const all = await listImportBatches();
+        if (all.length > MAX_IMPORT_BATCHES) {
+          const extra = [...all]
+            .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)))
+            .slice(0, all.length - MAX_IMPORT_BATCHES);
+          for (const s of extra) {
+            await deleteImportBatch(s.id);
+          }
+        }
+        return saved;
+      });
+  }
+
+  function clearImportBatches() {
+    return openDb().then(
+      (db) =>
+        new Promise((resolve, reject) => {
+          if (!db.objectStoreNames.contains(STORE_IMPORT_BATCHES)) {
+            db.close();
+            resolve();
+            return;
+          }
+          const tx = db.transaction(STORE_IMPORT_BATCHES, 'readwrite');
+          tx.objectStore(STORE_IMPORT_BATCHES).clear();
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => {
+            db.close();
+            reject(tx.error);
+          };
+        })
+    );
+  }
+
   global.HealthHistory = {
     saveSnapshot,
     listSnapshots,
@@ -613,5 +794,11 @@
     clearHealthEvents,
     saveHealthEventsBulk,
     MAX_EVENTS,
+    // 导入批次可追溯
+    saveImportBatch,
+    listImportBatches,
+    getImportBatch,
+    clearImportBatches,
+    MAX_IMPORT_BATCHES,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

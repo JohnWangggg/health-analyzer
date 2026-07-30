@@ -18,3 +18,4 @@ export * from './insights';
 export * from './csv-import';
 export * from './hae-import';
 export * from './events';
+export * from './provenance';
