@@ -1,4 +1,4 @@
-# Reusable: lib unit tests + build (tsc + browser bundle)
+# Reusable: lib unit tests + build + FHIR (incl. required HL7) + E2E
 name: Reusable test & build
 
 on:
@@ -22,6 +22,22 @@ jobs:
           cache: npm
           cache-dependency-path: lib/package-lock.json
 
+      - name: Setup Java (HL7 validator_cli)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Cache HL7 validator jar + FHIR packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/validator_cli.jar
+            ~/.fhir/packages
+          key: fhir-hl7-validator-${{ runner.os }}-v1
+          restore-keys: |
+            fhir-hl7-validator-${{ runner.os }}-
+
       - name: Install dependencies
         run: npm ci
 
@@ -35,6 +51,13 @@ jobs:
       - name: UI / i18n smoke (static + locale)
         working-directory: .
         run: node scripts/smoke.mjs
+
+      - name: FHIR structure + exchange + required HL7 (fixture + stripped export)
+        working-directory: .
+        run: npm run test:fhir:ci
+        env:
+          # Belt-and-suspenders: scripts also set REQUIRED=1
+          FHIR_HL7_REQUIRED: '1'
 
       - name: Install root (Playwright)
         working-directory: .

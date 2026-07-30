@@ -1,5 +1,5 @@
 /**
- * Offline HL7 FHIR Validator CLI check (v1.60).
+ * Offline HL7 FHIR Validator CLI check (v1.60–v1.64).
  *
  * Validates a committed synthetic R4 Bundle fixture with the official
  * validator_cli.jar (hapifhir/org.hl7.fhir.core). No personal health data.
@@ -11,11 +11,11 @@
  *
  * Offline-by-default:
  * - Uses -tx n/a (no remote terminology server / no user data upload)
- * - Local package cache under tools/fhir-package-cache (first run may download
- *   public FHIR package definitions; not patient data)
+ * - First run may download public FHIR package definitions into ~/.fhir/packages
+ *   (not patient data)
  *
  * Environment:
- * - FHIR_HL7_REQUIRED=1     fail if Java/jar missing (CI strict mode)
+ * - FHIR_HL7_REQUIRED=1     fail if Java/jar missing or validation fails (CI/release)
  * - FHIR_HL7_SKIP=1         always soft-skip (exit 0)
  * - FHIR_VALIDATOR_JAR=path  override jar path
  * - FHIR_VALIDATOR_VERSION=4.0.1  FHIR version for validator (default 4.0.1)
@@ -25,9 +25,9 @@
  * Usage:
  *   node scripts/fhir-hl7-validator.mjs
  *   node scripts/fhir-hl7-validator.mjs --from-export
- *     (build exchange Bundle from e2e minimal XML, strip private extensions, validate)
  *   npm run test:fhir:hl7
- *   FHIR_HL7_REQUIRED=1 npm run test:fhir:hl7
+ *   npm run test:fhir:hl7:required   # FHIR_HL7_REQUIRED=1
+ *   npm run test:fhir:ci             # structure + exchange + required HL7 (+ export)
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -85,16 +85,25 @@ function fail(reason, code = 1) {
 }
 
 function findJava() {
+  const homebrewCandidates = [
+    '/opt/homebrew/opt/openjdk@21/bin/java',
+    '/opt/homebrew/opt/openjdk/bin/java',
+    '/usr/local/opt/openjdk@21/bin/java',
+    '/usr/local/opt/openjdk/bin/java',
+  ];
   const candidates = [
     process.env.JAVA_HOME && path.join(process.env.JAVA_HOME, 'bin', 'java'),
     process.env.JAVA_HOME && path.join(process.env.JAVA_HOME, 'bin', 'java.exe'),
+    ...homebrewCandidates,
     'java',
   ].filter(Boolean);
 
   for (const java of candidates) {
+    // Skip non-existent absolute paths quickly
+    if (java.includes(path.sep) && !fs.existsSync(java)) continue;
     const r = spawnSync(java, ['-version'], { encoding: 'utf8' });
-    // java -version writes to stderr
-    if (r.status === 0 || /version/i.test(String(r.stderr || r.stdout || ''))) {
+    // java -version writes to stderr; some wrappers return non-zero but still print version
+    if (r.status === 0 || /version \"?\d/i.test(String(r.stderr || r.stdout || ''))) {
       return java;
     }
   }

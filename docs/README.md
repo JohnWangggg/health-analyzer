@@ -261,15 +261,18 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 | `npm run test:fhir:exchange` | 独立 R4 交换门禁（`validateFhirR4ExchangeGate`） | 否（自定义规则） |
 | `npm run test:fhir:hl7` | 官方 `validator_cli.jar` 校验合成 fixture（`-tx n/a`） | **是** |
 | `npm run test:fhir:hl7:export` | 从样例 XML 生成交换 Bundle → `stripPrivateFhirExtensions` → 官方校验 | **是** |
+| `npm run test:fhir:ci` | structure + exchange + **强制** HL7 fixture + 强制 HL7 export | **是** |
+| `npm run test:release` | 完整发布门禁（lib + build + smoke + `test:fhir:ci` + e2e） | **是** |
 
-- `npm run test:fhir` 会依次跑 structure + exchange + hl7 合成夹具；无 Java 时 HL7 层 **软跳过**（exit 0）。
-- 严格 CI 可设 `FHIR_HL7_REQUIRED=1` 或运行 `npm run test:fhir:hl7:required`。
+- `npm run test:fhir`：structure + exchange + HL7 夹具；**无 Java 时 HL7 软跳过**（exit 0），适合本机日常开发。
+- **CI / 发布**使用 `test:fhir:ci`（`FHIR_HL7_REQUIRED=1`）：Java/jar 缺失或校验失败则 **失败**。GitHub Actions 已安装 Temurin 21 并缓存 jar。
 - 夹具：`lib/test/fixtures/fhir-hl7-r4-minimal.json`（合成数据，无个人身份）。
 - Jar 下载到 `tools/validator_cli.jar`（gitignore，不提交）。
-- 本机需要 JDK（如 `brew install openjdk@21`），并将 `JAVA_HOME`/`PATH` 指向该 JDK。
+- 本机强制校验：`brew install openjdk@21` 后执行 `npm run test:fhir:ci`（脚本会探测 Homebrew OpenJDK 路径）。
 - v1.61：解析保留逐条 `sourceName`；Device 仅在 Watch/iPhone 高置信度时接线。
 - v1.62：**匿名分享**会净化 raw `sourceName` / 导入文件名；门禁拦截泄漏后的 Bundle。
 - v1.63：**个人转交**伪名 ID 须 UUID/`pid_…`；本机生成·复制·轮换（localStorage）；拒绝弱 ID。
+- v1.64：CI/release **强制**官方 HL7 校验。
 
 ## 许可
 

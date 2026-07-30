@@ -12,9 +12,12 @@
     "test:fhir:hl7": "node scripts/fhir-hl7-validator.mjs",
     "test:fhir:hl7:export": "node scripts/fhir-hl7-validator.mjs --from-export",
     "test:fhir:hl7:required": "FHIR_HL7_REQUIRED=1 node scripts/fhir-hl7-validator.mjs",
+    "test:fhir:hl7:export:required": "FHIR_HL7_REQUIRED=1 node scripts/fhir-hl7-validator.mjs --from-export",
+    "test:fhir:ci": "node scripts/fhir-structure-check.mjs && node scripts/fhir-exchange-check.mjs && FHIR_HL7_REQUIRED=1 node scripts/fhir-hl7-validator.mjs && FHIR_HL7_REQUIRED=1 node scripts/fhir-hl7-validator.mjs --from-export",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
-    "test:all": "npm run test:lib && npm run build:lib && npm run smoke && npm run test:fhir && npm run test:e2e"
+    "test:all": "npm run test:lib && npm run build:lib && npm run smoke && npm run test:fhir && npm run test:e2e",
+    "test:release": "npm run test:lib && npm run build:lib && npm run smoke && npm run test:fhir:ci && npm run test:e2e"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0"
