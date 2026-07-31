@@ -228,7 +228,7 @@ flowchart LR
 | 生产关闭 source map | `build.sourcemap: false` |
 | SW 更新用户确认 | `registerType: 'prompt'` + `PwaUpdateBanner` |
 | echarts/core 按需构建 | **已做**（Line + Grid + Tooltip + DataZoom） |
-| 软配额 CGM 月 + BP/体重年淘汰 | **已做**（写入时；交互 keep-N 仍 legacy） |
+| 软配额 CGM 月 + BP/体重 + 睡眠/步数年淘汰 | **已做**（写入时；交互 keep-N 仍 legacy） |
 | 壳层 i18n 中/英 | **已做**（`ha-react-ui-locale`，导航/总览键） |
 | 完整大屏产品 UI / sleep 等全域年 eviction | **未做** |
 

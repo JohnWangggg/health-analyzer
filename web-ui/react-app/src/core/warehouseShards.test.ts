@@ -8,10 +8,12 @@ import {
   buildDomainChunkRows,
   evictOldestBpWeightYears,
   evictOldestCgmMonths,
+  evictOldestSleepStepsYears,
   reassembleFromSplit,
   splitHealthDataShards,
   type ShardSplit,
 } from './warehouseShards';
+
 
 import { reassembleFromChunks } from './warehouseLoad';
 
@@ -138,7 +140,39 @@ describe('warehouseShards (legacy-compatible split)', () => {
     expect(split.bpYears.some((y) => y.year === '2020')).toBe(true);
   });
 
+  it('evictOldestSleepStepsYears drops oldest year under soft quota', () => {
+    const yearSize = Math.floor(WH_SOFT_BYTES / 2.5);
+    const mkMap = (year: string) => ({
+      year,
+      payload: { [`${year}-01-01`]: { total: 1 } },
+      approxBytes: yearSize,
+      recordCount: 1,
+    });
+    const split = {
+      core: {} as ShardSplit['core'],
+      months: [],
+      bpYears: [],
+      weightYears: [],
+      sleepYears: [mkMap('2017'), mkMap('2018'), mkMap('2019')],
+      stepsYears: [mkMap('2017'), mkMap('2019')],
+      hrvYears: [],
+      restingHrYears: [],
+      walkingHrYears: [],
+      workoutsYears: [],
+      ecgYears: [],
+      watchDailyYears: [],
+      coreBytes: 10,
+      totalBytes: 10 + yearSize * 5,
+    } as ShardSplit;
+    expect(split.totalBytes).toBeGreaterThan(WH_SOFT_BYTES);
+    const ev = evictOldestSleepStepsYears(split);
+    expect(ev.trimmed).toBe(true);
+    expect(ev.removedYears).toBeGreaterThan(0);
+    expect(split.sleepYears.some((y) => y.year === '2019')).toBe(true);
+  });
+
   it('legacy-shaped chunks load same CGM count as React sharded write shape', () => {
+
 
     // Simulate: build sharded rows (as React/legacy would write), reassemble
     const xml = readFileSync(FIXTURE, 'utf8');

@@ -62,21 +62,22 @@ export function DataPage() {
       <div>
         <h1 className="page-title">数据仓</h1>
         <p className="page-lead">
-          本地来源、跨度与 legacy IndexedDB 只读视图（
+          会话状态 + 共享 IDB（
           <code>
             {IDB_CONTRACT.name}@v{IDB_CONTRACT.version}
           </code>
-          ）。不写入分片、不强制迁移。
+          ）。写入在总览走 <strong>sharded-v1</strong> 整仓替换；加密备份仍在
+          legacy。
         </p>
       </div>
 
-      <div className="card-grid">
+      <div className="kpi-matrix">
         <Card data-testid="data-source-card">
           <CardTitle>会话来源</CardTitle>
           <p className="kpi" style={{ fontSize: '1rem' }} data-testid="data-source">
             {sourceLabel || '尚未加载会话数据'}
           </p>
-          <CardDesc>当前 React 会话经适配器解析的 XML/夹具。</CardDesc>
+          <CardDesc>当前 React 会话（adapter 解析结果）。</CardDesc>
         </Card>
         <Card data-testid="data-span-card">
           <CardTitle>会话跨度</CardTitle>
@@ -100,9 +101,7 @@ export function DataPage() {
         </Card>
         <Card>
           <CardTitle>备份</CardTitle>
-          <CardDesc>
-            加密备份/恢复仍由 legacy history-db 完整实现。本壳只读探测。
-          </CardDesc>
+          <CardDesc>加密备份/恢复 → legacy 数据中心完整实现。</CardDesc>
           <div style={{ marginTop: '0.5rem' }}>
             <Badge tone="watch">完整备份 → legacy</Badge>
           </div>
@@ -110,7 +109,7 @@ export function DataPage() {
       </div>
 
       <Card>
-        <CardTitle>Legacy 仓库（只读）</CardTitle>
+        <CardTitle>共享仓库探测</CardTitle>
         <div className="row" style={{ marginBottom: '0.75rem' }}>
           <Button
             variant="primary"
@@ -140,7 +139,23 @@ export function DataPage() {
 
         {whMeta ? (
           <div style={{ marginTop: '1rem' }} data-testid="warehouse-meta-view">
-            <h3 className="ui-card-title">warehouseMeta</h3>
+            <div className="row" style={{ marginBottom: '0.5rem' }}>
+              <h3 className="ui-card-title" style={{ margin: 0 }}>
+                warehouseMeta
+              </h3>
+              {whMeta.layout ? (
+                <Badge
+                  tone={whMeta.layout === 'sharded-v1' ? 'ok' : 'watch'}
+                  data-testid="wh-layout-badge"
+                >
+                  layout: {whMeta.layout}
+                </Badge>
+              ) : (
+                <Badge tone="neutral" data-testid="wh-layout-badge">
+                  layout: —
+                </Badge>
+              )}
+            </div>
             <table className="table">
               <tbody>
                 <tr>
@@ -177,6 +192,7 @@ export function DataPage() {
             </table>
           </div>
         ) : null}
+
 
         {snapshots ? (
           <div style={{ marginTop: '1rem' }} data-testid="snapshot-list">

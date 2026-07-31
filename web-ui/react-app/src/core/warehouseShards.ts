@@ -4,8 +4,8 @@
  * (layout `sharded-v1`). Used by React dual-track persist so React write is
  * compatible with legacy reassemble (domain shards, not core-only blob).
  *
- * Soft-quota multi-domain eviction is simplified: hard 200MB reject only.
- * Full keep-N / soft eviction remains owned by legacy UI for interactive trim.
+ * Soft-quota: CGM months → BP/weight years → sleep/steps years (legacy order).
+ * Interactive keep-N UI remains legacy; hard 200MB still rejects.
  */
 import type { HealthData } from '@health-analyzer/lib';
 
@@ -229,10 +229,28 @@ export type SoftEvictionMeta = {
   removedMonths: number;
   removedBp: number;
   removedWeight: number;
+  removedSleep: number;
+  removedSteps: number;
   removedYears: number;
   beforeBytes: number;
   afterBytes: number;
 };
+
+function emptyEvictMeta(beforeBytes: number, afterBytes: number): SoftEvictionMeta {
+  return {
+    trimmed: false,
+    removedCgm: 0,
+    removedMonths: 0,
+    removedBp: 0,
+    removedWeight: 0,
+    removedSleep: 0,
+    removedSteps: 0,
+    removedYears: 0,
+    beforeBytes,
+    afterBytes,
+  };
+}
+
 
 /**
  * Drop oldest CGM months until under soft quota (history-db evictOldestCgmMonths).
@@ -274,14 +292,10 @@ export function evictOldestCgmMonths(split: ShardSplit): SoftEvictionMeta {
     recomputeSplitTotalBytes(split);
   }
   return {
+    ...emptyEvictMeta(beforeBytes, split.totalBytes),
     trimmed: removedCgm > 0,
     removedCgm,
     removedMonths,
-    removedBp: 0,
-    removedWeight: 0,
-    removedYears: 0,
-    beforeBytes,
-    afterBytes: split.totalBytes,
   };
 }
 
@@ -328,33 +342,84 @@ export function evictOldestBpWeightYears(split: ShardSplit): SoftEvictionMeta {
     recomputeSplitTotalBytes(split);
   }
   return {
+    ...emptyEvictMeta(beforeBytes, split.totalBytes),
     trimmed: removedBp > 0 || removedWeight > 0,
-    removedCgm: 0,
-    removedMonths: 0,
     removedBp,
     removedWeight,
     removedYears,
+  };
+}
+
+/**
+ * Drop oldest sleep/steps year shards (history-db evictOldestSleepStepsYears).
+ */
+export function evictOldestSleepStepsYears(split: ShardSplit): SoftEvictionMeta {
+  let removedSleep = 0;
+  let removedSteps = 0;
+  let removedYears = 0;
+  const beforeBytes = split.totalBytes;
+  if (!split.sleepYears) split.sleepYears = [];
+  if (!split.stepsYears) split.stepsYears = [];
+
+  while (
+    split.totalBytes > WH_SOFT_BYTES &&
+    (split.sleepYears.length > 0 || split.stepsYears.length > 0)
+  ) {
+    const years: Record<string, true> = {};
+    split.sleepYears.forEach((y) => {
+      years[y.year] = true;
+    });
+    split.stepsYears.forEach((y) => {
+      years[y.year] = true;
+    });
+    const yearKeys = Object.keys(years).sort();
+    if (yearKeys.length <= 1) break;
+
+    const oldestYear = yearKeys[0]!;
+    const sleepIdx = split.sleepYears.findIndex((y) => y.year === oldestYear);
+    const stepsIdx = split.stepsYears.findIndex((y) => y.year === oldestYear);
+    if (sleepIdx >= 0) {
+      const row = split.sleepYears.splice(sleepIdx, 1)[0]!;
+      removedSleep += row.recordCount || 0;
+      removedYears += 1;
+    } else if (stepsIdx >= 0) {
+      const row = split.stepsYears.splice(stepsIdx, 1)[0]!;
+      removedSteps += row.recordCount || 0;
+      removedYears += 1;
+    } else {
+      break;
+    }
+    recomputeSplitTotalBytes(split);
+  }
+  return {
+    ...emptyEvictMeta(beforeBytes, split.totalBytes),
+    trimmed: removedSleep > 0 || removedSteps > 0,
+    removedSleep,
+    removedSteps,
+    removedYears,
+  };
+}
+
+/** Soft-quota pass: CGM → BP/weight → sleep/steps (legacy order). */
+export function applySoftQuotaEviction(split: ShardSplit): SoftEvictionMeta {
+  const beforeBytes = split.totalBytes;
+  const cgm = evictOldestCgmMonths(split);
+  const yw = evictOldestBpWeightYears(split);
+  const ms = evictOldestSleepStepsYears(split);
+  return {
+    trimmed: cgm.trimmed || yw.trimmed || ms.trimmed,
+    removedCgm: cgm.removedCgm,
+    removedMonths: cgm.removedMonths,
+    removedBp: yw.removedBp,
+    removedWeight: yw.removedWeight,
+    removedSleep: ms.removedSleep,
+    removedSteps: ms.removedSteps,
+    removedYears: yw.removedYears + ms.removedYears,
     beforeBytes,
     afterBytes: split.totalBytes,
   };
 }
 
-/** Soft-quota pass: CGM months then BP/weight years (legacy order). */
-export function applySoftQuotaEviction(split: ShardSplit): SoftEvictionMeta {
-  const beforeBytes = split.totalBytes;
-  const cgm = evictOldestCgmMonths(split);
-  const yw = evictOldestBpWeightYears(split);
-  return {
-    trimmed: cgm.trimmed || yw.trimmed,
-    removedCgm: cgm.removedCgm,
-    removedMonths: cgm.removedMonths,
-    removedBp: yw.removedBp,
-    removedWeight: yw.removedWeight,
-    removedYears: yw.removedYears,
-    beforeBytes,
-    afterBytes: split.totalBytes,
-  };
-}
 
 
 

@@ -42,9 +42,12 @@ export type PersistWarehouseResult =
       removedMonths?: number;
       removedBp?: number;
       removedWeight?: number;
+      removedSleep?: number;
+      removedSteps?: number;
       removedYears?: number;
     }
   | { ok: false; reason: string };
+
 
 
 
@@ -169,11 +172,14 @@ export async function persistHealthDataSharded(
         if (evict.removedMonths) notes.push('cgm_months_evicted_for_quota');
         if (evict.removedBp || evict.removedWeight)
           notes.push('bp_weight_years_evicted_for_quota');
+        if (evict.removedSleep || evict.removedSteps)
+          notes.push('sleep_steps_years_evicted_for_quota');
         if (!notes.length && split.totalBytes > WH_SOFT_BYTES)
           notes.push('soft_quota_exceeded');
         return notes;
       })(),
     };
+
 
 
 
@@ -204,6 +210,8 @@ export async function persistHealthDataSharded(
       removedMonths: evict.removedMonths,
       removedBp: evict.removedBp,
       removedWeight: evict.removedWeight,
+      removedSleep: evict.removedSleep,
+      removedSteps: evict.removedSteps,
       removedYears: evict.removedYears,
     };
   } finally {

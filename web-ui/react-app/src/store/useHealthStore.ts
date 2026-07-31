@@ -260,8 +260,12 @@ export const useHealthStore = create<HealthState>((set, get) => ({
       const parts: string[] = [];
       if (r.removedMonths)
         parts.push(`${r.removedMonths} 个旧 CGM 月`);
-      if (r.removedYears)
-        parts.push(`${r.removedYears} 个旧 BP/体重年`);
+      if (r.removedBp || r.removedWeight)
+        parts.push('旧 BP/体重年');
+      if (r.removedSleep || r.removedSteps)
+        parts.push('旧睡眠/步数年');
+      if (r.removedYears && !parts.length)
+        parts.push(`${r.removedYears} 个旧年份`);
       const trimNote = parts.length
         ? ` · 软配额裁剪 ${parts.join('、')}`
         : r.softWarn
