@@ -30,8 +30,18 @@ test.describe('React dual-track shell', () => {
     const cgm = await page.getByTestId('kpi-cgm').innerText();
     expect(Number(cgm)).toBeGreaterThan(0);
 
+    // Overview density MVP+: status band, signals, primary CTAs
+    await expect(page.getByTestId('status-band')).toBeVisible();
+    const priorityTitle = await page.getByTestId('priority-title').innerText();
+    expect(priorityTitle.trim().length).toBeGreaterThan(0);
+    await expect(page.getByTestId('kpi-freshness')).toBeVisible();
+    await expect(page.getByTestId('signal-list')).toBeVisible();
+    await expect(page.getByTestId('primary-actions')).toBeVisible();
+
     await page.locator('[data-testid="desktop-sidebar"] [data-workspace-nav="trends"]').click();
     await expect(page.getByTestId('page-trends')).toBeVisible();
+    await expect(page.getByTestId('domain-switcher')).toBeVisible();
+    await expect(page.getByTestId('trend-domain-steps')).toBeVisible();
     await expect(page.getByTestId('trend-table-fallback')).toBeVisible();
 
     await page.locator('[data-testid="desktop-sidebar"] [data-workspace-nav="reports"]').click();

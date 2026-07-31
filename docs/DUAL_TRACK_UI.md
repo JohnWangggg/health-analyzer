@@ -101,8 +101,8 @@ npm run test:e2e:react     # Playwright React 壳（build + preview :4174）
 
 | 页 | 行为 |
 |----|------|
-| **总览** | 新鲜度 / 优先 / KPI；夹具；**XML / ZIP / HAE**；Worker；**加载/写入仓（sharded-v1）**；快照 |
-| **趋势** | 本地 **ECharts 懒加载** + 表回退（ECharts **不**进 SW 首装 precache） |
+| **总览** | **状态带**（`StatusBand`）/ **信号列表**（`SignalList`）/ 新鲜度 / KPI；夹具；**XML / ZIP / HAE**；Worker；**加载/写入仓（sharded-v1）**；快照。路径：`web-ui/react-app/src/features/overview/StatusBand.tsx`、`SignalList.tsx` |
+| **趋势** | **域切换器**（`domain-switcher` + `trend-domain-*`）+ 本地 **ECharts 懒加载** + 表回退（ECharts **不**进 SW 首装 precache） |
 | **报告** | 门诊一页纸 / 周报 / 临床复盘 + 复制/下载 .md |
 | **数据** | IDB 契约探测；快照列表；warehouseMeta 只读 |
 
@@ -127,7 +127,7 @@ npm run test:e2e:react     # Playwright React 壳（build + preview :4174）
 
 - **禁止**在 React 重写 parse/stats/FHIR。
 - IDB：`health-analyzer-history` **v5**；indexes 与 `history-db.js` 对齐（`idbContract.test.ts` 锁源码 + fake-indexeddb 内省）。
-- React **不**做分片 keep-N / 硬配额驱逐；大规模仓仍用 legacy 数据中心。
+- React 写入时已做软配额多域 eviction（全链路）；**交互 keep-N / 硬配额面板仍 legacy**。
 
 ### 4.6 测试矩阵
 
@@ -155,6 +155,7 @@ core/
   snapshotWrite.ts
 components/ui/            # 设计 primitives
 components/charts/        # TrendChart（lazy echarts）
+features/overview/        # StatusBand · SignalList（总览密度 MVP+）
 pages/                    # Overview Trends Reports Data
 stores/workspaceStore.ts
 store/useHealthStore.ts
@@ -194,6 +195,12 @@ flowchart LR
 | `cc0dbc9` | XML Worker、IDB 只读、`/next` export、偏好键 |
 | `19a7ca7` | ZIP、仓加载、快照、`e2e-react` |
 | `dd55e05` | HAE、仓写入、进度文案 |
+| `8d9ca0a` | legacy 兼容 sharded-v1 仓写入（React） |
+| `01cd038` | echarts tree-shake、CGM 软驱逐、总览密度初版 |
+| `bf0c8b8` | BP/体重软驱逐、壳 i18n、总览 insight strip |
+| `89b54a1` | 睡眠/步数软驱逐 + 数据仓页密度 |
+| `846d680` | **软配额全链路**（CGM→BP/体重→睡眠/步数→HRV→训练/ECG/手表）写入时完成 |
+| *(本提交)* | **总览状态带 / 信号列表 / 趋势 domain-switcher + 壳层会话 chip / Trends i18n**（MVP+ 密度） |
 
 ---
 
@@ -206,8 +213,8 @@ flowchart LR
 |----|------|
 | Tailwind v4 / 全量 shadcn | **未上**；CSS 变量 + 自有 primitives |
 | 生产默认 cutover 到 React | **未做** |
-| 仓按月/年分片 + keep-N | **仅 legacy** |
-| 高品质健康大屏 UI | **未做**（仍为功能壳） |
+| 仓按月/年分片 + keep-N | **分片写入 React 已有**；交互 keep-N / 硬配额面板 **仅 legacy** |
+| 高品质健康大屏 UI | **未做**（功能壳 + MVP+ 密度，非可编辑栅格） |
 | HAE 未知指标落库 / CommandPalette | 未做 |
 
 ### P0 — 共享数据仓互通
@@ -217,7 +224,8 @@ flowchart LR
 | **当前写入** | `persistHealthDataSharded`：与 history-db 一致 **clear domainChunks + put 全量 sharded-v1 分片**（`warehouseShards.ts`）。 |
 | **core-only 旧路径** | `persistHealthDataSimple` 仅 `force` 可测；产品 UI 不用。 |
 | **读取** | `layout=sharded-v1` 或存在 domain 分片 → 合并分片；`react-core-full-v1` → core-only。 |
-| **仍缺** | 与 legacy 同级的软配额多域 eviction keep-N UI；真实「旧版写→React写→旧版读」浏览器交叉 E2E（单测已覆盖分片往返）。 |
+| **软配额** | 写入时全链路 **已做**（`846d680`）；**交互 keep-N UI 仍未做**（仍用 legacy 数据中心）。 |
+| **仍缺** | 交互式 keep-N / 生产 cutover；真实「旧版写→React写→旧版读」浏览器交叉 E2E（单测已覆盖分片往返）。 |
 | **生产建议** | 可试用 React 写仓（会**整仓替换**分片集）；大规模 keep-N 仍用 legacy 面板。 |
 
 ### P1 工程
@@ -228,9 +236,11 @@ flowchart LR
 | 生产关闭 source map | `build.sourcemap: false` |
 | SW 更新用户确认 | `registerType: 'prompt'` + `PwaUpdateBanner` |
 | echarts/core 按需构建 | **已做**（Line + Grid + Tooltip + DataZoom） |
-| 软配额全链路（CGM→BP/体重→睡眠/步数→HRV→训练/ECG/手表） | **已做**（写入时；交互 keep-N 仍 legacy） |
+| 软配额全链路（CGM→BP/体重→睡眠/步数→HRV→训练/ECG/手表） | **已做**（写入时，`846d680`；**交互 keep-N 仍 legacy / 未做**） |
 | 壳层 i18n 中/英 | **已做**（`ha-react-ui-locale`，导航/总览键） |
-| 完整大屏产品 UI / sleep 等全域年 eviction | **未做** |
+| 总览状态带 / 信号列表 / 趋势工作台密度 | **本轮已合入（MVP+）**：`StatusBand` / `SignalList` / Trends `domain-switcher` + 壳层会话 chip / Trends 中英 i18n（见 §4.2 路径） |
+| 可编辑大屏栅格 / 手机完整单任务产品 | **未做** |
+
 
 ---
 

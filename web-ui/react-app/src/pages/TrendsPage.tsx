@@ -8,6 +8,8 @@ import { Button } from '../components/ui/Button';
 import { Card, CardTitle } from '../components/ui/Card';
 import { EmptyState, LoadingState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
+import { useLocale } from '../i18n/LocaleProvider';
+import type { MessageKey } from '../i18n/messages';
 
 /** Lazy chart chunk — keeps Overview free of ECharts. */
 const TrendChart = lazy(() =>
@@ -16,14 +18,15 @@ const TrendChart = lazy(() =>
   })),
 );
 
-const DOMAINS: { id: TrendDomain; label: string }[] = [
-  { id: 'steps', label: '步数' },
-  { id: 'weight', label: '体重' },
-  { id: 'restingHr', label: '静息心率' },
-  { id: 'cgmDailyMean', label: 'CGM 日均' },
+const DOMAIN_KEYS: { id: TrendDomain; key: MessageKey }[] = [
+  { id: 'steps', key: 'trends.domain.steps' },
+  { id: 'weight', key: 'trends.domain.weight' },
+  { id: 'restingHr', key: 'trends.domain.restingHr' },
+  { id: 'cgmDailyMean', key: 'trends.domain.cgmDailyMean' },
 ];
 
 export function TrendsPage() {
+  const { t } = useLocale();
   const analysis = useHealthStore((s) => s.analysis);
   const summary = useHealthStore((s) => s.summary);
   const [domain, setDomain] = useState<TrendDomain>('steps');
@@ -33,84 +36,116 @@ export function TrendsPage() {
     return extractTrendSeries(analysis, domain);
   }, [analysis, domain]);
 
+  const domainLabel =
+    t(DOMAIN_KEYS.find((d) => d.id === domain)?.key ?? 'trends.domain.steps') ||
+    series?.label ||
+    t('trends.title');
+
   if (!analysis || !summary) {
     return (
       <div className="stack" data-testid="page-trends">
-        <h1 className="page-title">趋势</h1>
+        <h1 className="page-title">{t('trends.title')}</h1>
         <EmptyState
-          title="请先在总览加载数据"
-          description="趋势图与数据表使用同一 FullAnalysis，经适配器提取日序列，不在页面内重算。"
+          title={t('trends.emptyTitle')}
+          description={t('trends.emptyDesc')}
         />
       </div>
     );
   }
 
   const points = series?.points ?? [];
+  const last = points.length ? points[points.length - 1] : null;
 
   return (
     <div className="stack" data-testid="page-trends">
       <div>
-        <h1 className="page-title">趋势</h1>
-        <p className="page-lead">
-          主趋势使用本地 ECharts（路由懒加载）。下方提供数据表回退，便于键盘与读屏。
-        </p>
+        <h1 className="page-title">{t('trends.title')}</h1>
+        <p className="page-lead">{t('trends.lead')}</p>
       </div>
 
-      <div className="row" role="tablist" aria-label="趋势指标">
-        {DOMAINS.map((d) => (
+      <div
+        className="domain-switcher"
+        role="tablist"
+        aria-label={t('trends.title')}
+        data-testid="domain-switcher"
+      >
+        {DOMAIN_KEYS.map((d) => (
           <Button
             key={d.id}
-            variant={domain === d.id ? 'primary' : 'secondary'}
+            variant={domain === d.id ? 'primary' : 'ghost'}
             size="sm"
             role="tab"
             aria-selected={domain === d.id}
             data-testid={`trend-domain-${d.id}`}
             onClick={() => setDomain(d.id)}
           >
-            {d.label}
+            {t(d.key)}
           </Button>
         ))}
-        <Badge tone="neutral">{points.length} 点</Badge>
+        <Badge tone="neutral">
+          {points.length} {t('trends.points')}
+        </Badge>
+        {last ? (
+          <Badge tone="accent">
+            {t('trends.latest')} {last.date}:{' '}
+            {Number.isFinite(last.value)
+              ? Math.round(last.value * 100) / 100
+              : '—'}{' '}
+            {series?.unit}
+          </Badge>
+        ) : null}
       </div>
 
       <Card>
-        <CardTitle>{series?.label ?? '趋势'}</CardTitle>
-        <Suspense fallback={<LoadingState label="加载图表模块…" />}>
-          <TrendChart
-            title={series?.label ?? '趋势'}
-            unit={series?.unit ?? ''}
-            points={points}
-          />
-        </Suspense>
+        <CardTitle>
+          {domainLabel}
+          {series?.unit ? `（${series.unit}）` : ''}
+        </CardTitle>
+        {points.length === 0 ? (
+          <p className="muted">{t('trends.emptyDomain')}</p>
+        ) : (
+          <Suspense fallback={<LoadingState label="…" />}>
+            <TrendChart
+              title={domainLabel}
+              unit={series?.unit ?? ''}
+              points={points}
+            />
+          </Suspense>
+        )}
       </Card>
 
       <Card data-testid="trend-table-fallback">
-        <CardTitle>数据表回退</CardTitle>
-        <p className="muted">与图表同一序列（extractTrendSeries）。</p>
+        <CardTitle>{t('trends.table')}</CardTitle>
+        <p className="muted">{t('trends.tableHint')}</p>
         {points.length === 0 ? (
-          <p className="muted">该域暂无数据点。</p>
+          <p className="muted">{t('trends.emptyDomain')}</p>
         ) : (
-          <div style={{ maxHeight: '16rem', overflow: 'auto', marginTop: '0.75rem' }}>
+          <div
+            style={{ maxHeight: '16rem', overflow: 'auto', marginTop: '0.75rem' }}
+          >
             <table className="table">
               <thead>
                 <tr>
                   <th>日期</th>
                   <th>
-                    值（{series?.unit}）
+                    值{series?.unit ? `（${series.unit}）` : ''}
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {points.map((p) => (
-                  <tr key={p.date}>
-                    <td>{p.date}</td>
-                    <td>
-                      {Number.isFinite(p.value)
-                        ? Math.round(p.value * 100) / 100
-                        : '—'}
-                    </td>
-                  </tr>
-                ))}
+                {[...points]
+                  .slice()
+                  .reverse()
+                  .map((p) => (
+                    <tr key={p.date}>
+                      <td>{p.date}</td>
+                      <td>
+                        {Number.isFinite(p.value)
+                          ? Math.round(p.value * 100) / 100
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
               </tbody>
             </table>
           </div>

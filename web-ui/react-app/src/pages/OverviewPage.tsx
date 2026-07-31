@@ -11,7 +11,10 @@ import {
 } from '../components/ui/EmptyState';
 
 import { useLocale } from '../i18n/LocaleProvider';
+import { StatusBand } from '../features/overview/StatusBand';
+import { SignalList } from '../features/overview/SignalList';
 import fixtureXml from '../../../../e2e/fixtures/minimal-export.xml?raw';
+
 
 
 function freshnessLabel(days: number | null): {
@@ -312,62 +315,37 @@ export function OverviewPage() {
         />
       ) : (
         <>
-          <div className="overview-hero" data-testid="overview-hero">
-            {(() => {
-              const p = priorityFromSummary(summary);
-              const f = freshnessLabel(summary.freshnessDays);
-              return (
-                <>
-                  <div className="overview-hero-main" data-testid="priority-card">
-                    <h2>{t('overview.priority')}</h2>
-                    <p className="overview-hero-title" data-testid="priority-title">
-                      {p.title}
-                    </p>
-                    <p className="muted" style={{ marginTop: '0.5rem' }}>
-                      {p.detail}
-                    </p>
-                    <div className="status-strip" style={{ marginTop: '0.75rem' }}>
-                      <Badge tone={p.tone}>heuristic · not diagnosis</Badge>
-                      <Badge tone={f.tone} data-testid="kpi-freshness">
-                        {f.text}
-                      </Badge>
-                    </div>
-                  </div>
-                  <Card data-testid="freshness-card">
-                    <CardTitle>{t('overview.range')}</CardTitle>
-                    <p className="kpi" data-testid="kpi-range" style={{ fontSize: '1.1rem' }}>
-                      {summary.dateRange.start || '—'} →{' '}
-                      {summary.dateRange.end || '—'}
-                    </p>
-                    <CardDesc>
-                      recovery{' '}
-                      {summary.kpis.recoveryScore != null
-                        ? summary.kpis.recoveryScore
-                        : '—'}
-                      {summary.kpis.loadScore != null
-                        ? ` · load ${summary.kpis.loadScore}`
-                        : ''}
-                    </CardDesc>
-                    <div className="row" style={{ marginTop: '0.75rem' }}>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={() => navigate('/trends')}
-                      >
-                        {t('overview.ctaTrends')}
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => navigate('/reports')}
-                      >
-                        {t('overview.ctaReports')}
-                      </Button>
-                    </div>
-                  </Card>
-                </>
-              );
-            })()}
+          {(() => {
+            const p = priorityFromSummary(summary);
+            const f = freshnessLabel(summary.freshnessDays);
+            return (
+              <StatusBand
+                summary={summary}
+                priorityTitle={p.title}
+                priorityDetail={p.detail}
+                priorityTone={p.tone}
+                freshnessText={f.text}
+                freshnessTone={f.tone}
+              />
+            );
+          })()}
+
+          <div className="primary-actions" data-testid="primary-actions">
+            <Button
+              variant="primary"
+              onClick={() => navigate('/trends')}
+            >
+              {t('overview.ctaTrends')}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => navigate('/reports')}
+            >
+              {t('overview.ctaReports')}
+            </Button>
+            <span className="muted" data-testid="kpi-range">
+              {summary.dateRange.start || '—'} → {summary.dateRange.end || '—'}
+            </span>
           </div>
 
           <div className="insight-strip" data-testid="insight-strip">
@@ -380,46 +358,54 @@ export function OverviewPage() {
               ))}
           </div>
 
-
-          <div className="kpi-matrix" data-testid="kpi-matrix">
-            <Card>
-              <CardTitle>CGM 均值</CardTitle>
-              <p className="kpi" data-testid="kpi-cgm">
-                {summary.kpis.cgmMean != null
-                  ? summary.kpis.cgmMean.toFixed(2)
-                  : '—'}
-              </p>
-              <CardDesc>{summary.counts.cgm} 点</CardDesc>
-            </Card>
-            <Card>
-              <CardTitle>最近体重</CardTitle>
-              <p className="kpi" data-testid="kpi-weight">
-                {summary.kpis.weightLatest != null
-                  ? summary.kpis.weightLatest.toFixed(2)
-                  : '—'}
-              </p>
-              <CardDesc>{summary.counts.weight} 条</CardDesc>
-            </Card>
-            <Card>
-              <CardTitle>最近步数</CardTitle>
-              <p className="kpi" data-testid="kpi-steps">
-                {summary.kpis.stepsLatest != null
-                  ? String(summary.kpis.stepsLatest)
-                  : '—'}
-              </p>
-              <CardDesc>{summary.counts.stepsDays} 天</CardDesc>
-            </Card>
-            <Card>
-              <CardTitle>恢复分</CardTitle>
-              <p className="kpi" data-testid="kpi-recovery">
-                {summary.kpis.recoveryScore != null
-                  ? String(summary.kpis.recoveryScore)
-                  : '—'}
-              </p>
-              <CardDesc>非诊断 · 个人启发式</CardDesc>
-            </Card>
+          <div className="overview-split">
+            <div className="kpi-matrix" data-testid="kpi-matrix">
+              <Card data-testid="freshness-card">
+                <CardTitle>CGM 均值</CardTitle>
+                <p className="kpi" data-testid="kpi-cgm">
+                  {summary.kpis.cgmMean != null
+                    ? summary.kpis.cgmMean.toFixed(2)
+                    : '—'}
+                </p>
+                <CardDesc>{summary.counts.cgm} 点</CardDesc>
+              </Card>
+              <Card>
+                <CardTitle>最近体重</CardTitle>
+                <p className="kpi" data-testid="kpi-weight">
+                  {summary.kpis.weightLatest != null
+                    ? summary.kpis.weightLatest.toFixed(2)
+                    : '—'}
+                </p>
+                <CardDesc>{summary.counts.weight} 条</CardDesc>
+              </Card>
+              <Card>
+                <CardTitle>最近步数</CardTitle>
+                <p className="kpi" data-testid="kpi-steps">
+                  {summary.kpis.stepsLatest != null
+                    ? String(summary.kpis.stepsLatest)
+                    : '—'}
+                </p>
+                <CardDesc>{summary.counts.stepsDays} 天</CardDesc>
+              </Card>
+              <Card>
+                <CardTitle>恢复分</CardTitle>
+                <p className="kpi" data-testid="kpi-recovery">
+                  {summary.kpis.recoveryScore != null
+                    ? String(summary.kpis.recoveryScore)
+                    : '—'}
+                </p>
+                <CardDesc>非诊断 · 个人启发式</CardDesc>
+              </Card>
+              {summary.kpis.restingHrLatest != null ? (
+                <Card>
+                  <CardTitle>静息心率</CardTitle>
+                  <p className="kpi">{summary.kpis.restingHrLatest}</p>
+                  <CardDesc>最近一日</CardDesc>
+                </Card>
+              ) : null}
+            </div>
+            <SignalList summary={summary} />
           </div>
-
 
           <Card>
             <CardTitle>{t('overview.domains')}</CardTitle>
@@ -441,4 +427,5 @@ export function OverviewPage() {
     </div>
   );
 }
+
 

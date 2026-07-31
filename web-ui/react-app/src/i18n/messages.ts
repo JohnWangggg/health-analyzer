@@ -28,7 +28,22 @@ export type MessageKey =
   | 'overview.ctaTrends'
   | 'overview.ctaReports'
   | 'overview.domains'
-  | 'dualTrack';
+  | 'dualTrack'
+  | 'shell.sessionReady'
+  | 'shell.sessionIdle'
+  | 'trends.title'
+  | 'trends.lead'
+  | 'trends.emptyTitle'
+  | 'trends.emptyDesc'
+  | 'trends.points'
+  | 'trends.latest'
+  | 'trends.table'
+  | 'trends.tableHint'
+  | 'trends.emptyDomain'
+  | 'trends.domain.steps'
+  | 'trends.domain.weight'
+  | 'trends.domain.restingHr'
+  | 'trends.domain.cgmDailyMean';
 
 const zh: Record<MessageKey, string> = {
   brand: '健康 OS · React',
@@ -60,6 +75,23 @@ const zh: Record<MessageKey, string> = {
   'overview.ctaReports': '打开报告',
   'overview.domains': '域存在性',
   dualTrack: '双轨',
+  'shell.sessionReady': '已加载',
+  'shell.sessionIdle': '未加载',
+  'trends.title': '趋势工作台',
+  'trends.lead':
+    '单指标主图（ECharts 按需）+ 数据表回退。手机建议一次只比一个指标。',
+  'trends.emptyTitle': '请先在总览加载数据',
+  'trends.emptyDesc':
+    '主趋势与数据表共用 FullAnalysis 日序列（adapter 提取，不重算统计）。',
+  'trends.points': '点',
+  'trends.latest': '最新',
+  'trends.table': '数据表回退',
+  'trends.tableHint': '与图表同一序列（extractTrendSeries）。',
+  'trends.emptyDomain': '该域暂无点，可切换其他指标或重新导入。',
+  'trends.domain.steps': '步数',
+  'trends.domain.weight': '体重',
+  'trends.domain.restingHr': '静息心率',
+  'trends.domain.cgmDailyMean': 'CGM 日均',
 };
 
 const en: Record<MessageKey, string> = {
@@ -92,6 +124,24 @@ const en: Record<MessageKey, string> = {
   'overview.ctaReports': 'Open reports',
   'overview.domains': 'Domains present',
   dualTrack: 'Dual-track',
+  'shell.sessionReady': 'Ready',
+  'shell.sessionIdle': 'Idle',
+  'trends.title': 'Trends workspace',
+  'trends.lead':
+    'Single-metric chart (ECharts on demand) + table fallback. On mobile, compare one metric at a time.',
+  'trends.emptyTitle': 'Load data on Overview first',
+  'trends.emptyDesc':
+    'Charts and table share FullAnalysis daily series (adapter extract; no re-stats).',
+  'trends.points': 'pts',
+  'trends.latest': 'Latest',
+  'trends.table': 'Table fallback',
+  'trends.tableHint': 'Same series as the chart (extractTrendSeries).',
+  'trends.emptyDomain':
+    'No points for this domain — switch metric or re-import.',
+  'trends.domain.steps': 'Steps',
+  'trends.domain.weight': 'Weight',
+  'trends.domain.restingHr': 'Resting HR',
+  'trends.domain.cgmDailyMean': 'CGM daily mean',
 };
 
 const TABLES: Record<AppLocaleUi, Record<MessageKey, string>> = {
@@ -102,3 +152,6 @@ const TABLES: Record<AppLocaleUi, Record<MessageKey, string>> = {
 export function t(locale: AppLocaleUi, key: MessageKey): string {
   return TABLES[locale][key] || TABLES['zh-CN'][key] || key;
 }
+
+/** All message keys — used by parity tests. */
+export const MESSAGE_KEYS = Object.keys(zh) as MessageKey[];

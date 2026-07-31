@@ -12,6 +12,7 @@ import { Badge } from '../components/ui/Badge';
 import { useLocale } from '../i18n/LocaleProvider';
 import type { AppLocaleUi } from '../i18n/messages';
 import type { MessageKey } from '../i18n/messages';
+import { useHealthStore } from '../store/useHealthStore';
 
 const NAV_KEYS: Record<WorkspaceId, MessageKey> = {
   overview: 'nav.overview',
@@ -20,6 +21,19 @@ const NAV_KEYS: Record<WorkspaceId, MessageKey> = {
   data: 'nav.data',
 };
 
+/** Shorten long source labels for the compact topbar chip. */
+function shortSource(label: string | null | undefined, max = 18): string | null {
+  if (!label) return null;
+  const trimmed = label.trim();
+  if (!trimmed) return null;
+  // Prefer basename for paths / fixture-like labels
+  const base = trimmed.includes('/')
+    ? trimmed.slice(trimmed.lastIndexOf('/') + 1)
+    : trimmed;
+  if (base.length <= max) return base;
+  return `${base.slice(0, max - 1)}…`;
+}
+
 export function AppShell() {
   const { mode, setMode } = useTheme();
   const { locale, setLocale, t } = useLocale();
@@ -27,6 +41,8 @@ export function AppShell() {
   const navigate = useNavigate();
   const { active, setFromPath, setActive } = useWorkspaceStore();
   const [aboutOpen, setAboutOpen] = useState(false);
+  const summary = useHealthStore((s) => s.summary);
+  const sourceLabel = useHealthStore((s) => s.sourceLabel);
 
   useEffect(() => {
     setFromPath(location.pathname);
@@ -37,15 +53,30 @@ export function AppShell() {
     navigate(path);
   };
 
+  const sessionChipText = summary
+    ? shortSource(sourceLabel) || t('shell.sessionReady')
+    : null;
+
   return (
     <div className="app-shell" data-testid="app-shell" data-workspace={active}>
       <header className="app-topbar">
         <div className="brand">
           <strong>{t('brand')}</strong>
-          <span>{t('brandSub')}</span>
+          <span className="brand-sub">{t('brandSub')}</span>
         </div>
         <div className="header-actions">
-          <Badge tone="accent">{t('dualTrack')}</Badge>
+          {sessionChipText ? (
+            <span
+              className="shell-session-chip"
+              data-testid="shell-session-chip"
+              title={sourceLabel || t('shell.sessionReady')}
+            >
+              {sessionChipText}
+            </span>
+          ) : null}
+          <Badge tone="accent" className="badge-dual-track">
+            {t('dualTrack')}
+          </Badge>
           <Button
             variant="ghost"
             size="sm"
@@ -132,7 +163,7 @@ export function AppShell() {
       </nav>
 
       <footer className="app-footer">
-        {t('footer')} · {WORKSPACES.find((w) => w.id === active)?.label}
+        {t('footer')} · {t(NAV_KEYS[active])}
       </footer>
 
       <Sheet
