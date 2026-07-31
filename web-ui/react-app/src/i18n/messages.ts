@@ -25,6 +25,8 @@ export type MessageKey =
   | 'overview.priority'
   | 'overview.range'
   | 'overview.empty'
+  | 'overview.emptyHint'
+  | 'overview.sessionReadyStrip'
   | 'overview.ctaTrends'
   | 'overview.ctaReports'
   | 'overview.domains'
@@ -155,6 +157,7 @@ export type MessageKey =
   | 'data.shards.deleted'
   | 'data.shards.fail'
   | 'data.shards.selected'
+  | 'data.shards.total'
   | 'data.shards.bytes';
 
 const zh: Record<MessageKey, string> = {
@@ -185,6 +188,9 @@ const zh: Record<MessageKey, string> = {
   'overview.priority': '优先关注',
   'overview.range': '数据区间',
   'overview.empty': '尚未加载数据',
+  'overview.emptyHint':
+    '演示夹具 · XML/ZIP · HAE · 数据仓 — 任选一种导入后即可写仓与看趋势',
+  'overview.sessionReadyStrip': '会话已就绪 · 可写仓 / 看趋势',
   'overview.ctaTrends': '打开趋势',
   'overview.ctaReports': '打开报告',
   'overview.domains': '域存在性',
@@ -325,6 +331,7 @@ const zh: Record<MessageKey, string> = {
   'data.shards.deleted': '已删除 {n} 个分片',
   'data.shards.fail': '分片操作失败',
   'data.shards.selected': '已选 {n}',
+  'data.shards.total': '共 {n} 个域分片',
   'data.shards.bytes': '约 {kb} KB',
 };
 
@@ -356,6 +363,9 @@ const en: Record<MessageKey, string> = {
   'overview.priority': 'Priority',
   'overview.range': 'Date range',
   'overview.empty': 'No data loaded yet',
+  'overview.emptyHint':
+    'Demo fixture · XML/ZIP · HAE · warehouse — import any source, then persist or open trends',
+  'overview.sessionReadyStrip': 'Session ready · persist warehouse / open trends',
   'overview.ctaTrends': 'Open trends',
   'overview.ctaReports': 'Open reports',
   'overview.domains': 'Domains present',
@@ -498,6 +508,7 @@ const en: Record<MessageKey, string> = {
   'data.shards.deleted': 'Deleted {n} shard(s)',
   'data.shards.fail': 'Shard operation failed',
   'data.shards.selected': '{n} selected',
+  'data.shards.total': '{n} domain shards',
   'data.shards.bytes': '~{kb} KB',
 };
 

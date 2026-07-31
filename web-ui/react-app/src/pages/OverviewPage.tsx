@@ -230,12 +230,31 @@ export function OverviewPage() {
   );
 
   if (status === 'loading') {
+    const label = progressLabel || '正在分析…';
     return (
-      <LoadingState
-        label={progressLabel || '正在分析…'}
-      />
+      <div className="stack" data-testid="page-overview">
+        <div
+          className="import-progress"
+          data-testid="import-progress"
+          role="status"
+          aria-live="polite"
+        >
+          <span className="import-progress-dot" aria-hidden />
+          <span className="import-progress-label">{label}</span>
+        </div>
+        <LoadingState label={label} />
+      </div>
     );
   }
+
+  const viaTone =
+    analyzeVia === 'worker' ||
+    analyzeVia === 'zip' ||
+    analyzeVia === 'hae'
+      ? ('ok' as const)
+      : analyzeVia === 'warehouse'
+        ? ('accent' as const)
+        : ('watch' as const);
 
   return (
     <div className="stack" data-testid="page-overview">
@@ -341,30 +360,41 @@ export function OverviewPage() {
         </div>
       </div>
 
-      <div className="status-strip">
-        {sourceLabel ? (
-          <Badge tone="neutral" data-testid="source-label">
-            来源 {sourceLabel}
-          </Badge>
-        ) : null}
-        {analyzeVia ? (
-          <Badge
-            tone={
-              analyzeVia === 'worker' ||
-              analyzeVia === 'zip' ||
-              analyzeVia === 'hae'
-                ? 'ok'
-                : analyzeVia === 'warehouse'
-                  ? 'accent'
-                  : 'watch'
-            }
-            data-testid="analyze-via"
-          >
-            {viaLabel(analyzeVia)}
-          </Badge>
-        ) : null}
-      </div>
-
+      {summary ? (
+        <div
+          className="session-ready-strip"
+          data-testid="session-ready-strip"
+        >
+          <div className="status-strip">
+            {sourceLabel ? (
+              <Badge tone="neutral" data-testid="source-label">
+                来源 {sourceLabel}
+              </Badge>
+            ) : null}
+            {analyzeVia ? (
+              <Badge tone={viaTone} data-testid="analyze-via">
+                {viaLabel(analyzeVia)}
+              </Badge>
+            ) : null}
+          </div>
+          <p className="muted session-ready-hint">
+            {t('overview.sessionReadyStrip')}
+          </p>
+        </div>
+      ) : (
+        <div className="status-strip">
+          {sourceLabel ? (
+            <Badge tone="neutral" data-testid="source-label">
+              来源 {sourceLabel}
+            </Badge>
+          ) : null}
+          {analyzeVia ? (
+            <Badge tone={viaTone} data-testid="analyze-via">
+              {viaLabel(analyzeVia)}
+            </Badge>
+          ) : null}
+        </div>
+      )}
 
       {snapMsg || lastSnapshotId ? (
         <p className="muted" data-testid="snapshot-status">
@@ -387,13 +417,24 @@ export function OverviewPage() {
         </Card>
       ) : null}
 
-      {error ? <ErrorState message={error} /> : null}
+      {error ? (
+        <ErrorState message={error}>
+          <div className="error-recover">
+            <Button variant="primary" onClick={loadFixture}>
+              {t('overview.loadFixture')}
+            </Button>
+            <Button variant="secondary" onClick={clear}>
+              {t('overview.clear')}
+            </Button>
+          </div>
+        </ErrorState>
+      ) : null}
 
       {!summary ? (
         <EmptyState
           testId="overview-empty"
           title={t('overview.empty')}
-          description="Fixture · XML/ZIP · HAE · warehouse"
+          description={t('overview.emptyHint')}
           actionLabel={t('overview.loadFixture')}
           onAction={loadFixture}
         />

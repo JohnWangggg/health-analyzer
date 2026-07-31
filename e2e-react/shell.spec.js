@@ -126,6 +126,61 @@ test.describe('React dual-track shell', () => {
     expect(text.length).toBeGreaterThan(10);
   });
 
+  test('persist warehouse then multi-select delete a domain shard', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.getByTestId('load-fixture').click();
+    await expect(page.getByTestId('kpi-cgm')).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('persist-warehouse').click();
+    await expect(page.getByTestId('warehouse-persist-status')).toContainText(
+      'sharded-v1',
+      { timeout: 15_000 },
+    );
+
+    await page
+      .locator('[data-testid="desktop-sidebar"] [data-workspace-nav="data"]')
+      .click();
+    await expect(page.getByTestId('shard-cleanup-panel')).toBeVisible();
+    await page.getByTestId('shard-list-refresh').click();
+    await expect(page.getByTestId('shard-cleanup-groups')).toBeVisible({
+      timeout: 10_000,
+    });
+    const beforeText = await page.getByTestId('shard-total-count').innerText();
+    const beforeN = Number((beforeText.match(/(\d+)/) || [])[1] || 0);
+    expect(beforeN).toBeGreaterThan(0);
+
+    const firstCb = page.locator('[data-testid="shard-cb"]').first();
+    await expect(firstCb).toBeVisible();
+    await firstCb.check();
+
+    page.once('dialog', async (d) => {
+      await d.accept();
+    });
+    await page.getByTestId('shard-delete-selected').click();
+    await expect(page.getByTestId('shard-cleanup-status')).toContainText(
+      /删除|deleted|已/i,
+      { timeout: 10_000 },
+    );
+
+    await page.getByTestId('shard-list-refresh').click();
+    await expect(page.getByTestId('shard-total-count')).toBeVisible();
+    const afterText = await page.getByTestId('shard-total-count').innerText();
+    const afterN = Number((afterText.match(/(\d+)/) || [])[1] || 0);
+    expect(afterN).toBe(beforeN - 1);
+
+    // Warehouse still loadable after partial delete
+    await page
+      .locator('[data-testid="desktop-sidebar"] [data-workspace-nav="overview"]')
+      .click();
+    await page.getByTestId('clear-session').click();
+    await expect(page.getByTestId('overview-empty')).toBeVisible();
+    await page.getByTestId('load-warehouse').click();
+    await expect(page.getByTestId('analyze-via')).toContainText('数据仓', {
+      timeout: 20_000,
+    });
+  });
+
   test('HAE import and sharded warehouse persist/load roundtrip', async ({
     page,
   }) => {

@@ -132,6 +132,11 @@ export function ShardCleanupPanel({ onChanged }: Props) {
     <Card className="shard-cleanup-panel" data-testid="shard-cleanup-panel">
       <CardTitle>{t('data.shards.title')}</CardTitle>
       <CardDesc>{t('data.shards.lead')}</CardDesc>
+      {groups != null ? (
+        <p className="muted" data-testid="shard-total-count">
+          {t('data.shards.total').replace('{n}', String(totalShards))}
+        </p>
+      ) : null}
 
       <div className="row shard-cleanup-actions">
         <Button

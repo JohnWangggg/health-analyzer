@@ -7,6 +7,8 @@ describe('i18n messages', () => {
     'nav.overview',
     'overview.title',
     'overview.loadFixture',
+    'overview.emptyHint',
+    'overview.sessionReadyStrip',
     'overview.kpiSection',
     'overview.kpi.cgm',
     'overview.kpi.openTrends',
