@@ -7,6 +7,7 @@
  * + v1.86 hrv/restingHr/walkingHr 按年分片（hrv|YYYY 含 overnight；restingHr|YYYY；walkingHr|YYYY）
  * + v1.87 workouts/ecg/watchDaily 按年分片（workouts|YYYY 数组；ecg|YYYY 数组；watchDaily|YYYY map）
  * + v1.88 旧版/肥 core 升级为分片 + 分片清单导出（仅元数据）
+ * + v1.90 导入批次 → 分片反向索引（batchId 分组；仅元数据，无 payload）
  * 不上传；摘要仓不含完整 CGM；原始仓仅在 consent 开启后写入
  */
 (function (global) {
@@ -28,7 +29,7 @@
   /** Soft / hard byte caps for raw warehouse (approx JSON size) */
   const WAREHOUSE_SOFT_BYTES = 150 * 1024 * 1024;
   const WAREHOUSE_HARD_BYTES = 200 * 1024 * 1024;
-  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.88.0';
+  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.90.0';
   /** @deprecated legacy single-blob id; still read for migrate */
   const WH_CHUNK_HEALTH = 'healthData|full';
   const WH_CHUNK_CORE = 'core|full';
@@ -3673,6 +3674,173 @@
     });
   }
 
+  /**
+   * v1.90: Meta-only chunk summaries for a given import batch id.
+   * Scans domainChunks; no payloads in results.
+   * @param {string} batchId
+   * @returns {Promise<{ ok: boolean, reason?: string, batchId?: string, chunks?: {id:string|null,domain:string|null,shard:string|null,recordCount:number,approxBytes:number,updatedAt:string|null}[], totalApproxBytes?: number, chunkCount?: number }>}
+   */
+  function listWarehouseChunksByBatchId(batchId) {
+    const bid = batchId != null ? String(batchId).trim() : '';
+    if (!bid) {
+      return Promise.resolve({ ok: false, reason: 'no_batch_id', batchId: '', chunks: [], totalApproxBytes: 0, chunkCount: 0 });
+    }
+    return openDb().then((db) =>
+      listAllWarehouseChunks(db)
+        .then((all) => {
+          db.close();
+          const chunks = [];
+          let totalApproxBytes = 0;
+          (all || []).forEach((c) => {
+            if (!c) return;
+            const cBid = c.batchId != null ? String(c.batchId).trim() : '';
+            if (!cBid || cBid !== bid) return;
+            const approxBytes = (c.approxBytes != null && Number.isFinite(c.approxBytes) ? c.approxBytes : 0) || 0;
+            totalApproxBytes += approxBytes;
+            chunks.push({
+              id: c.id != null ? String(c.id) : null,
+              domain: c.domain != null ? String(c.domain) : null,
+              shard: c.shard != null ? String(c.shard) : null,
+              recordCount: inferChunkRecordCount(c),
+              approxBytes,
+              updatedAt: c.updatedAt || null,
+            });
+          });
+          chunks.sort((a, b) => {
+            const da = String(a.domain || '');
+            const dbn = String(b.domain || '');
+            if (da !== dbn) return da.localeCompare(dbn);
+            return String(a.shard || '').localeCompare(String(b.shard || ''));
+          });
+          return {
+            ok: true,
+            batchId: bid,
+            chunks,
+            totalApproxBytes,
+            chunkCount: chunks.length,
+          };
+        })
+        .catch((e) => {
+          try {
+            db.close();
+          } catch (err) {
+            /* ignore */
+          }
+          return {
+            ok: false,
+            reason: String((e && e.message) || e || 'list_by_batch_failed'),
+            batchId: bid,
+            chunks: [],
+            totalApproxBytes: 0,
+            chunkCount: 0,
+          };
+        })
+    );
+  }
+
+  /**
+   * v1.90: Build reverse index batchId → shards for recent batches (or all).
+   * Groups domainChunks by batchId (skips empty/null). Meta only; no payloads.
+   * @param {{ limit?: number }} [opts]
+   * @returns {Promise<{ ok: boolean, reason?: string, batches: { batchId: string, chunkCount: number, totalApproxBytes: number, domains: string[], shards: string[] }[] }>}
+   */
+  function getImportBatchShardIndex(opts) {
+    opts = opts || {};
+    let limit = opts.limit;
+    if (limit != null) {
+      limit = Math.floor(Number(limit));
+      if (!Number.isFinite(limit) || limit < 0) limit = null;
+    } else {
+      limit = null;
+    }
+    return openDb().then((db) =>
+      listAllWarehouseChunks(db)
+        .then((all) => {
+          db.close();
+          /** @type {Record<string, { batchId: string, chunkCount: number, totalApproxBytes: number, domains: string[], shards: string[], _domainSet: Record<string, boolean>, _shardSet: Record<string, boolean>, _maxUpdatedAt: string }>} */
+          const byBatch = {};
+          (all || []).forEach((c) => {
+            if (!c) return;
+            const bid = c.batchId != null ? String(c.batchId).trim() : '';
+            if (!bid) return;
+            if (!byBatch[bid]) {
+              byBatch[bid] = {
+                batchId: bid,
+                chunkCount: 0,
+                totalApproxBytes: 0,
+                domains: [],
+                shards: [],
+                _domainSet: {},
+                _shardSet: {},
+                _maxUpdatedAt: '',
+              };
+            }
+            const row = byBatch[bid];
+            row.chunkCount += 1;
+            row.totalApproxBytes +=
+              (c.approxBytes != null && Number.isFinite(c.approxBytes) ? c.approxBytes : 0) || 0;
+            const d = c.domain != null ? String(c.domain) : '';
+            if (d && !row._domainSet[d]) {
+              row._domainSet[d] = true;
+              row.domains.push(d);
+            }
+            const sh = c.shard != null ? String(c.shard) : '';
+            // Prefer id for uniqueness when present; fall back to domain|shard
+            const shardKey =
+              c.id != null && String(c.id)
+                ? String(c.id)
+                : d && sh
+                  ? d + '|' + sh
+                  : sh || d || '';
+            if (shardKey && !row._shardSet[shardKey]) {
+              row._shardSet[shardKey] = true;
+              row.shards.push(shardKey);
+            }
+            const ua = c.updatedAt != null ? String(c.updatedAt) : '';
+            if (ua && ua > row._maxUpdatedAt) row._maxUpdatedAt = ua;
+          });
+          let batches = Object.keys(byBatch).map((k) => {
+            const r = byBatch[k];
+            r.domains = r.domains.slice().sort();
+            r.shards = r.shards.slice().sort();
+            return {
+              batchId: r.batchId,
+              chunkCount: r.chunkCount,
+              totalApproxBytes: r.totalApproxBytes,
+              domains: r.domains,
+              shards: r.shards,
+              _maxUpdatedAt: r._maxUpdatedAt,
+            };
+          });
+          // Newest activity first
+          batches.sort((a, b) => String(b._maxUpdatedAt).localeCompare(String(a._maxUpdatedAt)));
+          if (limit != null && limit >= 0) {
+            batches = batches.slice(0, limit);
+          }
+          batches = batches.map((b) => ({
+            batchId: b.batchId,
+            chunkCount: b.chunkCount,
+            totalApproxBytes: b.totalApproxBytes,
+            domains: b.domains,
+            shards: b.shards,
+          }));
+          return { ok: true, batches };
+        })
+        .catch((e) => {
+          try {
+            db.close();
+          } catch (err) {
+            /* ignore */
+          }
+          return {
+            ok: false,
+            reason: String((e && e.message) || e || 'batch_shard_index_failed'),
+            batches: [],
+          };
+        })
+    );
+  }
+
   global.HealthHistory = {
     saveSnapshot,
     listSnapshots,
@@ -3734,6 +3902,8 @@
     loadHealthDataWarehouse,
     migrateLegacyCoreToShards,
     exportShardInventory,
+    listWarehouseChunksByBatchId,
+    getImportBatchShardIndex,
     exportWarehouseBackup,
     importWarehouseBackup,
   };

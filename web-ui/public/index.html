@@ -48,6 +48,11 @@
 
   <main id="main-content" class="container app-shell" tabindex="-1">
 
+    <div id="connectivity-banner" class="connectivity-banner hidden" role="status" aria-live="polite">
+      <span class="connectivity-banner-icon" aria-hidden="true">📡</span>
+      <span class="connectivity-banner-text" data-i18n="connectivity.offline">当前离线：本地优先仍可用，本机数据仓与历史可继续使用，不会上传。</span>
+    </div>
+
     <aside id="install-guide" class="install-guide hidden" aria-label="install">
       <div class="install-guide-icon" aria-hidden="true">📱</div>
       <div class="install-guide-body">
@@ -59,10 +64,16 @@
       <button type="button" id="install-dismiss" class="install-dismiss" data-i18n-aria="install.dismiss" aria-label="关闭提示">×</button>
     </aside>
 
-    <div id="app-update-banner" class="app-update-banner hidden" role="status">
-      <span class="app-update-text" data-i18n="update.banner">发现新版本，刷新可获取最新界面。</span>
-      <button type="button" id="btn-app-update" class="btn-primary" data-i18n="update.refresh">刷新</button>
-      <button type="button" id="btn-app-update-dismiss" class="btn-ghost" data-i18n="update.later">稍后</button>
+    <div id="app-update-banner" class="app-update-banner hidden" role="status" aria-live="polite">
+      <div class="app-update-copy">
+        <span class="app-update-text" data-i18n="update.banner">有新版本可用</span>
+        <span class="app-update-hint" data-i18n="update.bannerHint">刷新以加载最新分析与界面（本机数据不受影响）。</span>
+        <span id="app-update-version" class="app-update-version hidden" aria-hidden="true"></span>
+      </div>
+      <div class="app-update-actions">
+        <button type="button" id="btn-app-update" class="btn-primary" data-i18n="update.refresh">立即刷新</button>
+        <button type="button" id="btn-app-update-dismiss" class="btn-ghost" data-i18n="update.later">稍后</button>
+      </div>
     </div>
 
     <div class="layout-main">
@@ -634,6 +645,11 @@
           <p class="hint compact-hint" data-i18n="warehouse.batchesHint">显示仓内最近写入批次与本机最近导入批次（仅元数据，无路径/明细）。</p>
           <p id="warehouse-import-batches-last" class="warehouse-import-batches-last hint compact-hint"></p>
           <ul id="warehouse-import-batches-list" class="warehouse-import-batches-list" aria-label="import batches"></ul>
+          <div id="warehouse-batch-shards" class="warehouse-batch-shards hidden" role="region" aria-labelledby="warehouse-batch-shards-title" aria-live="polite">
+            <h5 class="warehouse-batch-shards-title" id="warehouse-batch-shards-title" data-i18n="warehouse.batchShardsTitle">本批次分片</h5>
+            <p id="warehouse-batch-shards-summary" class="warehouse-batch-shards-summary hint compact-hint"></p>
+            <ul id="warehouse-batch-shards-list" class="warehouse-batch-shards-list" aria-label="batch shards"></ul>
+          </div>
         </div>
 
         <!-- CGM group -->
@@ -1082,7 +1098,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.89</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.90</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

@@ -590,6 +590,7 @@ body.has-results .result-bottom-nav:not(.hidden) {
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface) 92%, var(--border));
   border: 1px solid transparent;
+  cursor: pointer;
 }
 
 .warehouse-import-batches-list .wh-batch-row.is-last {
@@ -622,6 +623,77 @@ body.has-results .result-bottom-nav:not(.hidden) {
   color: var(--text-light);
   font-variant-numeric: tabular-nums;
   font-size: 12px;
+}
+
+/* v1.90: batch → shard reverse index */
+.warehouse-import-batches-list .wh-batch-row.is-selected {
+  border-color: color-mix(in srgb, var(--primary, #3b82f6) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary, #3b82f6) 25%, transparent);
+}
+
+.warehouse-import-batches-list .wh-batch-actions {
+  margin-top: 2px;
+}
+
+.warehouse-import-batches-list .wh-batch-view-shards {
+  font-size: 12px;
+  padding: 2px 8px;
+  line-height: 1.4;
+}
+
+.warehouse-batch-shards {
+  margin: 10px 0 2px;
+  padding: 8px 10px 6px;
+  border-radius: 8px;
+  border: 1px dashed color-mix(in srgb, var(--border) 85%, transparent);
+  background: color-mix(in srgb, var(--surface) 96%, var(--border));
+}
+
+.warehouse-batch-shards.hidden {
+  display: none !important;
+}
+
+.warehouse-batch-shards-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.warehouse-batch-shards-summary {
+  margin: 0 0 6px !important;
+  word-break: break-all;
+}
+
+.warehouse-batch-shards-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.warehouse-batch-shards-list .wh-batch-shard-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 90%, var(--border));
+  font-variant-numeric: tabular-nums;
+}
+
+.warehouse-batch-shards-list .wh-batch-shard-row code {
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.warehouse-batch-shards-list .wh-batch-shard-meta {
+  color: var(--text-light);
 }
 
 .warehouse-storage-est {
@@ -1657,6 +1729,38 @@ body.has-results .app-toast {
   border-radius: 999px;
 }
 
+/* 离线连通性横幅（紧凑、非阻塞） */
+.connectivity-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, var(--border));
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 500;
+}
+
+.connectivity-banner.hidden {
+  display: none !important;
+}
+
+.connectivity-banner-icon {
+  flex-shrink: 0;
+  line-height: 1.45;
+  opacity: 0.9;
+}
+
+.connectivity-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+}
+
 /* PWA 版本更新横幅 */
 .app-update-banner {
   display: flex;
@@ -1676,11 +1780,36 @@ body.has-results .app-toast {
   display: none !important;
 }
 
+.app-update-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
 .app-update-text {
   font-size: 14px;
-  font-weight: 500;
-  flex: 1 1 260px;
+  font-weight: 600;
   line-height: 1.45;
+}
+
+.app-update-hint {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  opacity: 0.92;
+}
+
+.app-update-version {
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.78;
+  letter-spacing: 0.01em;
+}
+
+.app-update-version.hidden {
+  display: none !important;
 }
 
 .app-update-actions {

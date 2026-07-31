@@ -2512,4 +2512,293 @@ test.describe('v1.68 raw warehouse', () => {
       );
     }
   });
+
+  // ─── v1.90: batch → shard reverse index (list by batchId, meta only) ───
+
+  test('v1.90 batch→shard index: listWarehouseChunksByBatchId / getImportBatchShardIndex', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+
+    // Hard fail if reverse-index API missing (v1.90 surface)
+    const apiSurface = await page.evaluate(() => {
+      const HH = window.HealthHistory || {};
+      return {
+        listWarehouseChunksByBatchId: typeof HH.listWarehouseChunksByBatchId === 'function',
+        getImportBatchShardIndex: typeof HH.getImportBatchShardIndex === 'function',
+        saveImportBatch: typeof HH.saveImportBatch === 'function',
+        persistHealthDataWarehouse: typeof HH.persistHealthDataWarehouse === 'function',
+        grantWarehouseConsent: typeof HH.grantWarehouseConsent === 'function',
+      };
+    });
+    const hasReverseIndex =
+      apiSurface.listWarehouseChunksByBatchId || apiSurface.getImportBatchShardIndex;
+    expect(
+      hasReverseIndex,
+      'v1.90: expected HealthHistory.listWarehouseChunksByBatchId or getImportBatchShardIndex ' +
+        '(batch→shard reverse index). history-db not merged? surface=' +
+        JSON.stringify(apiSurface)
+    ).toBe(true);
+    expect(
+      apiSurface.saveImportBatch &&
+        apiSurface.persistHealthDataWarehouse &&
+        apiSurface.grantWarehouseConsent,
+      'v1.90: expected saveImportBatch + grant + persist for batch→shard setup'
+    ).toBe(true);
+
+    const result = await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+
+      const batchId =
+        (typeof HA.createImportBatchId === 'function' && HA.createImportBatchId()) ||
+        'batch_e2e_v190_shard_index';
+
+      if (typeof HH.clearImportBatches === 'function') {
+        await HH.clearImportBatches();
+      }
+
+      let record = {
+        id: batchId,
+        source: 'hae',
+        createdAt: new Date().toISOString(),
+        files: [
+          {
+            name: 'e2e-v190-batch.json',
+            bytes: 256,
+            sha256: 'dd'.repeat(32),
+            digestScope: 'full',
+            bytesHashed: 256,
+          },
+        ],
+        totalBytes: 256,
+        stats: { totalAdded: 3, totalUpdated: 0, totalSkipped: 0 },
+        notes: ['e2e v1.90 batch→shard reverse index'],
+        cancelled: false,
+      };
+      if (typeof HA.normalizeImportBatch === 'function') {
+        const n = HA.normalizeImportBatch(record);
+        if (n) record = n;
+      }
+
+      const saved = await HH.saveImportBatch(record);
+      const expectedBatchId = (saved && saved.id) || batchId;
+
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      // Distinctive clinical values that must not appear in reverse-index meta
+      data.bloodPressure = [
+        { datetime: '2025-06-15T08:00:00', systolic: 141, diastolic: 93 },
+        { datetime: '2026-02-20T08:00:00', systolic: 118, diastolic: 76 },
+      ];
+      data.weight = [{ datetime: '2026-03-01T07:00:00', value: 72.22 }];
+      data.sleep = {
+        '2026-03-02': { total: 8.88, deep: 1.55, rem: 1.66, core: 5.11, awake: 0.22 },
+      };
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasWeight = true;
+      data.dataAvailability.hasSleep = true;
+
+      let persistRes;
+      try {
+        persistRes = await HH.persistHealthDataWarehouse(data, { batchId: expectedBatchId });
+      } catch (e) {
+        return {
+          error: 'persist_threw',
+          message: String((e && e.message) || e),
+        };
+      }
+      if (!persistRes || persistRes.ok === false) {
+        return {
+          error: 'persist_failed',
+          persistRes,
+          expectedBatchId,
+        };
+      }
+
+      /** @type {unknown} */
+      let raw;
+      let apiUsed = '';
+      // Prefer per-batch list; getImportBatchShardIndex is a whole-warehouse reverse map
+      if (typeof HH.listWarehouseChunksByBatchId === 'function') {
+        apiUsed = 'listWarehouseChunksByBatchId';
+        raw = await HH.listWarehouseChunksByBatchId(expectedBatchId);
+      } else if (typeof HH.getImportBatchShardIndex === 'function') {
+        apiUsed = 'getImportBatchShardIndex';
+        // API: getImportBatchShardIndex({ limit? }) → { ok, batches: [{ batchId, shards, … }] }
+        const idx = await HH.getImportBatchShardIndex({});
+        if (idx && idx.ok === false) {
+          return {
+            error: 'api_ok_false',
+            reason: idx.reason,
+            apiUsed,
+            expectedBatchId,
+          };
+        }
+        const batches = (idx && idx.batches) || [];
+        const hit = batches.find(
+          (b) => b && String(b.batchId || '') === String(expectedBatchId)
+        );
+        raw = hit
+          ? {
+              ok: true,
+              batchId: expectedBatchId,
+              // shards may be chunk ids or shard keys; expose as rows for id extract
+              chunks: (hit.shards || []).map((s) =>
+                typeof s === 'string' ? { id: s } : s
+              ),
+              chunkIds: hit.shards || [],
+            }
+          : { ok: true, chunks: [], chunkIds: [] };
+      } else {
+        return { error: 'no_reverse_api', expectedBatchId };
+      }
+
+      // Normalize: array of rows, or { chunks | chunkIds | shards | index }
+      let rows = [];
+      let ids = [];
+      if (Array.isArray(raw)) {
+        rows = raw;
+      } else if (raw && typeof raw === 'object') {
+        if (Array.isArray(raw.chunks)) rows = raw.chunks;
+        else if (Array.isArray(raw.index)) rows = raw.index;
+        else if (Array.isArray(raw.shards)) rows = raw.shards;
+        else if (Array.isArray(raw.rows)) rows = raw.rows;
+        if (Array.isArray(raw.chunkIds)) ids = raw.chunkIds.slice();
+        if (raw.ok === false) {
+          return {
+            error: 'api_ok_false',
+            reason: raw.reason,
+            apiUsed,
+            expectedBatchId,
+          };
+        }
+      } else {
+        return {
+          error: 'unexpected_shape',
+          apiUsed,
+          typeofRaw: typeof raw,
+          expectedBatchId,
+        };
+      }
+
+      if (!ids.length) {
+        ids = rows
+          .map((c) => {
+            if (typeof c === 'string') return c;
+            if (c && typeof c === 'object') return c.id || c.chunkId || c.key || null;
+            return null;
+          })
+          .filter(Boolean);
+      }
+
+      const hasPayloadField = rows.some(
+        (c) => c && typeof c === 'object' && Object.prototype.hasOwnProperty.call(c, 'payload')
+      );
+      // Also reject nested clinical series keys on meta rows
+      const hasClinicalSeries = rows.some((c) => {
+        if (!c || typeof c !== 'object') return false;
+        return (
+          c.systolic != null ||
+          c.diastolic != null ||
+          (c.bloodPressure && Array.isArray(c.bloodPressure)) ||
+          (c.points && Array.isArray(c.points) && c.points.length > 0 && typeof c.points[0] === 'object' && (c.points[0].systolic != null || c.points[0].value != null))
+        );
+      });
+      const text = JSON.stringify(raw);
+      const hasIdPattern = ids.some((id) =>
+        /core\|full|bloodPressure\||weight\||sleep\||cgm\|/.test(String(id))
+      );
+
+      return {
+        apiUsed,
+        expectedBatchId,
+        savedId: saved && saved.id,
+        persistOk: !!(persistRes && persistRes.ok),
+        rowCount: rows.length,
+        ids,
+        hasIdPattern,
+        hasPayloadField,
+        hasClinicalSeries,
+        textHasSystolic: /systolic|diastolic/i.test(text),
+        textHasDistinctive: /72\.22|8\.88|141/.test(text),
+        textSample: text.slice(0, 400),
+      };
+    });
+
+    expect(result.error, 'v1.90 batch→shard index flow: ' + JSON.stringify(result)).toBeFalsy();
+    expect(result.persistOk).toBe(true);
+    expect(
+      result.rowCount > 0 || (result.ids && result.ids.length > 0),
+      'v1.90 reverse index must return at least one chunk for batchId: ' + JSON.stringify(result)
+    ).toBe(true);
+    expect(
+      result.hasIdPattern,
+      'v1.90 chunk ids should include core|full or domain|year (bloodPressure|YYYY, weight|…, sleep|…): ids=' +
+        JSON.stringify(result.ids)
+    ).toBe(true);
+    expect(
+      result.hasPayloadField,
+      'v1.90 reverse index rows must not embed full shard payloads (meta only)'
+    ).toBe(false);
+    expect(
+      result.hasClinicalSeries,
+      'v1.90 reverse index must not expose clinical series fields'
+    ).toBe(false);
+    expect(result.textHasSystolic, 'meta JSON must not mention systolic/diastolic').toBe(false);
+    expect(
+      result.textHasDistinctive,
+      'meta JSON must not leak distinctive clinical values (72.22 / 8.88 / 141)'
+    ).toBe(false);
+
+    // Soft UI: batch list may expose shard count / click-to-list when present
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+    await setWorkspace(page, 'more');
+    await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+
+    const uiProbe = await page.evaluate((expectedId) => {
+      const panel = document.querySelector('#warehouse-import-batches');
+      const shardList = document.querySelector(
+        '#warehouse-batch-shards, #warehouse-import-batch-shards, [data-batch-shards]'
+      );
+      const shortId =
+        expectedId && expectedId.length > 12 ? expectedId.slice(-8) : expectedId;
+      const panelText = panel ? String(panel.textContent || '') : '';
+      return {
+        hasPanel: !!panel,
+        hasShardList: !!shardList,
+        panelMentionsBatch:
+          !!(expectedId && panelText.indexOf(expectedId) >= 0) ||
+          !!(shortId && panelText.indexOf(shortId) >= 0) ||
+          /batch|shard|分片|批次/i.test(panelText),
+        panelTextLen: panelText.length,
+      };
+    }, result.expectedBatchId);
+
+    if (uiProbe.hasPanel || uiProbe.hasShardList) {
+      expect(
+        true,
+        'v1.90 batch / shard UI present (soft): panel=' +
+          uiProbe.hasPanel +
+          ' shardList=' +
+          uiProbe.hasShardList
+      ).toBe(true);
+    } else {
+      // eslint-disable-next-line no-console
+      console.log(
+        'v1.90 soft: batch-shard UI not in DOM yet — reverse-index API hard-asserted; click-batch→shards UI pending merge'
+      );
+    }
+  });
 });

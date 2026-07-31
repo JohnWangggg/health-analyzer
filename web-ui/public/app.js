@@ -7632,13 +7632,117 @@
   }
 
   /**
+   * v1.90: show `#warehouse-batch-shards` for one import batch (meta only).
+   * @param {string} batchId
+   */
+  async function showWarehouseBatchShards(batchId) {
+    const panel = $('warehouse-batch-shards');
+    const summaryEl = $('warehouse-batch-shards-summary');
+    const listEl = $('warehouse-batch-shards-list');
+    if (!panel) return;
+
+    const bid = batchId != null ? String(batchId).trim() : '';
+    if (!bid) {
+      panel.classList.add('hidden');
+      if (listEl) listEl.innerHTML = '';
+      if (summaryEl) summaryEl.textContent = '';
+      return;
+    }
+
+    // Highlight selected batch row
+    const rows = document.querySelectorAll(
+      '#warehouse-import-batches-list .wh-batch-row'
+    );
+    rows.forEach((row) => {
+      const id = row.getAttribute('data-batch-id') || '';
+      if (id && id === bid) row.classList.add('is-selected');
+      else row.classList.remove('is-selected');
+    });
+
+    panel.classList.remove('hidden');
+    if (summaryEl) {
+      summaryEl.textContent = t('warehouse.batchShardsLoading');
+    }
+    if (listEl) listEl.innerHTML = '';
+
+    const idShort = shortImportBatchId(bid);
+    let res = null;
+    try {
+      if (
+        window.HealthHistory &&
+        typeof window.HealthHistory.listWarehouseChunksByBatchId === 'function'
+      ) {
+        res = await window.HealthHistory.listWarehouseChunksByBatchId(bid);
+      }
+    } catch (e) {
+      console.warn('showWarehouseBatchShards failed', e);
+      res = null;
+    }
+
+    if (!res || !res.ok) {
+      if (summaryEl) {
+        summaryEl.textContent = t('warehouse.batchShardsError');
+        summaryEl.setAttribute('title', bid);
+      }
+      if (listEl) listEl.innerHTML = '';
+      return;
+    }
+
+    const chunks = Array.isArray(res.chunks) ? res.chunks : [];
+    const n = res.chunkCount != null ? res.chunkCount : chunks.length;
+    const totalBytes =
+      res.totalApproxBytes != null ? res.totalApproxBytes : 0;
+    if (summaryEl) {
+      summaryEl.textContent = t('warehouse.batchShardsSummary', {
+        id: idShort,
+        n: String(n),
+        bytes: formatBytes(totalBytes),
+      });
+      summaryEl.setAttribute('title', bid);
+    }
+
+    if (!listEl) return;
+    if (!chunks.length) {
+      listEl.innerHTML =
+        `<li class="wh-batch-shard-row wh-batch-shard-empty">` +
+        `<span class="wh-batch-shard-meta">${escapeHtml(t('warehouse.batchShardsEmpty'))}</span>` +
+        `</li>`;
+      return;
+    }
+
+    listEl.innerHTML = chunks
+      .map((c) => {
+        if (!c) return '';
+        const domain = c.domain != null ? String(c.domain) : '—';
+        const shard = c.shard != null ? String(c.shard) : '—';
+        const bytes = formatBytes(c.approxBytes != null ? c.approxBytes : 0);
+        const cid = c.id != null ? String(c.id) : domain + '|' + shard;
+        const rowLabel = t('warehouse.batchShardsRow', {
+          domain,
+          shard,
+          bytes,
+        });
+        return (
+          `<li class="wh-batch-shard-row" title="${escapeHtml(cid)}">` +
+          `<code>${escapeHtml(cid)}</code>` +
+          `<span class="wh-batch-shard-meta">${escapeHtml(rowLabel)}</span>` +
+          `</li>`
+        );
+      })
+      .filter(Boolean)
+      .join('');
+  }
+
+  /**
    * v1.89: show warehouse meta.lastImportBatchId + up to 5 recent import batches.
+   * v1.90: click / 「查看本批次分片」 → listWarehouseChunksByBatchId into #warehouse-batch-shards.
    * Hidden without consent or when there are no batches. No raw samples / full paths.
    */
   async function refreshWarehouseImportBatches(st) {
     const wrap = $('warehouse-import-batches');
     const lastEl = $('warehouse-import-batches-last');
     const listEl = $('warehouse-import-batches-list');
+    const shardsPanel = $('warehouse-batch-shards');
     if (!wrap) return;
 
     const hide = () => {
@@ -7647,6 +7751,16 @@
       if (lastEl) {
         lastEl.textContent = '';
         lastEl.removeAttribute('title');
+      }
+      if (shardsPanel) {
+        shardsPanel.classList.add('hidden');
+        const sl = $('warehouse-batch-shards-list');
+        const ss = $('warehouse-batch-shards-summary');
+        if (sl) sl.innerHTML = '';
+        if (ss) {
+          ss.textContent = '';
+          ss.removeAttribute('title');
+        }
       }
     };
 
@@ -7732,8 +7846,9 @@
           const badge = isLast
             ? `<span class="wh-batch-badge">${escapeHtml(t('warehouse.batchesCurrent'))}</span>`
             : '';
+          const viewLabel = escapeHtml(t('warehouse.batchShardsView'));
           return (
-            `<li class="wh-batch-row${isLast ? ' is-last' : ''}">` +
+            `<li class="wh-batch-row${isLast ? ' is-last' : ''}" data-batch-id="${escapeHtml(fullId)}" tabindex="0" role="button" aria-label="${viewLabel}">` +
             `<div class="wh-batch-main">` +
             `<code title="${escapeHtml(fullId || idShort)}">${escapeHtml(idShort)}</code>` +
             badge +
@@ -7743,11 +7858,56 @@
             `${escapeHtml(whenRaw)} · ${escapeHtml(bytes)}` +
             (extras.length ? ` · ${escapeHtml(extras.join(' · '))}` : '') +
             `</div>` +
+            `<div class="wh-batch-actions">` +
+            `<button type="button" class="btn-secondary btn-sm wh-batch-view-shards" data-batch-id="${escapeHtml(fullId)}">${viewLabel}</button>` +
+            `</div>` +
             `</li>`
           );
         })
         .filter(Boolean)
         .join('');
+
+      // Click / keyboard: show related shards for this batch (meta only).
+      if (!listEl._whBatchShardsBound) {
+        listEl._whBatchShardsBound = true;
+        listEl.addEventListener('click', (ev) => {
+          const tEl = ev.target;
+          if (!tEl || !tEl.closest) return;
+          const btn = tEl.closest('.wh-batch-view-shards');
+          const row = tEl.closest('.wh-batch-row');
+          const bid =
+            (btn && btn.getAttribute('data-batch-id')) ||
+            (row && row.getAttribute('data-batch-id')) ||
+            '';
+          if (!bid) return;
+          if (btn) ev.stopPropagation();
+          void showWarehouseBatchShards(bid);
+        });
+        listEl.addEventListener('keydown', (ev) => {
+          if (ev.key !== 'Enter' && ev.key !== ' ') return;
+          const row = ev.target && ev.target.closest
+            ? ev.target.closest('.wh-batch-row')
+            : null;
+          if (!row || !listEl.contains(row)) return;
+          // Ignore Space/Enter on the nested button (native click handles it)
+          if (ev.target && ev.target.closest && ev.target.closest('button')) return;
+          const bid = row.getAttribute('data-batch-id') || '';
+          if (!bid) return;
+          ev.preventDefault();
+          void showWarehouseBatchShards(bid);
+        });
+      }
+    }
+
+    if (shardsPanel) {
+      shardsPanel.classList.add('hidden');
+      const sl = $('warehouse-batch-shards-list');
+      const ss = $('warehouse-batch-shards-summary');
+      if (sl) sl.innerHTML = '';
+      if (ss) {
+        ss.textContent = '';
+        ss.removeAttribute('title');
+      }
     }
 
     wrap.classList.remove('hidden');
@@ -9843,6 +10003,11 @@
       ensureProgressCard();
       applyTheme(getStoredTheme());
       showInstallGuide({ forceText: true });
+      // 更新横幅版本标签随语言刷新（若可见）
+      const updateBanner = $('app-update-banner');
+      if (updateBanner && !updateBanner.classList.contains('hidden') && typeof fillAppUpdateVersion === 'function') {
+        fillAppUpdateVersion();
+      }
       // 提示词展开按钮随语言刷新
       const expBtn = $('btn-prompt-expand');
       const ta = $('prompt-output');
@@ -9923,10 +10088,76 @@
   })();
 
   // ============================================================
+  // 离线连通性横幅 + 恢复在线 toast（v1.90）
+  // ============================================================
+
+  (function initConnectivityBanner() {
+    const banner = $('connectivity-banner');
+    if (!banner) return;
+
+    // Track offline→online transitions only (no toast on cold start when already online)
+    let sawOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+
+    function setOfflineUi(offline) {
+      banner.classList.toggle('hidden', !offline);
+      if (offline) {
+        sawOffline = true;
+        return;
+      }
+      if (sawOffline) {
+        sawOffline = false;
+        try {
+          showToast(t('connectivity.backOnline'), { ok: true, ms: 2200 });
+        } catch (_) { /* ignore */ }
+      }
+    }
+
+    // Initial paint from navigator.onLine
+    try {
+      setOfflineUi(navigator.onLine === false);
+    } catch (_) {
+      setOfflineUi(false);
+    }
+
+    window.addEventListener('offline', () => setOfflineUi(true));
+    window.addEventListener('online', () => setOfflineUi(false));
+  })();
+
+  // ============================================================
   // Service Worker 注册 + 版本更新横幅
   // ============================================================
 
   const UPDATE_DISMISS_KEY = 'health-analyzer-update-dismiss';
+
+  /** Read display version from footer i18n (parent bumps) — no hardcoded SW cache name. */
+  function extractAppVersionLabel() {
+    try {
+      const foot = document.querySelector('.app-footer [data-i18n="footer"], .app-footer p, .app-footer');
+      const text =
+        (foot && foot.textContent) ||
+        (typeof t === 'function' ? t('footer') : '') ||
+        '';
+      const m = String(text).match(/v?\d+\.\d+(?:\.\d+)?/i);
+      if (!m) return '';
+      const raw = m[0];
+      return /^v/i.test(raw) ? raw : `v${raw}`;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function fillAppUpdateVersion() {
+    const verEl = $('app-update-version');
+    if (!verEl) return;
+    const version = extractAppVersionLabel();
+    if (!version) {
+      verEl.textContent = '';
+      verEl.classList.add('hidden');
+      return;
+    }
+    verEl.textContent = t('update.versionLabel', { version }) || version;
+    verEl.classList.remove('hidden');
+  }
 
   function showAppUpdateBanner() {
     const banner = $('app-update-banner');
@@ -9934,7 +10165,20 @@
     try {
       if (sessionStorage.getItem(UPDATE_DISMISS_KEY) === '1') return;
     } catch (_) { /* ignore */ }
+    const wasHidden = banner.classList.contains('hidden');
     banner.classList.remove('hidden');
+    fillAppUpdateVersion();
+    // Keyboard: move focus to reload when banner becomes visible (user click still required to reload)
+    if (wasHidden) {
+      const btn = $('btn-app-update');
+      if (btn && typeof btn.focus === 'function') {
+        try {
+          btn.focus({ preventScroll: true });
+        } catch (_) {
+          try { btn.focus(); } catch (__) { /* ignore */ }
+        }
+      }
+    }
   }
 
   function hideAppUpdateBanner() {
@@ -9952,7 +10196,7 @@
         try {
           sessionStorage.removeItem(UPDATE_DISMISS_KEY);
         } catch (_) { /* ignore */ }
-        // Prefer skipWaiting on waiting worker, then reload
+        // Prefer skipWaiting on waiting worker, then reload — only on user click
         const waiting = reg && reg.waiting;
         if (waiting) {
           try {
@@ -9978,7 +10222,7 @@
     const onInstalledWorker = (worker) => {
       if (!worker) return;
       worker.addEventListener('statechange', () => {
-        // New SW installed while page already controlled → offer refresh
+        // New SW installed while page already controlled → offer refresh (no auto-reload)
         if (worker.state === 'installed' && navigator.serviceWorker.controller) {
           showAppUpdateBanner();
         }
@@ -10010,7 +10254,7 @@
           console.log('SW 注册失败（可忽略）:', err);
         });
 
-      // controllerchange after an *update* (not first install) → offer refresh
+      // controllerchange after an *update* (not first install) → offer refresh only
       let hadControllerAtLoad = !!navigator.serviceWorker.controller;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (!hadControllerAtLoad) {

@@ -1,7 +1,7 @@
 # 真实设备手测清单（Manual QA）
 
-**版本：** v1.89+（年分片 keep-N、双域一键裁剪、保存后可选自动裁剪、睡眠/步数年分片、HRV/静息/步行心率年分片、Workout/ECG/Watch 日汇总年分片、仓面板分片组折叠、thin core / 迁移 / 分片清单 / 全域 keep-all 年、**导入批次联动 lastImportBatchId / 仓内批次摘要 / 配额预测 UI**）  
-**目的：** 补充自动化（视口 / 任务流 / 缩放 / 键盘 / 数据仓）无法覆盖的真机与系统层体验。  
+**版本：** v1.90+（年分片 keep-N、双域一键裁剪、保存后可选自动裁剪、睡眠/步数年分片、HRV/静息/步行心率年分片、Workout/ECG/Watch 日汇总年分片、仓面板分片组折叠、thin core / 迁移 / 分片清单 / 全域 keep-all 年、导入批次联动 lastImportBatchId / 仓内批次摘要 / 配额预测 UI、**批次→分片反向索引 / 点批次看分片 / 离线连通横幅**）  
+**目的：** 补充自动化（视口 / 任务流 / 缩放 / 键盘 / 数据仓 / 连通）无法覆盖的真机与系统层体验。  
 **原则：** 本地优先 · 不上传健康明细 · 非诊断。
 
 ---
@@ -49,7 +49,7 @@
 - [ ] （可选）口令备份：正确口令可恢复，错误口令失败提示
 - [ ] 「清除所有本机健康数据」后结果消失、**仓一并清空**（含分片与授权）
 
-### 2.5 本机原始数据仓（分片 · v1.79–v1.89）
+### 2.5 本机原始数据仓（分片 · v1.79–v1.90）
 
 路径：**更多 → 数据管理 → 本机原始数据仓**。文案须保持非诊断语气；**不上传、非云同步**。
 
@@ -130,6 +130,16 @@
 - [ ] **配额预测**（`#warehouse-quota-forecast`）：小仓占用通常 **&lt;~70% 软配额** 时可 hidden；接近/超过阈值时出现可读提示（备份 / 删旧分片 / keep-N），**非诊断、非云同步**
 - [ ] 预测文案仅为客户端按分片 `approxBytes` 估算，不声称系统真实磁盘剩余；与软配额警告 / 硬配额拒绝并存且不矛盾
 
+**批次 → 分片反向索引 · 离线横幅（v1.90 · UI/API 若已上线）**
+
+- [ ] 授权后带 `batchId` 写入仓：`listWarehouseChunksByBatchId(batchId)` 或 `getImportBatchShardIndex(batchId)` 返回该批相关 chunk **id 列表**（如 `core|full`、`bloodPressure|YYYY`、`weight|YYYY`…）
+- [ ] 反查结果为 **meta only**：**无** `payload`、无 systolic/血糖点/睡眠日明细等 raw（与分片清单同级）
+- [ ] **点批次看分片**（若 UI 已接线）：在 `#warehouse-import-batches` 点击/展开某批次，可见该批贡献的分片 id 或计数；**不含** 临床点值
+- [ ] 未知批次或清空后反查为空列表 / 明确「无分片」，不白屏、不抛未捕获错误
+- [ ] **离线横幅**（`#connectivity-banner`，若已上线）：断网或 DevTools Offline 后出现可读提示（壳仍可用 / 本机数据不受影响）；恢复在线后横幅消失或降级
+- [ ] 离线时已授权仓仍可恢复分析（与 P1「离线打开已安装 PWA」一致）；横幅文案 **非诊断、非云同步**
+- [ ] **更新横幅**（`#app-update-banner`，既有）：有新 SW 版本时提示刷新；与离线横幅并存时层级/互不遮挡关键操作
+
 **备份**
 
 - [ ] 备份口令**可选**：留空 → 明文 `.json` / `.hae-backup.json`；填口令 → 加密导出，导入时需正确口令
@@ -167,7 +177,7 @@
 
 - [ ] 中等 ZIP（50–200MB）可完成（允许数分钟，进度有反馈）
 - [ ] 超大包被限制时有明确错误，不白屏
-- [ ] 离线打开已安装 PWA：壳可用；已授权仓可恢复
+- [ ] 离线打开已安装 PWA：壳可用；已授权仓可恢复；若有 `#connectivity-banner` 应提示离线且可恢复在线
 - [ ] 切换语言后导航与优先关注标签正确
 - [ ] （可选）仓接近软配额时有提示；硬配额拒绝写入并有可读错误（不静默丢数）
 - [ ] （可选）连续删除多个分片 / 导入备份时界面不卡死、状态一致（写入串行）
@@ -199,6 +209,8 @@ P0 结果：通过 / 失败
 | 保存后 auto-trim（CGM keep 月） | `e2e/warehouse.spec.js` → `auto-trim after save: keep 3 CGM months…` |
 | v1.88 migrate / inventory / global keep-all | `e2e/warehouse.spec.js` → `v1.88 migrateLegacyCoreToShards…` / `exportShardInventory…` / `global keep-all years…` |
 | v1.89 batch linkage + quota forecast | `e2e/warehouse.spec.js` → `v1.89 import batches in warehouse…`（硬 API）/ `v1.89 quota forecast soft…`（软 UI） |
+| v1.90 batch→shard reverse index | `e2e/warehouse.spec.js` → `v1.90 batch→shard index…`（硬：`listWarehouseChunksByBatchId` / `getImportBatchShardIndex`；meta only） |
+| v1.90 offline connectivity banner | `e2e/connectivity.spec.js` → offline soft（`#connectivity-banner`；缺省 skip） |
 | （可选）仓读写耗时基线 | `npm run perf:warehouse` → `scripts/perf-warehouse-baseline.mjs` |
 | （可选）年分片 auto-trim | 手测优先：勾选 auto-trim + year keep-N 后跨年 BP/体重再保存；E2E 已有 year auto-trim 用例 |
 
