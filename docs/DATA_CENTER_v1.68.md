@@ -1,9 +1,9 @@
 # v1.68 本地个人健康数据中心（Local Personal Health Data Center）
 
-**状态：** 设计 + **已实现**（v1.68 MVP → **v1.75** `core|full` + `cgm|YYYY-MM` → **v1.79–v1.81** `bloodPressure|YYYY` / `weight|YYYY` 年分片、面板删片、保留近 N 月/年 → **v1.82** 双域一键 keep-N 年 → **v1.83** 保存后可选自动 keep-N 裁剪 → **v1.85** `sleep|YYYY` / `steps|YYYY` 年分片 → **v1.86** `hrv|YYYY` / `restingHr|YYYY` / `walkingHr|YYYY` 年分片 → **v1.87** `workouts|YYYY` / `ecg|YYYY` / `watchDaily|YYYY` 年分片（与其它年分片**域独立**删片）；兼容 legacy `healthData|full`）  
+**状态：** 设计 + **已实现**（v1.68 MVP → **v1.75** `core|full` + `cgm|YYYY-MM` → **v1.79–v1.81** `bloodPressure|YYYY` / `weight|YYYY` 年分片、面板删片、保留近 N 月/年 → **v1.82** 双域一键 keep-N 年 → **v1.83** 保存后可选自动 keep-N 裁剪 → **v1.85** `sleep|YYYY` / `steps|YYYY` 年分片 → **v1.86** `hrv|YYYY` / `restingHr|YYYY` / `walkingHr|YYYY` 年分片 → **v1.87** `workouts|YYYY` / `ecg|YYYY` / `watchDaily|YYYY` 年分片（与其它年分片**域独立**删片）→ **v1.88** **thin core** 全量分片后、`migrateLegacyCoreToShards`、分片清单导出 `exportShardInventory`、**全域 keep-all 年**；兼容 legacy `healthData|full`）  
 **范围：** 浏览器本机 IndexedDB 持久化「解析后的 typed 健康仓」+ 授权、配额、备份/清除、分片淘汰与手动/可选自动裁剪  
 **语言 / Language：** 中文（关键术语中英对照）  
-**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.87.0`+）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）；UI 偏好与自动裁剪见 `web-ui/public/app.js`
+**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.88.0`+）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）；UI 偏好与自动裁剪见 `web-ui/public/app.js`
 
 > 本地隐私优先 · 零服务器 · 非诊断 · 默认不上传  
 > 产品默认：自动 hydrate、关授权即删仓、软/硬字节配额、备份默认明文（可选口令 AES-GCM）、恢复整库替换。分片与口令加密**已落地**（见 §4.2 / §6 / §8）。
@@ -288,7 +288,7 @@ sessions: currentAnalysis ────────┘  （内存工作集，可�
 
 | Chunk id | 域 | 分片键 | payload |
 |----------|-----|--------|---------|
-| `core\|full` | core | `full` | 除 CGM / 血压 / 体重 / 体脂 / **睡眠 / 步数**（v1.85+）/ **HRV / 静息·步行心率**（v1.86+）/ **Workout / ECG / Watch 日汇总**（v1.87+）年分片后外的 `HealthData` 字段 |
+| `core\|full` | core | `full` | **Thin core（v1.88）**：除 CGM / 血压 / 体重 / 体脂 / **睡眠 / 步数**（v1.85+）/ **HRV / 静息·步行心率**（v1.86+）/ **Workout / ECG / Watch 日汇总**（v1.87+）年分片后外的 `HealthData` 字段；**不得**再嵌套上述域的数组/日 map |
 | `cgm\|YYYY-MM` | `cgm` | 自然月 | `CgmPoint[]` |
 | `bloodPressure\|YYYY` | `bloodPressure` | 自然年 | `BloodPressureRecord[]` |
 | `weight\|YYYY` | `weight` | 自然年 | `{ weight, bodyFat }`（**体脂并入体重年片**，无独立 `bodyFat|…` 片） |
@@ -431,6 +431,40 @@ sessions: currentAnalysis ────────┘  （内存工作集，可�
   - 同理 `ecg` / `watchDaily`（`deleteEcgYearShards` / `deleteWatchDailyYearShards` 薄封装可选）。  
 - **状态字段：** `getWarehouseStatus()` 暴露 `workoutsYears` / `ecgYears` / `watchDailyYears`（`string[]`），及可选 `workoutsYearDetails` / `ecgYearDetails` / `watchDailyYearDetails`。  
 - **UI 折叠（collapse UX）：** 仓面板年分片列表随域增多，建议用 `<details class="warehouse-shard-group">`（或等价）按域折叠；默认折叠次要域、展开有数据域；**非诊断**文案；删年确认仍走 dialog。手测见 `docs/MANUAL_QA.md`。
+
+#### 4.2.4 Thin core · 迁移 · 分片清单 · 全域 keep-all 年（v1.88）
+
+**Thin core after full sharding**
+
+- 全量写入（`persistHealthDataWarehouse` → `splitHealthDataShards`）后，`core|full` **只**保留未年/月分片的小字段（`dataAvailability` / `dataQuality` 等）。
+- 下列域必须落在独立 chunk，**core 内对应字段为空数组或空 map**：
+  - 月：`cgm|YYYY-MM`
+  - 年：`bloodPressure` / `weight`（含 bodyFat）/ `sleep` / `steps` / `hrv`（含 overnight）/ `restingHr` / `walkingHr` / `workouts` / `ecg` / `watchDaily`
+- Hydrate 时 `reassembleFromChunks` 合并各片 → 完整 `HealthData`；分析路径不变。
+
+**`migrateLegacyCoreToShards()`**
+
+| 项 | 说明 |
+|----|------|
+| 用途 | 将 **legacy** `healthData\|full` 或「胖 core」（core 内仍嵌套多年 BP/睡眠等）**一次性**投影为 `sharded-v1` + thin core |
+| 返回 | `{ ok, upgraded, layout?, meta? }`：`upgraded: true` 表示发生了重写；**已是 thin sharded 时 `upgraded: false` 且 `ok: true` 合法** |
+| 前置 | 须 `consent.granted`；走 `warehouseWriteChain` 串行 |
+| 幂等 | 重复调用安全；不丢未分片域数据 |
+
+**`exportShardInventory()`（或 `exportWarehouseInventory`）**
+
+- 导出**仅元数据**的分片清单 JSON（可下载 / 复制）：chunk `id`、domain、shard 键、`recordCount`、`approxBytes`、可选 date 范围。
+- **禁止**包含：`payload`、血压 `systolic`/`diastolic`、体重/CGM 数值、睡眠日明细、HRV 数组等原始时序。
+- 用途：占用审计、支持工单「有哪些分片」而不泄露健康明细；与「复制仓状态摘要」互补（清单更偏 chunk 级 id 列表）。
+- UI 可选按钮：`#btn-warehouse-export-inventory`（若上线）。
+
+**全域 keep-all 年（global keep-all years）**
+
+- 在「双域 BP+体重 keep-N」（v1.82）之上，**一次**对**所有年分片域**执行 keep-N（至少 BP / weight / sleep；实现可扩展到 steps/hrv/resting/walking/workouts/ecg/watchDaily）。
+- API 候选名（实现择一暴露即可）：`keepAllDomainYearShardsRecent(N)` / `keepRecentYearShardsAll(N)` / `keepAllYearShardsRecent(N)`。
+- UI（已接线）：`#btn-warehouse-years-keep-all-domains` + 共用年数 select（`health-analyzer-year-keep-years`）；确认对话框后分域串行删旧年；**非诊断**文案。
+- 迁移 / 清单 UI：`#btn-warehouse-migrate-shards`、`#btn-warehouse-export-inventory`。
+- 与分域 keep-N、auto-trim（v1.83）并存：全域按钮是手动批量入口；不替代软/硬配额。
 
 **默认不入仓：**
 
@@ -614,11 +648,12 @@ interface ImportBatchRecordV168 extends ImportBatchRecord {
 | ECG（v1.87+） | 同上 | 删除更旧 `ecg|YYYY`；与 workouts / watchDaily **域独立** |
 | Watch 日汇总（v1.87+） | 同上 | 删除更旧 `watchDaily|YYYY`；与 workouts / ecg **域独立** |
 | **双域一键（v1.82）** | 同上 N | 「双域仅保留近 N 年」**一次**对血压 + 体重各裁 keep-N（两域共用同一 N / 同一偏好键） |
+| **全域 keep-all 年（v1.88）** | 同上 N | 「所有年分片仅保留近 N 年」**一次**裁剪全部（或主要）年分片域；确认后执行；API 见 §4.2.4 |
 
 - 偏好记在 **localStorage**（**非云、不上传**）。键示例：
   - `health-analyzer-cgm-keep-months`（CGM 保留月数）
   - `health-analyzer-year-keep-years`（血压 / 体重共用保留年数；面板上 BP / 体重各有 select，值同步）
-- 手动 keep-N（含双域按钮）有确认对话框；删除不可撤销（可先备份）。
+- 手动 keep-N（含双域 / **全域**按钮）有确认对话框；删除不可撤销（可先备份）。
 - 另支持：**多选删除** CGM 月 / BP 年 / weight 年 / **sleep 年 / steps 年 / hrv 年 / restingHr 年 / walkingHr 年 / workouts 年 / ecg 年 / watchDaily 年**（`deleteCgmMonthShards` / `deleteDomainYearShards(domain, years)`；v1.85 域含 `'sleep' | 'steps'`；v1.86 域含 `'hrv' | 'restingHr' | 'walkingHr'`；v1.87 域含 `'workouts' | 'ecg' | 'watchDaily'`；亦可有 `deleteWorkoutsYearShards` / `deleteEcgYearShards` / `deleteWatchDailyYearShards` 等薄封装）。
 
 **策略 C：滚动天数（设计可选）**
@@ -657,6 +692,9 @@ interface ImportBatchRecordV168 extends ImportBatchRecord {
 | **Workout / ECG / Watch 年列表（v1.87）** | 有数据时展示 `workoutsYears` / `ecgYears` / `watchDailyYears`；多选删年；**三域互不连带**；数组域 vs map 域见 §4.2.3 |
 | **分片组折叠（v1.87 UX）** | 多域年列表用 collapsible 分组（如 `details.warehouse-shard-group`），避免面板过长；有数据域优先可见 |
 | **双域 keep（v1.82）** | 「双域仅保留近 N 年」一键裁血压 + 体重 |
+| **全域 keep-all 年（v1.88）** | 「所有年分片仅保留近 N 年」；与分域 keep 共用 N 偏好时可同步 select |
+| **分片清单导出（v1.88）** | `exportShardInventory`：chunk id / 占用元数据，**无**原始时序 |
+| **迁移到 thin 分片（v1.88）** | `migrateLegacyCoreToShards`（可隐藏为启动/设置动作；已 sharded 则 no-op 成功） |
 | **自动裁剪（v1.83）** | 勾选「保存后自动按保留窗口裁剪」（默认关；localStorage） |
 | 日历覆盖 | 2024-03-01 → 2026-07-28 |
 | 操作 | 立即保存 / 从仓恢复 / 导出·导入备份（口令可选）/ **仅清空仓内明细（保留授权）** / 关授权清空 |
@@ -1204,6 +1242,7 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 | 实现对照 v1.85 | 2026-07-31 | `sleep\|YYYY` / `steps\|YYYY` 日 map 年分片；status `sleepYears`/`stepsYears`；`deleteDomainYearShards('sleep'\|'steps')` 域独立；E2E `e2e/warehouse.spec.js` |
 | 实现对照 v1.86 | 2026-07-31 | `hrv\|YYYY`（payload `{ hrv, hrvOvernight }`）/ `restingHr\|YYYY` / `walkingHr\|YYYY`；status `hrvYears`/`restingHrYears`/`walkingHrYears`；三域独立删年；E2E `e2e/warehouse.spec.js` |
 | 实现对照 v1.87 | 2026-07-31 | `workouts\|YYYY`（数组）/ `ecg\|YYYY`（数组）/ `watchDaily\|YYYY`（日 map）；status `workoutsYears`/`ecgYears`/`watchDailyYears`；三域独立删年；仓面板分片组折叠 UX；E2E `e2e/warehouse.spec.js` |
+| 实现对照 v1.88 | 2026-07-31 | **Thin core** 全量分片后；`migrateLegacyCoreToShards`；`exportShardInventory`（chunk 元数据、无 raw）；**全域 keep-all 年**；E2E `e2e/warehouse.spec.js`；可选 `npm run perf:warehouse` |
 
 ---
 
@@ -1211,10 +1250,11 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 
 | 路径 | 说明 |
 |------|------|
-| `web-ui/public/history-db.js` | IDB v5、`HealthHistory`、分片 persist / 删片 / 配额 / 备份 / 写串行 |
-| `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 双域 keep / 自动裁剪、多选删、wipe |
-| `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年 / 双域按钮 / auto-trim） |
-| `e2e/warehouse.spec.js` | 仓 / 年分片（BP·体重·sleep·steps·hrv·resting/walking·**workouts·ecg·watchDaily**）/ 双域 keep / auto-trim / 备份自动化 |
+| `web-ui/public/history-db.js` | IDB v5、`HealthHistory`、分片 persist / 删片 / 配额 / 备份 / 写串行 / **v1.88 migrate + inventory** |
+| `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 双域·**全域** keep / 自动裁剪、多选删、wipe |
+| `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年 / 双域·全域按钮 / auto-trim） |
+| `e2e/warehouse.spec.js` | 仓 / 年分片（BP·体重·sleep·steps·hrv·resting/walking·workouts·ecg·watchDaily）/ 双域 keep / auto-trim / **v1.88 migrate·inventory·global keep** / 备份自动化 |
+| `scripts/perf-warehouse-baseline.mjs` | 可选：Playwright 测 persist/load/status 耗时（`npm run perf:warehouse`） |
 | `lib/src/types.ts` | `HealthData` / `FullAnalysis` |
 | `lib/src/snapshot.ts` | 摘要快照（非明细） |
 | `lib/src/provenance.ts` | `ImportBatchRecord` |

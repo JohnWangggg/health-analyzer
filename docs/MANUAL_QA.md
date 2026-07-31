@@ -1,6 +1,6 @@
 # 真实设备手测清单（Manual QA）
 
-**版本：** v1.87+（年分片 keep-N、双域一键裁剪、保存后可选自动裁剪、睡眠/步数年分片、HRV/静息/步行心率年分片、**Workout/ECG/Watch 日汇总年分片**、仓面板分片组折叠）  
+**版本：** v1.88+（年分片 keep-N、双域一键裁剪、保存后可选自动裁剪、睡眠/步数年分片、HRV/静息/步行心率年分片、Workout/ECG/Watch 日汇总年分片、仓面板分片组折叠、**thin core / 迁移 / 分片清单 / 全域 keep-all 年**）  
 **目的：** 补充自动化（视口 / 任务流 / 缩放 / 键盘 / 数据仓）无法覆盖的真机与系统层体验。  
 **原则：** 本地优先 · 不上传健康明细 · 非诊断。
 
@@ -49,7 +49,7 @@
 - [ ] （可选）口令备份：正确口令可恢复，错误口令失败提示
 - [ ] 「清除所有本机健康数据」后结果消失、**仓一并清空**（含分片与授权）
 
-### 2.5 本机原始数据仓（分片 · v1.79–v1.87）
+### 2.5 本机原始数据仓（分片 · v1.79–v1.88）
 
 路径：**更多 → 数据管理 → 本机原始数据仓**。文案须保持非诊断语气；**不上传、非云同步**。
 
@@ -111,6 +111,15 @@
 - [ ] 有数据的域组可见；空域不误导展示（或明确「无分片」）
 - [ ] 折叠状态不阻断「删除所选 / keep-N / 复制仓状态」等操作（展开后仍可操作）
 - [ ] 文案保持非诊断；不暗示云同步
+
+**Thin core · 迁移 · 分片清单 · 全域 keep-all 年（v1.88 · UI/API 若已上线）**
+
+- [ ] 授权后完整保存多域跨年数据：仓布局为 `sharded-v1`；`core|full` **不**再嵌套 BP/体重/睡眠/CGM 等分片域明细（thin core）
+- [ ] （若暴露迁移）触发 `migrateLegacyCoreToShards` 或等价 UI：已是 thin 分片时提示成功/无需升级；旧 legacy 单片或胖 core 可升级为分片且刷新后分析完整
+- [ ] **导出分片清单**（`exportShardInventory` 或按钮）：JSON 含 chunk id / 域 / 年或月 / 条数或占用；**不含** systolic、血糖点值、睡眠日明细等 raw
+- [ ] **全域仅保留近 N 年**（`#btn-warehouse-years-keep-all-domains`）：跨 BP + 体重 + 睡眠等年分片域一次裁剪；有确认；裁后列表与刷新一致
+- [ ] 迁移按钮「升级旧版单片为分片」与「导出分片清单」可见、可点（授权开启且有仓时）
+- [ ] 全域 keep 与分域 keep / 双域 keep 并存时：文案区分清楚；不会静默裁 CGM 月（年 keep 只动年片）
 
 **备份**
 
@@ -177,9 +186,11 @@ P0 结果：通过 / 失败
 | 四任务流 | `e2e/task-flow.spec.js` |
 | 200% zoom | `e2e/text-zoom.spec.js` |
 | 键盘 | `e2e/keyboard.spec.js` |
-| 数据仓 / 年分片 / 双域 keep / 加密备份 | `e2e/warehouse.spec.js`（含 BP·体重·sleep·steps·**hrv·resting·walking** 年分片与域独立删） |
+| 数据仓 / 年分片 / 双域 keep / 加密备份 | `e2e/warehouse.spec.js`（含 BP·体重·sleep·steps·**hrv·resting·walking**·workouts/ecg/watch 年分片与域独立删） |
 | 保存后 auto-trim（CGM keep 月） | `e2e/warehouse.spec.js` → `auto-trim after save: keep 3 CGM months…` |
-| （可选）年分片 auto-trim | 手测优先：勾选 auto-trim + year keep-N 后跨年 BP/体重再保存；E2E 可后续补 |
+| v1.88 migrate / inventory / global keep-all | `e2e/warehouse.spec.js` → `v1.88 migrateLegacyCoreToShards…` / `exportShardInventory…` / `global keep-all years…` |
+| （可选）仓读写耗时基线 | `npm run perf:warehouse` → `scripts/perf-warehouse-baseline.mjs` |
+| （可选）年分片 auto-trim | 手测优先：勾选 auto-trim + year keep-N 后跨年 BP/体重再保存；E2E 已有 year auto-trim 用例 |
 
 本地：`npm run test:e2e`  
 手测本清单后，再发版更稳妥。

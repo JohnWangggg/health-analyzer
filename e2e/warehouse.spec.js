@@ -1779,4 +1779,397 @@ test.describe('v1.68 raw warehouse', () => {
     await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
     await expect(page.locator('#warehouse-restored-banner')).toBeVisible();
   });
+
+  // ─── v1.88: migrate legacy → thin core shards · inventory export · global keep-all years ───
+
+  test('v1.88 migrateLegacyCoreToShards: multi-domain persist then migrate ok', async ({ page }) => {
+    await waitAppReady(page);
+
+    const hasMigrate = await page.evaluate(
+      () => typeof (window.HealthHistory || {}).migrateLegacyCoreToShards === 'function'
+    );
+    expect(
+      hasMigrate,
+      'v1.88: expected HealthHistory.migrateLegacyCoreToShards (history-db full-shard migrate / thin core). Not merged?'
+    ).toBe(true);
+
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.bloodPressure = [
+        { datetime: '2024-03-10T08:00:00', systolic: 121, diastolic: 79 },
+        { datetime: '2025-03-10T08:00:00', systolic: 120, diastolic: 80 },
+        { datetime: '2026-03-10T08:00:00', systolic: 119, diastolic: 78 },
+      ];
+      data.weight = [
+        { datetime: '2024-02-01T07:00:00', value: 72.0 },
+        { datetime: '2025-02-01T07:00:00', value: 70.5 },
+        { datetime: '2026-02-01T07:00:00', value: 69.0 },
+      ];
+      data.sleep = {
+        '2024-03-10': { total: 7.0, deep: 1.0, rem: 1.4, core: 4.2, awake: 0.4 },
+        '2025-03-10': { total: 7.2, deep: 1.1, rem: 1.5, core: 4.2, awake: 0.4 },
+        '2026-03-10': { total: 7.5, deep: 1.2, rem: 1.6, core: 4.3, awake: 0.4 },
+      };
+      data.cgm = [
+        { datetime: '2026-05-10T08:00:00', value: 5.2 },
+        { datetime: '2026-06-15T08:00:00', value: 5.5 },
+      ];
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasWeight = true;
+      data.dataAvailability.hasSleep = true;
+      data.dataAvailability.hasCgm = true;
+      const res = await HH.persistHealthDataWarehouse(data);
+      if (!res || res.ok === false) {
+        throw new Error('persistHealthDataWarehouse failed: ' + JSON.stringify(res));
+      }
+    });
+
+    const migrateRes = await page.evaluate(async () => {
+      const res = await window.HealthHistory.migrateLegacyCoreToShards();
+      return {
+        ok: !!(res && res.ok !== false),
+        upgraded: res && res.upgraded,
+        reason: res && res.reason,
+        layout: res && (res.layout || (res.meta && res.meta.layout)),
+        raw: res,
+      };
+    });
+    expect(
+      migrateRes.ok,
+      'v1.88 migrateLegacyCoreToShards should succeed (upgraded false if already sharded is OK): ' +
+        JSON.stringify(migrateRes.raw)
+    ).toBe(true);
+    // upgraded may be false when already sharded-v1 — both OK
+    expect(typeof migrateRes.upgraded === 'boolean' || migrateRes.upgraded == null).toBe(true);
+
+    const after = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+      const chunks = (loaded && loaded.chunks) || [];
+      const ids = chunks.map((c) => c.id).sort();
+      const core = chunks.find((c) => c && (c.id === 'core|full' || c.domain === 'core'));
+      const corePayload = (core && core.payload) || {};
+      const coreBpLen = Array.isArray(corePayload.bloodPressure)
+        ? corePayload.bloodPressure.length
+        : 0;
+      const coreSleepKeys = corePayload.sleep ? Object.keys(corePayload.sleep).length : 0;
+      const coreCgmLen = Array.isArray(corePayload.cgm) ? corePayload.cgm.length : 0;
+      const data = (loaded && loaded.data) || {};
+      return {
+        layout: st.layout || (loaded && loaded.layout),
+        hasCore: ids.indexOf('core|full') >= 0,
+        noLegacyFull: ids.indexOf('healthData|full') < 0,
+        hasBpYears: ids.some((id) => String(id).indexOf('bloodPressure|') === 0),
+        hasWeightYears: ids.some((id) => String(id).indexOf('weight|') === 0),
+        hasSleepYears: ids.some((id) => String(id).indexOf('sleep|') === 0),
+        // thin core after full sharding: year/month domains not re-embedded in core
+        coreBpLen,
+        coreSleepKeys,
+        coreCgmLen,
+        bpLen: (data.bloodPressure || []).length,
+        sleepDays: Object.keys(data.sleep || {}).length,
+        cgmLen: (data.cgm || []).length,
+      };
+    });
+    expect(after.layout).toMatch(/sharded/);
+    expect(after.hasCore).toBe(true);
+    expect(after.noLegacyFull).toBe(true);
+    expect(after.hasBpYears).toBe(true);
+    expect(after.hasWeightYears).toBe(true);
+    expect(after.hasSleepYears).toBe(true);
+    // Thin core: no multi-year domain payloads left on core|full
+    expect(after.coreBpLen, 'v1.88 thin core: core|full must not retain bloodPressure arrays').toBe(
+      0
+    );
+    expect(after.coreSleepKeys, 'v1.88 thin core: core|full must not retain sleep day map').toBe(0);
+    expect(after.coreCgmLen, 'v1.88 thin core: core|full must not retain cgm points').toBe(0);
+    // Reassembled HealthData still has full series
+    expect(after.bpLen).toBe(3);
+    expect(after.sleepDays).toBe(3);
+    expect(after.cgmLen).toBe(2);
+  });
+
+  test('v1.88 exportShardInventory: chunk ids meta only (no raw systolic/values)', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+
+    const surface = await page.evaluate(() => {
+      const HH = window.HealthHistory || {};
+      return {
+        exportShardInventory: typeof HH.exportShardInventory === 'function',
+        exportWarehouseInventory: typeof HH.exportWarehouseInventory === 'function',
+      };
+    });
+    const hasApi = surface.exportShardInventory || surface.exportWarehouseInventory;
+    expect(
+      hasApi,
+      'v1.88: expected HealthHistory.exportShardInventory (or exportWarehouseInventory). Not merged?'
+    ).toBe(true);
+
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      // Distinctive clinical values that must not appear in meta inventory text
+      // (avoid short digits like 88 which collide with policy "v1.88")
+      data.bloodPressure = [
+        { datetime: '2025-03-10T08:00:00', systolic: 133, diastolic: 91 },
+        { datetime: '2026-03-10T08:00:00', systolic: 127, diastolic: 82 },
+      ];
+      data.weight = [{ datetime: '2026-04-01T07:00:00', value: 71.11 }];
+      data.cgm = [{ datetime: '2026-05-10T08:00:00', value: 6.66 }];
+      data.sleep = {
+        '2026-05-11': { total: 7.77, deep: 1.11, rem: 1.22, core: 4.33, awake: 0.11 },
+      };
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasWeight = true;
+      data.dataAvailability.hasCgm = true;
+      data.dataAvailability.hasSleep = true;
+      await HH.persistHealthDataWarehouse(data);
+    });
+
+    const inv = await page.evaluate(async () => {
+      const HH = window.HealthHistory;
+      const fn =
+        typeof HH.exportShardInventory === 'function'
+          ? HH.exportShardInventory
+          : HH.exportWarehouseInventory;
+      const result = await fn.call(HH);
+      // Shape: { ok, text, filename, inventory } or raw inventory / JSON string
+      let envelope = result;
+      if (typeof result === 'string') {
+        try {
+          envelope = JSON.parse(result);
+        } catch (e) {
+          return { parseError: String(e), raw: result.slice(0, 200) };
+        }
+      }
+      if (!envelope || typeof envelope !== 'object') {
+        return { parseError: 'not_object', raw: String(result).slice(0, 200) };
+      }
+      const inventory =
+        envelope.inventory && typeof envelope.inventory === 'object'
+          ? envelope.inventory
+          : envelope.chunks
+            ? envelope
+            : envelope;
+      const text =
+        typeof envelope.text === 'string'
+          ? envelope.text
+          : JSON.stringify(inventory);
+      const chunks =
+        (inventory && inventory.chunks) ||
+        (envelope && envelope.chunks) ||
+        [];
+      const chunkList = Array.isArray(chunks) ? chunks : [];
+      const ids = chunkList
+        .map((c) => (typeof c === 'string' ? c : c && (c.id || c.chunkId || c.key)))
+        .filter(Boolean);
+      const topIds = Array.isArray(inventory && inventory.chunkIds)
+        ? inventory.chunkIds
+        : [];
+      const allIds = ids.length ? ids : topIds;
+      return {
+        ok: envelope.ok !== false,
+        reason: envelope.reason,
+        text,
+        ids: allIds,
+        hasPayloadField: chunkList.some(
+          (c) => c && typeof c === 'object' && c.payload != null
+        ),
+        format: inventory && inventory.format,
+        keys: Object.keys(envelope),
+        invKeys: inventory && typeof inventory === 'object' ? Object.keys(inventory) : [],
+      };
+    });
+
+    expect(inv.parseError, 'inventory must be JSON-parseable: ' + (inv.raw || '')).toBeFalsy();
+    expect(inv.ok, 'exportShardInventory ok: ' + JSON.stringify(inv.reason)).toBe(true);
+    expect(
+      inv.ids.length,
+      'v1.88 inventory should list chunk ids (core|full, bloodPressure|YYYY, …): keys=' +
+        JSON.stringify(inv.keys) +
+        ' invKeys=' +
+        JSON.stringify(inv.invKeys)
+    ).toBeGreaterThan(0);
+    expect(inv.ids.some((id) => /core\|full|bloodPressure\||cgm\||sleep\|/.test(String(id)))).toBe(
+      true
+    );
+    // No raw clinical samples / field names in inventory text (meta only)
+    expect(inv.text).not.toMatch(/systolic|diastolic/);
+    expect(inv.text).not.toMatch(/71\.11|6\.66|7\.77|1\.11|4\.33/);
+    expect(inv.text).not.toMatch(/(^|[^0-9.])133([^0-9.]|$)/);
+    expect(inv.hasPayloadField, 'inventory rows must not embed full shard payloads').toBe(false);
+
+    // Optional UI path: export inventory button if present
+    const invBtn = page.locator(
+      '#btn-warehouse-export-inventory, #btn-warehouse-inventory, [data-action="export-shard-inventory"]'
+    );
+    if ((await invBtn.count()) > 0) {
+      await page.reload();
+      await page.waitForFunction(
+        () =>
+          !!(
+            window.HealthAnalyzer &&
+            window.HealthHistory &&
+            window.I18n &&
+            document.body.classList.contains('has-results')
+          )
+      );
+      await setWorkspace(page, 'more');
+      await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+      await expect(invBtn.first()).toBeVisible({ timeout: 8_000 });
+    }
+  });
+
+  test('v1.88 global keep-all years: N=2 trims BP+weight+sleep (soft if UI-only missing)', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.bloodPressure = [
+        { datetime: '2023-03-10T08:00:00', systolic: 120, diastolic: 80 },
+        { datetime: '2024-03-10T08:00:00', systolic: 118, diastolic: 78 },
+        { datetime: '2025-03-10T08:00:00', systolic: 122, diastolic: 81 },
+        { datetime: '2026-03-10T08:00:00', systolic: 119, diastolic: 79 },
+      ];
+      data.weight = [
+        { datetime: '2023-02-01T07:00:00', value: 72.0 },
+        { datetime: '2024-02-01T07:00:00', value: 71.0 },
+        { datetime: '2025-02-01T07:00:00', value: 70.0 },
+        { datetime: '2026-02-01T07:00:00', value: 69.0 },
+      ];
+      data.sleep = {
+        '2023-03-10': { total: 7.0, deep: 1.0, rem: 1.4, core: 4.2, awake: 0.4 },
+        '2024-03-10': { total: 7.1, deep: 1.0, rem: 1.4, core: 4.2, awake: 0.4 },
+        '2025-03-10': { total: 7.2, deep: 1.1, rem: 1.5, core: 4.2, awake: 0.4 },
+        '2026-03-10': { total: 7.5, deep: 1.2, rem: 1.6, core: 4.3, awake: 0.4 },
+      };
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasWeight = true;
+      data.dataAvailability.hasSleep = true;
+      await HH.persistHealthDataWarehouse(data);
+    });
+
+    const before = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      return {
+        bp: (st.bpYears || []).slice().sort(),
+        weight: (st.weightYears || []).slice().sort(),
+        sleep: (st.sleepYears || []).slice().sort(),
+      };
+    });
+    expect(before.bp).toEqual(['2023', '2024', '2025', '2026']);
+    expect(before.weight).toEqual(['2023', '2024', '2025', '2026']);
+    expect(before.sleep).toEqual(['2023', '2024', '2025', '2026']);
+
+    // Prefer dedicated API if present; else UI keep-all-domains button
+    const apiResult = await page.evaluate(async () => {
+      const HH = window.HealthHistory || {};
+      const candidates = [
+        'keepAllDomainYearShardsRecent',
+        'keepRecentYearShardsAll',
+        'keepAllYearShardsRecent',
+        'trimAllYearShardsToKeepN',
+        'keepGlobalYearShards',
+      ];
+      for (const name of candidates) {
+        if (typeof HH[name] === 'function') {
+          const res = await HH[name](2);
+          return { name, ok: !!(res && res.ok !== false), res };
+        }
+      }
+      if (typeof HH.keepAllDomainYearShards === 'function') {
+        const res = await HH.keepAllDomainYearShards({ keepYears: 2 });
+        return { name: 'keepAllDomainYearShards', ok: !!(res && res.ok !== false), res };
+      }
+      return { name: null, ok: false };
+    });
+
+    if (apiResult.name) {
+      expect(
+        apiResult.ok,
+        'v1.88 global keep-all years API failed: ' + JSON.stringify(apiResult)
+      ).toBe(true);
+    } else {
+      // UI path (v1.88 app.js): #btn-warehouse-years-keep-all-domains
+      await page.reload();
+      await page.waitForFunction(
+        () =>
+          !!(
+            window.HealthAnalyzer &&
+            window.HealthHistory &&
+            window.I18n &&
+            document.body.classList.contains('has-results')
+          )
+      );
+      await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+      await setWorkspace(page, 'more');
+      await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+
+      const globalBtn = page.locator(
+        '#btn-warehouse-years-keep-all-domains, #btn-warehouse-years-keep-all, #btn-warehouse-global-keep-years, #btn-warehouse-keep-all-years'
+      );
+
+      if ((await globalBtn.count()) === 0) {
+        expect(
+          false,
+          'v1.88: expected global keep-all years API or UI #btn-warehouse-years-keep-all-domains. app/history-db v1.88 not merged?'
+        ).toBe(true);
+        return;
+      }
+
+      // Shared year keep select drives keep N for all domain / all-domains button
+      const yearSel = page
+        .locator(
+          '#warehouse-bp-keep-years, #warehouse-weight-keep-years, #warehouse-sleep-keep-years, #warehouse-global-keep-years'
+        )
+        .first();
+      if ((await yearSel.count()) > 0) {
+        await yearSel.selectOption('2');
+      }
+      await expect
+        .poll(async () => page.evaluate(() => localStorage.getItem('health-analyzer-year-keep-years')))
+        .toBe('2');
+      await expect(globalBtn.first()).toContainText(/2/);
+
+      page.once('dialog', async (d) => {
+        expect(d.message()).toMatch(/2/);
+        await d.accept();
+      });
+      await globalBtn.first().click();
+    }
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const st = await window.HealthHistory.getWarehouseStatus();
+            return {
+              bp: (st.bpYears || []).slice().sort(),
+              weight: (st.weightYears || []).slice().sort(),
+              sleep: (st.sleepYears || []).slice().sort(),
+            };
+          }),
+        { timeout: 12_000 }
+      )
+      .toEqual({
+        bp: ['2025', '2026'],
+        weight: ['2025', '2026'],
+        sleep: ['2025', '2026'],
+      });
+  });
 });

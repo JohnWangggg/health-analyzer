@@ -208,6 +208,8 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 
 根目录可跑 `npm run perf:parse`（`scripts/perf-parse-baseline.mjs`）测 `parseHealthXml` / `analyzeAll` 本地耗时与内存；默认 `e2e/fixtures/minimal-export.xml` 很小，大 export 用 `PERF_XML_PATH` 或 `--file=` 自备且**不要提交**个人数据。
 
+仓读写基线（v1.88+）：`npm run perf:warehouse`（`scripts/perf-warehouse-baseline.mjs`）用 Playwright 打开本机 static 页，合成多年数据测 `persist` / `load` / `getWarehouseStatus` 耗时；**不上传**。
+
 修改解析/统计/提示词请只改 `lib/src/**`，再执行 `npm run build`。不要手改 `web-ui/public/lib.js`。
 
 ## 局限与边界
@@ -299,6 +301,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - v1.85：睡眠 / 步数按年分片（`sleep|YYYY`、`steps|YYYY` 日 map 载荷）；status `sleepYears`/`stepsYears`；域独立删年；E2E 与仓设计见 `docs/DATA_CENTER_v1.68.md`。
 - v1.86：HRV / 静息 / 步行心率按年分片（`hrv|YYYY` payload `{ hrv, hrvOvernight }`、`restingHr|YYYY`、`walkingHr|YYYY`）；status `hrvYears`/`restingHrYears`/`walkingHrYears`；三域独立删年；E2E 与仓设计见 `docs/DATA_CENTER_v1.68.md`。
 - v1.87：Workout / ECG / Watch 日汇总按年分片（`workouts|YYYY` **数组**、`ecg|YYYY` **数组**（仅摘要）、`watchDaily|YYYY` **日 map**）；status `workoutsYears`/`ecgYears`/`watchDailyYears`；三域独立删年；仓面板分片组折叠 UX；E2E 与仓设计见 `docs/DATA_CENTER_v1.68.md`。
+- v1.88：全量分片后 **thin core**（`core|full` 不再嵌套年/月域明细）；`migrateLegacyCoreToShards`（legacy/胖 core → sharded）；`exportShardInventory`（chunk 元数据清单，无 raw 时序）；**全域 keep-all 年**一键裁剪；E2E + 可选 `npm run perf:warehouse`；仓设计见 `docs/DATA_CENTER_v1.68.md`。
 
 ## 许可
 

@@ -6,6 +6,7 @@
  * + v1.85 sleep/steps 按年分片（sleep|YYYY、steps|YYYY；date-keyed map 切片）
  * + v1.86 hrv/restingHr/walkingHr 按年分片（hrv|YYYY 含 overnight；restingHr|YYYY；walkingHr|YYYY）
  * + v1.87 workouts/ecg/watchDaily 按年分片（workouts|YYYY 数组；ecg|YYYY 数组；watchDaily|YYYY map）
+ * + v1.88 旧版/肥 core 升级为分片 + 分片清单导出（仅元数据）
  * 不上传；摘要仓不含完整 CGM；原始仓仅在 consent 开启后写入
  */
 (function (global) {
@@ -27,7 +28,7 @@
   /** Soft / hard byte caps for raw warehouse (approx JSON size) */
   const WAREHOUSE_SOFT_BYTES = 150 * 1024 * 1024;
   const WAREHOUSE_HARD_BYTES = 200 * 1024 * 1024;
-  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.87.0';
+  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.88.0';
   /** @deprecated legacy single-blob id; still read for migrate */
   const WH_CHUNK_HEALTH = 'healthData|full';
   const WH_CHUNK_CORE = 'core|full';
@@ -3427,6 +3428,251 @@
     return deleteDomainYearShards(WH_DOMAIN_WATCH, years);
   }
 
+  /**
+   * True if core payload still holds non-empty values for domains that should live in shards.
+   * (cgm/bp/weight/bodyFat/sleep/steps/hrv/hrvOvernight/restingHr/walkingHr/workouts/ecg/watchDaily)
+   */
+  function corePayloadHasFatShardedDomains(payload) {
+    if (!payload || typeof payload !== 'object') return false;
+    if (Array.isArray(payload.cgm) && payload.cgm.length) return true;
+    if (Array.isArray(payload.bloodPressure) && payload.bloodPressure.length) return true;
+    if (Array.isArray(payload.weight) && payload.weight.length) return true;
+    if (Array.isArray(payload.bodyFat) && payload.bodyFat.length) return true;
+    if (Array.isArray(payload.workouts) && payload.workouts.length) return true;
+    if (Array.isArray(payload.ecg) && payload.ecg.length) return true;
+    if (mapRecordCount(payload.sleep)) return true;
+    if (mapRecordCount(payload.steps)) return true;
+    if (mapRecordCount(payload.hrv)) return true;
+    if (mapRecordCount(payload.hrvOvernight)) return true;
+    if (mapRecordCount(payload.restingHr)) return true;
+    if (mapRecordCount(payload.walkingHr)) return true;
+    if (mapRecordCount(payload.watchDaily)) return true;
+    return false;
+  }
+
+  function sumChunkApproxBytes(chunks) {
+    let n = 0;
+    (chunks || []).forEach((c) => {
+      n += (c && c.approxBytes) || 0;
+    });
+    return n;
+  }
+
+  /**
+   * Infer recordCount from a chunk without exposing raw payload to callers.
+   */
+  function inferChunkRecordCount(c) {
+    if (!c) return 0;
+    if (c.recordCount != null && Number.isFinite(c.recordCount)) return c.recordCount;
+    const p = c.payload;
+    if (p == null) return 0;
+    if (Array.isArray(p)) return p.length;
+    if (typeof p !== 'object') return 0;
+    if (c.domain === WH_DOMAIN_WEIGHT) {
+      if (Array.isArray(p.weight) || Array.isArray(p.bodyFat)) {
+        return ((p.weight && p.weight.length) || 0) + ((p.bodyFat && p.bodyFat.length) || 0);
+      }
+    }
+    if (c.domain === WH_DOMAIN_HRV) {
+      if (p.hrv || p.hrvOvernight) {
+        return mapRecordCount(p.hrv) + mapRecordCount(p.hrvOvernight);
+      }
+    }
+    return Object.keys(p).length;
+  }
+
+  /**
+   * v1.88: Re-load warehouse, detect legacy-full or fat core holding sharded domains,
+   * reassemble full data and re-persist via split path.
+   * Serialized via enqueue; calls unlocked persist to avoid deadlock.
+   * @returns {Promise<{ ok: boolean, reason?: string, upgraded?: boolean, beforeBytes?: number, afterBytes?: number, layout?: string }>}
+   */
+  function migrateLegacyCoreToShards() {
+    return enqueueWarehouseWrite(() =>
+      getWarehouseMeta().then((meta) => {
+        if (!meta.consent || !meta.consent.granted) {
+          return { ok: false, reason: 'no_consent', upgraded: false };
+        }
+        return openDb().then((db) =>
+          listAllWarehouseChunks(db)
+            .then((all) => {
+              db.close();
+              if (!all || !all.length) {
+                return {
+                  ok: true,
+                  upgraded: false,
+                  reason: 'already_sharded',
+                  beforeBytes: 0,
+                  afterBytes: 0,
+                  layout: meta.layout || null,
+                };
+              }
+              const assembled = reassembleFromChunks(all);
+              if (!assembled || !assembled.data) {
+                return {
+                  ok: true,
+                  upgraded: false,
+                  reason: 'already_sharded',
+                  beforeBytes: 0,
+                  afterBytes: 0,
+                  layout: meta.layout || null,
+                };
+              }
+              const beforeBytes =
+                sumChunkApproxBytes(all) || approxJsonBytes(assembled.data) || 0;
+              const isLegacy = !!assembled.legacy;
+              const corePayload =
+                isLegacy
+                  ? null
+                  : assembled.core && assembled.core.payload
+                    ? assembled.core.payload
+                    : null;
+              let needsUpgrade = isLegacy || meta.layout === 'legacy-full';
+              if (!needsUpgrade && corePayload) {
+                needsUpgrade = corePayloadHasFatShardedDomains(corePayload);
+              }
+              // Legacy single blob always upgrades (full data in one chunk)
+              if (!needsUpgrade) {
+                return {
+                  ok: true,
+                  upgraded: false,
+                  reason: 'already_sharded',
+                  beforeBytes,
+                  afterBytes: beforeBytes,
+                  layout: assembled.legacy ? 'legacy-full' : 'sharded-v1',
+                };
+              }
+              return persistHealthDataWarehouseUnlocked(assembled.data, {
+                batchId: meta.lastImportBatchId || null,
+              }).then((res) => {
+                if (!res || !res.ok) {
+                  return {
+                    ok: false,
+                    reason: (res && res.reason) || 'persist_failed',
+                    upgraded: false,
+                    beforeBytes,
+                    afterBytes: beforeBytes,
+                    layout: isLegacy ? 'legacy-full' : meta.layout || null,
+                  };
+                }
+                return {
+                  ok: true,
+                  upgraded: true,
+                  beforeBytes,
+                  afterBytes: res.approxBytes != null ? res.approxBytes : 0,
+                  layout: 'sharded-v1',
+                  meta: res.meta,
+                };
+              });
+            })
+            .catch((e) => {
+              try {
+                db.close();
+              } catch (err) {
+                /* ignore */
+              }
+              return {
+                ok: false,
+                reason: String((e && e.message) || e || 'migrate_failed'),
+                upgraded: false,
+              };
+            })
+        );
+      })
+    );
+  }
+
+  /**
+   * v1.88: Meta-only shard inventory (no raw payloads).
+   * @returns {Promise<{ ok: boolean, reason?: string, text?: string, filename?: string, inventory?: object }>}
+   */
+  function exportShardInventory() {
+    return getWarehouseMeta().then((meta) => {
+      if (!meta.consent || !meta.consent.granted) {
+        return { ok: false, reason: 'no_consent' };
+      }
+      return openDb().then((db) =>
+        listAllWarehouseChunks(db)
+          .then((all) => {
+            db.close();
+            const assembled = reassembleFromChunks(all);
+            const layout = assembled
+              ? assembled.legacy
+                ? 'legacy-full'
+                : 'sharded-v1'
+              : meta.layout || null;
+            const chunks = (all || []).map((c) => {
+              const row = {
+                id: c && c.id != null ? c.id : null,
+                domain: (c && c.domain) || null,
+                shard: (c && c.shard) || null,
+                recordCount: inferChunkRecordCount(c),
+                approxBytes: (c && c.approxBytes) || 0,
+                dateStart: (c && c.dateStart) || null,
+                dateEnd: (c && c.dateEnd) || null,
+                updatedAt: (c && c.updatedAt) || null,
+                codec: (c && c.codec) || null,
+              };
+              return row;
+            });
+            // Domain rollup (meta only)
+            /** @type {Record<string, { shardCount: number, recordCount: number, approxBytes: number, shards: string[] }>} */
+            const domains = {};
+            chunks.forEach((row) => {
+              const d = row.domain || 'unknown';
+              if (!domains[d]) {
+                domains[d] = {
+                  shardCount: 0,
+                  recordCount: 0,
+                  approxBytes: 0,
+                  shards: [],
+                };
+              }
+              domains[d].shardCount += 1;
+              domains[d].recordCount += row.recordCount || 0;
+              domains[d].approxBytes += row.approxBytes || 0;
+              if (row.shard != null && row.shard !== '') {
+                domains[d].shards.push(String(row.shard));
+              }
+            });
+            Object.keys(domains).forEach((d) => {
+              domains[d].shards = domains[d].shards.slice().sort();
+            });
+            const totalApproxBytes =
+              sumChunkApproxBytes(all) || meta.totalApproxBytes || 0;
+            const inventory = {
+              format: 'warehouse-shard-inventory-v1',
+              exportedAt: new Date().toISOString(),
+              policyVersion: WAREHOUSE_POLICY_VERSION,
+              layout,
+              consentGranted: !!(meta.consent && meta.consent.granted),
+              dateRange: meta.dateRange || null,
+              totalApproxBytes,
+              totalRecordCount: meta.totalRecordCount || 0,
+              chunkCount: chunks.length,
+              domains,
+              chunks,
+            };
+            const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            const filename = 'warehouse-inventory-' + day + '.json';
+            const text = JSON.stringify(inventory, null, 2);
+            return { ok: true, text, filename, inventory };
+          })
+          .catch((e) => {
+            try {
+              db.close();
+            } catch (err) {
+              /* ignore */
+            }
+            return {
+              ok: false,
+              reason: String((e && e.message) || e || 'inventory_failed'),
+            };
+          })
+      );
+    });
+  }
+
   global.HealthHistory = {
     saveSnapshot,
     listSnapshots,
@@ -3486,6 +3732,8 @@
     reassembleFromChunks,
     persistHealthDataWarehouse,
     loadHealthDataWarehouse,
+    migrateLegacyCoreToShards,
+    exportShardInventory,
     exportWarehouseBackup,
     importWarehouseBackup,
   };

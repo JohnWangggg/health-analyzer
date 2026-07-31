@@ -7674,6 +7674,8 @@
       if (watchList) watchList.innerHTML = '';
       const bothActions = $('warehouse-years-both-actions');
       if (bothActions) bothActions.classList.add('hidden');
+      const allYearsActions = $('warehouse-years-all-actions');
+      if (allYearsActions) allYearsActions.classList.add('hidden');
       const bpSelectAll = $('warehouse-bp-select-all');
       const weightSelectAll = $('warehouse-weight-select-all');
       const sleepSelectAll = $('warehouse-sleep-select-all');
@@ -7893,10 +7895,25 @@
         'watchDaily'
       );
       if (bothActions) {
-        const hasYears =
+        const hasBpOrWeight =
           (bpWrap && !bpWrap.classList.contains('hidden')) ||
           (weightWrap && !weightWrap.classList.contains('hidden'));
-        bothActions.classList.toggle('hidden', !hasYears);
+        bothActions.classList.toggle('hidden', !hasBpOrWeight);
+      }
+      const allYearsActionsEl = $('warehouse-years-all-actions');
+      if (allYearsActionsEl) {
+        const hasAnyYearShards =
+          (bpWrap && !bpWrap.classList.contains('hidden')) ||
+          (weightWrap && !weightWrap.classList.contains('hidden')) ||
+          (sleepWrap && !sleepWrap.classList.contains('hidden')) ||
+          (stepsWrap && !stepsWrap.classList.contains('hidden')) ||
+          (hrvWrap && !hrvWrap.classList.contains('hidden')) ||
+          (restingHrWrap && !restingHrWrap.classList.contains('hidden')) ||
+          (walkingHrWrap && !walkingHrWrap.classList.contains('hidden')) ||
+          (workoutsWrap && !workoutsWrap.classList.contains('hidden')) ||
+          (ecgWrap && !ecgWrap.classList.contains('hidden')) ||
+          (watchWrap && !watchWrap.classList.contains('hidden'));
+        allYearsActionsEl.classList.toggle('hidden', !hasAnyYearShards);
       }
 
       // Collapsible domain groups: badge counts + default open state
@@ -8374,6 +8391,8 @@
     });
     const bothBtn = $('btn-warehouse-years-keep-both');
     if (bothBtn) bothBtn.textContent = t('warehouse.yearKeepBothRecent', { n: String(n) });
+    const allDomainsBtn = $('btn-warehouse-years-keep-all-domains');
+    if (allDomainsBtn) allDomainsBtn.textContent = t('warehouse.yearKeepAllRecent', { n: String(n) });
   }
 
   function yearsToDropForKeepN(years, keepN) {
@@ -8506,6 +8525,87 @@
     }
   }
 
+  /** Year domains eligible for multi-domain keep-recent trim. */
+  const YEAR_KEEP_ALL_DOMAINS = [
+    'bloodPressure',
+    'weight',
+    'sleep',
+    'steps',
+    'hrv',
+    'restingHr',
+    'walkingHr',
+    'workouts',
+    'ecg',
+    'watchDaily',
+  ];
+
+  /**
+   * Trim all year-shard domains to newest N years (shared YEAR_KEEP_YEARS).
+   * One confirm (counts only; no sample values). Sequential delete; skip missing APIs.
+   */
+  async function keepRecentAllDomainYearsUi() {
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.getWarehouseStatus !== 'function') return;
+    const keepN = getYearKeepYears();
+    try {
+      const st = await HH.getWarehouseStatus();
+      /** @type {Array<{ domain: string, drop: string[], api: (years: string[]) => Promise<any> }>} */
+      const plan = [];
+      let totalDrop = 0;
+      for (let i = 0; i < YEAR_KEEP_ALL_DOMAINS.length; i += 1) {
+        const domain = YEAR_KEEP_ALL_DOMAINS[i];
+        const years = yearsFromWarehouseStatus(st, domain);
+        const { drop } = yearsToDropForKeepN(years, keepN);
+        if (!drop.length) continue;
+        const api = resolveYearShardDeleteApi(HH, domain);
+        if (typeof api !== 'function') continue; // skip missing delete API; continue others
+        plan.push({ domain, drop, api });
+        totalDrop += drop.length;
+      }
+      if (!totalDrop) {
+        showToast(t('warehouse.yearKeepAllRecentNone', { n: String(keepN) }), { ms: 2200 });
+        return;
+      }
+      if (!window.confirm(t('warehouse.yearKeepAllRecentConfirm', {
+        n: String(totalDrop),
+        keep: String(keepN),
+      }))) {
+        return;
+      }
+      let deletedYears = 0;
+      let deletedDomains = 0;
+      for (let i = 0; i < plan.length; i += 1) {
+        const item = plan[i];
+        try {
+          const res = await item.api(item.drop);
+          if (!res || !res.ok) {
+            showToast(t('warehouse.err', { msg: (res && res.reason) || 'fail' }), { ms: 2800 });
+            continue;
+          }
+          filterAnalysisDomainYears(item.domain, item.drop);
+          deletedYears += item.drop.length;
+          deletedDomains += 1;
+        } catch (e) {
+          showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+          // continue remaining domains
+        }
+      }
+      if (deletedYears > 0) {
+        const msg = t('warehouse.yearKeepAllRecentDone', {
+          n: String(deletedYears),
+          domains: String(deletedDomains),
+        });
+        showToast(msg, { ok: true, ms: 2400 });
+        showWarehouseStatusMsg(msg);
+        await refreshWarehousePanel();
+      } else {
+        await refreshWarehousePanel();
+      }
+    } catch (e) {
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+    }
+  }
+
   function bindYearKeepYearsSelect(selectId) {
     $(selectId)?.addEventListener('change', (e) => {
       setYearKeepYears(e.target && e.target.value);
@@ -8554,6 +8654,9 @@
   });
   $('btn-warehouse-years-keep-both')?.addEventListener('click', () => {
     keepRecentBothDomainYearsUi();
+  });
+  $('btn-warehouse-years-keep-all-domains')?.addEventListener('click', () => {
+    keepRecentAllDomainYearsUi();
   });
   syncYearKeepYearsUi();
 
@@ -9180,6 +9283,78 @@
   });
   $('btn-warehouse-download-status')?.addEventListener('click', () => {
     downloadWarehouseStatusSummary();
+  });
+  $('btn-warehouse-migrate-shards')?.addEventListener('click', async () => {
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.migrateLegacyCoreToShards !== 'function') {
+      showToast(t('warehouse.unavailable'), { ms: 2200 });
+      return;
+    }
+    const granted = await HH.isWarehouseConsentGranted().catch(() => false);
+    if (!granted) {
+      showToast(t('warehouse.needConsent'), { ms: 2600 });
+      return;
+    }
+    try {
+      const res = await HH.migrateLegacyCoreToShards();
+      if (!res || !res.ok) {
+        const reason = (res && res.reason) || 'fail';
+        if (reason === 'no_consent') {
+          showToast(t('warehouse.needConsent'), { ms: 2600 });
+        } else {
+          showToast(t('warehouse.err', { msg: reason }), { ms: 3200 });
+        }
+        return;
+      }
+      if (!res.upgraded) {
+        const msg = t('warehouse.migrateShardsAlready');
+        showToast(msg, { ok: true, ms: 2600 });
+        showWarehouseStatusMsg(msg);
+      } else {
+        const msg = t('warehouse.migrateShardsOk', {
+          before: formatBytes(res.beforeBytes || 0),
+          after: formatBytes(res.afterBytes || 0),
+        });
+        showToast(msg, { ok: true, ms: 3200 });
+        showWarehouseStatusMsg(msg);
+      }
+      await refreshWarehousePanel();
+    } catch (e) {
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+    }
+  });
+  $('btn-warehouse-export-inventory')?.addEventListener('click', async () => {
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.exportShardInventory !== 'function') {
+      showToast(t('warehouse.unavailable'), { ms: 2200 });
+      return;
+    }
+    const granted = await HH.isWarehouseConsentGranted().catch(() => false);
+    if (!granted) {
+      showToast(t('warehouse.needConsent'), { ms: 2600 });
+      return;
+    }
+    try {
+      const res = await HH.exportShardInventory();
+      if (!res || !res.ok) {
+        const reason = (res && res.reason) || 'fail';
+        if (reason === 'no_consent') {
+          showToast(t('warehouse.needConsent'), { ms: 2600 });
+        } else {
+          showToast(t('warehouse.err', { msg: reason }), { ms: 3200 });
+        }
+        return;
+      }
+      const filename =
+        res.filename ||
+        `warehouse-inventory-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.json`;
+      downloadText(filename, res.text || JSON.stringify(res.inventory || {}, null, 2), 'application/json');
+      const msg = t('warehouse.exportInventoryOk');
+      showToast(msg, { ok: true, ms: 2400 });
+      showWarehouseStatusMsg(msg);
+    } catch (e) {
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+    }
   });
   $('btn-warehouse-home-restore')?.addEventListener('click', () => {
     hydrateFromWarehouse({ manual: true, toast: true });
