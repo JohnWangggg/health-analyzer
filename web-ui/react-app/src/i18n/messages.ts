@@ -33,6 +33,7 @@ export type MessageKey =
   | 'dualTrack'
   | 'shell.sessionReady'
   | 'shell.sessionIdle'
+  | 'shell.kbdHint'
   | 'trends.title'
   | 'trends.lead'
   | 'trends.emptyTitle'
@@ -46,6 +47,8 @@ export type MessageKey =
   | 'trends.domain.weight'
   | 'trends.domain.restingHr'
   | 'trends.domain.cgmDailyMean'
+  | 'trends.domain.sleepTotal'
+  | 'trends.domain.hrv'
   | 'reports.title'
   | 'reports.lead'
   | 'reports.emptyTitle'
@@ -150,6 +153,7 @@ const zh: Record<MessageKey, string> = {
   dualTrack: '双轨',
   'shell.sessionReady': '已加载',
   'shell.sessionIdle': '未加载',
+  'shell.kbdHint': 'Alt+1–4 切换工作区',
   'trends.title': '趋势工作台',
   'trends.lead':
     '单指标主图（ECharts 按需）+ 数据表回退。手机建议一次只比一个指标。',
@@ -165,6 +169,8 @@ const zh: Record<MessageKey, string> = {
   'trends.domain.weight': '体重',
   'trends.domain.restingHr': '静息心率',
   'trends.domain.cgmDailyMean': 'CGM 日均',
+  'trends.domain.sleepTotal': '睡眠时长',
+  'trends.domain.hrv': '心率变异',
   'reports.title': '报告',
   'reports.lead':
     '选择类型 → 预览 Markdown → 复制或下载。内核：visit / weekly / clinical 生成器。',
@@ -277,6 +283,7 @@ const en: Record<MessageKey, string> = {
   dualTrack: 'Dual-track',
   'shell.sessionReady': 'Ready',
   'shell.sessionIdle': 'Idle',
+  'shell.kbdHint': 'Alt+1–4 switch workspace',
   'trends.title': 'Trends workspace',
   'trends.lead':
     'Single-metric chart (ECharts on demand) + table fallback. On mobile, compare one metric at a time.',
@@ -293,6 +300,8 @@ const en: Record<MessageKey, string> = {
   'trends.domain.weight': 'Weight',
   'trends.domain.restingHr': 'Resting HR',
   'trends.domain.cgmDailyMean': 'CGM daily mean',
+  'trends.domain.sleepTotal': 'Sleep total',
+  'trends.domain.hrv': 'HRV',
   'reports.title': 'Reports',
   'reports.lead':
     'Pick a type → preview Markdown → copy or download. Core: visit / weekly / clinical generators.',

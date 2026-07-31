@@ -61,7 +61,9 @@ export type TrendDomain =
   | 'steps'
   | 'weight'
   | 'restingHr'
-  | 'cgmDailyMean';
+  | 'cgmDailyMean'
+  | 'sleepTotal'
+  | 'hrv';
 
 export type ReportKind = 'visit' | 'weekly' | 'clinical';
 
@@ -175,6 +177,38 @@ export function extractTrendSeries(
       .filter((p) => Number.isFinite(p.value))
       .sort((a, b) => a.date.localeCompare(b.date));
     return { domain, label: '静息心率', unit: 'bpm', points };
+  }
+  if (domain === 'sleepTotal') {
+    const sleepMap =
+      analysis.sleepByDate || analysis.data?.sleep || ({} as Record<string, { total?: number }>);
+    const points = Object.entries(sleepMap)
+      .map(([date, s]) => {
+        const total =
+          s && typeof s === 'object' && s !== null && 'total' in s
+            ? Number((s as { total: number }).total)
+            : Number(s);
+        return { date, value: total };
+      })
+      .filter((p) => Number.isFinite(p.value))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return { domain, label: '睡眠时长', unit: 'h', points };
+  }
+  if (domain === 'hrv') {
+    const points = Object.entries(analysis.hrvByDate || {})
+      .map(([date, h]) => {
+        if (h && typeof h === 'object' && h !== null && 'allMean' in h) {
+          return { date, value: Number((h as { allMean: number }).allMean) };
+        }
+        if (typeof h === 'number') return { date, value: h };
+        const mean =
+          h && typeof h === 'object' && h !== null && 'mean' in h
+            ? Number((h as { mean?: number }).mean)
+            : NaN;
+        return { date, value: mean };
+      })
+      .filter((p) => Number.isFinite(p.value))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return { domain, label: 'HRV', unit: 'ms', points };
   }
   // cgmDailyMean — average by calendar day from raw points
   const byDay = new Map<string, number[]>();

@@ -21,6 +21,29 @@ const NAV_KEYS: Record<WorkspaceId, MessageKey> = {
   data: 'nav.data',
 };
 
+/** Alt+1..4 → workspace (DigitN for layout-independent matching). */
+const KBD_WORKSPACE: Record<string, WorkspaceId> = {
+  '1': 'overview',
+  '2': 'trends',
+  '3': 'reports',
+  '4': 'data',
+};
+
+const KBD_ARIA: Record<WorkspaceId, string> = {
+  overview: 'Alt+1',
+  trends: 'Alt+2',
+  reports: 'Alt+3',
+  data: 'Alt+4',
+};
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  if (target.isContentEditable) return true;
+  return Boolean(target.closest('[contenteditable="true"]'));
+}
+
 /** Shorten long source labels for the compact topbar chip. */
 function shortSource(label: string | null | undefined, max = 18): string | null {
   if (!label) return null;
@@ -47,6 +70,31 @@ export function AppShell() {
   useEffect(() => {
     setFromPath(location.pathname);
   }, [location.pathname, setFromPath]);
+
+  // Workspace nav: Alt+1..4 (capture phase; ignore editable fields / About sheet)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      const digit = e.code.startsWith('Digit')
+        ? e.code.slice('Digit'.length)
+        : e.key >= '1' && e.key <= '4'
+          ? e.key
+          : '';
+      const id = digit ? KBD_WORKSPACE[digit] : undefined;
+      if (!id) return;
+      if (aboutOpen) return;
+      if (isEditableTarget(e.target)) return;
+
+      const ws = WORKSPACES.find((w) => w.id === id);
+      if (!ws) return;
+      e.preventDefault();
+      setActive(id);
+      navigate(ws.path);
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [aboutOpen, navigate, setActive]);
 
   const go = (id: WorkspaceId, path: string) => {
     setActive(id);
@@ -129,6 +177,7 @@ export function AppShell() {
               className="nav-item"
               data-workspace-nav={w.id}
               data-nav-surface="sidebar"
+              aria-keyshortcuts={KBD_ARIA[w.id]}
               onClick={() => setActive(w.id)}
             >
               <span>{t(NAV_KEYS[w.id])}</span>
@@ -154,6 +203,7 @@ export function AppShell() {
             className="nav-item"
             data-workspace-nav={w.id}
             data-nav-surface="bottom"
+            aria-keyshortcuts={KBD_ARIA[w.id]}
             aria-current={active === w.id ? 'page' : undefined}
             onClick={() => go(w.id, w.path)}
           >
@@ -164,6 +214,7 @@ export function AppShell() {
 
       <footer className="app-footer">
         {t('footer')} · {t(NAV_KEYS[active])}
+        <span className="shell-kbd-hint"> · {t('shell.kbdHint')}</span>
       </footer>
 
       <Sheet

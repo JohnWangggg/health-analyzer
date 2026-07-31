@@ -68,6 +68,20 @@ describe('HealthCoreAdapter parity', () => {
 
     const cgm = extractTrendSeries(analysis, 'cgmDailyMean');
     expect(cgm.points.length).toBeGreaterThan(0);
+
+    // New domains: structure always valid; points may be empty on minimal fixture
+    for (const domain of ['sleepTotal', 'hrv'] as const) {
+      const series = extractTrendSeries(analysis, domain);
+      expect(series.domain).toBe(domain);
+      expect(typeof series.label).toBe('string');
+      expect(series.label.length).toBeGreaterThan(0);
+      expect(typeof series.unit).toBe('string');
+      expect(Array.isArray(series.points)).toBe(true);
+      for (const p of series.points) {
+        expect(p.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+        expect(Number.isFinite(p.value)).toBe(true);
+      }
+    }
   });
 
   it('buildReportPreview calls lib report builders (non-empty markdown)', () => {

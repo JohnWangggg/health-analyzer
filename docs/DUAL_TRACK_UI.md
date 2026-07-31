@@ -137,7 +137,7 @@ npm run test:e2e:dual      # 同域交叉仓骨架：export-next + serve public 
 |------|------|
 | `npm run react:test` | Adapter parity、IDB schema、ZIP、HAE、仓 load/persist、快照、workspace |
 | `npm run test:e2e:react` | 夹具/路由/Sheet、XML+ZIP、快照列表、HAE+仓往返（Chromium :4174） |
-| `npm run test:e2e:dual` | **同域交叉 E2E 骨架**（React 写 sharded-v1 → legacy `getWarehouseStatus`；再 React `load-warehouse`；:4175） |
+| `npm run test:e2e:dual` | **同域交叉 E2E 骨架**（React 写 sharded-v1 → legacy status；再 React `load-warehouse`；**legacy API 写 → React load-warehouse**；:4175） |
 | `npm run smoke` / `test:e2e` | **Legacy 不回归** |
 
 ---
@@ -208,7 +208,8 @@ flowchart LR
 | `8055486` | 总览状态带 / 信号列表 / 趋势 domain-switcher + 壳层会话 chip / Trends i18n |
 | `5dcb9f6` | 报告 i18n + SoftQuotaPanel 只读 |
 | `b958b6d` | keep-N 核心 + KeepNPanel + 总览工具栏主/次折叠 |
-| *(本提交)* | **同域交叉 e2e 骨架 + 总览 KPI 折叠 + 数据页 i18n** |
+| `fcace80` | 同域交叉 e2e 骨架 + 总览 KPI 折叠 + 数据页 i18n |
+| *(本提交)* | **dual C legacy→React + Trends sleep/HRV + Alt+1–4 工作区快捷键** |
 
 ---
 
@@ -234,7 +235,7 @@ flowchart LR
 | **读取** | `layout=sharded-v1` 或存在 domain 分片 → 合并分片；`react-core-full-v1` → core-only。 |
 | **软配额** | 写入时全链路 **已做**（`846d680`）。 |
 | **keep-N** | React：**prefs**（legacy 同键）+ `applyKeepWindowsToSplit` + 写入后 opt-in auto-trim + 数据页「对仓库应用 keep-N」；legacy 仍有分域多选删除。 |
-| **真实浏览器交叉 E2E** | **骨架已有**（`npm run test:e2e:dual`）：React 写 → legacy status（sharded-v1 / hasPayload）；再 React `load-warehouse`。**非**完整 UI keep-N 矩阵；亦未覆盖「旧版写→React写→旧版读」全路径。 |
+| **真实浏览器交叉 E2E** | **骨架已有**（`npm run test:e2e:dual`）：**React 写 → legacy status**（sharded-v1 / hasPayload）+ React `load-warehouse`；以及 **legacy API 写 → React load-warehouse**。**非**完整 UI keep-N 矩阵；亦未覆盖「旧版写→React写→旧版读」全路径。 |
 | **仍缺** | 生产 cutover；完整 keep-N / 双向交叉矩阵 E2E。 |
 | **生产建议** | 可试用 React 写仓（会**整仓替换**分片集）；复杂多选清理仍可用 legacy 面板。 |
 

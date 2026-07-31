@@ -23,6 +23,8 @@ const DOMAIN_KEYS: { id: TrendDomain; key: MessageKey }[] = [
   { id: 'weight', key: 'trends.domain.weight' },
   { id: 'restingHr', key: 'trends.domain.restingHr' },
   { id: 'cgmDailyMean', key: 'trends.domain.cgmDailyMean' },
+  { id: 'sleepTotal', key: 'trends.domain.sleepTotal' },
+  { id: 'hrv', key: 'trends.domain.hrv' },
 ];
 
 export function TrendsPage() {

@@ -442,6 +442,10 @@
     font-size: 0.8rem;
     text-align: center;
   }
+  .shell-kbd-hint {
+    opacity: 0.85;
+    white-space: nowrap;
+  }
 }
 
 /* —— Soft quota policy panel (Data page) —— */

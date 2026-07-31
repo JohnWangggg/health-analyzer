@@ -38,10 +38,18 @@ test.describe('React dual-track shell', () => {
     await expect(page.getByTestId('signal-list')).toBeVisible();
     await expect(page.getByTestId('primary-actions')).toBeVisible();
 
+    // Workspace keyboard shortcuts: Alt+1..4
+    await page.keyboard.press('Alt+Digit2');
+    await expect(page.getByTestId('page-trends')).toBeVisible();
+    await page.keyboard.press('Alt+Digit1');
+    await expect(page.getByTestId('page-overview')).toBeVisible();
+
     await page.locator('[data-testid="desktop-sidebar"] [data-workspace-nav="trends"]').click();
     await expect(page.getByTestId('page-trends')).toBeVisible();
     await expect(page.getByTestId('domain-switcher')).toBeVisible();
     await expect(page.getByTestId('trend-domain-steps')).toBeVisible();
+    await expect(page.getByTestId('trend-domain-sleepTotal')).toBeVisible();
+    await expect(page.getByTestId('trend-domain-hrv')).toBeVisible();
     await expect(page.getByTestId('trend-table-fallback')).toBeVisible();
 
     await page.locator('[data-testid="desktop-sidebar"] [data-workspace-nav="reports"]').click();
