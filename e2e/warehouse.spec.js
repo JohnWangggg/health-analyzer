@@ -1039,6 +1039,274 @@ test.describe('v1.68 raw warehouse', () => {
     expect(afterDel.stepKeys.length).toBe(4);
   });
 
+  test('hrv/resting/walking HR yearly shards: multi-year persist, load, domain-independent delete', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+
+    // v1.86 APIs must accept hrv/restingHr/walkingHr (history-db year shards). Fail clearly if not merged yet.
+    const apiSurface = await page.evaluate(async () => {
+      const HH = window.HealthHistory || {};
+      const hasDedicated =
+        typeof HH.deleteHrvYearShards === 'function' ||
+        typeof HH.deleteRestingHrYearShards === 'function' ||
+        typeof HH.deleteWalkingHrYearShards === 'function';
+      let domainProbe = null;
+      if (typeof HH.deleteDomainYearShards === 'function') {
+        // invalid year list → invalid_year if domain accepted; invalid_domain if not wired
+        domainProbe = await HH.deleteDomainYearShards('hrv', []);
+      }
+      const domainAcceptsHrv =
+        !!(domainProbe && domainProbe.reason && domainProbe.reason !== 'invalid_domain');
+      return {
+        hasDedicated,
+        domainProbe,
+        domainAcceptsHrv,
+        ok: hasDedicated || domainAcceptsHrv,
+      };
+    });
+    expect(
+      apiSurface.ok,
+      'v1.86: expected HealthHistory delete APIs for hrv/restingHr/walkingHr year shards ' +
+        '(deleteHrvYearShards / deleteRestingHrYearShards / deleteWalkingHrYearShards and/or ' +
+        'deleteDomainYearShards accepting those domains). history-db v1.86 not merged? probe=' +
+        JSON.stringify(apiSurface.domainProbe)
+    ).toBe(true);
+
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      // Maps keyed by YYYY-MM-DD (types.ts): hrv/hrvOvernight = number[]; resting/walking = number
+      data.hrv = {
+        '2025-03-10': [42.5, 45.1],
+        '2025-08-12': [40.0, 41.2],
+        '2026-01-05': [48.0, 50.2],
+        '2026-06-20': [44.1, 46.0],
+      };
+      data.hrvOvernight = {
+        '2025-03-10': [38.0],
+        '2025-08-12': [37.5],
+        '2026-01-05': [39.2],
+        '2026-06-20': [40.1],
+      };
+      data.restingHr = {
+        '2025-02-01': 58,
+        '2025-11-01': 56,
+        '2026-04-01': 54,
+        '2026-07-15': 55,
+      };
+      data.walkingHr = {
+        '2025-02-01': 98,
+        '2025-11-01': 102,
+        '2026-04-01': 95,
+        '2026-07-15': 100,
+      };
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasHrv = true;
+      data.dataAvailability.hasHeartRate = true;
+      const res = await HH.persistHealthDataWarehouse(data);
+      if (!res || res.ok === false) {
+        throw new Error('persistHealthDataWarehouse failed: ' + JSON.stringify(res));
+      }
+    });
+
+    const afterPersist = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+      const data = (loaded && loaded.data) || {};
+      const chunkIds = ((loaded && loaded.chunks) || []).map((c) => c.id).sort();
+      const hrvKeys = Object.keys(data.hrv || {}).sort();
+      const restKeys = Object.keys(data.restingHr || {}).sort();
+      const walkKeys = Object.keys(data.walkingHr || {}).sort();
+      return {
+        layout: st.layout,
+        hrvYears: st.hrvYears || (st.meta && st.meta.hrvYears) || [],
+        restingHrYears: st.restingHrYears || (st.meta && st.meta.restingHrYears) || [],
+        walkingHrYears: st.walkingHrYears || (st.meta && st.meta.walkingHrYears) || [],
+        hrvDayCount: hrvKeys.length,
+        restDayCount: restKeys.length,
+        walkDayCount: walkKeys.length,
+        hasHrv2025: chunkIds.indexOf('hrv|2025') >= 0,
+        hasHrv2026: chunkIds.indexOf('hrv|2026') >= 0,
+        hasRest2025: chunkIds.indexOf('restingHr|2025') >= 0,
+        hasRest2026: chunkIds.indexOf('restingHr|2026') >= 0,
+        hasWalk2025: chunkIds.indexOf('walkingHr|2025') >= 0,
+        hasWalk2026: chunkIds.indexOf('walkingHr|2026') >= 0,
+        hasCore: chunkIds.indexOf('core|full') >= 0,
+        chunkIds,
+      };
+    });
+
+    expect(afterPersist.layout).toBe('sharded-v1');
+    expect(afterPersist.hasCore).toBe(true);
+    // Status years: assert 2025/2026 when present (implementation should list both after multi-year seed)
+    expect(
+      afterPersist.hrvYears,
+      'v1.86 getWarehouseStatus().hrvYears should list years with hrv shards'
+    ).toEqual(expect.arrayContaining(['2025', '2026']));
+    expect(
+      afterPersist.restingHrYears,
+      'v1.86 getWarehouseStatus().restingHrYears should list years with restingHr shards'
+    ).toEqual(expect.arrayContaining(['2025', '2026']));
+    expect(
+      afterPersist.walkingHrYears,
+      'v1.86 getWarehouseStatus().walkingHrYears should list years with walkingHr shards'
+    ).toEqual(expect.arrayContaining(['2025', '2026']));
+    expect(afterPersist.hrvDayCount).toBe(4);
+    expect(afterPersist.restDayCount).toBe(4);
+    expect(afterPersist.walkDayCount).toBe(4);
+    // Chunk ids when chunks are listed
+    expect(afterPersist.hasHrv2025).toBe(true);
+    expect(afterPersist.hasHrv2026).toBe(true);
+    expect(afterPersist.hasRest2025).toBe(true);
+    expect(afterPersist.hasWalk2025).toBe(true);
+
+    // Domain-independent delete: remove hrv 2025 only; resting/walking 2025 must remain
+    const delHrv = await page.evaluate(async () => {
+      const HH = window.HealthHistory;
+      let res;
+      if (typeof HH.deleteHrvYearShards === 'function') {
+        res = await HH.deleteHrvYearShards(['2025']);
+      } else if (typeof HH.deleteDomainYearShards === 'function') {
+        res = await HH.deleteDomainYearShards('hrv', ['2025']);
+      } else {
+        return { ok: false, reason: 'no_delete_api' };
+      }
+      return {
+        ok: !!(res && res.ok),
+        reason: res && res.reason,
+        res,
+      };
+    });
+    expect(
+      delHrv.ok,
+      'v1.86: delete hrv year 2025 failed (APIs missing or domain unsupported): ' +
+        JSON.stringify(delHrv)
+    ).toBe(true);
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const st = await window.HealthHistory.getWarehouseStatus();
+            return {
+              hrvYears: (st.hrvYears || (st.meta && st.meta.hrvYears) || []).slice().sort(),
+              restingHrYears: (st.restingHrYears || (st.meta && st.meta.restingHrYears) || [])
+                .slice()
+                .sort(),
+              walkingHrYears: (st.walkingHrYears || (st.meta && st.meta.walkingHrYears) || [])
+                .slice()
+                .sort(),
+            };
+          }),
+        { timeout: 8_000 }
+      )
+      .toEqual({
+        hrvYears: ['2026'],
+        restingHrYears: ['2025', '2026'],
+        walkingHrYears: ['2025', '2026'],
+      });
+
+    const afterHrvDel = await page.evaluate(async () => {
+      const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+      const data = (loaded && loaded.data) || {};
+      const chunkIds = ((loaded && loaded.chunks) || []).map((c) => c.id).sort();
+      const hrvKeys = Object.keys(data.hrv || {});
+      const restKeys = Object.keys(data.restingHr || {});
+      const walkKeys = Object.keys(data.walkingHr || {});
+      return {
+        hasHrv2025Day: hrvKeys.some((k) => String(k).startsWith('2025')),
+        hasHrv2026Day: hrvKeys.some((k) => String(k).startsWith('2026')),
+        hasRest2025Day: restKeys.some((k) => String(k).startsWith('2025')),
+        hasWalk2025Day: walkKeys.some((k) => String(k).startsWith('2025')),
+        hasChunkHrv2025: chunkIds.indexOf('hrv|2025') >= 0,
+        hasChunkRest2025: chunkIds.indexOf('restingHr|2025') >= 0,
+        hasChunkWalk2025: chunkIds.indexOf('walkingHr|2025') >= 0,
+      };
+    });
+    expect(afterHrvDel.hasHrv2025Day).toBe(false);
+    expect(afterHrvDel.hasHrv2026Day).toBe(true);
+    expect(afterHrvDel.hasRest2025Day).toBe(true);
+    expect(afterHrvDel.hasWalk2025Day).toBe(true);
+    expect(afterHrvDel.hasChunkHrv2025).toBe(false);
+    expect(afterHrvDel.hasChunkRest2025).toBe(true);
+    expect(afterHrvDel.hasChunkWalk2025).toBe(true);
+
+    // Delete restingHr 2025 → only resting gone; walking 2025 remains
+    const delRest = await page.evaluate(async () => {
+      const HH = window.HealthHistory;
+      let res;
+      if (typeof HH.deleteRestingHrYearShards === 'function') {
+        res = await HH.deleteRestingHrYearShards(['2025']);
+      } else if (typeof HH.deleteDomainYearShards === 'function') {
+        res = await HH.deleteDomainYearShards('restingHr', ['2025']);
+      } else {
+        return { ok: false, reason: 'no_delete_api' };
+      }
+      return {
+        ok: !!(res && res.ok),
+        reason: res && res.reason,
+        res,
+      };
+    });
+    expect(
+      delRest.ok,
+      'v1.86: delete restingHr year 2025 failed (APIs missing or domain unsupported): ' +
+        JSON.stringify(delRest)
+    ).toBe(true);
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const st = await window.HealthHistory.getWarehouseStatus();
+            return {
+              hrvYears: (st.hrvYears || (st.meta && st.meta.hrvYears) || []).slice().sort(),
+              restingHrYears: (st.restingHrYears || (st.meta && st.meta.restingHrYears) || [])
+                .slice()
+                .sort(),
+              walkingHrYears: (st.walkingHrYears || (st.meta && st.meta.walkingHrYears) || [])
+                .slice()
+                .sort(),
+            };
+          }),
+        { timeout: 8_000 }
+      )
+      .toEqual({
+        hrvYears: ['2026'],
+        restingHrYears: ['2026'],
+        walkingHrYears: ['2025', '2026'],
+      });
+
+    const afterRestDel = await page.evaluate(async () => {
+      const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+      const data = (loaded && loaded.data) || {};
+      const chunkIds = ((loaded && loaded.chunks) || []).map((c) => c.id).sort();
+      const restKeys = Object.keys(data.restingHr || {});
+      const walkKeys = Object.keys(data.walkingHr || {});
+      return {
+        hasRest2025Day: restKeys.some((k) => String(k).startsWith('2025')),
+        hasRest2026Day: restKeys.some((k) => String(k).startsWith('2026')),
+        hasWalk2025Day: walkKeys.some((k) => String(k).startsWith('2025')),
+        hasWalk2026Day: walkKeys.some((k) => String(k).startsWith('2026')),
+        hasChunkRest2025: chunkIds.indexOf('restingHr|2025') >= 0,
+        hasChunkWalk2025: chunkIds.indexOf('walkingHr|2025') >= 0,
+        restDayCount: restKeys.length,
+        walkDayCount: walkKeys.length,
+      };
+    });
+    expect(afterRestDel.hasRest2025Day).toBe(false);
+    expect(afterRestDel.hasRest2026Day).toBe(true);
+    expect(afterRestDel.hasWalk2025Day).toBe(true);
+    expect(afterRestDel.hasWalk2026Day).toBe(true);
+    expect(afterRestDel.hasChunkRest2025).toBe(false);
+    expect(afterRestDel.hasChunkWalk2025).toBe(true);
+    expect(afterRestDel.restDayCount).toBe(2);
+    expect(afterRestDel.walkDayCount).toBe(4);
+  });
+
   test('copy warehouse status summary is meta-only (no raw samples)', async ({ page }) => {
     await waitAppReady(page);
     await page.evaluate(async () => {
@@ -1058,12 +1326,27 @@ test.describe('v1.68 raw warehouse', () => {
       data.steps = {
         '2026-05-11': { watch: 12345, iphone: 6789, max: 12345 },
       };
+      // v1.86: distinctive HRV / RHR / walking HR samples must not appear in meta summary
+      data.hrv = {
+        '2026-05-11': [91.91, 82.82],
+      };
+      data.hrvOvernight = {
+        '2026-05-11': [77.71],
+      };
+      data.restingHr = {
+        '2026-05-11': 47,
+      };
+      data.walkingHr = {
+        '2026-05-11': 109,
+      };
       data.dataAvailability = data.dataAvailability || {};
       data.dataAvailability.hasBloodPressure = true;
       data.dataAvailability.hasWeight = true;
       data.dataAvailability.hasCgm = true;
       data.dataAvailability.hasSleep = true;
       data.dataAvailability.hasSteps = true;
+      data.dataAvailability.hasHrv = true;
+      data.dataAvailability.hasHeartRate = true;
       await HH.persistHealthDataWarehouse(data);
     });
 
@@ -1109,11 +1392,13 @@ test.describe('v1.68 raw warehouse', () => {
       return window.__whCopyCapture || '';
     });
     expect(text.length).toBeGreaterThan(40);
-    // Meta markers (BP/weight/CGM always; sleep/steps years if v1.85 UI copy includes them)
+    // Meta markers (BP/weight/CGM always; sleep/steps/hrv years if v1.85+ UI copy includes them)
     expect(text).toMatch(/2026-05|cgm|CGM|血压|BP|体重|weight|sharded|分片/i);
     // Must not leak raw sample values (use distinctive numbers that won't appear in byte counts)
     expect(text).not.toMatch(/133|88|71\.11|6\.66|systolic|diastolic/);
     expect(text).not.toMatch(/7\.77|1\.11|4\.33|12345|6789/);
+    // v1.86: distinctive HRV / overnight / RHR / walking HR day values
+    expect(text).not.toMatch(/91\.91|82\.82|77\.71/);
   });
 
   test('encrypted backup roundtrip with passphrase', async ({ page }) => {

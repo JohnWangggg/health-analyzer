@@ -4,6 +4,7 @@
  * + v1.75 CGM 按月分片 domainChunks（core|full + cgm|YYYY-MM；兼容 healthData|full）
  * + v1.79 BP/体重按年分片（bloodPressure|YYYY、weight|YYYY；bodyFat 并入 weight 年片）
  * + v1.85 sleep/steps 按年分片（sleep|YYYY、steps|YYYY；date-keyed map 切片）
+ * + v1.86 hrv/restingHr/walkingHr 按年分片（hrv|YYYY 含 overnight；restingHr|YYYY；walkingHr|YYYY）
  * 不上传；摘要仓不含完整 CGM；原始仓仅在 consent 开启后写入
  */
 (function (global) {
@@ -25,7 +26,7 @@
   /** Soft / hard byte caps for raw warehouse (approx JSON size) */
   const WAREHOUSE_SOFT_BYTES = 150 * 1024 * 1024;
   const WAREHOUSE_HARD_BYTES = 200 * 1024 * 1024;
-  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.85.0';
+  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.86.0';
   /** @deprecated legacy single-blob id; still read for migrate */
   const WH_CHUNK_HEALTH = 'healthData|full';
   const WH_CHUNK_CORE = 'core|full';
@@ -35,6 +36,9 @@
   const WH_DOMAIN_WEIGHT = 'weight';
   const WH_DOMAIN_SLEEP = 'sleep';
   const WH_DOMAIN_STEPS = 'steps';
+  const WH_DOMAIN_HRV = 'hrv';
+  const WH_DOMAIN_RESTING_HR = 'restingHr';
+  const WH_DOMAIN_WALKING_HR = 'walkingHr';
 
   /**
    * Serialize warehouse mutations (persist / delete / clear / import).
@@ -390,11 +394,19 @@
     return /^\d{4}$/.test(s) ? s : 'unknown';
   }
 
-  /** Year key for date-keyed maps (sleep/steps): YYYY-MM-DD → YYYY, else yearKeyFromDatetime. */
+  /** Year key for date-keyed maps (sleep/steps/hrv/restingHr/walkingHr): YYYY-MM-DD → YYYY, else yearKeyFromDatetime. */
   function yearKeyFromDateMapKey(key) {
     const s = String(key || '');
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 4);
     return yearKeyFromDatetime(s);
+  }
+
+  function isDateKeyedMap(m) {
+    return !!(m && typeof m === 'object' && !Array.isArray(m));
+  }
+
+  function mapRecordCount(m) {
+    return isDateKeyedMap(m) ? Object.keys(m).length : 0;
   }
 
   /**
@@ -429,8 +441,19 @@
     const weightBytes = (split.weightYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
     const sleepBytes = (split.sleepYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
     const stepsBytes = (split.stepsYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
+    const hrvBytes = (split.hrvYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
+    const restingHrBytes = (split.restingHrYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
+    const walkingHrBytes = (split.walkingHrYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
     split.totalBytes =
-      (split.coreBytes || 0) + monthBytes + bpBytes + weightBytes + sleepBytes + stepsBytes;
+      (split.coreBytes || 0) +
+      monthBytes +
+      bpBytes +
+      weightBytes +
+      sleepBytes +
+      stepsBytes +
+      hrvBytes +
+      restingHrBytes +
+      walkingHrBytes;
     return split.totalBytes;
   }
 
@@ -471,20 +494,102 @@
           Object.assign(payload.steps, y.payload);
         }
       });
+    payload.hrv = {};
+    payload.hrvOvernight = {};
+    (split.hrvYears || [])
+      .slice()
+      .sort((a, b) => String(a.year || '').localeCompare(String(b.year || '')))
+      .forEach((y) => {
+        if (!y) return;
+        const p = y.payload;
+        if (p && typeof p === 'object' && !Array.isArray(p)) {
+          if (p.hrv && typeof p.hrv === 'object' && !Array.isArray(p.hrv)) {
+            Object.assign(payload.hrv, p.hrv);
+          }
+          if (p.hrvOvernight && typeof p.hrvOvernight === 'object' && !Array.isArray(p.hrvOvernight)) {
+            Object.assign(payload.hrvOvernight, p.hrvOvernight);
+          }
+          // Legacy: plain map without wrapper (treat as hrv only)
+          if (!p.hrv && !p.hrvOvernight) {
+            Object.assign(payload.hrv, p);
+          }
+        } else if (y.hrv && typeof y.hrv === 'object') {
+          Object.assign(payload.hrv, y.hrv);
+          if (y.hrvOvernight && typeof y.hrvOvernight === 'object') {
+            Object.assign(payload.hrvOvernight, y.hrvOvernight);
+          }
+        }
+      });
+    payload.restingHr = {};
+    (split.restingHrYears || [])
+      .slice()
+      .sort((a, b) => String(a.year || '').localeCompare(String(b.year || '')))
+      .forEach((y) => {
+        if (y && y.payload && typeof y.payload === 'object') {
+          Object.assign(payload.restingHr, y.payload);
+        }
+      });
+    payload.walkingHr = {};
+    (split.walkingHrYears || [])
+      .slice()
+      .sort((a, b) => String(a.year || '').localeCompare(String(b.year || '')))
+      .forEach((y) => {
+        if (y && y.payload && typeof y.payload === 'object') {
+          Object.assign(payload.walkingHr, y.payload);
+        }
+      });
     if (payload.dataAvailability) {
       payload.dataAvailability.hasCgm = payload.cgm.length > 0;
       payload.dataAvailability.hasBloodPressure = payload.bloodPressure.length > 0;
       payload.dataAvailability.hasWeight = payload.weight.length > 0;
       if (payload.bodyFat.length) payload.dataAvailability.hasBodyFat = true;
+      if (Object.keys(payload.hrv).length || Object.keys(payload.hrvOvernight).length) {
+        payload.dataAvailability.hasHrv = true;
+      }
     }
     return payload;
   }
 
   /**
-   * Split HealthData into core (no cgm / BP / weight / sleep / steps)
-   * + monthly CGM + yearly BP/weight/sleep/steps shards.
-   * bodyFat rides with weight year shards.
-   * @returns {{ core: object, months: object[], bpYears: object[], weightYears: object[], sleepYears: object[], stepsYears: object[], coreBytes: number, totalBytes: number }}
+   * Bucket hrv + hrvOvernight date maps into yearly shards (overnight rides with hrv like bodyFat/weight).
+   * @returns {{ year: string, hrv: object, hrvOvernight: object, payload: object, approxBytes: number, recordCount: number }[]}
+   */
+  function bucketHrvYears(hrvMap, hrvOvernightMap) {
+    /** @type {Record<string, { hrv: Record<string, unknown>, hrvOvernight: Record<string, unknown> }>} */
+    const byYear = {};
+    Object.keys(hrvMap || {}).forEach((k) => {
+      const y = yearKeyFromDateMapKey(k);
+      if (!byYear[y]) byYear[y] = { hrv: {}, hrvOvernight: {} };
+      byYear[y].hrv[k] = hrvMap[k];
+    });
+    Object.keys(hrvOvernightMap || {}).forEach((k) => {
+      const y = yearKeyFromDateMapKey(k);
+      if (!byYear[y]) byYear[y] = { hrv: {}, hrvOvernight: {} };
+      byYear[y].hrvOvernight[k] = hrvOvernightMap[k];
+    });
+    return Object.keys(byYear)
+      .sort()
+      .map((year) => {
+        const bucket = byYear[year];
+        const payloadSlice = { hrv: bucket.hrv, hrvOvernight: bucket.hrvOvernight };
+        const recordCount =
+          Object.keys(bucket.hrv).length + Object.keys(bucket.hrvOvernight).length;
+        return {
+          year,
+          hrv: bucket.hrv,
+          hrvOvernight: bucket.hrvOvernight,
+          payload: payloadSlice,
+          approxBytes: approxJsonBytes(payloadSlice),
+          recordCount,
+        };
+      });
+  }
+
+  /**
+   * Split HealthData into core (no cgm / BP / weight / sleep / steps / hrv / restingHr / walkingHr)
+   * + monthly CGM + yearly BP/weight/sleep/steps/hrv/restingHr/walkingHr shards.
+   * bodyFat rides with weight year shards; hrvOvernight rides with hrv year shards.
+   * @returns {{ core: object, months: object[], bpYears: object[], weightYears: object[], sleepYears: object[], stepsYears: object[], hrvYears: object[], restingHrYears: object[], walkingHrYears: object[], coreBytes: number, totalBytes: number }}
    */
   function splitHealthDataShards(healthData) {
     const full = clonePlain(healthData);
@@ -492,16 +597,22 @@
     const bloodPressure = Array.isArray(full.bloodPressure) ? full.bloodPressure : [];
     const weight = Array.isArray(full.weight) ? full.weight : [];
     const bodyFat = Array.isArray(full.bodyFat) ? full.bodyFat : [];
-    const sleepMap =
-      full.sleep && typeof full.sleep === 'object' && !Array.isArray(full.sleep) ? full.sleep : {};
-    const stepsMap =
-      full.steps && typeof full.steps === 'object' && !Array.isArray(full.steps) ? full.steps : {};
+    const sleepMap = isDateKeyedMap(full.sleep) ? full.sleep : {};
+    const stepsMap = isDateKeyedMap(full.steps) ? full.steps : {};
+    const hrvMap = isDateKeyedMap(full.hrv) ? full.hrv : {};
+    const hrvOvernightMap = isDateKeyedMap(full.hrvOvernight) ? full.hrvOvernight : {};
+    const restingHrMap = isDateKeyedMap(full.restingHr) ? full.restingHr : {};
+    const walkingHrMap = isDateKeyedMap(full.walkingHr) ? full.walkingHr : {};
     full.cgm = [];
     full.bloodPressure = [];
     full.weight = [];
     full.bodyFat = [];
     full.sleep = {};
     full.steps = {};
+    full.hrv = {};
+    full.hrvOvernight = {};
+    full.restingHr = {};
+    full.walkingHr = {};
 
     /** @type {Record<string, object[]>} */
     const byMonth = {};
@@ -565,6 +676,9 @@
 
     const sleepYears = bucketDateMapByYear(sleepMap);
     const stepsYears = bucketDateMapByYear(stepsMap);
+    const hrvYears = bucketHrvYears(hrvMap, hrvOvernightMap);
+    const restingHrYears = bucketDateMapByYear(restingHrMap);
+    const walkingHrYears = bucketDateMapByYear(walkingHrMap);
 
     const coreBytes = approxJsonBytes(full);
     const split = {
@@ -574,6 +688,9 @@
       weightYears,
       sleepYears,
       stepsYears,
+      hrvYears,
+      restingHrYears,
+      walkingHrYears,
       coreBytes,
       totalBytes: 0,
     };
@@ -731,21 +848,98 @@
   }
 
   /**
-   * Run CGM month eviction then optional BP/weight then sleep/steps year eviction.
+   * After sleep/steps year eviction: drop oldest hrv / restingHr / walkingHr year shards.
+   * Safe: keep ≥1 year per domain family when possible (never drop last year of a family).
+   * Mutates split.hrvYears / split.restingHrYears / split.walkingHrYears.
+   */
+  function evictOldestHrvHrYears(split) {
+    let removedHrv = 0;
+    let removedRestingHr = 0;
+    let removedWalkingHr = 0;
+    let removedYears = 0;
+    const beforeBytes = split.totalBytes;
+    if (!split.hrvYears) split.hrvYears = [];
+    if (!split.restingHrYears) split.restingHrYears = [];
+    if (!split.walkingHrYears) split.walkingHrYears = [];
+
+    while (split.totalBytes > WAREHOUSE_SOFT_BYTES) {
+      /** @type {{ domain: string, year: string, idx: number }[]} */
+      const candidates = [];
+      // Only domains with >1 year are eligible (keep ≥1 year per domain family)
+      if (split.hrvYears.length > 1) {
+        split.hrvYears.forEach((y, idx) => {
+          candidates.push({ domain: 'hrv', year: String(y.year || ''), idx });
+        });
+      }
+      if (split.restingHrYears.length > 1) {
+        split.restingHrYears.forEach((y, idx) => {
+          candidates.push({ domain: 'restingHr', year: String(y.year || ''), idx });
+        });
+      }
+      if (split.walkingHrYears.length > 1) {
+        split.walkingHrYears.forEach((y, idx) => {
+          candidates.push({ domain: 'walkingHr', year: String(y.year || ''), idx });
+        });
+      }
+      if (!candidates.length) break;
+
+      candidates.sort((a, b) => {
+        const yc = String(a.year).localeCompare(String(b.year));
+        if (yc !== 0) return yc;
+        // Prefer drop hrv first for same year, then resting, then walking
+        const order = { hrv: 0, restingHr: 1, walkingHr: 2 };
+        return (order[a.domain] || 0) - (order[b.domain] || 0);
+      });
+      const pick = candidates[0];
+      if (pick.domain === 'hrv') {
+        const row = split.hrvYears.splice(pick.idx, 1)[0];
+        removedHrv += row.recordCount || 0;
+        removedYears += 1;
+      } else if (pick.domain === 'restingHr') {
+        const row = split.restingHrYears.splice(pick.idx, 1)[0];
+        removedRestingHr += row.recordCount || 0;
+        removedYears += 1;
+      } else if (pick.domain === 'walkingHr') {
+        const row = split.walkingHrYears.splice(pick.idx, 1)[0];
+        removedWalkingHr += row.recordCount || 0;
+        removedYears += 1;
+      } else {
+        break;
+      }
+      recomputeSplitTotalBytes(split);
+    }
+    return {
+      trimmed: removedHrv > 0 || removedRestingHr > 0 || removedWalkingHr > 0,
+      removedHrv,
+      removedRestingHr,
+      removedWalkingHr,
+      removedYears,
+      beforeBytes,
+      afterBytes: split.totalBytes,
+    };
+  }
+
+  /**
+   * Run CGM month eviction then optional BP/weight, sleep/steps, then hrv/hr year eviction.
    */
   function applyShardQuotaEviction(split) {
     const cgmEv = evictOldestCgmMonths(split);
     const yearEv = evictOldestBpWeightYears(split);
     const mapYearEv = evictOldestSleepStepsYears(split);
+    const hrvHrEv = evictOldestHrvHrYears(split);
     return {
-      trimmed: !!(cgmEv.trimmed || yearEv.trimmed || mapYearEv.trimmed),
+      trimmed: !!(cgmEv.trimmed || yearEv.trimmed || mapYearEv.trimmed || hrvHrEv.trimmed),
       removedCgm: cgmEv.removedCgm || 0,
       removedMonths: cgmEv.removedMonths || 0,
       removedBp: yearEv.removedBp || 0,
       removedWeight: yearEv.removedWeight || 0,
       removedSleep: mapYearEv.removedSleep || 0,
       removedSteps: mapYearEv.removedSteps || 0,
-      removedYears: (yearEv.removedYears || 0) + (mapYearEv.removedYears || 0),
+      removedHrv: hrvHrEv.removedHrv || 0,
+      removedRestingHr: hrvHrEv.removedRestingHr || 0,
+      removedWalkingHr: hrvHrEv.removedWalkingHr || 0,
+      removedYears:
+        (yearEv.removedYears || 0) + (mapYearEv.removedYears || 0) + (hrvHrEv.removedYears || 0),
       beforeBytes: cgmEv.beforeBytes,
       afterBytes: split.totalBytes,
     };
@@ -769,6 +963,9 @@
         removedWeight: ev.removedWeight,
         removedSleep: ev.removedSleep,
         removedSteps: ev.removedSteps,
+        removedHrv: ev.removedHrv,
+        removedRestingHr: ev.removedRestingHr,
+        removedWalkingHr: ev.removedWalkingHr,
         removedYears: ev.removedYears,
         beforeBytes: ev.beforeBytes,
         afterBytes: approxJsonBytes(payload),
@@ -873,11 +1070,82 @@
       data.steps = {};
     }
 
+    // HRV year shards (v1.86+): payload { hrv, hrvOvernight }. Merge by year order; keep core maps if none.
+    const hrvChunks = allChunks
+      .filter((c) => c && c.domain === WH_DOMAIN_HRV && c.payload != null)
+      .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+    if (hrvChunks.length) {
+      data.hrv = {};
+      data.hrvOvernight = {};
+      hrvChunks.forEach((c) => {
+        const p = c.payload;
+        if (p && typeof p === 'object' && !Array.isArray(p)) {
+          if (p.hrv && typeof p.hrv === 'object' && !Array.isArray(p.hrv)) {
+            Object.assign(data.hrv, p.hrv);
+          }
+          if (p.hrvOvernight && typeof p.hrvOvernight === 'object' && !Array.isArray(p.hrvOvernight)) {
+            Object.assign(data.hrvOvernight, p.hrvOvernight);
+          }
+          // Plain map without wrapper → treat as hrv only
+          if (!p.hrv && !p.hrvOvernight) {
+            Object.assign(data.hrv, p);
+          }
+        }
+      });
+    } else {
+      if (!data.hrv || typeof data.hrv !== 'object' || Array.isArray(data.hrv)) data.hrv = {};
+      if (!data.hrvOvernight || typeof data.hrvOvernight !== 'object' || Array.isArray(data.hrvOvernight)) {
+        data.hrvOvernight = {};
+      }
+    }
+
+    // Resting HR year shards (v1.86+): payload is date-keyed map. Merge by year order.
+    const restingHrChunks = allChunks
+      .filter(
+        (c) =>
+          c && c.domain === WH_DOMAIN_RESTING_HR && c.payload != null && typeof c.payload === 'object'
+      )
+      .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+    if (restingHrChunks.length) {
+      data.restingHr = {};
+      restingHrChunks.forEach((c) => {
+        if (c.payload && typeof c.payload === 'object' && !Array.isArray(c.payload)) {
+          Object.assign(data.restingHr, c.payload);
+        }
+      });
+    } else if (!data.restingHr || typeof data.restingHr !== 'object' || Array.isArray(data.restingHr)) {
+      data.restingHr = {};
+    }
+
+    // Walking HR year shards (v1.86+): payload is date-keyed map. Merge by year order.
+    const walkingHrChunks = allChunks
+      .filter(
+        (c) =>
+          c && c.domain === WH_DOMAIN_WALKING_HR && c.payload != null && typeof c.payload === 'object'
+      )
+      .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+    if (walkingHrChunks.length) {
+      data.walkingHr = {};
+      walkingHrChunks.forEach((c) => {
+        if (c.payload && typeof c.payload === 'object' && !Array.isArray(c.payload)) {
+          Object.assign(data.walkingHr, c.payload);
+        }
+      });
+    } else if (!data.walkingHr || typeof data.walkingHr !== 'object' || Array.isArray(data.walkingHr)) {
+      data.walkingHr = {};
+    }
+
     if (data.dataAvailability) {
       data.dataAvailability.hasCgm = (data.cgm && data.cgm.length) > 0;
       data.dataAvailability.hasBloodPressure = (data.bloodPressure && data.bloodPressure.length) > 0;
       data.dataAvailability.hasWeight = (data.weight && data.weight.length) > 0;
       if (data.bodyFat && data.bodyFat.length) data.dataAvailability.hasBodyFat = true;
+      if (
+        (data.hrv && Object.keys(data.hrv).length) ||
+        (data.hrvOvernight && Object.keys(data.hrvOvernight).length)
+      ) {
+        data.dataAvailability.hasHrv = true;
+      }
     }
     return {
       data,
@@ -889,6 +1157,9 @@
       weightChunks,
       sleepChunks,
       stepsChunks,
+      hrvChunks,
+      restingHrChunks,
+      walkingHrChunks,
     };
   }
 
@@ -906,7 +1177,7 @@
   }
 
   /**
-   * Persist merged HealthData into warehouse (CGM by month; BP/weight/sleep/steps by year).
+   * Persist merged HealthData into warehouse (CGM by month; BP/weight/sleep/steps/hrv/restingHr/walkingHr by year).
    * @param {object} healthData
    * @param {{ batchId?: string|null }} [opts]
    * @returns {Promise<{ ok: boolean, reason?: string, meta?: object, approxBytes?: number }>}
@@ -1032,6 +1303,45 @@
         updatedAt: now,
         codec: 'json',
       }));
+      const hrvChunks = (split.hrvYears || []).map((y) => ({
+        id: 'hrv|' + y.year,
+        domain: WH_DOMAIN_HRV,
+        shard: y.year,
+        dateStart: y.year + '-01-01',
+        dateEnd: y.year + '-12-31',
+        payload: y.payload || { hrv: y.hrv || {}, hrvOvernight: y.hrvOvernight || {} },
+        approxBytes: y.approxBytes,
+        recordCount: y.recordCount,
+        batchId,
+        updatedAt: now,
+        codec: 'json',
+      }));
+      const restingHrChunks = (split.restingHrYears || []).map((y) => ({
+        id: 'restingHr|' + y.year,
+        domain: WH_DOMAIN_RESTING_HR,
+        shard: y.year,
+        dateStart: y.year + '-01-01',
+        dateEnd: y.year + '-12-31',
+        payload: y.payload || {},
+        approxBytes: y.approxBytes,
+        recordCount: y.recordCount,
+        batchId,
+        updatedAt: now,
+        codec: 'json',
+      }));
+      const walkingHrChunks = (split.walkingHrYears || []).map((y) => ({
+        id: 'walkingHr|' + y.year,
+        domain: WH_DOMAIN_WALKING_HR,
+        shard: y.year,
+        dateStart: y.year + '-01-01',
+        dateEnd: y.year + '-12-31',
+        payload: y.payload || {},
+        approxBytes: y.approxBytes,
+        recordCount: y.recordCount,
+        batchId,
+        updatedAt: now,
+        codec: 'json',
+      }));
 
       meta.dateRange = dateRange;
       meta.domainStats = buildDomainStats(payload);
@@ -1054,6 +1364,18 @@
       if (meta.domainStats.steps && stepsChunks.length) {
         meta.domainStats.steps.chunkCount = stepsChunks.length;
       }
+      if (meta.domainStats.hrv && hrvChunks.length) {
+        meta.domainStats.hrv.chunkCount = hrvChunks.length;
+      }
+      if (meta.domainStats.hrvOvernight && hrvChunks.length) {
+        meta.domainStats.hrvOvernight.chunkCount = hrvChunks.length;
+      }
+      if (meta.domainStats.restingHr && restingHrChunks.length) {
+        meta.domainStats.restingHr.chunkCount = restingHrChunks.length;
+      }
+      if (meta.domainStats.walkingHr && walkingHrChunks.length) {
+        meta.domainStats.walkingHr.chunkCount = walkingHrChunks.length;
+      }
       meta.totalApproxBytes = approxBytes;
       meta.totalRecordCount = recordCount;
       meta.lastImportBatchId = batchId || meta.lastImportBatchId || null;
@@ -1065,6 +1387,9 @@
       meta.weightYears = weightChunks.map((c) => c.shard);
       meta.sleepYears = sleepChunks.map((c) => c.shard);
       meta.stepsYears = stepsChunks.map((c) => c.shard);
+      meta.hrvYears = hrvChunks.map((c) => c.shard);
+      meta.restingHrYears = restingHrChunks.map((c) => c.shard);
+      meta.walkingHrYears = walkingHrChunks.map((c) => c.shard);
       if (approxBytes > WAREHOUSE_SOFT_BYTES) {
         meta.notes = ['soft_quota_exceeded'];
       } else if (trimMeta.trimmed) {
@@ -1073,6 +1398,9 @@
         if (trimMeta.removedBp || trimMeta.removedWeight) notes.push('bp_weight_years_evicted_for_quota');
         if (trimMeta.removedSleep || trimMeta.removedSteps) {
           notes.push('sleep_steps_years_evicted_for_quota');
+        }
+        if (trimMeta.removedHrv || trimMeta.removedRestingHr || trimMeta.removedWalkingHr) {
+          notes.push('hrv_hr_years_evicted_for_quota');
         }
         meta.notes = notes.length ? notes : ['shards_evicted_for_quota'];
       } else {
@@ -1100,6 +1428,9 @@
             weightChunks.forEach((c) => store.put(c));
             sleepChunks.forEach((c) => store.put(c));
             stepsChunks.forEach((c) => store.put(c));
+            hrvChunks.forEach((c) => store.put(c));
+            restingHrChunks.forEach((c) => store.put(c));
+            walkingHrChunks.forEach((c) => store.put(c));
             tx.objectStore(STORE_WH_META).put(Object.assign(defaultWarehouseMeta(), meta, { id: WH_META_ID }));
             tx.oncomplete = () => {
               db.close();
@@ -1115,6 +1446,9 @@
                 removedWeight: trimMeta.removedWeight || 0,
                 removedSleep: trimMeta.removedSleep || 0,
                 removedSteps: trimMeta.removedSteps || 0,
+                removedHrv: trimMeta.removedHrv || 0,
+                removedRestingHr: trimMeta.removedRestingHr || 0,
+                removedWalkingHr: trimMeta.removedWalkingHr || 0,
                 removedYears: trimMeta.removedYears || 0,
                 layout: 'sharded-v1',
                 cgmMonthCount: cgmChunks.length,
@@ -1122,6 +1456,9 @@
                 weightYearCount: weightChunks.length,
                 sleepYearCount: sleepChunks.length,
                 stepsYearCount: stepsChunks.length,
+                hrvYearCount: hrvChunks.length,
+                restingHrYearCount: restingHrChunks.length,
+                walkingHrYearCount: walkingHrChunks.length,
               });
             };
             tx.onerror = () => {
@@ -1187,6 +1524,9 @@
         weightYears: meta.weightYears || [],
         sleepYears: meta.sleepYears || [],
         stepsYears: meta.stepsYears || [],
+        hrvYears: meta.hrvYears || [],
+        restingHrYears: meta.restingHrYears || [],
+        walkingHrYears: meta.walkingHrYears || [],
       };
     }).then((status) => {
       if (!status.granted) return status;
@@ -1266,15 +1606,49 @@
                       approxBytes: c.approxBytes || 0,
                     };
                   });
+              const hrvYearDetails = (all || [])
+                .filter((c) => c && c.domain === WH_DOMAIN_HRV)
+                .slice()
+                .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')))
+                .map((c) => {
+                  let recordCount = c.recordCount;
+                  if (recordCount == null) {
+                    const p = c.payload;
+                    if (p && typeof p === 'object' && !Array.isArray(p)) {
+                      if (p.hrv || p.hrvOvernight) {
+                        recordCount =
+                          mapRecordCount(p.hrv) + mapRecordCount(p.hrvOvernight);
+                      } else {
+                        recordCount = Object.keys(p).length;
+                      }
+                    } else {
+                      recordCount = 0;
+                    }
+                  }
+                  return {
+                    year: c.shard || '',
+                    recordCount,
+                    approxBytes: c.approxBytes || 0,
+                  };
+                });
               status.sleepYearDetails = mapYearDetails(WH_DOMAIN_SLEEP);
               status.stepsYearDetails = mapYearDetails(WH_DOMAIN_STEPS);
+              status.hrvYearDetails = hrvYearDetails;
+              status.restingHrYearDetails = mapYearDetails(WH_DOMAIN_RESTING_HR);
+              status.walkingHrYearDetails = mapYearDetails(WH_DOMAIN_WALKING_HR);
               status.sleepYears = status.sleepYearDetails.map((d) => d.year).filter(Boolean);
               status.stepsYears = status.stepsYearDetails.map((d) => d.year).filter(Boolean);
+              status.hrvYears = status.hrvYearDetails.map((d) => d.year).filter(Boolean);
+              status.restingHrYears = status.restingHrYearDetails.map((d) => d.year).filter(Boolean);
+              status.walkingHrYears = status.walkingHrYearDetails.map((d) => d.year).filter(Boolean);
               status.yearDetails = {
                 bloodPressure: status.bpYearDetails,
                 weight: status.weightYearDetails,
                 sleep: status.sleepYearDetails,
                 steps: status.stepsYearDetails,
+                hrv: status.hrvYearDetails,
+                restingHr: status.restingHrYearDetails,
+                walkingHr: status.walkingHrYearDetails,
               };
               status.chunkCount = (all || []).length;
               status.coreBytes = ((all || []).find((c) => c && (c.id === WH_CHUNK_CORE || c.domain === 'core')) || {}).approxBytes || 0;
@@ -1284,7 +1658,18 @@
               status.weightYearDetails = [];
               status.sleepYearDetails = [];
               status.stepsYearDetails = [];
-              status.yearDetails = { bloodPressure: [], weight: [], sleep: [], steps: [] };
+              status.hrvYearDetails = [];
+              status.restingHrYearDetails = [];
+              status.walkingHrYearDetails = [];
+              status.yearDetails = {
+                bloodPressure: [],
+                weight: [],
+                sleep: [],
+                steps: [],
+                hrv: [],
+                restingHr: [],
+                walkingHr: [],
+              };
               status.chunkCount = 1;
             }
             status.softWarn = status.approxBytes > WAREHOUSE_SOFT_BYTES;
@@ -1515,6 +1900,21 @@
             .sort();
           meta.stepsYears = toWrite
             .filter((c) => c && c.domain === WH_DOMAIN_STEPS)
+            .map((c) => c.shard)
+            .filter(Boolean)
+            .sort();
+          meta.hrvYears = toWrite
+            .filter((c) => c && c.domain === WH_DOMAIN_HRV)
+            .map((c) => c.shard)
+            .filter(Boolean)
+            .sort();
+          meta.restingHrYears = toWrite
+            .filter((c) => c && c.domain === WH_DOMAIN_RESTING_HR)
+            .map((c) => c.shard)
+            .filter(Boolean)
+            .sort();
+          meta.walkingHrYears = toWrite
+            .filter((c) => c && c.domain === WH_DOMAIN_WALKING_HR)
             .map((c) => c.shard)
             .filter(Boolean)
             .sort();
@@ -2351,6 +2751,21 @@
       .map((c) => c.shard)
       .filter(Boolean)
       .sort();
+    next.hrvYears = remaining
+      .filter((c) => c && c.domain === WH_DOMAIN_HRV)
+      .map((c) => c.shard)
+      .filter(Boolean)
+      .sort();
+    next.restingHrYears = remaining
+      .filter((c) => c && c.domain === WH_DOMAIN_RESTING_HR)
+      .map((c) => c.shard)
+      .filter(Boolean)
+      .sort();
+    next.walkingHrYears = remaining
+      .filter((c) => c && c.domain === WH_DOMAIN_WALKING_HR)
+      .map((c) => c.shard)
+      .filter(Boolean)
+      .sort();
   }
 
   function recomputeMetaAfterShardDeletes(meta, remaining, note) {
@@ -2375,6 +2790,16 @@
         if (!Array.isArray(data.bodyFat)) data.bodyFat = [];
         if (!data.sleep || typeof data.sleep !== 'object' || Array.isArray(data.sleep)) data.sleep = {};
         if (!data.steps || typeof data.steps !== 'object' || Array.isArray(data.steps)) data.steps = {};
+        if (!data.hrv || typeof data.hrv !== 'object' || Array.isArray(data.hrv)) data.hrv = {};
+        if (!data.hrvOvernight || typeof data.hrvOvernight !== 'object' || Array.isArray(data.hrvOvernight)) {
+          data.hrvOvernight = {};
+        }
+        if (!data.restingHr || typeof data.restingHr !== 'object' || Array.isArray(data.restingHr)) {
+          data.restingHr = {};
+        }
+        if (!data.walkingHr || typeof data.walkingHr !== 'object' || Array.isArray(data.walkingHr)) {
+          data.walkingHr = {};
+        }
         next.totalApproxBytes =
           remaining.reduce((s, c) => s + (c.approxBytes || 0), 0) ||
           core.approxBytes ||
@@ -2394,6 +2819,9 @@
         next.weightYears = [];
         next.sleepYears = [];
         next.stepsYears = [];
+        next.hrvYears = [];
+        next.restingHrYears = [];
+        next.walkingHrYears = [];
       }
     }
     next.lastWrittenAt = now;
@@ -2543,8 +2971,9 @@
   }
 
   /**
-   * Delete one or more yearly shards for bloodPressure, weight, sleep, or steps.
-   * @param {'bloodPressure'|'weight'|'sleep'|'steps'} domain
+   * Delete one or more yearly shards for bloodPressure, weight, sleep, steps, hrv, restingHr, or walkingHr.
+   * For hrv, deleting a year removes both hrv and hrvOvernight (same chunk hrv|YYYY).
+   * @param {'bloodPressure'|'weight'|'sleep'|'steps'|'hrv'|'restingHr'|'walkingHr'} domain
    * @param {string|string[]} years e.g. '2025' or ['2024','2025']
    */
   function deleteDomainYearShards(domain, years) {
@@ -2553,7 +2982,10 @@
       dom !== WH_DOMAIN_BP &&
       dom !== WH_DOMAIN_WEIGHT &&
       dom !== WH_DOMAIN_SLEEP &&
-      dom !== WH_DOMAIN_STEPS
+      dom !== WH_DOMAIN_STEPS &&
+      dom !== WH_DOMAIN_HRV &&
+      dom !== WH_DOMAIN_RESTING_HR &&
+      dom !== WH_DOMAIN_WALKING_HR
     ) {
       return Promise.resolve({ ok: false, reason: 'invalid_domain' });
     }
@@ -2605,6 +3037,19 @@
     return deleteDomainYearShards(WH_DOMAIN_STEPS, years);
   }
 
+  /** Deletes hrv|YYYY (both hrv + hrvOvernight for that year). */
+  function deleteHrvYearShards(years) {
+    return deleteDomainYearShards(WH_DOMAIN_HRV, years);
+  }
+
+  function deleteRestingHrYearShards(years) {
+    return deleteDomainYearShards(WH_DOMAIN_RESTING_HR, years);
+  }
+
+  function deleteWalkingHrYearShards(years) {
+    return deleteDomainYearShards(WH_DOMAIN_WALKING_HR, years);
+  }
+
   global.HealthHistory = {
     saveSnapshot,
     listSnapshots,
@@ -2652,6 +3097,9 @@
     deleteWeightYearShards,
     deleteSleepYearShards,
     deleteStepsYearShards,
+    deleteHrvYearShards,
+    deleteRestingHrYearShards,
+    deleteWalkingHrYearShards,
     buildDomainStats,
     trimCgmForSoftQuota,
     splitHealthDataShards,

@@ -737,6 +737,72 @@
           </div>
           <ul id="warehouse-steps-year-list" class="warehouse-cgm-month-list" aria-label="Steps years"></ul>
         </div>
+        <div id="warehouse-hrv-years" class="warehouse-year-shards hidden" role="region" aria-labelledby="warehouse-hrv-years-title">
+          <h4 class="warehouse-cgm-months-title" id="warehouse-hrv-years-title" data-i18n="warehouse.hrvYearsTitle">HRV 年分片</h4>
+          <p class="hint compact-hint" data-i18n="warehouse.hrvYearsHint">按自然年存储；可多选删除以释放空间。非诊断。</p>
+          <div class="warehouse-cgm-bulk-actions export-actions">
+            <label class="check-inline" for="warehouse-hrv-select-all">
+              <input type="checkbox" id="warehouse-hrv-select-all" />
+              <span data-i18n="warehouse.cgmSelectAll">全选</span>
+            </label>
+            <button type="button" id="btn-warehouse-hrv-delete-selected" class="btn-danger-text btn-sm" data-i18n="warehouse.yearDeleteSelected">删除所选年</button>
+            <label class="warehouse-cgm-keep-label" for="warehouse-hrv-keep-years">
+              <span data-i18n="warehouse.yearKeepYearsLabel">保留年数</span>
+              <select id="warehouse-hrv-keep-years" data-i18n-aria="warehouse.yearKeepYearsLabel" aria-label="保留年数">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+              </select>
+            </label>
+            <button type="button" id="btn-warehouse-hrv-keep-recent" class="btn-ghost btn-sm">仅保留近 3 年</button>
+          </div>
+          <ul id="warehouse-hrv-year-list" class="warehouse-cgm-month-list" aria-label="HRV years"></ul>
+        </div>
+        <div id="warehouse-resting-hr-years" class="warehouse-year-shards hidden" role="region" aria-labelledby="warehouse-resting-hr-years-title">
+          <h4 class="warehouse-cgm-months-title" id="warehouse-resting-hr-years-title" data-i18n="warehouse.restingHrYearsTitle">静息心率年分片</h4>
+          <p class="hint compact-hint" data-i18n="warehouse.restingHrYearsHint">按自然年存储；可多选删除以释放空间。非诊断。</p>
+          <div class="warehouse-cgm-bulk-actions export-actions">
+            <label class="check-inline" for="warehouse-resting-hr-select-all">
+              <input type="checkbox" id="warehouse-resting-hr-select-all" />
+              <span data-i18n="warehouse.cgmSelectAll">全选</span>
+            </label>
+            <button type="button" id="btn-warehouse-resting-hr-delete-selected" class="btn-danger-text btn-sm" data-i18n="warehouse.yearDeleteSelected">删除所选年</button>
+            <label class="warehouse-cgm-keep-label" for="warehouse-resting-hr-keep-years">
+              <span data-i18n="warehouse.yearKeepYearsLabel">保留年数</span>
+              <select id="warehouse-resting-hr-keep-years" data-i18n-aria="warehouse.yearKeepYearsLabel" aria-label="保留年数">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+              </select>
+            </label>
+            <button type="button" id="btn-warehouse-resting-hr-keep-recent" class="btn-ghost btn-sm">仅保留近 3 年</button>
+          </div>
+          <ul id="warehouse-resting-hr-year-list" class="warehouse-cgm-month-list" aria-label="Resting HR years"></ul>
+        </div>
+        <div id="warehouse-walking-hr-years" class="warehouse-year-shards hidden" role="region" aria-labelledby="warehouse-walking-hr-years-title">
+          <h4 class="warehouse-cgm-months-title" id="warehouse-walking-hr-years-title" data-i18n="warehouse.walkingHrYearsTitle">步行心率年分片</h4>
+          <p class="hint compact-hint" data-i18n="warehouse.walkingHrYearsHint">按自然年存储；可多选删除以释放空间。非诊断。</p>
+          <div class="warehouse-cgm-bulk-actions export-actions">
+            <label class="check-inline" for="warehouse-walking-hr-select-all">
+              <input type="checkbox" id="warehouse-walking-hr-select-all" />
+              <span data-i18n="warehouse.cgmSelectAll">全选</span>
+            </label>
+            <button type="button" id="btn-warehouse-walking-hr-delete-selected" class="btn-danger-text btn-sm" data-i18n="warehouse.yearDeleteSelected">删除所选年</button>
+            <label class="warehouse-cgm-keep-label" for="warehouse-walking-hr-keep-years">
+              <span data-i18n="warehouse.yearKeepYearsLabel">保留年数</span>
+              <select id="warehouse-walking-hr-keep-years" data-i18n-aria="warehouse.yearKeepYearsLabel" aria-label="保留年数">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+              </select>
+            </label>
+            <button type="button" id="btn-warehouse-walking-hr-keep-recent" class="btn-ghost btn-sm">仅保留近 3 年</button>
+          </div>
+          <ul id="warehouse-walking-hr-year-list" class="warehouse-cgm-month-list" aria-label="Walking HR years"></ul>
+        </div>
         <label class="check-inline warehouse-auto-trim-row" for="warehouse-auto-trim">
           <input type="checkbox" id="warehouse-auto-trim" />
           <span data-i18n="warehouse.autoTrim">保存后自动按保留窗口裁剪</span>
@@ -892,7 +958,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.85</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.86</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

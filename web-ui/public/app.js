@@ -7423,6 +7423,40 @@
       }));
     }
 
+    // HRV / resting HR / walking HR year lists (present only when storage reports them)
+    const hrvYears = (st.hrvYears || (st.hrvYearDetails || []).map((d) => d && d.year) || [])
+      .map((y) => String(y || '').slice(0, 4))
+      .filter((y) => /^\d{4}$/.test(y))
+      .sort();
+    if (st.hrvYears || (st.hrvYearDetails && st.hrvYearDetails.length) || hrvYears.length) {
+      lines.push(t('warehouse.statusSummary.hrvYears', {
+        n: String(hrvYears.length),
+        list: hrvYears.length ? hrvYears.join(', ') : '—',
+      }));
+    }
+
+    const restingHrYears = (st.restingHrYears || (st.restingHrYearDetails || []).map((d) => d && d.year) || [])
+      .map((y) => String(y || '').slice(0, 4))
+      .filter((y) => /^\d{4}$/.test(y))
+      .sort();
+    if (st.restingHrYears || (st.restingHrYearDetails && st.restingHrYearDetails.length) || restingHrYears.length) {
+      lines.push(t('warehouse.statusSummary.restingHrYears', {
+        n: String(restingHrYears.length),
+        list: restingHrYears.length ? restingHrYears.join(', ') : '—',
+      }));
+    }
+
+    const walkingHrYears = (st.walkingHrYears || (st.walkingHrYearDetails || []).map((d) => d && d.year) || [])
+      .map((y) => String(y || '').slice(0, 4))
+      .filter((y) => /^\d{4}$/.test(y))
+      .sort();
+    if (st.walkingHrYears || (st.walkingHrYearDetails && st.walkingHrYearDetails.length) || walkingHrYears.length) {
+      lines.push(t('warehouse.statusSummary.walkingHrYears', {
+        n: String(walkingHrYears.length),
+        list: walkingHrYears.length ? walkingHrYears.join(', ') : '—',
+      }));
+    }
+
     lines.push(t('warehouse.statusSummary.softWarn', { v: st.softWarn ? yes : no }));
     lines.push(t('warehouse.statusSummary.autoTrim', {
       v: isWarehouseAutoTrimEnabled() ? on : off,
@@ -7545,6 +7579,12 @@
     const sleepList = $('warehouse-sleep-year-list');
     const stepsWrap = $('warehouse-steps-years');
     const stepsList = $('warehouse-steps-year-list');
+    const hrvWrap = $('warehouse-hrv-years');
+    const hrvList = $('warehouse-hrv-year-list');
+    const restingHrWrap = $('warehouse-resting-hr-years');
+    const restingHrList = $('warehouse-resting-hr-year-list');
+    const walkingHrWrap = $('warehouse-walking-hr-years');
+    const walkingHrList = $('warehouse-walking-hr-year-list');
     const HH = window.HealthHistory;
     if (!HH || typeof HH.getWarehouseStatus !== 'function') {
       if (statusEl) statusEl.textContent = t('warehouse.unavailable');
@@ -7581,16 +7621,28 @@
       if (sleepList) sleepList.innerHTML = '';
       if (stepsWrap) stepsWrap.classList.add('hidden');
       if (stepsList) stepsList.innerHTML = '';
+      if (hrvWrap) hrvWrap.classList.add('hidden');
+      if (hrvList) hrvList.innerHTML = '';
+      if (restingHrWrap) restingHrWrap.classList.add('hidden');
+      if (restingHrList) restingHrList.innerHTML = '';
+      if (walkingHrWrap) walkingHrWrap.classList.add('hidden');
+      if (walkingHrList) walkingHrList.innerHTML = '';
       const bothActions = $('warehouse-years-both-actions');
       if (bothActions) bothActions.classList.add('hidden');
       const bpSelectAll = $('warehouse-bp-select-all');
       const weightSelectAll = $('warehouse-weight-select-all');
       const sleepSelectAll = $('warehouse-sleep-select-all');
       const stepsSelectAll = $('warehouse-steps-select-all');
+      const hrvSelectAll = $('warehouse-hrv-select-all');
+      const restingHrSelectAll = $('warehouse-resting-hr-select-all');
+      const walkingHrSelectAll = $('warehouse-walking-hr-select-all');
       if (bpSelectAll) bpSelectAll.checked = false;
       if (weightSelectAll) weightSelectAll.checked = false;
       if (sleepSelectAll) sleepSelectAll.checked = false;
       if (stepsSelectAll) stepsSelectAll.checked = false;
+      if (hrvSelectAll) hrvSelectAll.checked = false;
+      if (restingHrSelectAll) restingHrSelectAll.checked = false;
+      if (walkingHrSelectAll) walkingHrSelectAll.checked = false;
       syncWarehouseAutoTrimUi();
 
       if (!statusEl) {
@@ -7635,6 +7687,12 @@
               || ((st.sleepYearDetails && st.sleepYearDetails.length) || 0)),
             stepsYears: String((st.stepsYears && st.stepsYears.length)
               || ((st.stepsYearDetails && st.stepsYearDetails.length) || 0)),
+            hrvYears: String((st.hrvYears && st.hrvYears.length)
+              || ((st.hrvYearDetails && st.hrvYearDetails.length) || 0)),
+            restingHrYears: String((st.restingHrYears && st.restingHrYears.length)
+              || ((st.restingHrYearDetails && st.restingHrYearDetails.length) || 0)),
+            walkingHrYears: String((st.walkingHrYears && st.walkingHrYears.length)
+              || ((st.walkingHrYearDetails && st.walkingHrYearDetails.length) || 0)),
             chunks: String(st.chunkCount || 0),
           });
           layoutEl.classList.remove('hidden');
@@ -7704,7 +7762,7 @@
         });
       }
 
-      // BP / weight / sleep / steps yearly shards (newest first)
+      // BP / weight / sleep / steps / HRV / resting HR / walking HR yearly shards (newest first)
       renderYearShardList(
         bpWrap,
         bpList,
@@ -7732,6 +7790,27 @@
         yearShardDetailsOrFallback(st.stepsYearDetails, st.stepsYears),
         'steps',
         'steps'
+      );
+      renderYearShardList(
+        hrvWrap,
+        hrvList,
+        yearShardDetailsOrFallback(st.hrvYearDetails, st.hrvYears),
+        'hrv',
+        'hrv'
+      );
+      renderYearShardList(
+        restingHrWrap,
+        restingHrList,
+        yearShardDetailsOrFallback(st.restingHrYearDetails, st.restingHrYears),
+        'restingHr',
+        'restingHr'
+      );
+      renderYearShardList(
+        walkingHrWrap,
+        walkingHrList,
+        yearShardDetailsOrFallback(st.walkingHrYearDetails, st.walkingHrYears),
+        'walkingHr',
+        'walkingHr'
       );
       if (bothActions) {
         const hasYears =
@@ -7805,7 +7884,7 @@
         );
       }
     }
-    // Sleep / steps are date-keyed maps (YYYY-MM-DD → row)
+    // Sleep / steps / HRV / resting HR / walking HR are date-keyed maps (YYYY-MM-DD → row)
     if (domain === 'sleep' && currentAnalysis.data.sleep && typeof currentAnalysis.data.sleep === 'object') {
       const next = {};
       Object.keys(currentAnalysis.data.sleep).forEach((k) => {
@@ -7819,6 +7898,36 @@
         if (!dropYear(k)) next[k] = currentAnalysis.data.steps[k];
       });
       currentAnalysis.data.steps = next;
+    }
+    if (domain === 'hrv') {
+      if (currentAnalysis.data.hrv && typeof currentAnalysis.data.hrv === 'object') {
+        const next = {};
+        Object.keys(currentAnalysis.data.hrv).forEach((k) => {
+          if (!dropYear(k)) next[k] = currentAnalysis.data.hrv[k];
+        });
+        currentAnalysis.data.hrv = next;
+      }
+      if (currentAnalysis.data.hrvOvernight && typeof currentAnalysis.data.hrvOvernight === 'object') {
+        const next = {};
+        Object.keys(currentAnalysis.data.hrvOvernight).forEach((k) => {
+          if (!dropYear(k)) next[k] = currentAnalysis.data.hrvOvernight[k];
+        });
+        currentAnalysis.data.hrvOvernight = next;
+      }
+    }
+    if (domain === 'restingHr' && currentAnalysis.data.restingHr && typeof currentAnalysis.data.restingHr === 'object') {
+      const next = {};
+      Object.keys(currentAnalysis.data.restingHr).forEach((k) => {
+        if (!dropYear(k)) next[k] = currentAnalysis.data.restingHr[k];
+      });
+      currentAnalysis.data.restingHr = next;
+    }
+    if (domain === 'walkingHr' && currentAnalysis.data.walkingHr && typeof currentAnalysis.data.walkingHr === 'object') {
+      const next = {};
+      Object.keys(currentAnalysis.data.walkingHr).forEach((k) => {
+        if (!dropYear(k)) next[k] = currentAnalysis.data.walkingHr[k];
+      });
+      currentAnalysis.data.walkingHr = next;
     }
     reanalyzeAfterWarehouseTrim();
   }
@@ -7855,6 +7964,15 @@
     if (domain === 'steps' && typeof HH.deleteStepsYearShards === 'function') {
       return (years) => HH.deleteStepsYearShards(years);
     }
+    if (domain === 'hrv' && typeof HH.deleteHrvYearShards === 'function') {
+      return (years) => HH.deleteHrvYearShards(years);
+    }
+    if (domain === 'restingHr' && typeof HH.deleteRestingHrYearShards === 'function') {
+      return (years) => HH.deleteRestingHrYearShards(years);
+    }
+    if (domain === 'walkingHr' && typeof HH.deleteWalkingHrYearShards === 'function') {
+      return (years) => HH.deleteWalkingHrYearShards(years);
+    }
     if (typeof HH.deleteDomainYearShards === 'function') {
       return (years) => HH.deleteDomainYearShards(domain, years);
     }
@@ -7865,8 +7983,8 @@
    * @param {HTMLElement|null} wrap
    * @param {HTMLElement|null} listEl
    * @param {Array<{year?: string, recordCount?: number, approxBytes?: number}>} details
-   * @param {'bp'|'weight'|'sleep'|'steps'} kind
-   * @param {'bloodPressure'|'weight'|'sleep'|'steps'} domain
+   * @param {'bp'|'weight'|'sleep'|'steps'|'hrv'|'restingHr'|'walkingHr'} kind
+   * @param {'bloodPressure'|'weight'|'sleep'|'steps'|'hrv'|'restingHr'|'walkingHr'} domain
    */
   function renderYearShardList(wrap, listEl, details, kind, domain) {
     if (!wrap || !listEl) return;
@@ -7907,6 +8025,9 @@
     if (domain === 'weight') return t('warehouse.domain.weight');
     if (domain === 'sleep') return t('warehouse.domain.sleep');
     if (domain === 'steps') return t('warehouse.domain.steps');
+    if (domain === 'hrv') return t('warehouse.domain.hrv');
+    if (domain === 'restingHr') return t('warehouse.domain.restingHr');
+    if (domain === 'walkingHr') return t('warehouse.domain.walkingHr');
     const key = WAREHOUSE_DOMAIN_I18N[domain];
     return key ? t(key) : domain;
   }
@@ -7967,6 +8088,9 @@
   bindYearSelectAll('warehouse-weight-select-all', 'warehouse-weight-year-list');
   bindYearSelectAll('warehouse-sleep-select-all', 'warehouse-sleep-year-list');
   bindYearSelectAll('warehouse-steps-select-all', 'warehouse-steps-year-list');
+  bindYearSelectAll('warehouse-hrv-select-all', 'warehouse-hrv-year-list');
+  bindYearSelectAll('warehouse-resting-hr-select-all', 'warehouse-resting-hr-year-list');
+  bindYearSelectAll('warehouse-walking-hr-select-all', 'warehouse-walking-hr-year-list');
   $('btn-warehouse-bp-delete-selected')?.addEventListener('click', () => {
     deleteDomainYearShardsUi('bloodPressure', getSelectedYearsFromUi('warehouse-bp-year-list'));
   });
@@ -7978,6 +8102,15 @@
   });
   $('btn-warehouse-steps-delete-selected')?.addEventListener('click', () => {
     deleteDomainYearShardsUi('steps', getSelectedYearsFromUi('warehouse-steps-year-list'));
+  });
+  $('btn-warehouse-hrv-delete-selected')?.addEventListener('click', () => {
+    deleteDomainYearShardsUi('hrv', getSelectedYearsFromUi('warehouse-hrv-year-list'));
+  });
+  $('btn-warehouse-resting-hr-delete-selected')?.addEventListener('click', () => {
+    deleteDomainYearShardsUi('restingHr', getSelectedYearsFromUi('warehouse-resting-hr-year-list'));
+  });
+  $('btn-warehouse-walking-hr-delete-selected')?.addEventListener('click', () => {
+    deleteDomainYearShardsUi('walkingHr', getSelectedYearsFromUi('warehouse-walking-hr-year-list'));
   });
 
   function getYearKeepYears() {
@@ -8004,6 +8137,9 @@
       'warehouse-weight-keep-years',
       'warehouse-sleep-keep-years',
       'warehouse-steps-keep-years',
+      'warehouse-hrv-keep-years',
+      'warehouse-resting-hr-keep-years',
+      'warehouse-walking-hr-keep-years',
     ].forEach((id) => {
       const sel = $(id);
       if (sel && sel.value !== String(n)) sel.value = String(n);
@@ -8014,6 +8150,9 @@
       'btn-warehouse-weight-keep-recent',
       'btn-warehouse-sleep-keep-recent',
       'btn-warehouse-steps-keep-recent',
+      'btn-warehouse-hrv-keep-recent',
+      'btn-warehouse-resting-hr-keep-recent',
+      'btn-warehouse-walking-hr-keep-recent',
     ].forEach((id) => {
       const btn = $(id);
       if (btn) btn.textContent = label;
@@ -8043,6 +8182,15 @@
     }
     if (domain === 'steps') {
       return st.stepsYears || (st.stepsYearDetails || []).map((d) => d && d.year) || [];
+    }
+    if (domain === 'hrv') {
+      return st.hrvYears || (st.hrvYearDetails || []).map((d) => d && d.year) || [];
+    }
+    if (domain === 'restingHr') {
+      return st.restingHrYears || (st.restingHrYearDetails || []).map((d) => d && d.year) || [];
+    }
+    if (domain === 'walkingHr') {
+      return st.walkingHrYears || (st.walkingHrYearDetails || []).map((d) => d && d.year) || [];
     }
     return [];
   }
@@ -8144,6 +8292,9 @@
   bindYearKeepYearsSelect('warehouse-weight-keep-years');
   bindYearKeepYearsSelect('warehouse-sleep-keep-years');
   bindYearKeepYearsSelect('warehouse-steps-keep-years');
+  bindYearKeepYearsSelect('warehouse-hrv-keep-years');
+  bindYearKeepYearsSelect('warehouse-resting-hr-keep-years');
+  bindYearKeepYearsSelect('warehouse-walking-hr-keep-years');
   $('btn-warehouse-bp-keep-recent')?.addEventListener('click', () => {
     keepRecentDomainYearsUi('bloodPressure');
   });
@@ -8155,6 +8306,15 @@
   });
   $('btn-warehouse-steps-keep-recent')?.addEventListener('click', () => {
     keepRecentDomainYearsUi('steps');
+  });
+  $('btn-warehouse-hrv-keep-recent')?.addEventListener('click', () => {
+    keepRecentDomainYearsUi('hrv');
+  });
+  $('btn-warehouse-resting-hr-keep-recent')?.addEventListener('click', () => {
+    keepRecentDomainYearsUi('restingHr');
+  });
+  $('btn-warehouse-walking-hr-keep-recent')?.addEventListener('click', () => {
+    keepRecentDomainYearsUi('walkingHr');
   });
   $('btn-warehouse-years-keep-both')?.addEventListener('click', () => {
     keepRecentBothDomainYearsUi();
@@ -8324,6 +8484,9 @@
       const wtYears = (st.weightYears || []).slice().filter(Boolean).map(String).sort();
       const sleepYears = (st.sleepYears || []).slice().filter(Boolean).map(String).sort();
       const stepsYears = (st.stepsYears || []).slice().filter(Boolean).map(String).sort();
+      const hrvYears = (st.hrvYears || []).slice().filter(Boolean).map(String).sort();
+      const restingHrYears = (st.restingHrYears || []).slice().filter(Boolean).map(String).sort();
+      const walkingHrYears = (st.walkingHrYears || []).slice().filter(Boolean).map(String).sort();
 
       const monthDrop =
         months.length > keepM ? months.slice(0, months.length - keepM) : [];
@@ -8331,13 +8494,19 @@
       const wtDrop = yearsToDropForKeepN(wtYears, keepY).drop;
       const sleepDrop = yearsToDropForKeepN(sleepYears, keepY).drop;
       const stepsDrop = yearsToDropForKeepN(stepsYears, keepY).drop;
+      const hrvDrop = yearsToDropForKeepN(hrvYears, keepY).drop;
+      const restingHrDrop = yearsToDropForKeepN(restingHrYears, keepY).drop;
+      const walkingHrDrop = yearsToDropForKeepN(walkingHrYears, keepY).drop;
 
       if (
         !monthDrop.length &&
         !bpDrop.length &&
         !wtDrop.length &&
         !sleepDrop.length &&
-        !stepsDrop.length
+        !stepsDrop.length &&
+        !hrvDrop.length &&
+        !restingHrDrop.length &&
+        !walkingHrDrop.length
       ) {
         return {
           monthDrop,
@@ -8345,6 +8514,9 @@
           wtDrop,
           sleepDrop,
           stepsDrop,
+          hrvDrop,
+          restingHrDrop,
+          walkingHrDrop,
           changed: false,
         };
       }
@@ -8373,20 +8545,53 @@
         const r = await HH.deleteCgmMonthShards(monthDrop);
         if (!r || !r.ok) {
           showToast(t('warehouse.err', { msg: (r && r.reason) || 'cgm_auto_trim' }), { ms: 2800 });
-          return { monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop, changed: false, error: true };
+          return {
+            monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
+            hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
+          };
         }
       }
       if (!(await deleteYearDomain(bpDrop, 'deleteBloodPressureYearShards', 'bloodPressure', 'bp_auto_trim'))) {
-        return { monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop, changed: false, error: true };
+        return {
+          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
+          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
+        };
       }
       if (!(await deleteYearDomain(wtDrop, 'deleteWeightYearShards', 'weight', 'weight_auto_trim'))) {
-        return { monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop, changed: false, error: true };
+        return {
+          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
+          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
+        };
       }
       if (!(await deleteYearDomain(sleepDrop, 'deleteSleepYearShards', 'sleep', 'sleep_auto_trim'))) {
-        return { monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop, changed: false, error: true };
+        return {
+          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
+          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
+        };
       }
       if (!(await deleteYearDomain(stepsDrop, 'deleteStepsYearShards', 'steps', 'steps_auto_trim'))) {
-        return { monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop, changed: false, error: true };
+        return {
+          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
+          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
+        };
+      }
+      if (!(await deleteYearDomain(hrvDrop, 'deleteHrvYearShards', 'hrv', 'hrv_auto_trim'))) {
+        return {
+          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
+          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
+        };
+      }
+      if (!(await deleteYearDomain(restingHrDrop, 'deleteRestingHrYearShards', 'restingHr', 'restingHr_auto_trim'))) {
+        return {
+          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
+          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
+        };
+      }
+      if (!(await deleteYearDomain(walkingHrDrop, 'deleteWalkingHrYearShards', 'walkingHr', 'walkingHr_auto_trim'))) {
+        return {
+          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
+          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
+        };
       }
 
       // Filter in-memory analysis once, then reanalyze without a second auto-persist.
@@ -8430,6 +8635,36 @@
           });
           data.steps = next;
         }
+        if (hrvDrop.length) {
+          if (data.hrv && typeof data.hrv === 'object') {
+            const next = {};
+            Object.keys(data.hrv).forEach((k) => {
+              if (!hrvDrop.some((y) => String(k).startsWith(y))) next[k] = data.hrv[k];
+            });
+            data.hrv = next;
+          }
+          if (data.hrvOvernight && typeof data.hrvOvernight === 'object') {
+            const next = {};
+            Object.keys(data.hrvOvernight).forEach((k) => {
+              if (!hrvDrop.some((y) => String(k).startsWith(y))) next[k] = data.hrvOvernight[k];
+            });
+            data.hrvOvernight = next;
+          }
+        }
+        if (restingHrDrop.length && data.restingHr && typeof data.restingHr === 'object') {
+          const next = {};
+          Object.keys(data.restingHr).forEach((k) => {
+            if (!restingHrDrop.some((y) => String(k).startsWith(y))) next[k] = data.restingHr[k];
+          });
+          data.restingHr = next;
+        }
+        if (walkingHrDrop.length && data.walkingHr && typeof data.walkingHr === 'object') {
+          const next = {};
+          Object.keys(data.walkingHr).forEach((k) => {
+            if (!walkingHrDrop.some((y) => String(k).startsWith(y))) next[k] = data.walkingHr[k];
+          });
+          data.walkingHr = next;
+        }
         skipNextWarehouseAutoPersist = true;
         reanalyzeAfterWarehouseTrim();
         // Persist trimmed working set once (skip nested auto-trim via warehouseAutoTrimRunning).
@@ -8449,7 +8684,10 @@
           { ok: true, ms: 3200 }
         );
       }
-      return { monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop, changed: true };
+      return {
+        monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
+        hrvDrop, restingHrDrop, walkingHrDrop, changed: true,
+      };
     } catch (e) {
       console.warn('warehouse auto-trim', e);
       showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
