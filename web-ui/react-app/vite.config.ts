@@ -41,7 +41,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Shell assets only — large chart chunks load on demand (not first-install precache)
+        // Shell assets only — chart / echarts/* chunks load on demand
         globPatterns: [
           '**/*.{css,html,ico,png,svg,woff2,webmanifest,json}',
           '**/index-*.js',
@@ -50,7 +50,20 @@ export default defineConfig({
           '**/parseWorkerClient-*.js',
           '**/analyze.worker-*.js',
         ],
-        globIgnores: ['**/*.map', '**/echarts-*.js', '**/TrendChart-*.js'],
+        globIgnores: [
+          '**/*.map',
+          '**/echarts-*.js',
+          '**/TrendChart-*.js',
+          '**/charts-*.js',
+          '**/components-*.js',
+          '**/renderers-*.js',
+          '**/core-*.js',
+          '**/axisHelper-*.js',
+          '**/axisNiceTicks-*.js',
+          '**/createSeriesData-*.js',
+          '**/graphic-*.js',
+          '**/Image-*.js',
+        ],
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [],

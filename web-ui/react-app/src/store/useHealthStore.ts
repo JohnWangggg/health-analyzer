@@ -257,8 +257,14 @@ export const useHealthStore = create<HealthState>((set, get) => ({
         });
         return;
       }
+      const trimNote =
+        r.trimmed && r.removedMonths
+          ? ` · 软配额裁剪 ${r.removedMonths} 个旧 CGM 月`
+          : r.softWarn
+            ? '（软配额提示）'
+            : '';
       set({
-        warehousePersistMsg: `已写入 ${r.layout} · ${r.chunkCount} 分片 · ~${(r.approxBytes / 1024).toFixed(1)} KB · ${r.recordCount} 条${r.softWarn ? '（软配额提示）' : ''}`,
+        warehousePersistMsg: `已写入 ${r.layout} · ${r.chunkCount} 分片 · ~${(r.approxBytes / 1024).toFixed(1)} KB · ${r.recordCount} 条${trimNote}`,
         progressLabel: null,
       });
     } catch (e) {

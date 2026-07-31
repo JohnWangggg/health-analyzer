@@ -224,10 +224,12 @@ flowchart LR
 
 | 项 | 状态 |
 |----|------|
-| ECharts 不进 SW 首装 precache | `globPatterns` 白名单壳层 JS + ignore echarts/TrendChart |
+| ECharts 不进 SW 首装 precache | 壳层 JS 白名单 + ignore charts/components/axis… |
 | 生产关闭 source map | `build.sourcemap: false` |
 | SW 更新用户确认 | `registerType: 'prompt'` + `PwaUpdateBanner` |
-| echarts/core 按需构建 | **未做** |
+| echarts/core 按需构建 | **已做**（Line + Grid + Tooltip + DataZoom） |
+| 软配额 CGM 月淘汰 | **已做**（`evictOldestCgmMonths`，写入时） |
+| 多域年 keep-N / 大屏 UI | **未做** |
 
 ---
 

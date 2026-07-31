@@ -168,14 +168,14 @@ export function OverviewPage() {
   return (
     <div className="stack" data-testid="page-overview">
       <div>
-        <h1 className="page-title">总览</h1>
+        <h1 className="page-title">今日健康状态</h1>
         <p className="page-lead">
-          XML/ZIP · HAE(JSON/CSV) · 数据仓读写（简化 core|full）。内核经
-          adapter/lib。
+          本地优先预览：XML/ZIP/HAE · sharded-v1 数据仓 · 报告与趋势。内核经
+          adapter/lib，非诊断。
         </p>
       </div>
 
-      <div className="row">
+      <div className="overview-toolbar" data-testid="overview-toolbar">
         <Button
           variant="primary"
           onClick={loadFixture}
@@ -236,7 +236,6 @@ export function OverviewPage() {
         >
           写入数据仓
         </Button>
-
         <Button
           variant="secondary"
           onClick={() => void onSaveSnap()}
@@ -253,6 +252,9 @@ export function OverviewPage() {
         >
           清除
         </Button>
+      </div>
+
+      <div className="status-strip">
         {sourceLabel ? (
           <Badge tone="neutral" data-testid="source-label">
             来源 {sourceLabel}
@@ -275,6 +277,7 @@ export function OverviewPage() {
           </Badge>
         ) : null}
       </div>
+
 
       {snapMsg || lastSnapshotId ? (
         <p className="muted" data-testid="snapshot-status">
@@ -309,58 +312,49 @@ export function OverviewPage() {
         />
       ) : (
         <>
-          <div className="card-grid">
-            <Card data-testid="freshness-card">
-              <CardTitle>数据新鲜度</CardTitle>
-              {(() => {
-                const f = freshnessLabel(summary.freshnessDays);
-                return (
-                  <>
-                    <p className="kpi" data-testid="kpi-freshness">
-                      {f.text}
-                    </p>
-                    <CardDesc>
-                      区间 {summary.dateRange.start || '—'} →{' '}
-                      {summary.dateRange.end || '—'}
-                    </CardDesc>
-                    <div style={{ marginTop: '0.5rem' }}>
-                      <Badge tone={f.tone}>
-                        {f.tone === 'ok' ? '较新' : '需关注'}
-                      </Badge>
-                    </div>
-                  </>
-                );
-              })()}
-            </Card>
-
+          <div className="overview-hero" data-testid="overview-hero">
             {(() => {
               const p = priorityFromSummary(summary);
+              const f = freshnessLabel(summary.freshnessDays);
               return (
-                <Card className="priority-card" data-testid="priority-card">
-                  <CardTitle>优先事项</CardTitle>
-                  <p
-                    className="kpi"
-                    style={{ fontSize: '1.1rem' }}
-                    data-testid="priority-title"
-                  >
-                    {p.title}
-                  </p>
-                  <CardDesc>{p.detail}</CardDesc>
-                  <div style={{ marginTop: '0.5rem' }}>
-                    <Badge tone={p.tone}>本机启发式</Badge>
+                <>
+                  <div className="overview-hero-main" data-testid="priority-card">
+                    <h2>优先关注</h2>
+                    <p className="overview-hero-title" data-testid="priority-title">
+                      {p.title}
+                    </p>
+                    <p className="muted" style={{ marginTop: '0.5rem' }}>
+                      {p.detail}
+                    </p>
+                    <div className="status-strip" style={{ marginTop: '0.75rem' }}>
+                      <Badge tone={p.tone}>本机启发式 · 非诊断</Badge>
+                      <Badge tone={f.tone} data-testid="kpi-freshness">
+                        数据 {f.text}
+                      </Badge>
+                    </div>
                   </div>
-                </Card>
+                  <Card data-testid="freshness-card">
+                    <CardTitle>数据区间</CardTitle>
+                    <p className="kpi" data-testid="kpi-range" style={{ fontSize: '1.1rem' }}>
+                      {summary.dateRange.start || '—'} →{' '}
+                      {summary.dateRange.end || '—'}
+                    </p>
+                    <CardDesc>
+                      恢复分{' '}
+                      {summary.kpis.recoveryScore != null
+                        ? summary.kpis.recoveryScore
+                        : '—'}
+                      {summary.kpis.loadScore != null
+                        ? ` · 负荷 ${summary.kpis.loadScore}`
+                        : ''}
+                    </CardDesc>
+                  </Card>
+                </>
               );
             })()}
           </div>
 
-          <div className="card-grid">
-            <Card>
-              <CardTitle>日期范围</CardTitle>
-              <p className="kpi" data-testid="kpi-range">
-                {summary.dateRange.start || '—'} → {summary.dateRange.end || '—'}
-              </p>
-            </Card>
+          <div className="kpi-matrix" data-testid="kpi-matrix">
             <Card>
               <CardTitle>CGM 均值</CardTitle>
               <p className="kpi" data-testid="kpi-cgm">
@@ -398,6 +392,7 @@ export function OverviewPage() {
               <CardDesc>非诊断 · 个人启发式</CardDesc>
             </Card>
           </div>
+
 
           <div className="row">
             <Button variant="secondary" onClick={() => navigate('/trends')}>

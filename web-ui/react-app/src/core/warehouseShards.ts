@@ -223,6 +223,68 @@ function recomputeSplitTotalBytes(split: ShardSplit): number {
   return split.totalBytes;
 }
 
+export type SoftEvictionMeta = {
+  trimmed: boolean;
+  removedCgm: number;
+  removedMonths: number;
+  beforeBytes: number;
+  afterBytes: number;
+};
+
+/**
+ * Drop oldest CGM months until under soft quota (history-db evictOldestCgmMonths).
+ * Mutates split.months. Keeps at least one month when small enough.
+ */
+export function evictOldestCgmMonths(split: ShardSplit): SoftEvictionMeta {
+  let removedCgm = 0;
+  let removedMonths = 0;
+  const beforeBytes = split.totalBytes;
+  while (split.totalBytes > WH_SOFT_BYTES && split.months.length > 0) {
+    if (split.months.length === 1 && (split.months[0]!.recordCount || 0) <= 500) {
+      break;
+    }
+    const oldest = split.months.shift();
+    if (!oldest) break;
+    removedCgm += oldest.recordCount || 0;
+    removedMonths += 1;
+    recomputeSplitTotalBytes(split);
+  }
+  if (split.totalBytes > WH_SOFT_BYTES && split.months.length === 1) {
+    const m = split.months[0]!;
+    let pts = [...m.points].sort((a, b) =>
+      String((a as { datetime?: string })?.datetime || '').localeCompare(
+        String((b as { datetime?: string })?.datetime || ''),
+      ),
+    );
+    const otherBytes = split.totalBytes - (m.approxBytes || 0);
+    while (
+      approxJsonBytes(pts) + otherBytes > WH_SOFT_BYTES &&
+      pts.length > 500
+    ) {
+      const drop = Math.max(50, Math.floor(pts.length * 0.1));
+      removedCgm += drop;
+      pts = pts.slice(drop);
+    }
+    m.points = pts;
+    m.recordCount = pts.length;
+    m.approxBytes = approxJsonBytes(pts);
+    recomputeSplitTotalBytes(split);
+  }
+  return {
+    trimmed: removedCgm > 0,
+    removedCgm,
+    removedMonths,
+    beforeBytes,
+    afterBytes: split.totalBytes,
+  };
+}
+
+/** Soft-quota pass used by React sharded persist (CGM months first). */
+export function applySoftQuotaEviction(split: ShardSplit): SoftEvictionMeta {
+  return evictOldestCgmMonths(split);
+}
+
+
 /** Split HealthData into thin core + domain shards (legacy-compatible). */
 export function splitHealthDataShards(healthData: HealthData): ShardSplit {
   const full = clonePlain(healthData);

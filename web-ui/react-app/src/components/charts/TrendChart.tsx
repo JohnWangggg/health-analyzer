@@ -8,7 +8,7 @@ export type TrendChartProps = {
 };
 
 /**
- * Lazy-loads echarts only when this component mounts (Trends route).
+ * Lazy-loads a **tree-shaken** ECharts build (line + grid + tooltip + dataZoom only).
  * Overview must not import this module so first paint stays free of ECharts.
  */
 export function TrendChart({ title, unit, points }: TrendChartProps) {
@@ -20,7 +20,7 @@ export function TrendChart({ title, unit, points }: TrendChartProps) {
 
   useEffect(() => {
     let disposed = false;
-    let chart: { dispose: () => void; setOption: (o: unknown) => void } | null =
+    let chart: { dispose: () => void; setOption: (o: unknown) => void; resize?: () => void } | null =
       null;
 
     async function mount() {
@@ -30,8 +30,25 @@ export function TrendChart({ title, unit, points }: TrendChartProps) {
         return;
       }
       try {
-        // Dynamic import — separate chunk; not in Overview graph
-        const echarts = await import('echarts');
+        const echarts = await import('echarts/core');
+        const { LineChart } = await import('echarts/charts');
+        const {
+          GridComponent,
+          TooltipComponent,
+          TitleComponent,
+          DataZoomComponent,
+        } = await import('echarts/components');
+        const { CanvasRenderer } = await import('echarts/renderers');
+
+        echarts.use([
+          LineChart,
+          GridComponent,
+          TooltipComponent,
+          TitleComponent,
+          DataZoomComponent,
+          CanvasRenderer,
+        ]);
+
         if (disposed || !hostRef.current) return;
         chart = echarts.init(hostRef.current, undefined, {
           renderer: 'canvas',
@@ -65,10 +82,7 @@ export function TrendChart({ title, unit, points }: TrendChartProps) {
         });
         setEngine('echarts');
         setError(null);
-        const onResize = () => {
-          // echarts Instance has resize
-          (chart as { resize?: () => void } | null)?.resize?.();
-        };
+        const onResize = () => chart?.resize?.();
         window.addEventListener('resize', onResize);
         return () => window.removeEventListener('resize', onResize);
       } catch (e) {
@@ -97,7 +111,7 @@ export function TrendChart({ title, unit, points }: TrendChartProps) {
         data-testid="echarts-host"
       />
       {engine === 'loading' ? (
-        <p className="muted">正在加载本地 ECharts…</p>
+        <p className="muted">正在加载本地 ECharts（按需组件）…</p>
       ) : null}
       {error ? (
         <p className="status-err" data-testid="chart-error">
@@ -106,7 +120,7 @@ export function TrendChart({ title, unit, points }: TrendChartProps) {
       ) : null}
       {engine === 'echarts' ? (
         <p className="muted" data-testid="echarts-active">
-          主趋势：本地 Apache ECharts（npm 打包，非 CDN）
+          主趋势：ECharts core 按需构建（非 CDN、非全量包）
         </p>
       ) : null}
     </div>

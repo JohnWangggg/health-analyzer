@@ -4,9 +4,12 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { analyzeHealthXml } from './HealthCoreAdapter';
 import {
+  WH_SOFT_BYTES,
   buildDomainChunkRows,
+  evictOldestCgmMonths,
   reassembleFromSplit,
   splitHealthDataShards,
+  type ShardSplit,
 } from './warehouseShards';
 import { reassembleFromChunks } from './warehouseLoad';
 
@@ -50,5 +53,63 @@ describe('warehouseShards (legacy-compatible split)', () => {
     expect(split.core.cgm.length).toBe(0);
     expect(split.core.bloodPressure.length).toBe(0);
     expect(split.core.weight.length).toBe(0);
+  });
+
+  it('evictOldestCgmMonths drops oldest months under soft quota', () => {
+    const months = [];
+    for (let i = 1; i <= 6; i++) {
+      const points = Array.from({ length: 20 }, (_, j) => ({
+        datetime: `2020-0${i}-15 00:00:00 +0000`,
+        value: j,
+      }));
+      months.push({
+        month: `2020-0${i}`,
+        points,
+        // Fake large month weight so recompute keeps total above soft until drops
+        approxBytes: Math.floor(WH_SOFT_BYTES / 3),
+        recordCount: points.length,
+      });
+    }
+    const split = {
+      core: {} as ShardSplit['core'],
+      months,
+      bpYears: [],
+      weightYears: [],
+      sleepYears: [],
+      stepsYears: [],
+      hrvYears: [],
+      restingHrYears: [],
+      walkingHrYears: [],
+      workoutsYears: [],
+      ecgYears: [],
+      watchDailyYears: [],
+      coreBytes: 100,
+      totalBytes: 100 + months.reduce((s, m) => s + m.approxBytes, 0),
+    } as ShardSplit;
+
+    expect(split.totalBytes).toBeGreaterThan(WH_SOFT_BYTES);
+    const beforeMonths = split.months.length;
+    const ev = evictOldestCgmMonths(split);
+    expect(ev.trimmed).toBe(true);
+    expect(split.months.length).toBeLessThan(beforeMonths);
+    expect(ev.removedMonths).toBeGreaterThan(0);
+    expect(split.months[split.months.length - 1]!.month).toBe('2020-06');
+  });
+
+  it('legacy-shaped chunks load same CGM count as React sharded write shape', () => {
+    // Simulate: build sharded rows (as React/legacy would write), reassemble
+    const xml = readFileSync(FIXTURE, 'utf8');
+    const { data } = analyzeHealthXml(xml);
+    const split = splitHealthDataShards(data);
+    const rows = buildDomainChunkRows(split);
+    // legacy reader path (merge shards)
+    const a = reassembleFromChunks(rows, { metaLayout: 'sharded-v1' });
+    // force-core-only would drop domain data incorrectly — ensure we don't
+    const wrong = reassembleFromChunks(rows, {
+      metaLayout: 'sharded-v1',
+      coreOnly: true,
+    });
+    expect(a!.data.cgm.length).toBe(data.cgm.length);
+    expect(wrong!.data.cgm.length).toBe(0);
   });
 });

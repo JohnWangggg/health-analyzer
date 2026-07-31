@@ -15,6 +15,7 @@ import {
   WH_HARD_BYTES,
   WH_LAYOUT_SHARDED,
   WH_SOFT_BYTES,
+  applySoftQuotaEviction,
   approxJsonBytes,
   buildDomainChunkRows,
   countHealthRecords,
@@ -22,6 +23,7 @@ import {
   reassembleFromSplit,
   splitHealthDataShards,
 } from './warehouseShards';
+
 
 const WH_CHUNK_CORE = 'core|full';
 const WAREHOUSE_POLICY = IDB_CONTRACT.warehousePolicyVersion;
@@ -35,8 +37,12 @@ export type PersistWarehouseResult =
       layout: string;
       chunkCount: number;
       softWarn?: boolean;
+      trimmed?: boolean;
+      removedCgm?: number;
+      removedMonths?: number;
     }
   | { ok: false; reason: string };
+
 
 /** Grant warehouse consent (idempotent). */
 export async function grantWarehouseConsent(): Promise<void> {
@@ -99,6 +105,9 @@ export async function persistHealthDataSharded(
     };
   }
 
+  // Soft quota: drop oldest CGM months (legacy-compatible first step)
+  const evict = applySoftQuotaEviction(split);
+
   if (split.totalBytes > WH_HARD_BYTES) {
     return { ok: false, reason: 'quota_hard' };
   }
@@ -111,6 +120,7 @@ export async function persistHealthDataSharded(
     batchId: opts?.batchId ?? null,
     now,
   });
+
 
   const db = await openLegacyHistoryDb();
   try {
@@ -150,9 +160,13 @@ export async function persistHealthDataSharded(
       workoutsYears: split.workoutsYears.map((y) => y.year),
       ecgYears: split.ecgYears.map((y) => y.year),
       watchDailyYears: split.watchDailyYears.map((y) => y.year),
-      notes:
-        split.totalBytes > WH_SOFT_BYTES ? ['soft_quota_exceeded'] : [],
+      notes: evict.trimmed
+        ? ['cgm_months_evicted_for_quota']
+        : split.totalBytes > WH_SOFT_BYTES
+          ? ['soft_quota_exceeded']
+          : [],
     };
+
 
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(
@@ -176,6 +190,9 @@ export async function persistHealthDataSharded(
       layout: WH_LAYOUT_SHARDED,
       chunkCount: rows.length,
       softWarn: split.totalBytes > WH_SOFT_BYTES,
+      trimmed: evict.trimmed,
+      removedCgm: evict.removedCgm,
+      removedMonths: evict.removedMonths,
     };
   } finally {
     db.close();
