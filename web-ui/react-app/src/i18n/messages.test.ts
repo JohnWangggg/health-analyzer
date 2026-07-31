@@ -10,6 +10,11 @@ describe('i18n messages', () => {
     'shell.sessionReady',
     'trends.title',
     'trends.domain.steps',
+    'reports.title',
+    'reports.copied',
+    'reports.kind.visit',
+    'data.softQuota.title',
+    'data.softQuota.step.cgm',
   ];
 
   it('zh-CN and en both define shell keys', () => {

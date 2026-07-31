@@ -238,7 +238,8 @@ flowchart LR
 | echarts/core 按需构建 | **已做**（Line + Grid + Tooltip + DataZoom） |
 | 软配额全链路（CGM→BP/体重→睡眠/步数→HRV→训练/ECG/手表） | **已做**（写入时，`846d680`；**交互 keep-N 仍 legacy / 未做**） |
 | 壳层 i18n 中/英 | **已做**（`ha-react-ui-locale`，导航/总览键） |
-| 总览状态带 / 信号列表 / 趋势工作台密度 | **本轮已合入（MVP+）**：`StatusBand` / `SignalList` / Trends `domain-switcher` + 壳层会话 chip / Trends 中英 i18n（见 §4.2 路径） |
+| 总览状态带 / 信号列表 / 趋势工作台密度 | **已合入（MVP+，`8055486`）**：`StatusBand` / `SignalList` / Trends `domain-switcher` + 壳层会话 chip / Trends 中英 i18n |
+| 报告页 i18n + 数据页软配额只读面板 | **本轮**：Reports 中英键；`SoftQuotaPanel` 展示写入时淘汰顺序（交互 keep-N 仍 legacy） |
 | 可编辑大屏栅格 / 手机完整单任务产品 | **未做** |
 
 

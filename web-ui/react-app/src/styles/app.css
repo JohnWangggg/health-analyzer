@@ -444,6 +444,73 @@
   }
 }
 
+/* —— Soft quota policy panel (Data page) —— */
+.soft-quota-panel .ui-card-desc {
+  margin-bottom: var(--space-3);
+}
+.soft-quota-order {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.5rem;
+  list-style: none;
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  counter-reset: soft-quota-step;
+}
+.soft-quota-order-item {
+  counter-increment: soft-quota-step;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.soft-quota-order-item::before {
+  content: counter(soft-quota-step);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-muted));
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.soft-quota-order-item:not(:last-child)::after {
+  content: '→';
+  margin-left: 0.15rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  opacity: 0.75;
+}
+.soft-quota-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text);
+}
+.soft-quota-note {
+  margin: 0 0 var(--space-3);
+  font-size: 0.85rem;
+}
+.soft-quota-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--border);
+}
+.soft-quota-meta-item {
+  font-size: 0.82rem;
+}
+
 /* —— Page layout helpers —— */
 .page-title {
   margin: 0 0 var(--space-2);
@@ -756,7 +823,7 @@
   border-left-color: var(--border);
 }
 
-/* Domain switcher denser for trends */
+/* Domain switcher denser for trends / report kinds */
 .domain-switcher {
   display: flex;
   flex-wrap: wrap;
@@ -767,5 +834,13 @@
   border-radius: var(--radius);
 }
 
+/* Report action row — tighter than generic .row */
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  margin: 0.5rem 0;
+}
 
 

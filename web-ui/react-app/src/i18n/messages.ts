@@ -43,7 +43,31 @@ export type MessageKey =
   | 'trends.domain.steps'
   | 'trends.domain.weight'
   | 'trends.domain.restingHr'
-  | 'trends.domain.cgmDailyMean';
+  | 'trends.domain.cgmDailyMean'
+  | 'reports.title'
+  | 'reports.lead'
+  | 'reports.emptyTitle'
+  | 'reports.emptyDesc'
+  | 'reports.kind.visit'
+  | 'reports.kind.weekly'
+  | 'reports.kind.clinical'
+  | 'reports.copy'
+  | 'reports.download'
+  | 'reports.chars'
+  | 'reports.viaAdapter'
+  | 'reports.copied'
+  | 'reports.copyFail'
+  | 'reports.downloaded'
+  | 'data.softQuota.title'
+  | 'data.softQuota.lead'
+  | 'data.softQuota.note'
+  | 'data.softQuota.approx'
+  | 'data.softQuota.lastWritten'
+  | 'data.softQuota.step.cgm'
+  | 'data.softQuota.step.bpWeight'
+  | 'data.softQuota.step.sleepSteps'
+  | 'data.softQuota.step.hrvHr'
+  | 'data.softQuota.step.workoutsEcgWatch';
 
 const zh: Record<MessageKey, string> = {
   brand: '健康 OS · React',
@@ -92,6 +116,34 @@ const zh: Record<MessageKey, string> = {
   'trends.domain.weight': '体重',
   'trends.domain.restingHr': '静息心率',
   'trends.domain.cgmDailyMean': 'CGM 日均',
+  'reports.title': '报告',
+  'reports.lead':
+    '选择类型 → 预览 Markdown → 复制或下载。内核：visit / weekly / clinical 生成器。',
+  'reports.emptyTitle': '请先在总览加载数据',
+  'reports.emptyDesc':
+    '报告预览通过 HealthCoreAdapter → lib 报告生成器，不在 UI 重写统计。',
+  'reports.kind.visit': '门诊一页纸',
+  'reports.kind.weekly': '周报',
+  'reports.kind.clinical': '临床复盘',
+  'reports.copy': '复制 Markdown',
+  'reports.download': '下载 .md',
+  'reports.chars': '字符数',
+  'reports.viaAdapter': '经适配器调用 lib',
+  'reports.copied': '已复制到剪贴板（仅本机，未上传）',
+  'reports.copyFail': '复制失败：请手动选择预览文本',
+  'reports.downloaded': '已下载 {filename}',
+  'data.softQuota.title': '软配额（写入时）',
+  'data.softQuota.lead':
+    '超软配额时，写入路径 persistHealthDataSharded 会按固定顺序淘汰最旧分片。策略说明，非诊断。',
+  'data.softQuota.note':
+    '写入时自动生效；交互式 keep-N 仍在 legacy 数据中心。',
+  'data.softQuota.approx': '约占用',
+  'data.softQuota.lastWritten': '最近写入',
+  'data.softQuota.step.cgm': 'CGM 月片',
+  'data.softQuota.step.bpWeight': '血压 / 体重年片',
+  'data.softQuota.step.sleepSteps': '睡眠 / 步数年片',
+  'data.softQuota.step.hrvHr': 'HRV / 静息 / 步行心率年片',
+  'data.softQuota.step.workoutsEcgWatch': '训练 / ECG / 手表日汇总年片',
 };
 
 const en: Record<MessageKey, string> = {
@@ -142,6 +194,34 @@ const en: Record<MessageKey, string> = {
   'trends.domain.weight': 'Weight',
   'trends.domain.restingHr': 'Resting HR',
   'trends.domain.cgmDailyMean': 'CGM daily mean',
+  'reports.title': 'Reports',
+  'reports.lead':
+    'Pick a type → preview Markdown → copy or download. Core: visit / weekly / clinical generators.',
+  'reports.emptyTitle': 'Load data on Overview first',
+  'reports.emptyDesc':
+    'Report preview goes through HealthCoreAdapter → lib generators; UI does not recompute stats.',
+  'reports.kind.visit': 'Visit one-pager',
+  'reports.kind.weekly': 'Weekly report',
+  'reports.kind.clinical': 'Clinical review',
+  'reports.copy': 'Copy Markdown',
+  'reports.download': 'Download .md',
+  'reports.chars': 'chars',
+  'reports.viaAdapter': 'Via adapter → lib',
+  'reports.copied': 'Copied to clipboard (local only, not uploaded)',
+  'reports.copyFail': 'Copy failed — select preview text manually',
+  'reports.downloaded': 'Downloaded {filename}',
+  'data.softQuota.title': 'Soft quota (on write)',
+  'data.softQuota.lead':
+    'When over soft quota, persistHealthDataSharded evicts oldest shards in a fixed order. Policy only — not a diagnosis.',
+  'data.softQuota.note':
+    'Automatic on write; interactive keep-N remains in the legacy data center.',
+  'data.softQuota.approx': 'Approx. size',
+  'data.softQuota.lastWritten': 'Last written',
+  'data.softQuota.step.cgm': 'CGM months',
+  'data.softQuota.step.bpWeight': 'BP / weight years',
+  'data.softQuota.step.sleepSteps': 'Sleep / steps years',
+  'data.softQuota.step.hrvHr': 'HRV / resting / walking HR years',
+  'data.softQuota.step.workoutsEcgWatch': 'Workouts / ECG / watch daily years',
 };
 
 const TABLES: Record<AppLocaleUi, Record<MessageKey, string>> = {

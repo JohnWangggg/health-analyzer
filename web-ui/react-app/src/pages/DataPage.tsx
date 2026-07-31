@@ -10,6 +10,7 @@ import {
   type SnapshotListItem,
   type WarehouseMetaView,
 } from '../core/legacyHistoryRead';
+import { SoftQuotaPanel } from '../features/data/SoftQuotaPanel';
 import { useHealthStore } from '../store/useHealthStore';
 import { Button } from '../components/ui/Button';
 import { Card, CardDesc, CardTitle } from '../components/ui/Card';
@@ -107,6 +108,12 @@ export function DataPage() {
           </div>
         </Card>
       </div>
+
+      <SoftQuotaPanel
+        layout={whMeta?.layout}
+        totalApproxBytes={whMeta?.totalApproxBytes}
+        lastWrittenAt={whMeta?.lastWrittenAt}
+      />
 
       <Card>
         <CardTitle>共享仓库探测</CardTitle>
