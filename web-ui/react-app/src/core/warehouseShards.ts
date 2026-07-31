@@ -5,7 +5,7 @@
  * compatible with legacy reassemble (domain shards, not core-only blob).
  *
  * Soft-quota: CGM → BP/weight → sleep/steps → HRV/hr → workouts/ecg/watch (legacy order).
- * Interactive keep-N UI remains legacy; hard 200MB still rejects.
+ * Interactive keep-N (applyKeepWindowsToSplit) is separate; hard 200MB still rejects.
  */
 import type { HealthData } from '@health-analyzer/lib';
 
@@ -204,7 +204,8 @@ function bucketHrvYears(
     });
 }
 
-function recomputeSplitTotalBytes(split: ShardSplit): number {
+/** Recompute split.totalBytes from core + domain shard approxBytes. Mutates split. */
+export function recomputeSplitTotalBytes(split: ShardSplit): number {
   const sum = (arr: { approxBytes?: number }[]) =>
     (arr || []).reduce((s, m) => s + (m.approxBytes || 0), 0);
   split.totalBytes =

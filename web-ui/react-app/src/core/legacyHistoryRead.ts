@@ -23,7 +23,24 @@ export type WarehouseMetaView = {
   policyVersion: string | null;
   /** e.g. sharded-v1 | react-core-full-v1 */
   layout: string | null;
+  /** Shard key lists from meta (for keep-N forecast / UI); null if absent */
+  cgmMonths: string[] | null;
+  bpYears: string[] | null;
+  weightYears: string[] | null;
+  sleepYears: string[] | null;
+  stepsYears: string[] | null;
+  hrvYears: string[] | null;
+  restingHrYears: string[] | null;
+  walkingHrYears: string[] | null;
+  workoutsYears: string[] | null;
+  ecgYears: string[] | null;
+  watchDailyYears: string[] | null;
 };
+
+function asStringArray(v: unknown): string[] | null {
+  if (!Array.isArray(v)) return null;
+  return v.map((x) => String(x)).filter(Boolean);
+}
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' ? (v as Record<string, unknown>) : null;
@@ -90,6 +107,17 @@ export async function readWarehouseMetaView(): Promise<WarehouseMetaView> {
         lastWrittenAt: null,
         policyVersion: null,
         layout: null,
+        cgmMonths: null,
+        bpYears: null,
+        weightYears: null,
+        sleepYears: null,
+        stepsYears: null,
+        hrvYears: null,
+        restingHrYears: null,
+        walkingHrYears: null,
+        workoutsYears: null,
+        ecgYears: null,
+        watchDailyYears: null,
       };
     }
     const row = await new Promise<Record<string, unknown> | null>(
@@ -127,6 +155,17 @@ export async function readWarehouseMetaView(): Promise<WarehouseMetaView> {
           ? String(asRecord(consent)!.policyVersion)
           : IDB_CONTRACT.warehousePolicyVersion,
       layout: typeof row?.layout === 'string' ? row.layout : null,
+      cgmMonths: asStringArray(row?.cgmMonths),
+      bpYears: asStringArray(row?.bpYears),
+      weightYears: asStringArray(row?.weightYears),
+      sleepYears: asStringArray(row?.sleepYears),
+      stepsYears: asStringArray(row?.stepsYears),
+      hrvYears: asStringArray(row?.hrvYears),
+      restingHrYears: asStringArray(row?.restingHrYears),
+      walkingHrYears: asStringArray(row?.walkingHrYears),
+      workoutsYears: asStringArray(row?.workoutsYears),
+      ecgYears: asStringArray(row?.ecgYears),
+      watchDailyYears: asStringArray(row?.watchDailyYears),
     };
   } finally {
     db.close();

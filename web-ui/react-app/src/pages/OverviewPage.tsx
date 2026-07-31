@@ -93,6 +93,8 @@ export function OverviewPage() {
   const fileRef = useRef<HTMLInputElement>(null);
   const haeRef = useRef<HTMLInputElement>(null);
   const [snapMsg, setSnapMsg] = useState<string | null>(null);
+  /** Mobile: collapse advanced toolbar actions; desktop CSS always shows them. */
+  const [toolbarMoreOpen, setToolbarMoreOpen] = useState(false);
   const {
     status,
     error,
@@ -179,82 +181,100 @@ export function OverviewPage() {
       </div>
 
       <div className="overview-toolbar" data-testid="overview-toolbar">
-        <Button
-          variant="primary"
-          onClick={loadFixture}
-          data-testid="load-fixture"
+        <div className="overview-toolbar-primary">
+          <Button
+            variant="primary"
+            onClick={loadFixture}
+            data-testid="load-fixture"
+          >
+            {t('overview.loadFixture')}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => fileRef.current?.click()}
+            data-testid="import-file-btn"
+          >
+            {t('overview.importFile')}
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xml,.zip,text/xml,application/xml,application/zip"
+            className="sr-only"
+            data-testid="import-file-input"
+            onChange={(e) => {
+              void onPickFile(e.target.files?.[0] ?? null);
+              e.target.value = '';
+            }}
+          />
+          <Button
+            variant="secondary"
+            onClick={() => void loadWarehouse()}
+            data-testid="load-warehouse"
+          >
+            {t('overview.loadWh')}
+          </Button>
+          <Button
+            variant="secondary"
+            className="overview-toolbar-more"
+            onClick={() => setToolbarMoreOpen((open) => !open)}
+            aria-expanded={toolbarMoreOpen}
+            aria-controls="overview-toolbar-advanced"
+            data-testid="overview-toolbar-more"
+          >
+            {toolbarMoreOpen ? '收起' : '更多'}
+          </Button>
+        </div>
+        <div
+          id="overview-toolbar-advanced"
+          className="overview-toolbar-advanced"
+          data-open={toolbarMoreOpen ? '1' : '0'}
         >
-          {t('overview.loadFixture')}
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={() => fileRef.current?.click()}
-          data-testid="import-file-btn"
-        >
-          {t('overview.importFile')}
-        </Button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".xml,.zip,text/xml,application/xml,application/zip"
-          className="sr-only"
-          data-testid="import-file-input"
-          onChange={(e) => {
-            void onPickFile(e.target.files?.[0] ?? null);
-            e.target.value = '';
-          }}
-        />
-        <Button
-          variant="secondary"
-          onClick={() => haeRef.current?.click()}
-          data-testid="import-hae-btn"
-        >
-          {t('overview.importHae')}
-        </Button>
-        <input
-          ref={haeRef}
-          type="file"
-          accept=".json,.csv,application/json,text/csv"
-          multiple
-          className="sr-only"
-          data-testid="import-hae-input"
-          onChange={(e) => {
-            void onPickHae(e.target.files);
-            e.target.value = '';
-          }}
-        />
-        <Button
-          variant="secondary"
-          onClick={() => void loadWarehouse()}
-          data-testid="load-warehouse"
-        >
-          {t('overview.loadWh')}
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={() => void persistWarehouse()}
-          disabled={!summary}
-          title="sharded-v1 full replace domainChunks"
-          data-testid="persist-warehouse"
-        >
-          {t('overview.persistWh')}
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={() => void onSaveSnap()}
-          disabled={!summary}
-          data-testid="save-snapshot"
-        >
-          {t('overview.saveSnap')}
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={clear}
-          disabled={status === 'idle'}
-          data-testid="clear-session"
-        >
-          {t('overview.clear')}
-        </Button>
+          <Button
+            variant="secondary"
+            onClick={() => haeRef.current?.click()}
+            data-testid="import-hae-btn"
+          >
+            {t('overview.importHae')}
+          </Button>
+          <input
+            ref={haeRef}
+            type="file"
+            accept=".json,.csv,application/json,text/csv"
+            multiple
+            className="sr-only"
+            data-testid="import-hae-input"
+            onChange={(e) => {
+              void onPickHae(e.target.files);
+              e.target.value = '';
+            }}
+          />
+          <Button
+            variant="secondary"
+            onClick={() => void persistWarehouse()}
+            disabled={!summary}
+            title="sharded-v1 full replace domainChunks"
+            data-testid="persist-warehouse"
+          >
+            {t('overview.persistWh')}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => void onSaveSnap()}
+            disabled={!summary}
+            data-testid="save-snapshot"
+          >
+            {t('overview.saveSnap')}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={clear}
+            disabled={status === 'idle'}
+            data-testid="clear-session"
+          >
+            {t('overview.clear')}
+          </Button>
+        </div>
       </div>
 
       <div className="status-strip">

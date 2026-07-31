@@ -102,5 +102,33 @@ describe('legacyHistoryRead (read-only)', () => {
     expect(meta.totalRecordCount).toBe(42);
     expect(meta.totalApproxBytes).toBe(1024 * 1024);
     expect(meta.dateRange?.start).toBe('2026-01-01');
+    expect(meta.cgmMonths).toBeNull();
+    expect(meta.bpYears).toBeNull();
+  });
+
+  it('reads optional shard key lists from warehouseMeta', async () => {
+    const db = await openEmptyLegacySchemaDb(
+      IDB_CONTRACT.name,
+      IDB_CONTRACT.version,
+    );
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('warehouseMeta', 'readwrite');
+      tx.objectStore('warehouseMeta').put({
+        id: IDB_CONTRACT.metaId,
+        consent: { granted: true },
+        cgmMonths: ['2024-01', '2024-02'],
+        bpYears: ['2022', '2023'],
+        weightYears: ['2023'],
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+
+    const meta = await readWarehouseMetaView();
+    expect(meta.cgmMonths).toEqual(['2024-01', '2024-02']);
+    expect(meta.bpYears).toEqual(['2022', '2023']);
+    expect(meta.weightYears).toEqual(['2023']);
+    expect(meta.sleepYears).toBeNull();
   });
 });

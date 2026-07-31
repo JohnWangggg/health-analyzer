@@ -15,6 +15,8 @@ describe('i18n messages', () => {
     'reports.kind.visit',
     'data.softQuota.title',
     'data.softQuota.step.cgm',
+    'data.keepN.title',
+    'data.keepN.apply',
   ];
 
   it('zh-CN and en both define shell keys', () => {

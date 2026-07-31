@@ -67,7 +67,21 @@ export type MessageKey =
   | 'data.softQuota.step.bpWeight'
   | 'data.softQuota.step.sleepSteps'
   | 'data.softQuota.step.hrvHr'
-  | 'data.softQuota.step.workoutsEcgWatch';
+  | 'data.softQuota.step.workoutsEcgWatch'
+  | 'data.keepN.title'
+  | 'data.keepN.lead'
+  | 'data.keepN.cgmMonths'
+  | 'data.keepN.yearYears'
+  | 'data.keepN.autoTrim'
+  | 'data.keepN.forecast'
+  | 'data.keepN.forecastNeedProbe'
+  | 'data.keepN.apply'
+  | 'data.keepN.applying'
+  | 'data.keepN.applied'
+  | 'data.keepN.noop'
+  | 'data.keepN.empty'
+  | 'data.keepN.fail'
+  | 'data.keepN.sharedPrefs';
 
 const zh: Record<MessageKey, string> = {
   brand: '健康 OS · React',
@@ -136,7 +150,7 @@ const zh: Record<MessageKey, string> = {
   'data.softQuota.lead':
     '超软配额时，写入路径 persistHealthDataSharded 会按固定顺序淘汰最旧分片。策略说明，非诊断。',
   'data.softQuota.note':
-    '写入时自动生效；交互式 keep-N 仍在 legacy 数据中心。',
+    '写入时自动生效；下方 keep-N 可主动裁剪窗口（与 legacy 共用 localStorage）。',
   'data.softQuota.approx': '约占用',
   'data.softQuota.lastWritten': '最近写入',
   'data.softQuota.step.cgm': 'CGM 月片',
@@ -144,6 +158,21 @@ const zh: Record<MessageKey, string> = {
   'data.softQuota.step.sleepSteps': '睡眠 / 步数年片',
   'data.softQuota.step.hrvHr': 'HRV / 静息 / 步行心率年片',
   'data.softQuota.step.workoutsEcgWatch': '训练 / ECG / 手表日汇总年片',
+  'data.keepN.title': '保留窗口 keep-N',
+  'data.keepN.lead':
+    '仅保留最近 N 个月 CGM 与 N 年各域年片。与 legacy 共用偏好键；应用会整仓 sharded-v1 重写。非诊断。',
+  'data.keepN.cgmMonths': 'CGM 保留月数',
+  'data.keepN.yearYears': '年片保留年数',
+  'data.keepN.autoTrim': '写入后自动 keep-N（默认关）',
+  'data.keepN.forecast': '预估将删除：{months} 个 CGM 月 · {years} 个年片',
+  'data.keepN.forecastNeedProbe': '先「读取本地仓库」可预估删除量',
+  'data.keepN.apply': '对仓库应用 keep-N',
+  'data.keepN.applying': '应用中…',
+  'data.keepN.applied': '已应用：删除 {months} 月 + {years} 年片',
+  'data.keepN.noop': '已在窗口内，无需删除',
+  'data.keepN.empty': '仓库为空或未授权，无法应用',
+  'data.keepN.fail': '应用失败',
+  'data.keepN.sharedPrefs': 'prefs 与 legacy 共享',
 };
 
 const en: Record<MessageKey, string> = {
@@ -214,7 +243,7 @@ const en: Record<MessageKey, string> = {
   'data.softQuota.lead':
     'When over soft quota, persistHealthDataSharded evicts oldest shards in a fixed order. Policy only — not a diagnosis.',
   'data.softQuota.note':
-    'Automatic on write; interactive keep-N remains in the legacy data center.',
+    'Automatic on write; keep-N below can trim windows (prefs shared with legacy).',
   'data.softQuota.approx': 'Approx. size',
   'data.softQuota.lastWritten': 'Last written',
   'data.softQuota.step.cgm': 'CGM months',
@@ -222,6 +251,21 @@ const en: Record<MessageKey, string> = {
   'data.softQuota.step.sleepSteps': 'Sleep / steps years',
   'data.softQuota.step.hrvHr': 'HRV / resting / walking HR years',
   'data.softQuota.step.workoutsEcgWatch': 'Workouts / ECG / watch daily years',
+  'data.keepN.title': 'Keep-N windows',
+  'data.keepN.lead':
+    'Keep newest N CGM months and N years per domain. Prefs shared with legacy; apply rewrites sharded-v1. Not a diagnosis.',
+  'data.keepN.cgmMonths': 'CGM keep months',
+  'data.keepN.yearYears': 'Year-shard keep years',
+  'data.keepN.autoTrim': 'Auto keep-N after write (off by default)',
+  'data.keepN.forecast': 'Would drop: {months} CGM months · {years} year shards',
+  'data.keepN.forecastNeedProbe': 'Probe local warehouse first to estimate drops',
+  'data.keepN.apply': 'Apply keep-N to warehouse',
+  'data.keepN.applying': 'Applying…',
+  'data.keepN.applied': 'Applied: dropped {months} months + {years} year shards',
+  'data.keepN.noop': 'Already within windows — nothing dropped',
+  'data.keepN.empty': 'Warehouse empty or no consent',
+  'data.keepN.fail': 'Apply failed',
+  'data.keepN.sharedPrefs': 'prefs shared with legacy',
 };
 
 const TABLES: Record<AppLocaleUi, Record<MessageKey, string>> = {

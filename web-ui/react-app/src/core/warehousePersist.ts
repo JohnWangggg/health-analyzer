@@ -4,9 +4,21 @@
  * Primary: persistHealthDataSharded — legacy-compatible sharded-v1
  *   (clear domainChunks + put full chunk set from splitHealthDataShards).
  * Experimental: persistHealthDataSimple — core|full only; requires force.
+ *
+ * After soft-quota eviction, optional keep-N auto-trim (prefs) or forceKeepWindows.
  */
 import type { HealthData } from '@health-analyzer/lib';
 import { IDB_CONTRACT, openLegacyHistoryDb } from './idbContract';
+import { loadAndAnalyzeWarehouse } from './warehouseLoad';
+import {
+  getCgmKeepMonths,
+  getYearKeepYears,
+  isWarehouseAutoTrimEnabled,
+} from './warehouseKeepPrefs';
+import {
+  applyKeepWindowsToSplit,
+  type KeepWindowsMeta,
+} from './warehouseKeepWindows';
 import {
   REACT_CORE_FULL_LAYOUT,
   warehouseCoreOnlyWriteBlockedReason,
@@ -23,7 +35,6 @@ import {
   reassembleFromSplit,
   splitHealthDataShards,
 } from './warehouseShards';
-
 
 const WH_CHUNK_CORE = 'core|full';
 const WAREHOUSE_POLICY = IDB_CONTRACT.warehousePolicyVersion;
@@ -47,12 +58,32 @@ export type PersistWarehouseResult =
       removedHrv?: number;
       removedWorkouts?: number;
       removedYears?: number;
+      /** Keep-N window trim applied on this write */
+      keepTrimmed?: boolean;
+      droppedMonthCount?: number;
+      droppedYearCount?: number;
+      droppedMonths?: string[];
+      droppedYearsByDomain?: Record<string, string[]>;
     }
   | { ok: false; reason: string };
 
+export type PersistShardedOptions = {
+  grantIfNeeded?: boolean;
+  batchId?: string | null;
+  /**
+   * When true, apply keep-N windows after soft quota even if auto-trim pref is off.
+   * Used by applyKeepWindowsToStoredWarehouse.
+   */
+  forceKeepWindows?: boolean;
+};
 
-
-
+function countDroppedYears(meta: KeepWindowsMeta | null): number {
+  if (!meta) return 0;
+  return Object.values(meta.droppedYearsByDomain).reduce(
+    (n, ys) => n + ys.length,
+    0,
+  );
+}
 
 /** Grant warehouse consent (idempotent). */
 export async function grantWarehouseConsent(): Promise<void> {
@@ -95,7 +126,7 @@ export async function grantWarehouseConsent(): Promise<void> {
  */
 export async function persistHealthDataSharded(
   healthData: HealthData,
-  opts?: { grantIfNeeded?: boolean; batchId?: string | null },
+  opts?: PersistShardedOptions,
 ): Promise<PersistWarehouseResult> {
   if (!healthData || typeof healthData !== 'object') {
     return { ok: false, reason: 'no_data' };
@@ -115,8 +146,17 @@ export async function persistHealthDataSharded(
     };
   }
 
-  // Soft quota: drop oldest CGM months (legacy-compatible first step)
+  // Soft quota: drop oldest domain shards (legacy chain)
   const evict = applySoftQuotaEviction(split);
+
+  // Keep-N: opt-in auto-trim after persist, or forceKeepWindows (manual apply)
+  let keepMeta: KeepWindowsMeta | null = null;
+  if (opts?.forceKeepWindows || isWarehouseAutoTrimEnabled()) {
+    keepMeta = applyKeepWindowsToSplit(split, {
+      keepMonths: getCgmKeepMonths(),
+      keepYears: getYearKeepYears(),
+    });
+  }
 
   if (split.totalBytes > WH_HARD_BYTES) {
     return { ok: false, reason: 'quota_hard' };
@@ -130,7 +170,6 @@ export async function persistHealthDataSharded(
     batchId: opts?.batchId ?? null,
     now,
   });
-
 
   const db = await openLegacyHistoryDb();
   try {
@@ -189,15 +228,12 @@ export async function persistHealthDataSharded(
           evict.removedWatchDaily
         )
           notes.push('workouts_ecg_watch_years_evicted_for_quota');
+        if (keepMeta?.trimmed) notes.push('keep_windows_trimmed');
         if (!notes.length && split.totalBytes > WH_SOFT_BYTES)
           notes.push('soft_quota_exceeded');
         return notes;
       })(),
     };
-
-
-
-
 
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(
@@ -212,6 +248,8 @@ export async function persistHealthDataSharded(
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
+
+    const droppedYearCount = countDroppedYears(keepMeta);
 
     return {
       ok: true,
@@ -231,11 +269,32 @@ export async function persistHealthDataSharded(
       removedHrv: evict.removedHrv,
       removedWorkouts: evict.removedWorkouts,
       removedYears: evict.removedYears,
+      keepTrimmed: keepMeta?.trimmed ?? false,
+      droppedMonthCount: keepMeta?.droppedMonths.length ?? 0,
+      droppedYearCount,
+      droppedMonths: keepMeta?.droppedMonths,
+      droppedYearsByDomain: keepMeta?.droppedYearsByDomain,
     };
-
   } finally {
     db.close();
   }
+}
+
+/**
+ * Load assembled warehouse, apply keep-N windows (always; not only when auto-trim on),
+ * rewrite sharded-v1. Soft quota still runs first inside persist.
+ */
+export async function applyKeepWindowsToStoredWarehouse(): Promise<
+  PersistWarehouseResult | { ok: false; reason: 'empty' }
+> {
+  const loaded = await loadAndAnalyzeWarehouse();
+  if (!loaded?.data) {
+    return { ok: false, reason: 'empty' };
+  }
+  return persistHealthDataSharded(loaded.data, {
+    grantIfNeeded: true,
+    forceKeepWindows: true,
+  });
 }
 
 /**

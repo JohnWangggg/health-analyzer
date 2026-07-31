@@ -642,14 +642,50 @@
 .overview-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
-  padding: var(--space-3);
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-3);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
 .overview-toolbar .ui-btn {
-  min-height: 40px;
+  min-height: 36px;
+}
+.overview-toolbar-primary,
+.overview-toolbar-advanced {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: inherit;
+}
+.overview-toolbar-primary {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.overview-toolbar-advanced {
+  flex: 1 1 auto;
+}
+/* Mobile: collapse advanced actions unless toggled open */
+@media (max-width: 899.98px) {
+  .overview-toolbar-advanced[data-open='0'] {
+    display: none;
+  }
+  .overview-toolbar-advanced[data-open='1'] {
+    flex: 1 1 100%;
+  }
+}
+/* Desktop: full toolbar expanded; hide "更多" toggle */
+@media (min-width: 900px) {
+  .overview-toolbar-more {
+    display: none;
+  }
+  .overview-toolbar-advanced,
+  .overview-toolbar-advanced[data-open='0'],
+  .overview-toolbar-advanced[data-open='1'] {
+    display: flex;
+    flex: 0 1 auto;
+  }
 }
 .kpi-matrix {
   display: grid;
@@ -844,3 +880,32 @@
 }
 
 
+
+/* Keep-N panel */
+.keep-n-panel .keep-n-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: flex-end;
+  margin: var(--space-3) 0;
+}
+.keep-n-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.keep-n-field.keep-n-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: var(--touch-min);
+  padding-bottom: 0.35rem;
+}
+.keep-n-forecast {
+  margin: 0 0 var(--space-2);
+}
+.keep-n-actions {
+  margin-top: var(--space-2);
+}

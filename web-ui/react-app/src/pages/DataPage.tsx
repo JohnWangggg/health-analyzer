@@ -11,6 +11,7 @@ import {
   type WarehouseMetaView,
 } from '../core/legacyHistoryRead';
 import { SoftQuotaPanel } from '../features/data/SoftQuotaPanel';
+import { KeepNPanel } from '../features/data/KeepNPanel';
 import { useHealthStore } from '../store/useHealthStore';
 import { Button } from '../components/ui/Button';
 import { Card, CardDesc, CardTitle } from '../components/ui/Card';
@@ -114,6 +115,8 @@ export function DataPage() {
         totalApproxBytes={whMeta?.totalApproxBytes}
         lastWrittenAt={whMeta?.lastWrittenAt}
       />
+
+      <KeepNPanel meta={whMeta} onApplied={() => void refreshLegacy()} />
 
       <Card>
         <CardTitle>共享仓库探测</CardTitle>

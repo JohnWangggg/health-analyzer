@@ -156,6 +156,8 @@ core/
 components/ui/            # 设计 primitives
 components/charts/        # TrendChart（lazy echarts）
 features/overview/        # StatusBand · SignalList（总览密度 MVP+）
+features/data/            # SoftQuotaPanel · KeepNPanel
+core/warehouseKeepPrefs.ts / warehouseKeepWindows.ts
 pages/                    # Overview Trends Reports Data
 stores/workspaceStore.ts
 store/useHealthStore.ts
@@ -200,7 +202,9 @@ flowchart LR
 | `bf0c8b8` | BP/体重软驱逐、壳 i18n、总览 insight strip |
 | `89b54a1` | 睡眠/步数软驱逐 + 数据仓页密度 |
 | `846d680` | **软配额全链路**（CGM→BP/体重→睡眠/步数→HRV→训练/ECG/手表）写入时完成 |
-| *(本提交)* | **总览状态带 / 信号列表 / 趋势 domain-switcher + 壳层会话 chip / Trends i18n**（MVP+ 密度） |
+| `8055486` | 总览状态带 / 信号列表 / 趋势 domain-switcher + 壳层会话 chip / Trends i18n |
+| `5dcb9f6` | 报告 i18n + SoftQuotaPanel 只读 |
+| *(本提交)* | **keep-N 核心 + KeepNPanel + 总览工具栏主/次折叠** |
 
 ---
 
@@ -213,7 +217,7 @@ flowchart LR
 |----|------|
 | Tailwind v4 / 全量 shadcn | **未上**；CSS 变量 + 自有 primitives |
 | 生产默认 cutover 到 React | **未做** |
-| 仓按月/年分片 + keep-N | **分片写入 React 已有**；交互 keep-N / 硬配额面板 **仅 legacy** |
+| 仓按月/年分片 + keep-N | **分片写入 + keep-N 核心/面板 React 已有**（prefs 与 legacy 共享）；legacy 仍有更全多选删除 UI |
 | 高品质健康大屏 UI | **未做**（功能壳 + MVP+ 密度，非可编辑栅格） |
 | HAE 未知指标落库 / CommandPalette | 未做 |
 
@@ -224,9 +228,10 @@ flowchart LR
 | **当前写入** | `persistHealthDataSharded`：与 history-db 一致 **clear domainChunks + put 全量 sharded-v1 分片**（`warehouseShards.ts`）。 |
 | **core-only 旧路径** | `persistHealthDataSimple` 仅 `force` 可测；产品 UI 不用。 |
 | **读取** | `layout=sharded-v1` 或存在 domain 分片 → 合并分片；`react-core-full-v1` → core-only。 |
-| **软配额** | 写入时全链路 **已做**（`846d680`）；**交互 keep-N UI 仍未做**（仍用 legacy 数据中心）。 |
-| **仍缺** | 交互式 keep-N / 生产 cutover；真实「旧版写→React写→旧版读」浏览器交叉 E2E（单测已覆盖分片往返）。 |
-| **生产建议** | 可试用 React 写仓（会**整仓替换**分片集）；大规模 keep-N 仍用 legacy 面板。 |
+| **软配额** | 写入时全链路 **已做**（`846d680`）。 |
+| **keep-N** | React：**prefs**（legacy 同键）+ `applyKeepWindowsToSplit` + 写入后 opt-in auto-trim + 数据页「对仓库应用 keep-N」；legacy 仍有分域多选删除。 |
+| **仍缺** | 生产 cutover；真实「旧版写→React写→旧版读」浏览器交叉 E2E（单测已覆盖分片往返）。 |
+| **生产建议** | 可试用 React 写仓（会**整仓替换**分片集）；复杂多选清理仍可用 legacy 面板。 |
 
 ### P1 工程
 
@@ -236,10 +241,11 @@ flowchart LR
 | 生产关闭 source map | `build.sourcemap: false` |
 | SW 更新用户确认 | `registerType: 'prompt'` + `PwaUpdateBanner` |
 | echarts/core 按需构建 | **已做**（Line + Grid + Tooltip + DataZoom） |
-| 软配额全链路（CGM→BP/体重→睡眠/步数→HRV→训练/ECG/手表） | **已做**（写入时，`846d680`；**交互 keep-N 仍 legacy / 未做**） |
+| 软配额全链路（CGM→BP/体重→睡眠/步数→HRV→训练/ECG/手表） | **已做**（写入时，`846d680`） |
+| 交互 keep-N（React） | **已做 MVP**：`warehouseKeepPrefs` / `warehouseKeepWindows` / `KeepNPanel`；auto-trim 默认关；与 legacy 共用 localStorage |
 | 壳层 i18n 中/英 | **已做**（`ha-react-ui-locale`，导航/总览键） |
-| 总览状态带 / 信号列表 / 趋势工作台密度 | **已合入（MVP+，`8055486`）**：`StatusBand` / `SignalList` / Trends `domain-switcher` + 壳层会话 chip / Trends 中英 i18n |
-| 报告页 i18n + 数据页软配额只读面板 | **本轮**：Reports 中英键；`SoftQuotaPanel` 展示写入时淘汰顺序（交互 keep-N 仍 legacy） |
+| 总览状态带 / 信号列表 / 趋势工作台密度 | **已合入（MVP+，`8055486`）**；总览工具栏主/次操作折叠 **本轮** |
+| 报告页 i18n + 数据页软配额只读面板 | **已做**（`5dcb9f6`） |
 | 可编辑大屏栅格 / 手机完整单任务产品 | **未做** |
 
 
