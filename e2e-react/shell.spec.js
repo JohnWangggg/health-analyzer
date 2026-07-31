@@ -38,6 +38,13 @@ test.describe('React dual-track shell', () => {
     await expect(page.getByTestId('signal-list')).toBeVisible();
     await expect(page.getByTestId('primary-actions')).toBeVisible();
     await expect(page.getByTestId('kpi-visibility-bar')).toBeVisible();
+    await expect(page.getByTestId('llm-prompt-bar')).toBeVisible();
+    await expect(page.getByTestId('llm-prompt-copy')).toBeVisible();
+    await page.getByTestId('llm-prompt-copy').click();
+    await expect(page.getByTestId('llm-prompt-status')).toContainText(
+      /复制|Copied|字|char/i,
+      { timeout: 5_000 },
+    );
     await expect(page.getByTestId('kpi-card-cgm')).toBeVisible();
 
     // Workspace keyboard shortcuts: Alt+1..4

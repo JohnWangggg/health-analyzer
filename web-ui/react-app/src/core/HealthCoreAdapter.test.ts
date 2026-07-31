@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   analyzeHealthXml,
   analyzeHealthXmlViaLibDirect,
+  buildLlmPrompt,
   buildReportPreview,
   extractTrendSeries,
   healthCore,
@@ -82,6 +83,20 @@ describe('HealthCoreAdapter parity', () => {
         expect(Number.isFinite(p.value)).toBe(true);
       }
     }
+  });
+
+  it('buildLlmPrompt returns full paste-ready text via lib', () => {
+    const { analysis } = analyzeHealthXml(xml, { locale: 'zh-CN' });
+    const full = buildLlmPrompt(analysis, 'full', { locale: 'zh-CN' });
+    expect(full.mode).toBe('full');
+    expect(full.text.length).toBeGreaterThan(200);
+    expect(full.text).toMatch(/角色|报告|CGM|健康/i);
+    const data = buildLlmPrompt(analysis, 'data', { locale: 'zh-CN' });
+    expect(data.mode).toBe('data');
+    expect(data.text.length).toBeGreaterThan(40);
+    const short = buildLlmPrompt(analysis, 'short', { locale: 'en' });
+    expect(short.mode).toBe('short');
+    expect(short.text.length).toBeGreaterThan(40);
   });
 
   it('buildReportPreview calls lib report builders (non-empty markdown)', () => {

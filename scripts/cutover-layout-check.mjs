@@ -26,9 +26,13 @@ if (fs.existsSync(index)) {
   ok(html.includes('id="root"') || /type="module"/.test(html), 'root is React shell');
   ok(!html.includes('id="file-input"'), 'root is not legacy upload shell');
 }
+const spa404 = path.join(pub, '404.html');
+ok(fs.existsSync(spa404), '404.html SPA fallback exists (GitHub Pages deep links)');
 ok(fs.existsSync(path.join(pub, 'legacy/history-db.js')), 'legacy history-db.js');
 const stamp = path.join(pub, 'CUTOVER_STAMP.txt');
 if (fs.existsSync(stamp)) {
-  ok(fs.readFileSync(stamp, 'utf8').includes('react-default'), 'CUTOVER_STAMP role');
+  const st = fs.readFileSync(stamp, 'utf8');
+  ok(st.includes('react-default'), 'CUTOVER_STAMP role');
+  ok(/base=\//.test(st), 'CUTOVER_STAMP records base');
 }
 process.exit(fail ? 1 : 0);

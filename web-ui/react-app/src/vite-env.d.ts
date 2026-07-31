@@ -100,6 +100,29 @@ declare module '@health-analyzer/lib' {
     options?: { locale?: AppLocale | string },
   ): string;
 
+  export type UserContext = {
+    medications?: string;
+    targetWeight?: number | string;
+    focusAreas?: string;
+    notes?: string;
+    [key: string]: unknown;
+  };
+
+  export function generateLLMPrompt(
+    analysis: FullAnalysis,
+    userContext?: UserContext | null,
+    options?: { locale?: AppLocale | string | null; includeEvents?: boolean },
+  ): string;
+
+  export function generateDataOnly(
+    analysis: FullAnalysis,
+    userContext?: UserContext | null,
+    options?: { locale?: AppLocale | string | null; includeEvents?: boolean },
+  ): string;
+
+  export const SHORT_SYSTEM_PROMPT: string;
+  export const SHORT_SYSTEM_PROMPT_EN: string;
+
   export function parseEcgCsv(text: string): unknown;
 
   export function createEmptyData(referenceDate?: string): HealthData;

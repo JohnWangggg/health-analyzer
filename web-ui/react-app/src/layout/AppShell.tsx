@@ -228,7 +228,10 @@ export function AppShell() {
         </p>
         <p className="muted" style={{ marginTop: '0.75rem' }}>
           {t('shell.defaultEntry')} ·{' '}
-          <a href="/legacy/" data-testid="link-legacy-home">
+          <a
+            href={`${(import.meta.env.BASE_URL || '/').replace(/\/?$/, '/')}legacy/`}
+            data-testid="link-legacy-home"
+          >
             {t('shell.openLegacy')}
           </a>
         </p>
@@ -254,7 +257,11 @@ export function AppShell() {
             onClick={() => {
               try {
                 localStorage.setItem('ha-ui-shell', 'legacy');
-                window.location.assign('/legacy/');
+                const base = (import.meta.env.BASE_URL || '/').replace(
+                  /\/?$/,
+                  '/',
+                );
+                window.location.assign(`${base}legacy/`);
               } catch {
                 /* ignore */
               }

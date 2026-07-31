@@ -11,15 +11,16 @@
 ```bash
 cd health-analyzer
 npm run react:install
-npm run react:export-cutover   # → public/index.html + assets…；保留 public/legacy/
+npm run react:export-cutover   # 默认 base=/ ；保留 public/legacy/；写 404.html
+# GitHub Pages 部署 job 会设 GITHUB_PAGES_DEPLOY=true → base=/<repo>/
 ```
 
 | URL | 内容 |
 |-----|------|
-| `/` | **生产默认** React 壳 |
-| `/legacy/` | 旧版 PWA 回滚 |
+| `/` 或 Pages 上 `/<repo>/` | **生产默认** React 壳 |
+| `.../legacy/` | 旧版 PWA 回滚 |
 
-详见 **[DUAL_TRACK_UI.md](./DUAL_TRACK_UI.md)**。`react:export-next`（`/next/`）已废弃，勿作默认。
+详见 **[DUAL_TRACK_UI.md](./DUAL_TRACK_UI.md)**。`react:export-next`（`/next/`）已废弃。
 
 ## 选项 1：本地 Python 快速预览
 

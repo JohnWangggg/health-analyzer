@@ -1,43 +1,58 @@
 # Deployment guide
 
-Host everything under `web-ui/public/` on any static web server.
+Host **`web-ui/public/`** (React at site root + **`legacy/`** rollback) on any static server.
 
 **Language:** [中文](../DEPLOY.md) | **English**
 
-## Option 1: Local Python preview
-
-Good for development:
-
-```bash
-cd health-analyzer/web-ui/public
-python3 -m http.server 8000
-# open http://localhost:8000
-```
-
-## Option 2: Local Node server
-
-```bash
-npx serve health-analyzer/web-ui/public
-# or
-npx http-server health-analyzer/web-ui/public -p 8000
-```
-
-## Option 3: GitHub Pages (recommended for this repo)
-
-### A. GitHub Actions (current workflow)
-
-On push to `main`, CI runs `npm test` + `npm run build` in `lib/`, then deploys `web-ui/public/`.
-
-1. Repository **Settings → Pages → Source**: **GitHub Actions**
-2. Push to `main` (or run the deploy workflow manually)
-3. Open `https://<USER>.github.io/<repo>/` (e.g. `https://<USER>.github.io/health-analyzer/`)
+## Strategy A: React default + `/legacy/` rollback
 
 ```bash
 cd health-analyzer
-git push origin main
+npm run react:install
+npm run react:export-cutover   # → public/index.html + assets; keeps public/legacy/
+# Optional: VITE_BASE=/custom/   # override base
+# GitHub Pages deploy sets GITHUB_PAGES_DEPLOY=true → base=/<repo>/
 ```
 
-> Note: the browser bundle `lib.js` should already be committed after `npm run build`, or regenerated in CI before artifact upload depending on your workflow. The included workflow runs tests/build as a gate, then uploads `./web-ui/public`.
+| URL | Content |
+|-----|---------|
+| `/` (or `/<repo>/` on project Pages) | **Production default** React |
+| `.../legacy/` | Legacy PWA rollback |
+
+Also writes **`404.html`** (= `index.html`) for SPA routes on GitHub Pages.
+
+## Option 1: Local Python / serve
+
+```bash
+npm run react:export-cutover
+cd web-ui/public && python3 -m http.server 8000
+# http://localhost:8000/          React
+# http://localhost:8000/legacy/   rollback
+```
+
+```bash
+npx serve health-analyzer/web-ui/public -l 8000
+```
+
+## Option 2: GitHub Pages (this repo)
+
+### GitHub Actions
+
+On push to `main`:
+
+1. **test** job: lib tests + `export-cutover` (base `/` for e2e) + smoke + Playwright  
+2. **deploy** job: `export-cutover` with `GITHUB_PAGES_DEPLOY=true` → base `/<repo>/` + `404.html` → upload `web-ui/public/`
+
+1. **Settings → Pages → Source**: **GitHub Actions**
+2. `git push origin main`
+3. Open `https://<USER>.github.io/health-analyzer/`  
+   Legacy: `https://<USER>.github.io/health-analyzer/legacy/`
+
+React assets are **built on the deploy runner** (not committed). Root `index.html` / `assets/` are gitignored.
+
+## Option 3: Cloudflare
+
+`wrangler.toml` → `assets.directory = ./web-ui/public`. Prefer `VITE_BASE=/` unless hosting under a subpath.
 
 ### B. Classic `gh-pages` branch
 

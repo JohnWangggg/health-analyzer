@@ -36,7 +36,8 @@ web-ui/react-app/              # React 源码
 
 ```bash
 # 生产发布（必须）
-npm run react:export-cutover   # base=/ → public 根 + 保留 public/legacy/
+npm run react:export-cutover   # 默认 base=/；写 404.html；保留 public/legacy/
+# GitHub Pages 部署：GITHUB_PAGES_DEPLOY=true → base=/<repo>/
 
 # 开发
 npm run react:dev

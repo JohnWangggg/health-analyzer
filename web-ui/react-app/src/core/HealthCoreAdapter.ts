@@ -8,9 +8,14 @@ import {
   generateVisitSummaryMarkdown,
   generateWeeklyReportMarkdown,
   generateClinicalReviewMarkdown,
+  generateLLMPrompt,
+  generateDataOnly,
+  SHORT_SYSTEM_PROMPT,
+  SHORT_SYSTEM_PROMPT_EN,
   type FullAnalysis,
   type HealthData,
   type AppLocale,
+  type UserContext,
 } from '@health-analyzer/lib';
 
 export type AnalyzeOptions = {
@@ -255,6 +260,42 @@ export function buildReportPreview(
     kind,
     title: '临床复盘',
     markdown: generateClinicalReviewMarkdown(analysis, null, { locale }),
+  };
+}
+
+export type LlmPromptMode = 'full' | 'data' | 'short';
+
+/**
+ * Build paste-ready LLM prompt via lib kernel (legacy parity accelerator).
+ * userContext optional; events default off.
+ */
+export function buildLlmPrompt(
+  analysis: FullAnalysis,
+  mode: LlmPromptMode = 'full',
+  options?: AnalyzeOptions & { userContext?: UserContext | null },
+): { mode: LlmPromptMode; text: string } {
+  const locale = options?.locale ?? 'zh-CN';
+  const ctx = options?.userContext ?? null;
+  if (mode === 'data') {
+    return {
+      mode,
+      text: generateDataOnly(analysis, ctx, { locale, includeEvents: false }),
+    };
+  }
+  if (mode === 'short') {
+    const short =
+      locale === 'en' || String(locale).startsWith('en')
+        ? SHORT_SYSTEM_PROMPT_EN
+        : SHORT_SYSTEM_PROMPT;
+    const data = generateDataOnly(analysis, ctx, {
+      locale,
+      includeEvents: false,
+    });
+    return { mode, text: `${short}\n\n---\n\n${data}` };
+  }
+  return {
+    mode: 'full',
+    text: generateLLMPrompt(analysis, ctx, { locale, includeEvents: false }),
   };
 }
 

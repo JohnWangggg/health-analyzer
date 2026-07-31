@@ -20,6 +20,10 @@ import {
   type KpiId,
   type KpiVisibility,
 } from '../features/overview/kpiVisibility';
+import {
+  buildLlmPrompt,
+  type LlmPromptMode,
+} from '../core/HealthCoreAdapter';
 import fixtureXml from '../../../../e2e/fixtures/minimal-export.xml?raw';
 
 const KPI_OPEN_KEY = 'ha-react-overview-kpi-open';
@@ -116,7 +120,7 @@ function viaLabel(via: string | null): string {
 
 export function OverviewPage() {
   const navigate = useNavigate();
-  const { t } = useLocale();
+  const { t, locale } = useLocale();
   const fileRef = useRef<HTMLInputElement>(null);
   const haeRef = useRef<HTMLInputElement>(null);
   const [snapMsg, setSnapMsg] = useState<string | null>(null);
@@ -129,6 +133,8 @@ export function OverviewPage() {
   );
   /** KPI card visibility — localStorage; default all on (cgm visible for e2e). */
   const [kpiVis, setKpiVis] = useState<KpiVisibility>(() => getKpiVisibility());
+  const [promptMsg, setPromptMsg] = useState<string | null>(null);
+  const [promptMode, setPromptMode] = useState<LlmPromptMode>('full');
 
   const onKpiVisibilityChange = useCallback((id: KpiId, visible: boolean) => {
     setKpiVis(setKpiVisibility({ [id]: visible }));
@@ -137,6 +143,7 @@ export function OverviewPage() {
     status,
     error,
     summary,
+    analysis,
     sourceLabel,
     analyzeVia,
     lastSnapshotId,
@@ -152,6 +159,24 @@ export function OverviewPage() {
     saveSnapshot,
     clear,
   } = useHealthStore();
+
+  const onCopyLlmPrompt = useCallback(async () => {
+    if (!analysis) {
+      setPromptMsg(t('overview.prompt.noAnalysis'));
+      return;
+    }
+    try {
+      const { text } = buildLlmPrompt(analysis, promptMode, {
+        locale: locale === 'en' ? 'en' : 'zh-CN',
+      });
+      await navigator.clipboard.writeText(text);
+      setPromptMsg(
+        t('overview.prompt.copied').replace('{n}', String(text.length)),
+      );
+    } catch {
+      setPromptMsg(t('overview.prompt.copyFail'));
+    }
+  }, [analysis, promptMode, t, locale]);
 
   const loadFixture = useCallback(() => {
     setSnapMsg(null);
@@ -472,6 +497,38 @@ export function OverviewPage() {
               {summary.dateRange.start || '—'} → {summary.dateRange.end || '—'}
             </span>
           </div>
+
+          {analysis ? (
+            <div className="prompt-actions" data-testid="llm-prompt-bar">
+              <span className="muted">{t('overview.prompt.label')}</span>
+              <select
+                className="theme-select"
+                value={promptMode}
+                data-testid="llm-prompt-mode"
+                onChange={(e) =>
+                  setPromptMode(e.target.value as LlmPromptMode)
+                }
+                aria-label={t('overview.prompt.label')}
+              >
+                <option value="full">{t('overview.prompt.mode.full')}</option>
+                <option value="data">{t('overview.prompt.mode.data')}</option>
+                <option value="short">{t('overview.prompt.mode.short')}</option>
+              </select>
+              <Button
+                variant="primary"
+                size="sm"
+                data-testid="llm-prompt-copy"
+                onClick={() => void onCopyLlmPrompt()}
+              >
+                {t('overview.prompt.copy')}
+              </Button>
+              {promptMsg ? (
+                <span className="muted" data-testid="llm-prompt-status">
+                  {promptMsg}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="insight-strip" data-testid="insight-strip">
             {(() => {

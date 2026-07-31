@@ -27,6 +27,14 @@ export type MessageKey =
   | 'overview.empty'
   | 'overview.emptyHint'
   | 'overview.sessionReadyStrip'
+  | 'overview.prompt.label'
+  | 'overview.prompt.mode.full'
+  | 'overview.prompt.mode.data'
+  | 'overview.prompt.mode.short'
+  | 'overview.prompt.copy'
+  | 'overview.prompt.copied'
+  | 'overview.prompt.copyFail'
+  | 'overview.prompt.noAnalysis'
   | 'overview.ctaTrends'
   | 'overview.ctaReports'
   | 'overview.domains'
@@ -199,6 +207,14 @@ const zh: Record<MessageKey, string> = {
   'overview.emptyHint':
     '演示夹具 · XML/ZIP · HAE · 数据仓 — 任选一种导入后即可写仓与看趋势',
   'overview.sessionReadyStrip': '会话已就绪 · 可写仓 / 看趋势',
+  'overview.prompt.label': '大模型提示词',
+  'overview.prompt.mode.full': '完整',
+  'overview.prompt.mode.data': '仅数据',
+  'overview.prompt.mode.short': '简短系统提示',
+  'overview.prompt.copy': '复制提示词',
+  'overview.prompt.copied': '已复制（{n} 字，仅本机剪贴板）',
+  'overview.prompt.copyFail': '复制失败，请手动选择文本',
+  'overview.prompt.noAnalysis': '请先加载数据',
   'overview.ctaTrends': '打开趋势',
   'overview.ctaReports': '打开报告',
   'overview.domains': '域存在性',
@@ -382,6 +398,14 @@ const en: Record<MessageKey, string> = {
   'overview.emptyHint':
     'Demo fixture · XML/ZIP · HAE · warehouse — import any source, then persist or open trends',
   'overview.sessionReadyStrip': 'Session ready · persist warehouse / open trends',
+  'overview.prompt.label': 'LLM prompt',
+  'overview.prompt.mode.full': 'Full',
+  'overview.prompt.mode.data': 'Data only',
+  'overview.prompt.mode.short': 'Short system',
+  'overview.prompt.copy': 'Copy prompt',
+  'overview.prompt.copied': 'Copied ({n} chars, local clipboard only)',
+  'overview.prompt.copyFail': 'Copy failed — select text manually',
+  'overview.prompt.noAnalysis': 'Load data first',
   'overview.ctaTrends': 'Open trends',
   'overview.ctaReports': 'Open reports',
   'overview.domains': 'Domains present',

@@ -65,19 +65,32 @@ npm run react:test
 # 6. 部署：CI 会 export-cutover 后发布 web-ui/public
 ```
 
-### 入口与回滚（Strategy A）
+## 产品入口（Strategy A · 新版默认）
 
-- **默认入口：`/` React**（`web-ui/react-app` → `react:export-cutover`）  
-- **回滚：`/legacy/`** 旧版 PWA（`web-ui/public/legacy/`）  
-- 说明：**[docs/DUAL_TRACK_UI.md](docs/DUAL_TRACK_UI.md)**、**[docs/DEPLOY.md](docs/DEPLOY.md)**  
+| URL | 内容 |
+|-----|------|
+| **`/`** | **生产默认** React 壳（总览 / 趋势 / 报告 / 数据） |
+| **`/legacy/`** | 旧版 PWA **回滚**（完整 legacy 能力保留） |
+
+发布命令：`npm run react:export-cutover`（产物在 `web-ui/public/` 根；`legacy/` 保留）。  
+GitHub Pages 项目页会自动使用 base=`/<repo>/`（见 `export-cutover.mjs` + deploy workflow）。
+
+### React 默认路径已具备（相对 legacy 的迁移进度）
+
+- ✅ 导入：夹具 · XML · ZIP · HAE；会话就绪条 / 导入进度  
+- ✅ 总览：状态带 · KPI 可显隐 · 深链趋势 · **复制大模型提示词（完整/仅数据/简短）**  
+- ✅ 趋势：多域 · 有数据标记 · 空域切换 · ECharts 懒加载  
+- ✅ 报告：门诊/周报/临床 · 复制/下载 · 空态回总览  
+- ✅ 数据仓：sharded-v1 读写 · keep-N 预设 · 分片多选删除 · **备份/恢复（明文+AES-GCM）**  
+- ✅ 工程：cutover 布局门禁 · e2e-react 7 测 · dual 仓互通 · privacy 扫描  
+- ⏳ 仍可走 `/legacy/`：加密备份以外的冷门面板（FHIR 完整 UI、健康大屏 TV 模式、提示词细调权重 UI 等）  
+
+说明文档：[`docs/DUAL_TRACK_UI.md`](docs/DUAL_TRACK_UI.md) · [`docs/DEPLOY.md`](docs/DEPLOY.md) · [`docs/README.md`](docs/README.md)
 
 ---
 
-## 继续推进（parity 跟进，非 dual 胶水）
-
-cutover 之后优先补 **React 产品能力**（加密备份 UI、数据中心级清理等），而不是再扩 `/next/` 双轨。
-
 ## 核心特性
+
 
 - ✅ **100% 本地计算**，健康明细不上传服务器  
 - ✅ 跨平台：Windows / Mac / Linux / iOS / Android 浏览器  
@@ -125,34 +138,43 @@ cutover 之后优先补 **React 产品能力**（加密备份 UI、数据中心�
 
 ```
 health-analyzer/
-├── lib/                 # TypeScript 唯一源码（解析 / 统计 / 提示词 / 导出）
-│   ├── src/
-│   ├── scripts/build-browser.mjs
-│   └── test/
-├── web-ui/public/       # 可直接部署的 PWA 静态资源
-│   ├── index.html
-│   ├── i18n.js          # 界面文案（zh-CN / zh-TW / en）
-│   ├── app.js / styles.css / charts.js / history-db.js
-│   ├── lib.js           # 由 lib 构建生成，勿手改
-│   └── parse-worker.js
-├── docs/                # 中文说明、部署、提示词设计
-│   └── en/              # English docs
-└── .github/workflows/   # CI + GitHub Pages
+├── lib/                      # TypeScript 内核（解析/统计/提示词/导出）
+├── web-ui/
+│   ├── public/               # ★ 部署根（GitHub Pages / wrangler）
+│   │   ├── index.html …      # React（export-cutover 产物，gitignore）
+│   │   ├── 404.html          # SPA 深链（GitHub Pages）
+│   │   └── legacy/           # 旧版 PWA 回滚
+│   └── react-app/            # ★ React 源码（生产默认壳）
+├── e2e/                      # 旧版 /legacy/ Playwright
+├── e2e-react/                # 默认根 React Playwright
+├── e2e-dual/                 # / ↔ /legacy/ 仓互通
+└── docs/                     # 中文 + docs/en/ 英文
 ```
 
 详见 [docs/README.md](docs/README.md) · [docs/en/README.md](docs/en/README.md)
 
 ## 部署到 GitHub Pages
 
-推送到 `main` 即可：CI 会先 `lib` 单测与构建、静态 smoke、Playwright E2E，再部署 `web-ui/public/`。
+推送到 `main` 后：
+
+1. **test** job：`lib` 测试 + `react:export-cutover`（base=`/`，供 e2e）+ smoke + Playwright  
+2. **deploy** job：再次 `export-cutover`，并设 `GITHUB_PAGES_DEPLOY=true` → base=`/<repo>/`，生成 `404.html`，上传 `web-ui/public/`
 
 ```bash
 cd health-analyzer
 git push origin main
 ```
 
-仓库 **Settings → Pages → Source** 选择 **GitHub Actions**。  
-访问：`https://<USER>.github.io/health-analyzer/`
+仓库 **Settings → Pages → Source** 选 **GitHub Actions**。  
+访问：`https://<USER>.github.io/health-analyzer/`（资产路径带 repo 前缀）。  
+回滚旧版：`https://<USER>.github.io/health-analyzer/legacy/`
+
+本地静态预览（base=`/`）：
+
+```bash
+npm run react:export-cutover
+npx serve web-ui/public -l 8080
+```
 
 ## 部署到 Cloudflare
 
@@ -298,6 +320,35 @@ English:
 | v1.3 | 跨维度信号、JSON/CSV 导出、IndexedDB 历史环比 |
 | v1.2 | 个人背景、Canvas 图、Worker 解析 |
 | v1.1 | TS 单源构建、CI 门禁、摘要补齐 |
+
+
+
+---
+
+## 版本要点（Strategy A 起 · 持续更新）
+
+> 每次主线推送在此追加。完整双轨/仓设计见 `docs/DUAL_TRACK_UI.md`、`docs/DATA_CENTER_v1.68.md`。
+
+| 版本 / Commit | 要点 |
+|---------------|------|
+| **v2.3-cutover** `b2178b6` | **Strategy A**：生产默认 React `/`；旧版迁入 `public/legacy/`；`react:export-cutover`；CI/e2e 重定向 |
+| `3b08429` | 文档/package 口径对齐：新版默认、legacy 仅回滚 |
+| `9bc090a` | React **仓库备份/恢复**（legacy 兼容 AES-GCM / 明文 `.hae-backup.json`） |
+| `80d5b02` | React **分片多选清理**（CGM 月 / 年域） |
+| `b2e7363` | 分片删除 e2e 硬路径；总览导入进度 / 会话就绪条 |
+| `2e99eec` | 明文+**加密备份 e2e**；趋势域 `data-has-data` / 空域切换 |
+| `f58d6fc` | 报告空态 CTA + meta；Keep-N **一键预设** |
+| **本提交** | GitHub Pages **base=/\<repo\>/** + `404.html` SPA；总览 **复制大模型提示词**；中英文 README 合并更新 |
+
+### 发版检查清单（每次 push 前）
+
+```bash
+npm run react:test
+npm run react:export-cutover && npm run test:cutover-layout && npm run smoke
+npm run test:e2e:react
+# 可选：npm run test:e2e:dual · npm run test:e2e
+```
+
 
 ## 许可
 

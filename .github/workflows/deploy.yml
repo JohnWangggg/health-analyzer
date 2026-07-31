@@ -41,12 +41,22 @@ jobs:
             lib/package-lock.json
 
       - name: Build lib + React cutover publish tree
+        env:
+          # Project Pages URL: https://<user>.github.io/<repo>/
+          GITHUB_PAGES_DEPLOY: 'true'
         run: |
           npm --prefix lib ci
           npm --prefix lib run build
           npm ci
           npm run react:install
           npm run react:export-cutover
+          test -f web-ui/public/index.html
+          test -f web-ui/public/404.html
+          test -f web-ui/public/legacy/index.html
+          test -f web-ui/public/CUTOVER_STAMP.txt
+          head -8 web-ui/public/CUTOVER_STAMP.txt
+          # Asset hrefs must include repo base (not absolute /assets only without prefix)
+          grep -E 'src=|href=' web-ui/public/index.html | head -8
 
       - name: Setup Pages
         uses: actions/configure-pages@v6
