@@ -15,12 +15,14 @@
     "parity": "vitest run src/core/HealthCoreAdapter.test.ts"
   },
   "dependencies": {
+    "echarts": "^6.1.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@types/echarts": "^4.9.22",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

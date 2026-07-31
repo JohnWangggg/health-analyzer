@@ -1,37 +1,48 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme, type ThemeMode } from '../theme/ThemeProvider';
-
-const NAV: Array<{ to: string; label: string; end?: boolean }> = [
-  { to: '/', label: '总览', end: true },
-  { to: '/trends', label: '趋势' },
-  { to: '/reports', label: '报告' },
-  { to: '/data', label: '数据' },
-];
-
+import {
+  WORKSPACES,
+  useWorkspaceStore,
+  type WorkspaceId,
+} from '../stores/workspaceStore';
+import { Sheet } from '../components/ui/Sheet';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
 
 export function AppShell() {
   const { mode, setMode } = useTheme();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { active, setFromPath, setActive } = useWorkspaceStore();
+  const [aboutOpen, setAboutOpen] = useState(false);
+
+  useEffect(() => {
+    setFromPath(location.pathname);
+  }, [location.pathname, setFromPath]);
+
+  const go = (id: WorkspaceId, path: string) => {
+    setActive(id);
+    navigate(path);
+  };
 
   return (
-    <div className="app-shell" data-testid="app-shell">
-      <header className="app-header">
+    <div className="app-shell" data-testid="app-shell" data-workspace={active}>
+      <header className="app-topbar">
         <div className="brand">
-          <strong>健康分析</strong>
-          <span>React 预览壳 · 非生产默认入口</span>
+          <strong>健康 OS · React</strong>
+          <span>本地优先预览 · 非默认生产入口</span>
         </div>
-        <nav className="app-nav" aria-label="工作区">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className="nav-link"
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
         <div className="header-actions">
+          <Badge tone="accent">双轨</Badge>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setAboutOpen(true)}
+            data-testid="open-about-sheet"
+          >
+            关于
+          </Button>
           <label className="sr-only" htmlFor="theme-select">
             主题
           </label>
@@ -48,12 +59,72 @@ export function AppShell() {
           </select>
         </div>
       </header>
-      <main className="app-main" id="main">
-        <Outlet />
-      </main>
+
+      <div className="app-body">
+        <aside
+          className="app-sidebar"
+          aria-label="桌面工作区导航"
+          data-testid="desktop-sidebar"
+        >
+          {WORKSPACES.map((w) => (
+            <NavLink
+              key={w.id}
+              to={w.path}
+              end={w.path === '/'}
+              className="nav-item"
+              data-workspace-nav={w.id}
+              data-nav-surface="sidebar"
+              onClick={() => setActive(w.id)}
+            >
+              <span>{w.label}</span>
+              <small>{w.description}</small>
+            </NavLink>
+          ))}
+        </aside>
+
+        <main className="app-main" id="main">
+          <Outlet />
+        </main>
+      </div>
+
+      <nav
+        className="bottom-nav"
+        aria-label="手机工作区导航"
+        data-testid="mobile-bottom-nav"
+      >
+        {WORKSPACES.map((w) => (
+          <button
+            key={w.id}
+            type="button"
+            className="nav-item"
+            data-workspace-nav={w.id}
+            data-nav-surface="bottom"
+            aria-current={active === w.id ? 'page' : undefined}
+            onClick={() => go(w.id, w.path)}
+          >
+            {w.shortLabel}
+          </button>
+        ))}
+      </nav>
+
       <footer className="app-footer">
-        本地优先 · 无 CDN/分析上报 · 生产仍部署 web-ui/public
+        本地优先 · 无 CDN · 生产默认仍为 web-ui/public · 当前工作区：
+        {WORKSPACES.find((w) => w.id === active)?.label}
       </footer>
+
+      <Sheet
+        open={aboutOpen}
+        onClose={() => setAboutOpen(false)}
+        title="关于双轨预览"
+      >
+        <p className="muted">
+          本壳通过 HealthCoreAdapter 调用 @health-analyzer/lib，不重写解析与统计。
+          IndexedDB 契约与 legacy history-db.js 对齐。健康原始数据不离开本机。
+        </p>
+        <p className="muted" style={{ marginTop: '0.75rem' }}>
+          切换生产入口见 docs/DUAL_TRACK_UI.md；legacy 始终可回退。
+        </p>
+      </Sheet>
     </div>
   );
 }

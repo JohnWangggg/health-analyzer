@@ -8,14 +8,13 @@ declare module '*?raw' {
 
 /**
  * Typed surface for the adapter. Vite resolves `@health-analyzer/lib` to
- * `lib/src/index.ts` at bundle time; we intentionally do NOT pull the whole
- * lib tree into `tsc -b` (lib uses non-verbatim type imports).
+ * `lib/src/index.ts` at bundle time; ambient types avoid pulling lib into tsc.
  */
 declare module '@health-analyzer/lib' {
   export type AppLocale = 'zh-CN' | 'zh-TW' | 'en';
 
   export interface HealthData {
-    cgm: unknown[];
+    cgm: Array<{ datetime: string; value: number }>;
     bloodPressure: unknown[];
     weight: Array<{ value: number; date: string; datetime: string }>;
     bodyFat: unknown[];
@@ -38,13 +37,20 @@ declare module '@health-analyzer/lib' {
     bpStats: unknown | null;
     weightStats: {
       latestTrend: { date: string; weight: number } | null;
+      trendSeries?: Array<{ date: string; weight: number }>;
     } | null;
     watchStats: unknown | null;
     workoutStats: unknown | null;
     ecgStats: unknown | null;
-    recoveryWeek: { recoveryScore: number | null } | null;
+    recoveryWeek: {
+      recoveryScore: number | null;
+      loadScore?: number | null;
+      statusLabel?: string;
+      statusTone?: string;
+      weekEnd?: string;
+    } | null;
     recoveryWeeks: unknown[] | null;
-    hrvByDate: Record<string, unknown>;
+    hrvByDate: Record<string, { mean?: number; median?: number } | number>;
     restingHrByDate: Record<string, number>;
     walkingHrByDate: Record<string, number>;
     stepsByDate: Record<string, number>;
@@ -67,4 +73,23 @@ declare module '@health-analyzer/lib' {
       locale?: AppLocale | string | null;
     },
   ): FullAnalysis;
+
+  export function generateVisitSummaryMarkdown(
+    analysis: FullAnalysis,
+    userContext?: unknown,
+    options?: { locale?: AppLocale | string },
+  ): string;
+
+  export function generateWeeklyReportMarkdown(
+    analysis: FullAnalysis,
+    userContext?: unknown,
+    options?: { locale?: AppLocale | string; includeEvents?: boolean },
+  ): string;
+
+  export function generateClinicalReviewMarkdown(
+    analysis: FullAnalysis,
+    userContext?: unknown,
+    options?: { locale?: AppLocale | string },
+  ): string;
 }
+
