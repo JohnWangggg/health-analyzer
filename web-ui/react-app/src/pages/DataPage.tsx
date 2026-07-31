@@ -16,6 +16,7 @@ import { useHealthStore } from '../store/useHealthStore';
 import { Button } from '../components/ui/Button';
 import { Card, CardDesc, CardTitle } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
+import { useLocale } from '../i18n/LocaleProvider';
 
 function approxJsonBytes(value: unknown): number {
   try {
@@ -26,6 +27,7 @@ function approxJsonBytes(value: unknown): number {
 }
 
 export function DataPage() {
+  const { t } = useLocale();
   const summary = useHealthStore((s) => s.summary);
   const analysis = useHealthStore((s) => s.analysis);
   const sourceLabel = useHealthStore((s) => s.sourceLabel);
@@ -62,27 +64,26 @@ export function DataPage() {
   return (
     <div className="stack" data-testid="page-data">
       <div>
-        <h1 className="page-title">数据仓</h1>
+        <h1 className="page-title">{t('data.title')}</h1>
         <p className="page-lead">
-          会话状态 + 共享 IDB（
+          {t('data.leadPrefix')}
           <code>
             {IDB_CONTRACT.name}@v{IDB_CONTRACT.version}
           </code>
-          ）。写入在总览走 <strong>sharded-v1</strong> 整仓替换；加密备份仍在
-          legacy。
+          {t('data.leadSuffix')}
         </p>
       </div>
 
       <div className="kpi-matrix">
         <Card data-testid="data-source-card">
-          <CardTitle>会话来源</CardTitle>
+          <CardTitle>{t('data.source')}</CardTitle>
           <p className="kpi" style={{ fontSize: '1rem' }} data-testid="data-source">
-            {sourceLabel || '尚未加载会话数据'}
+            {sourceLabel || t('data.sourceEmpty')}
           </p>
-          <CardDesc>当前 React 会话（adapter 解析结果）。</CardDesc>
+          <CardDesc>{t('data.sourceDesc')}</CardDesc>
         </Card>
         <Card data-testid="data-span-card">
-          <CardTitle>会话跨度</CardTitle>
+          <CardTitle>{t('data.span')}</CardTitle>
           <p className="kpi" style={{ fontSize: '1rem' }} data-testid="data-span">
             {summary
               ? `${summary.dateRange.start || '—'} → ${summary.dateRange.end || '—'}`
@@ -90,22 +91,25 @@ export function DataPage() {
           </p>
           <CardDesc>
             {summary
-              ? `CGM ${summary.counts.cgm} · 体重 ${summary.counts.weight} · 步数日 ${summary.counts.stepsDays}`
-              : '加载数据后显示'}
+              ? t('data.spanCounts')
+                  .replace('{cgm}', String(summary.counts.cgm))
+                  .replace('{weight}', String(summary.counts.weight))
+                  .replace('{stepsDays}', String(summary.counts.stepsDays))
+              : t('data.spanEmpty')}
           </CardDesc>
         </Card>
         <Card data-testid="data-storage-card">
-          <CardTitle>会话占用（约）</CardTitle>
+          <CardTitle>{t('data.bytes')}</CardTitle>
           <p className="kpi" style={{ fontSize: '1rem' }} data-testid="data-bytes">
             {memoryBytes ? `${(memoryBytes / 1024).toFixed(1)} KB` : '—'}
           </p>
-          <CardDesc>内存 FullAnalysis 近似。</CardDesc>
+          <CardDesc>{t('data.bytesDesc')}</CardDesc>
         </Card>
         <Card>
-          <CardTitle>备份</CardTitle>
-          <CardDesc>加密备份/恢复 → legacy 数据中心完整实现。</CardDesc>
+          <CardTitle>{t('data.backup')}</CardTitle>
+          <CardDesc>{t('data.backupDesc')}</CardDesc>
           <div style={{ marginTop: '0.5rem' }}>
-            <Badge tone="watch">完整备份 → legacy</Badge>
+            <Badge tone="watch">{t('data.backupBadge')}</Badge>
           </div>
         </Card>
       </div>
@@ -119,7 +123,7 @@ export function DataPage() {
       <KeepNPanel meta={whMeta} onApplied={() => void refreshLegacy()} />
 
       <Card>
-        <CardTitle>共享仓库探测</CardTitle>
+        <CardTitle>{t('data.probe')}</CardTitle>
         <div className="row" style={{ marginBottom: '0.75rem' }}>
           <Button
             variant="primary"
@@ -127,7 +131,7 @@ export function DataPage() {
             disabled={busy}
             data-testid="probe-idb"
           >
-            {busy ? '读取中…' : '读取本地仓库'}
+            {busy ? t('data.probeBusy') : t('data.probeAction')}
           </Button>
         </div>
         {error ? (
@@ -139,7 +143,8 @@ export function DataPage() {
         {probe ? (
           <div data-testid="idb-probe-result">
             <p className={probe.ok ? 'status-ok' : 'status-err'}>
-              {probe.ok ? '契约匹配' : '契约不完整'} — {probe.note}
+              {probe.ok ? t('data.contractOk') : t('data.contractFail')} —{' '}
+              {probe.note}
             </p>
             <p className="muted">
               version={probe.version}; stores={probe.storeNames.join(', ')}
@@ -169,13 +174,15 @@ export function DataPage() {
             <table className="table">
               <tbody>
                 <tr>
-                  <th>consent</th>
+                  <th>{t('data.meta.consent')}</th>
                   <td data-testid="wh-consent">
-                    {whMeta.consentGranted ? '已授权' : '未授权'}
+                    {whMeta.consentGranted
+                      ? t('data.consentGranted')
+                      : t('data.consentDenied')}
                   </td>
                 </tr>
                 <tr>
-                  <th>跨度</th>
+                  <th>{t('data.meta.span')}</th>
                   <td>
                     {whMeta.dateRange
                       ? `${whMeta.dateRange.start || '—'} → ${whMeta.dateRange.end || '—'}`
@@ -183,7 +190,7 @@ export function DataPage() {
                   </td>
                 </tr>
                 <tr>
-                  <th>约占用</th>
+                  <th>{t('data.meta.approx')}</th>
                   <td>
                     {whMeta.totalApproxBytes != null
                       ? `${(whMeta.totalApproxBytes / (1024 * 1024)).toFixed(2)} MB`
@@ -191,11 +198,11 @@ export function DataPage() {
                   </td>
                 </tr>
                 <tr>
-                  <th>记录数</th>
+                  <th>{t('data.meta.records')}</th>
                   <td>{whMeta.totalRecordCount ?? '—'}</td>
                 </tr>
                 <tr>
-                  <th>最近写入</th>
+                  <th>{t('data.meta.lastWritten')}</th>
                   <td>{whMeta.lastWrittenAt || '—'}</td>
                 </tr>
               </tbody>
@@ -203,21 +210,23 @@ export function DataPage() {
           </div>
         ) : null}
 
-
         {snapshots ? (
           <div style={{ marginTop: '1rem' }} data-testid="snapshot-list">
             <h3 className="ui-card-title">
-              摘要快照（{snapshots.length}）
+              {t('data.snapshots').replace(
+                '{count}',
+                String(snapshots.length),
+              )}
             </h3>
             {snapshots.length === 0 ? (
-              <p className="muted">尚无快照（可在 legacy 分析后保存）。</p>
+              <p className="muted">{t('data.snapshotsEmpty')}</p>
             ) : (
               <table className="table">
                 <thead>
                   <tr>
-                    <th>标签</th>
-                    <th>savedAt</th>
-                    <th>区间</th>
+                    <th>{t('data.snapLabel')}</th>
+                    <th>{t('data.snapSavedAt')}</th>
+                    <th>{t('data.snapRange')}</th>
                   </tr>
                 </thead>
                 <tbody>

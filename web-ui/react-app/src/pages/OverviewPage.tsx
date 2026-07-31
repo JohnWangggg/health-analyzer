@@ -15,7 +15,27 @@ import { StatusBand } from '../features/overview/StatusBand';
 import { SignalList } from '../features/overview/SignalList';
 import fixtureXml from '../../../../e2e/fixtures/minimal-export.xml?raw';
 
+const KPI_OPEN_KEY = 'ha-react-overview-kpi-open';
+const DOMAINS_OPEN_KEY = 'ha-react-overview-domains-open';
 
+/** sessionStorage open flag; default open when missing/invalid (e2e-safe). */
+function readSectionOpen(key: string): boolean {
+  try {
+    const v = sessionStorage.getItem(key);
+    if (v === '0') return false;
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+function writeSectionOpen(key: string, open: boolean): void {
+  try {
+    sessionStorage.setItem(key, open ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
 
 function freshnessLabel(days: number | null): {
   text: string;
@@ -95,6 +115,11 @@ export function OverviewPage() {
   const [snapMsg, setSnapMsg] = useState<string | null>(null);
   /** Mobile: collapse advanced toolbar actions; desktop CSS always shows them. */
   const [toolbarMoreOpen, setToolbarMoreOpen] = useState(false);
+  /** Collapsible KPI / domains — default open (e2e); session opt-in collapse. */
+  const [kpiOpen, setKpiOpen] = useState(() => readSectionOpen(KPI_OPEN_KEY));
+  const [domainsOpen, setDomainsOpen] = useState(() =>
+    readSectionOpen(DOMAINS_OPEN_KEY),
+  );
   const {
     status,
     error,
@@ -369,79 +394,120 @@ export function OverviewPage() {
           </div>
 
           <div className="insight-strip" data-testid="insight-strip">
-            {Object.entries(summary.domainPresence)
-              .filter(([, v]) => v)
-              .map(([k]) => (
-                <span key={k} className="insight-chip" data-domain={k}>
-                  {k}
-                </span>
-              ))}
+            {(() => {
+              const presentDomains = Object.entries(summary.domainPresence)
+                .filter(([, v]) => v)
+                .map(([k]) => k);
+              return (
+                <>
+                  <span
+                    className="insight-chip insight-chip-count"
+                    data-testid="insight-domain-count"
+                  >
+                    {t('overview.domainsPresentCount').replace(
+                      '{n}',
+                      String(presentDomains.length),
+                    )}
+                  </span>
+                  {presentDomains.map((k) => (
+                    <span key={k} className="insight-chip" data-domain={k}>
+                      {k}
+                    </span>
+                  ))}
+                </>
+              );
+            })()}
           </div>
 
           <div className="overview-split">
-            <div className="kpi-matrix" data-testid="kpi-matrix">
-              <Card data-testid="freshness-card">
-                <CardTitle>CGM 均值</CardTitle>
-                <p className="kpi" data-testid="kpi-cgm">
-                  {summary.kpis.cgmMean != null
-                    ? summary.kpis.cgmMean.toFixed(2)
-                    : '—'}
-                </p>
-                <CardDesc>{summary.counts.cgm} 点</CardDesc>
-              </Card>
-              <Card>
-                <CardTitle>最近体重</CardTitle>
-                <p className="kpi" data-testid="kpi-weight">
-                  {summary.kpis.weightLatest != null
-                    ? summary.kpis.weightLatest.toFixed(2)
-                    : '—'}
-                </p>
-                <CardDesc>{summary.counts.weight} 条</CardDesc>
-              </Card>
-              <Card>
-                <CardTitle>最近步数</CardTitle>
-                <p className="kpi" data-testid="kpi-steps">
-                  {summary.kpis.stepsLatest != null
-                    ? String(summary.kpis.stepsLatest)
-                    : '—'}
-                </p>
-                <CardDesc>{summary.counts.stepsDays} 天</CardDesc>
-              </Card>
-              <Card>
-                <CardTitle>恢复分</CardTitle>
-                <p className="kpi" data-testid="kpi-recovery">
-                  {summary.kpis.recoveryScore != null
-                    ? String(summary.kpis.recoveryScore)
-                    : '—'}
-                </p>
-                <CardDesc>非诊断 · 个人启发式</CardDesc>
-              </Card>
-              {summary.kpis.restingHrLatest != null ? (
-                <Card>
-                  <CardTitle>静息心率</CardTitle>
-                  <p className="kpi">{summary.kpis.restingHrLatest}</p>
-                  <CardDesc>最近一日</CardDesc>
-                </Card>
-              ) : null}
-            </div>
+            <details
+              className="overview-collapsible"
+              data-testid="overview-kpi-section"
+              open={kpiOpen}
+              onToggle={(e) => {
+                const next = e.currentTarget.open;
+                setKpiOpen(next);
+                writeSectionOpen(KPI_OPEN_KEY, next);
+              }}
+            >
+              <summary>{t('overview.kpiSection')}</summary>
+              <div className="overview-collapsible-body">
+                <div className="kpi-matrix" data-testid="kpi-matrix">
+                  <Card data-testid="freshness-card">
+                    <CardTitle>CGM 均值</CardTitle>
+                    <p className="kpi" data-testid="kpi-cgm">
+                      {summary.kpis.cgmMean != null
+                        ? summary.kpis.cgmMean.toFixed(2)
+                        : '—'}
+                    </p>
+                    <CardDesc>{summary.counts.cgm} 点</CardDesc>
+                  </Card>
+                  <Card>
+                    <CardTitle>最近体重</CardTitle>
+                    <p className="kpi" data-testid="kpi-weight">
+                      {summary.kpis.weightLatest != null
+                        ? summary.kpis.weightLatest.toFixed(2)
+                        : '—'}
+                    </p>
+                    <CardDesc>{summary.counts.weight} 条</CardDesc>
+                  </Card>
+                  <Card>
+                    <CardTitle>最近步数</CardTitle>
+                    <p className="kpi" data-testid="kpi-steps">
+                      {summary.kpis.stepsLatest != null
+                        ? String(summary.kpis.stepsLatest)
+                        : '—'}
+                    </p>
+                    <CardDesc>{summary.counts.stepsDays} 天</CardDesc>
+                  </Card>
+                  <Card>
+                    <CardTitle>恢复分</CardTitle>
+                    <p className="kpi" data-testid="kpi-recovery">
+                      {summary.kpis.recoveryScore != null
+                        ? String(summary.kpis.recoveryScore)
+                        : '—'}
+                    </p>
+                    <CardDesc>非诊断 · 个人启发式</CardDesc>
+                  </Card>
+                  {summary.kpis.restingHrLatest != null ? (
+                    <Card>
+                      <CardTitle>静息心率</CardTitle>
+                      <p className="kpi">{summary.kpis.restingHrLatest}</p>
+                      <CardDesc>最近一日</CardDesc>
+                    </Card>
+                  ) : null}
+                </div>
+              </div>
+            </details>
             <SignalList summary={summary} />
           </div>
 
-          <Card>
-            <CardTitle>{t('overview.domains')}</CardTitle>
-            <div className="row" style={{ marginTop: '0.75rem' }}>
-              {Object.entries(summary.domainPresence).map(([k, v]) => (
-                <Badge
-                  key={k}
-                  tone={v ? 'ok' : 'neutral'}
-                  data-domain={k}
-                  data-present={v ? '1' : '0'}
-                >
-                  {k}: {v ? '✓' : '—'}
-                </Badge>
-              ))}
+          <details
+            className="overview-collapsible"
+            data-testid="overview-domains-section"
+            open={domainsOpen}
+            onToggle={(e) => {
+              const next = e.currentTarget.open;
+              setDomainsOpen(next);
+              writeSectionOpen(DOMAINS_OPEN_KEY, next);
+            }}
+          >
+            <summary>{t('overview.domains')}</summary>
+            <div className="overview-collapsible-body">
+              <div className="row">
+                {Object.entries(summary.domainPresence).map(([k, v]) => (
+                  <Badge
+                    key={k}
+                    tone={v ? 'ok' : 'neutral'}
+                    data-domain={k}
+                    data-present={v ? '1' : '0'}
+                  >
+                    {k}: {v ? '✓' : '—'}
+                  </Badge>
+                ))}
+              </div>
             </div>
-          </Card>
+          </details>
         </>
       )}
     </div>

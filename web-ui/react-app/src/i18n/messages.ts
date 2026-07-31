@@ -28,6 +28,8 @@ export type MessageKey =
   | 'overview.ctaTrends'
   | 'overview.ctaReports'
   | 'overview.domains'
+  | 'overview.kpiSection'
+  | 'overview.domainsPresentCount'
   | 'dualTrack'
   | 'shell.sessionReady'
   | 'shell.sessionIdle'
@@ -58,6 +60,37 @@ export type MessageKey =
   | 'reports.copied'
   | 'reports.copyFail'
   | 'reports.downloaded'
+  | 'data.title'
+  | 'data.leadPrefix'
+  | 'data.leadSuffix'
+  | 'data.source'
+  | 'data.sourceEmpty'
+  | 'data.sourceDesc'
+  | 'data.span'
+  | 'data.spanCounts'
+  | 'data.spanEmpty'
+  | 'data.bytes'
+  | 'data.bytesDesc'
+  | 'data.backup'
+  | 'data.backupDesc'
+  | 'data.backupBadge'
+  | 'data.probe'
+  | 'data.probeBusy'
+  | 'data.probeAction'
+  | 'data.contractOk'
+  | 'data.contractFail'
+  | 'data.consentGranted'
+  | 'data.consentDenied'
+  | 'data.meta.consent'
+  | 'data.meta.span'
+  | 'data.meta.approx'
+  | 'data.meta.records'
+  | 'data.meta.lastWritten'
+  | 'data.snapshots'
+  | 'data.snapshotsEmpty'
+  | 'data.snapLabel'
+  | 'data.snapSavedAt'
+  | 'data.snapRange'
   | 'data.softQuota.title'
   | 'data.softQuota.lead'
   | 'data.softQuota.note'
@@ -112,6 +145,8 @@ const zh: Record<MessageKey, string> = {
   'overview.ctaTrends': '打开趋势',
   'overview.ctaReports': '打开报告',
   'overview.domains': '域存在性',
+  'overview.kpiSection': '关键指标',
+  'overview.domainsPresentCount': '{n} 域有数据',
   dualTrack: '双轨',
   'shell.sessionReady': '已加载',
   'shell.sessionIdle': '未加载',
@@ -146,6 +181,39 @@ const zh: Record<MessageKey, string> = {
   'reports.copied': '已复制到剪贴板（仅本机，未上传）',
   'reports.copyFail': '复制失败：请手动选择预览文本',
   'reports.downloaded': '已下载 {filename}',
+  'data.title': '数据仓',
+  'data.leadPrefix': '会话状态 + 共享 IDB（',
+  'data.leadSuffix':
+    '）。写入在总览走 sharded-v1 整仓替换；加密备份仍在 legacy。',
+  'data.source': '会话来源',
+  'data.sourceEmpty': '尚未加载会话数据',
+  'data.sourceDesc': '当前 React 会话（adapter 解析结果）。',
+  'data.span': '会话跨度',
+  'data.spanCounts':
+    'CGM {cgm} · 体重 {weight} · 步数日 {stepsDays}',
+  'data.spanEmpty': '加载数据后显示',
+  'data.bytes': '会话占用（约）',
+  'data.bytesDesc': '内存 FullAnalysis 近似。',
+  'data.backup': '备份',
+  'data.backupDesc': '加密备份/恢复 → legacy 数据中心完整实现。',
+  'data.backupBadge': '完整备份 → legacy',
+  'data.probe': '共享仓库探测',
+  'data.probeBusy': '读取中…',
+  'data.probeAction': '读取本地仓库',
+  'data.contractOk': '契约匹配',
+  'data.contractFail': '契约不完整',
+  'data.consentGranted': '已授权',
+  'data.consentDenied': '未授权',
+  'data.meta.consent': 'consent',
+  'data.meta.span': '跨度',
+  'data.meta.approx': '约占用',
+  'data.meta.records': '记录数',
+  'data.meta.lastWritten': '最近写入',
+  'data.snapshots': '摘要快照（{count}）',
+  'data.snapshotsEmpty': '尚无快照（可在 legacy 分析后保存）。',
+  'data.snapLabel': '标签',
+  'data.snapSavedAt': 'savedAt',
+  'data.snapRange': '区间',
   'data.softQuota.title': '软配额（写入时）',
   'data.softQuota.lead':
     '超软配额时，写入路径 persistHealthDataSharded 会按固定顺序淘汰最旧分片。策略说明，非诊断。',
@@ -204,6 +272,8 @@ const en: Record<MessageKey, string> = {
   'overview.ctaTrends': 'Open trends',
   'overview.ctaReports': 'Open reports',
   'overview.domains': 'Domains present',
+  'overview.kpiSection': 'Key metrics',
+  'overview.domainsPresentCount': '{n} domains present',
   dualTrack: 'Dual-track',
   'shell.sessionReady': 'Ready',
   'shell.sessionIdle': 'Idle',
@@ -239,6 +309,41 @@ const en: Record<MessageKey, string> = {
   'reports.copied': 'Copied to clipboard (local only, not uploaded)',
   'reports.copyFail': 'Copy failed — select preview text manually',
   'reports.downloaded': 'Downloaded {filename}',
+  'data.title': 'Data warehouse',
+  'data.leadPrefix': 'Session state + shared IDB (',
+  'data.leadSuffix':
+    '). Writes on Overview use sharded-v1 full-warehouse replace; encrypted backup remains on legacy.',
+  'data.source': 'Session source',
+  'data.sourceEmpty': 'No session data loaded yet',
+  'data.sourceDesc': 'Current React session (adapter parse result).',
+  'data.span': 'Session span',
+  'data.spanCounts':
+    'CGM {cgm} · weight {weight} · step days {stepsDays}',
+  'data.spanEmpty': 'Shown after data is loaded',
+  'data.bytes': 'Session size (approx.)',
+  'data.bytesDesc': 'In-memory FullAnalysis estimate.',
+  'data.backup': 'Backup',
+  'data.backupDesc':
+    'Encrypted backup/restore → full implementation in legacy data center.',
+  'data.backupBadge': 'Full backup → legacy',
+  'data.probe': 'Shared warehouse probe',
+  'data.probeBusy': 'Reading…',
+  'data.probeAction': 'Read local warehouse',
+  'data.contractOk': 'Contract match',
+  'data.contractFail': 'Contract incomplete',
+  'data.consentGranted': 'Granted',
+  'data.consentDenied': 'Not granted',
+  'data.meta.consent': 'consent',
+  'data.meta.span': 'Span',
+  'data.meta.approx': 'Approx. size',
+  'data.meta.records': 'Records',
+  'data.meta.lastWritten': 'Last written',
+  'data.snapshots': 'Summary snapshots ({count})',
+  'data.snapshotsEmpty':
+    'No snapshots yet (save after analysis in legacy).',
+  'data.snapLabel': 'Label',
+  'data.snapSavedAt': 'savedAt',
+  'data.snapRange': 'Range',
   'data.softQuota.title': 'Soft quota (on write)',
   'data.softQuota.lead':
     'When over soft quota, persistHealthDataSharded evicts oldest shards in a fixed order. Policy only — not a diagnosis.',

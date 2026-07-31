@@ -20,6 +20,7 @@
     "test:fhir:ci": "node scripts/fhir-structure-check.mjs && node scripts/fhir-exchange-check.mjs && FHIR_HL7_REQUIRED=1 node scripts/fhir-hl7-validator.mjs && FHIR_HL7_REQUIRED=1 node scripts/fhir-hl7-validator.mjs --from-export",
     "test:e2e": "playwright test",
     "test:e2e:react": "playwright test -c playwright.react.config.js",
+    "test:e2e:dual": "playwright test -c playwright.dual.config.js",
     "test:e2e:install": "playwright install chromium",
 
     "test:all": "npm run test:lib && npm run build:lib && npm run smoke && npm run test:fhir && npm run test:e2e",

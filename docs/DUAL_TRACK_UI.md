@@ -29,7 +29,8 @@ health-analyzer/
 │     ├─ src/pages/          # Overview · Trends · Reports · Data
 │     └─ scripts/            # privacy-scan · export-next
 ├─ e2e/                      # legacy Playwright
-└─ e2e-react/                # React Playwright（端口 4174）
+├─ e2e-react/                # React Playwright（端口 4174）
+└─ e2e-dual/                 # 同域交叉仓骨架（export-next + public :4175）
 ```
 
 | 路径 | 角色 |
@@ -60,6 +61,7 @@ npm run react:parity       # 夹具 parity 子集
 npm run react:privacy      # dist 隐私扫描（禁 CDN/分析域）
 npm run react:export-next  # base=/next/ → public/next/，并恢复 dist 为 base=/
 npm run test:e2e:react     # Playwright React 壳（build + preview :4174）
+npm run test:e2e:dual      # 同域交叉仓骨架：export-next + serve public :4175
 ```
 
 包内亦可：`cd web-ui/react-app && npm run dev|build|test|privacy|export-next`。
@@ -135,6 +137,7 @@ npm run test:e2e:react     # Playwright React 壳（build + preview :4174）
 |------|------|
 | `npm run react:test` | Adapter parity、IDB schema、ZIP、HAE、仓 load/persist、快照、workspace |
 | `npm run test:e2e:react` | 夹具/路由/Sheet、XML+ZIP、快照列表、HAE+仓往返（Chromium :4174） |
+| `npm run test:e2e:dual` | **同域交叉 E2E 骨架**（React 写 sharded-v1 → legacy `getWarehouseStatus`；再 React `load-warehouse`；:4175） |
 | `npm run smoke` / `test:e2e` | **Legacy 不回归** |
 
 ---
@@ -204,7 +207,8 @@ flowchart LR
 | `846d680` | **软配额全链路**（CGM→BP/体重→睡眠/步数→HRV→训练/ECG/手表）写入时完成 |
 | `8055486` | 总览状态带 / 信号列表 / 趋势 domain-switcher + 壳层会话 chip / Trends i18n |
 | `5dcb9f6` | 报告 i18n + SoftQuotaPanel 只读 |
-| *(本提交)* | **keep-N 核心 + KeepNPanel + 总览工具栏主/次折叠** |
+| `b958b6d` | keep-N 核心 + KeepNPanel + 总览工具栏主/次折叠 |
+| *(本提交)* | **同域交叉 e2e 骨架 + 总览 KPI 折叠 + 数据页 i18n** |
 
 ---
 
@@ -230,7 +234,8 @@ flowchart LR
 | **读取** | `layout=sharded-v1` 或存在 domain 分片 → 合并分片；`react-core-full-v1` → core-only。 |
 | **软配额** | 写入时全链路 **已做**（`846d680`）。 |
 | **keep-N** | React：**prefs**（legacy 同键）+ `applyKeepWindowsToSplit` + 写入后 opt-in auto-trim + 数据页「对仓库应用 keep-N」；legacy 仍有分域多选删除。 |
-| **仍缺** | 生产 cutover；真实「旧版写→React写→旧版读」浏览器交叉 E2E（单测已覆盖分片往返）。 |
+| **真实浏览器交叉 E2E** | **骨架已有**（`npm run test:e2e:dual`）：React 写 → legacy status（sharded-v1 / hasPayload）；再 React `load-warehouse`。**非**完整 UI keep-N 矩阵；亦未覆盖「旧版写→React写→旧版读」全路径。 |
+| **仍缺** | 生产 cutover；完整 keep-N / 双向交叉矩阵 E2E。 |
 | **生产建议** | 可试用 React 写仓（会**整仓替换**分片集）；复杂多选清理仍可用 legacy 面板。 |
 
 ### P1 工程
@@ -244,8 +249,9 @@ flowchart LR
 | 软配额全链路（CGM→BP/体重→睡眠/步数→HRV→训练/ECG/手表） | **已做**（写入时，`846d680`） |
 | 交互 keep-N（React） | **已做 MVP**：`warehouseKeepPrefs` / `warehouseKeepWindows` / `KeepNPanel`；auto-trim 默认关；与 legacy 共用 localStorage |
 | 壳层 i18n 中/英 | **已做**（`ha-react-ui-locale`，导航/总览键） |
-| 总览状态带 / 信号列表 / 趋势工作台密度 | **已合入（MVP+，`8055486`）**；总览工具栏主/次操作折叠 **本轮** |
-| 报告页 i18n + 数据页软配额只读面板 | **已做**（`5dcb9f6`） |
+| 总览状态带 / 信号列表 / 趋势工作台密度 | **已合入**；工具栏折叠 + KPI/域折叠（默认展开） |
+| 报告页 i18n + 数据页软配额/keep-N 面板 | **已做**；数据页文案 i18n **本轮** |
+| 同域交叉仓 E2E | **骨架已有** `test:e2e:dual`（非全矩阵） |
 | 可编辑大屏栅格 / 手机完整单任务产品 | **未做** |
 
 
