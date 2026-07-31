@@ -566,6 +566,23 @@ E2E（**serial** `e2e/warehouse.spec.js`）：
 - `v1.91 shard filter soft/hard…`：grant + 多年 BP/sleep + 多月 CGM → reload hydrate → more 仓面板；**若** `#warehouse-shard-filter` 存在则输入 `2025` 断言部分年/月行隐藏或 filter-active 类，清空后恢复；**缺失则 soft log**。
 - `v1.91 provenance timeline soft/hard…`：`saveImportBatch` + `persist(..., { batchId })` 硬断言 `lastImportBatchId`；**若** `#warehouse-provenance-timeline` 存在则至少一条 `li`/item；**缺失则 soft log**。
 
+#### 4.2.8 今日仓状态 chip · 趋势仓提示（v1.92）
+
+**动机：** 用户在 **今日 / 趋势** 工作区也应感知「本机仓已启用且已恢复」，而不必每次进入 **更多 → 数据仓**。展示仅为 **meta 状态 chrome**（授权 / 占用摘要 / 分片概况），**禁止** 临床点值。
+
+| 项 | 说明 |
+|----|------|
+| 今日 chip | **`#warehouse-today-chip`**：hydrate 且有仓后，在今日工作区可见；文案 meta only（如「本机仓已恢复」/ 占用短摘要）；未授权或 wipe 后隐藏或降级 |
+| 趋势 hint | **`#warehouse-trends-hint`**：趋势工作区提示当前序列可来自本机仓恢复 / 可去数据管理管理分片；**不**遮挡主指标控件 |
+| 非目标 | 非云同步状态、非诊断、非 raw 时序预览 |
+
+E2E（**serial** `e2e/warehouse.spec.js`）：
+
+- `v1.92 today chip soft/hard…`：grant + persist → reload hydrate → today；**若** `#warehouse-today-chip` 存在则可见且无临床点值；**缺失则 soft log**。
+- `v1.92 trends hint soft…`：同上 seed → trends；**若** `#warehouse-trends-hint` 存在则 attached / 优选可见；**缺失则 soft log**。
+
+真机大 ZIP / 本机解析与仓耗时基线（**不提交个人导出**）：见 `docs/REAL_DEVICE_ZIP.md`。
+
 **默认不入仓：**
 
 - Apple Health 未映射的未知 HAE metric 时序（与 v1.40「不落库未知序列」一致，除非未来单独授权）  
@@ -1348,6 +1365,7 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 | 实现对照 v1.89 | 2026-07-31 | 仓 **`lastImportBatchId`** 与 `persist(..., { batchId })` / `importBatches` 联动；仓面板导入批次摘要 `#warehouse-import-batches`；**配额预测** `#warehouse-quota-forecast`（客户端按分片详情估算，常 &lt;70% soft 时 hidden）；E2E 硬 API + 软 UI |
 | 实现对照 v1.90 | 2026-07-31 | **批次→分片反向索引**：`listWarehouseChunksByBatchId` / `getImportBatchShardIndex`（meta only，无 payload）；chunk 行 `batchId`；可选点批次看分片列表；可选 `#connectivity-banner` 离线提示；E2E 硬 reverse-index + 软 offline banner |
 | 实现对照 v1.91 | 2026-07-31 | **客户端分片过滤** `#warehouse-shard-filter`（年/月列表 DOM 过滤，不改 IDB）；**来源时间线** `#warehouse-provenance-timeline`（`listImportBatches` + `lastImportBatchId` 合成，meta only）；E2E soft/hard 过滤 + 时间线 |
+| 实现对照 v1.92 | 2026-07-31 | **今日仓状态 chip** `#warehouse-today-chip` + **趋势仓提示** `#warehouse-trends-hint`（meta only，hydrate 后工作区可见）；E2E soft/hard；真机大 ZIP 指南 `docs/REAL_DEVICE_ZIP.md` |
 
 ---
 
@@ -1356,11 +1374,12 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 | 路径 | 说明 |
 |------|------|
 | `web-ui/public/history-db.js` | IDB v5、`HealthHistory`、分片 persist / 删片 / 配额 / 备份 / 写串行 / **v1.88 migrate + inventory** / **v1.89 batchId → lastImportBatchId** / **v1.90 batch→shard reverse index** |
-| `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 双域·**全域** keep / 自动裁剪、多选删、wipe、**v1.89 批次面板 + 配额预测** / **v1.90 点批次→分片 + connectivity banner** / **v1.91 shard filter + provenance timeline** |
-| `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年 / 双域·全域按钮 / auto-trim / **import-batches / quota-forecast**）/ 可选 `#connectivity-banner` / **v1.91 `#warehouse-shard-filter` · `#warehouse-provenance-timeline`** |
-| `e2e/warehouse.spec.js` | 仓 / 年分片 / 双域 keep / auto-trim / **v1.88 migrate·inventory·global keep** / **v1.89 batch linkage + quota forecast** / **v1.90 batch→shard index** / **v1.91 shard filter + provenance timeline** / 备份自动化 |
+| `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 双域·**全域** keep / 自动裁剪、多选删、wipe、**v1.89 批次面板 + 配额预测** / **v1.90 点批次→分片 + connectivity banner** / **v1.91 shard filter + provenance timeline** / **v1.92 today chip + trends hint** |
+| `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年 / 双域·全域按钮 / auto-trim / **import-batches / quota-forecast**）/ 可选 `#connectivity-banner` / **v1.91 `#warehouse-shard-filter` · `#warehouse-provenance-timeline`** / **v1.92 `#warehouse-today-chip` · `#warehouse-trends-hint`** |
+| `e2e/warehouse.spec.js` | 仓 / 年分片 / 双域 keep / auto-trim / **v1.88 migrate·inventory·global keep** / **v1.89 batch linkage + quota forecast** / **v1.90 batch→shard index** / **v1.91 shard filter + provenance timeline** / **v1.92 today chip + trends hint** / 备份自动化 |
 | `e2e/connectivity.spec.js` | **v1.90** 离线横幅软断言（`#connectivity-banner`；缺省 skip） |
 | `scripts/perf-warehouse-baseline.mjs` | 可选：Playwright 测 persist/load/status 耗时（`npm run perf:warehouse`） |
+| `docs/REAL_DEVICE_ZIP.md` | **v1.92** 真机/桌面大 ZIP 与 `perf:parse` / `perf:warehouse` 隐私基线指南 |
 | `lib/src/types.ts` | `HealthData` / `FullAnalysis` |
 | `lib/src/snapshot.ts` | 摘要快照（非明细） |
 | `lib/src/provenance.ts` | `ImportBatchRecord` |

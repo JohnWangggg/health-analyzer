@@ -2410,6 +2410,8 @@
       requestAnimationFrame(() => {
         try { renderCharts(currentAnalysis); } catch (e) { /* ignore */ }
       });
+      // v1.92: refresh warehouse data-range hint when opening trends
+      refreshWarehouseTrendsHint().catch(() => { /* ignore */ });
     }
   }
 
@@ -2576,6 +2578,7 @@
     }
     refreshWarehousePanel().catch(() => { /* ignore */ });
     refreshWarehouseHomeBanner().catch(() => { /* ignore */ });
+    refreshWarehouseTodayChip().catch(() => { /* ignore */ });
 
     $('step-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -7273,6 +7276,11 @@
     hide('step-export');
     hide('step-prompt');
     hide('step-reports');
+    // v1.92: hide trends warehouse range hint when results cleared
+    const whTrendsHint = $('warehouse-trends-hint');
+    if (whTrendsHint) whTrendsHint.classList.add('hidden');
+    const whTrendsHintText = $('warehouse-trends-hint-text');
+    if (whTrendsHintText) whTrendsHintText.textContent = '';
     const charts = $('charts-content');
     if (charts) charts.innerHTML = '';
     const signals = $('signals-content');
@@ -7611,26 +7619,196 @@
     document.body.classList.toggle('from-warehouse', !!on);
     const banner = $('warehouse-restored-banner');
     if (banner) banner.classList.toggle('hidden', !on);
+    // v1.92: keep Today chip "from warehouse" note in sync
+    const fromEl = $('warehouse-today-chip-from');
+    if (fromEl) {
+      const chip = $('warehouse-today-chip');
+      const chipVisible = chip && !chip.classList.contains('hidden');
+      fromEl.classList.toggle('hidden', !(on && chipVisible));
+    }
+  }
+
+  /**
+   * v1.92: compact warehouse status on 今日 overview (meta only; no samples).
+   * Show when consent granted AND hasPayload; otherwise hide.
+   * @param {object|null|undefined} stOpt optional getWarehouseStatus() snapshot; omit to fetch
+   */
+  async function refreshWarehouseTodayChip(stOpt) {
+    const chip = $('warehouse-today-chip');
+    if (!chip) return;
+
+    const hideChip = () => {
+      chip.classList.add('hidden');
+      const metaEl = $('warehouse-today-chip-meta');
+      if (metaEl) metaEl.textContent = '';
+      const badge = $('warehouse-today-chip-soft-badge');
+      if (badge) badge.classList.add('hidden');
+      const fromEl = $('warehouse-today-chip-from');
+      if (fromEl) fromEl.classList.add('hidden');
+    };
+
+    let st = stOpt;
+    if (st === undefined) {
+      const HH = window.HealthHistory;
+      if (!HH || typeof HH.getWarehouseStatus !== 'function') {
+        hideChip();
+        return;
+      }
+      try {
+        st = await HH.getWarehouseStatus();
+      } catch (e) {
+        hideChip();
+        return;
+      }
+    }
+    if (!st || !st.granted || !st.hasPayload) {
+      hideChip();
+      return;
+    }
+
+    const bytes = st.approxBytes != null
+      ? st.approxBytes
+      : (st.meta && st.meta.totalApproxBytes) || 0;
+    const soft = st.softBytes || (150 * 1024 * 1024);
+    const pct = soft > 0 ? Math.min(100, Math.round((bytes / soft) * 100)) : 0;
+    const range = st.meta && st.meta.dateRange;
+    const rangeText = range && range.start && range.end
+      ? t('warehouse.todayChipRange', { start: range.start, end: range.end })
+      : t('warehouse.status.noRange');
+    let layoutLabel = '—';
+    if (st.layout === 'sharded-v1') layoutLabel = t('warehouse.todayChipLayoutSharded');
+    else if (st.layout === 'legacy-full') layoutLabel = t('warehouse.todayChipLayoutLegacy');
+    else if (st.layout) layoutLabel = String(st.layout);
+    const written = st.meta && st.meta.lastWrittenAt
+      ? String(st.meta.lastWrittenAt).slice(0, 16).replace('T', ' ')
+      : '—';
+
+    const metaEl = $('warehouse-today-chip-meta');
+    if (metaEl) {
+      metaEl.textContent = t('warehouse.todayChipMeta', {
+        layout: layoutLabel,
+        range: rangeText,
+        bytes: formatBytes(bytes),
+        pct: String(pct),
+        written,
+      });
+    }
+
+    const badge = $('warehouse-today-chip-soft-badge');
+    if (badge) badge.classList.toggle('hidden', !st.softWarn);
+
+    const fromWh = !!(lastHydratedFromWarehouse
+      || document.body.classList.contains('from-warehouse'));
+    const fromEl = $('warehouse-today-chip-from');
+    if (fromEl) fromEl.classList.toggle('hidden', !fromWh);
+
+    // Secondary: restore vs refresh label (always useful when payload exists)
+    const restoreBtn = $('btn-warehouse-today-restore');
+    if (restoreBtn) {
+      restoreBtn.textContent = fromWh
+        ? t('warehouse.todayChipRefresh')
+        : t('warehouse.todayChipRestore');
+      restoreBtn.classList.remove('hidden');
+    }
+
+    chip.classList.remove('hidden');
+  }
+
+  /**
+   * v1.92: trends workspace warehouse data-range hint (meta only; no samples).
+   * Show when currentAnalysis exists AND consent + hasPayload; otherwise hide.
+   * Prefer warehouse meta.dateRange; fall back to analysis.dateRange dates only.
+   * @param {object|null|undefined} stOpt optional getWarehouseStatus() snapshot; omit to fetch
+   */
+  async function refreshWarehouseTrendsHint(stOpt) {
+    const el = $('warehouse-trends-hint');
+    if (!el) return;
+    const textEl = $('warehouse-trends-hint-text');
+
+    const hideHint = () => {
+      el.classList.add('hidden');
+      if (textEl) textEl.textContent = '';
+    };
+
+    if (!currentAnalysis) {
+      hideHint();
+      return;
+    }
+
+    let st = stOpt;
+    if (st === undefined) {
+      const HH = window.HealthHistory;
+      if (!HH || typeof HH.getWarehouseStatus !== 'function') {
+        hideHint();
+        return;
+      }
+      try {
+        st = await HH.getWarehouseStatus();
+      } catch (e) {
+        hideHint();
+        return;
+      }
+    }
+    if (!st || !st.granted || !st.hasPayload) {
+      hideHint();
+      return;
+    }
+
+    let layoutLabel = '—';
+    if (st.layout === 'sharded-v1') layoutLabel = t('warehouse.todayChipLayoutSharded');
+    else if (st.layout === 'legacy-full') layoutLabel = t('warehouse.todayChipLayoutLegacy');
+    else if (st.layout) layoutLabel = String(st.layout);
+
+    // Prefer warehouse meta.dateRange; fall back to analysis dates only (no series dump)
+    let range = st.meta && st.meta.dateRange;
+    if (!(range && range.start && range.end)
+      && currentAnalysis
+      && currentAnalysis.dateRange
+      && (currentAnalysis.dateRange.start || currentAnalysis.dateRange.end)) {
+      range = currentAnalysis.dateRange;
+    }
+
+    if (textEl) {
+      if (range && range.start && range.end) {
+        textEl.textContent = t('warehouse.trendsHint', {
+          start: range.start,
+          end: range.end,
+          layout: layoutLabel,
+        });
+      } else {
+        textEl.textContent = t('warehouse.trendsHintNoRange', {
+          layout: layoutLabel,
+        });
+      }
+    }
+    el.classList.remove('hidden');
   }
 
   async function refreshWarehouseHomeBanner() {
     const banner = $('warehouse-home-banner');
-    if (!banner) return;
+    if (!banner) {
+      await refreshWarehouseTodayChip().catch(() => { /* ignore */ });
+      return;
+    }
     if (currentAnalysis || document.body.classList.contains('has-results')) {
       banner.classList.add('hidden');
+      await refreshWarehouseTodayChip().catch(() => { /* ignore */ });
       return;
     }
     const HH = window.HealthHistory;
     if (!HH || typeof HH.getWarehouseStatus !== 'function') {
       banner.classList.add('hidden');
+      await refreshWarehouseTodayChip(null).catch(() => { /* ignore */ });
       return;
     }
     try {
       const st = await HH.getWarehouseStatus();
       const show = !!(st && st.granted && st.hasPayload);
       banner.classList.toggle('hidden', !show);
+      await refreshWarehouseTodayChip(st).catch(() => { /* ignore */ });
     } catch (e) {
       banner.classList.add('hidden');
+      await refreshWarehouseTodayChip(null).catch(() => { /* ignore */ });
     }
   }
 
@@ -8182,6 +8360,8 @@
       updateWarehouseQuotaForecast(null);
       await refreshWarehouseImportBatches(null);
       await refreshWarehouseProvenanceTimeline(null);
+      await refreshWarehouseTodayChip(null).catch(() => { /* ignore */ });
+      await refreshWarehouseTrendsHint(null).catch(() => { /* ignore */ });
       return;
     }
     try {
@@ -8260,6 +8440,8 @@
         await refreshWarehouseImportBatches(st);
         await refreshWarehouseProvenanceTimeline(st);
         await refreshWarehouseHomeBanner();
+        await refreshWarehouseTodayChip(st).catch(() => { /* ignore */ });
+        await refreshWarehouseTrendsHint(st).catch(() => { /* ignore */ });
         return;
       }
       if (!st.granted) {
@@ -8269,6 +8451,8 @@
         await refreshWarehouseImportBatches(st);
         await refreshWarehouseProvenanceTimeline(st);
         await refreshWarehouseHomeBanner();
+        await refreshWarehouseTodayChip(st).catch(() => { /* ignore */ });
+        await refreshWarehouseTrendsHint(st).catch(() => { /* ignore */ });
         return;
       }
       const bytes = st.approxBytes != null ? st.approxBytes : (st.meta && st.meta.totalApproxBytes) || 0;
@@ -8506,11 +8690,15 @@
         } catch (e) { /* ignore */ }
       }
       await refreshWarehouseHomeBanner();
+      await refreshWarehouseTodayChip(st).catch(() => { /* ignore */ });
+      await refreshWarehouseTrendsHint(st).catch(() => { /* ignore */ });
     } catch (e) {
       if (statusEl) statusEl.textContent = t('warehouse.err', { msg: (e && e.message) || String(e) });
       updateWarehouseQuotaForecast(null);
       await refreshWarehouseImportBatches(null);
       await refreshWarehouseProvenanceTimeline(null);
+      await refreshWarehouseTodayChip(null).catch(() => { /* ignore */ });
+      await refreshWarehouseTrendsHint(null).catch(() => { /* ignore */ });
     }
   }
 
@@ -9823,6 +10011,10 @@
     syncYearKeepYearsUi();
     // v1.91: recount/relabel filter status with new locale domain keywords
     if (typeof applyWarehouseShardFilter === 'function') applyWarehouseShardFilter();
+    // v1.92: re-label trends warehouse data-range hint
+    if (typeof refreshWarehouseTrendsHint === 'function') {
+      refreshWarehouseTrendsHint().catch(() => { /* ignore */ });
+    }
   });
   syncCgmKeepMonthsUi();
   $('btn-warehouse-cgm-keep-recent')?.addEventListener('click', async () => {
@@ -10436,6 +10628,40 @@
     }
   });
   $('btn-warehouse-home-restore')?.addEventListener('click', () => {
+    hydrateFromWarehouse({ manual: true, toast: true });
+  });
+  // v1.92: open more workspace + #warehouse-panel (Today chip / Trends hint)
+  function openWarehousePanelFromHint() {
+    try {
+      if (typeof setActiveWorkspace === 'function') {
+        setActiveWorkspace('more', { focusSectionId: 'warehouse-panel' });
+      } else if (typeof window.__setWorkspace === 'function') {
+        window.__setWorkspace('more', { focusSectionId: 'warehouse-panel' });
+      }
+    } catch (e) { /* ignore */ }
+    const panel = $('warehouse-panel');
+    if (panel) {
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      requestAnimationFrame(() => {
+        panel.scrollIntoView({
+          behavior: reduceMotion ? 'auto' : 'smooth',
+          block: 'start',
+        });
+        try {
+          if (!panel.hasAttribute('tabindex')) panel.setAttribute('tabindex', '-1');
+          panel.focus({ preventScroll: true });
+        } catch (err) { /* ignore */ }
+      });
+    }
+  }
+  $('btn-warehouse-today-open')?.addEventListener('click', () => {
+    openWarehousePanelFromHint();
+  });
+  // v1.92: trends data-range hint → manage shards
+  $('btn-warehouse-trends-manage')?.addEventListener('click', () => {
+    openWarehousePanelFromHint();
+  });
+  $('btn-warehouse-today-restore')?.addEventListener('click', () => {
     hydrateFromWarehouse({ manual: true, toast: true });
   });
   $('warehouse-backup-input')?.addEventListener('change', async (ev) => {

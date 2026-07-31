@@ -210,6 +210,8 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 
 仓读写基线（v1.88+）：`npm run perf:warehouse`（`scripts/perf-warehouse-baseline.mjs`）用 Playwright 打开本机 static 页，合成多年数据测 `persist` / `load` / `getWarehouseStatus` 耗时；**不上传**。
 
+真实大 ZIP / 本机 `export.xml` 性能与隐私注意见 **`docs/REAL_DEVICE_ZIP.md`**（`npm run perf:parse -- --file=…`，**勿提交**个人导出）。
+
 修改解析/统计/提示词请只改 `lib/src/**`，再执行 `npm run build`。不要手改 `web-ui/public/lib.js`。
 
 ## 局限与边界
@@ -305,6 +307,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - v1.89：仓与导入批次联动（`persistHealthDataWarehouse(data, { batchId })` → `warehouseMeta.lastImportBatchId`）；仓面板导入批次摘要（`#warehouse-import-batches`）；**配额预测** UI（`#warehouse-quota-forecast`，客户端按分片 `approxBytes` 估算，常 &lt;~70% 软配额时 hidden）；E2E 硬 API + 软 UI；仓设计见 `docs/DATA_CENTER_v1.68.md`。
 - v1.90：**批次→分片反向索引**（`listWarehouseChunksByBatchId` / `getImportBatchShardIndex`，chunk 行 `batchId`，返回 meta only、无 payload）；仓面板可点批次查看分片 id；可选 **离线连通横幅** `#connectivity-banner`；E2E 硬 reverse-index + 软 offline；仓设计见 `docs/DATA_CENTER_v1.68.md`，手测见 `docs/MANUAL_QA.md`。
 - v1.91：**客户端分片过滤**（`#warehouse-shard-filter`，年/月列表 DOM 过滤，不改 IDB）+ **来源时间线合成**（`#warehouse-provenance-timeline`，`listImportBatches` + `lastImportBatchId`，meta only）；E2E soft/hard（UI 缺失则 soft log）；仓设计见 `docs/DATA_CENTER_v1.68.md`，手测见 `docs/MANUAL_QA.md`。
+- v1.92：**今日仓状态 chip**（`#warehouse-today-chip`，hydrate 后今日工作区 meta 提示）+ **趋势仓提示**（`#warehouse-trends-hint`）；E2E soft/hard（grant→persist→reload hydrate 硬路径，UI 缺失 soft log）；真机大 ZIP / 本机性能基线见 `docs/REAL_DEVICE_ZIP.md`；手测见 `docs/MANUAL_QA.md`，仓设计见 `docs/DATA_CENTER_v1.68.md`。
 
 ## 许可
 

@@ -1,6 +1,6 @@
 # 真实设备手测清单（Manual QA）
 
-**版本：** v1.90+（年分片 keep-N、双域一键裁剪、保存后可选自动裁剪、睡眠/步数年分片、HRV/静息/步行心率年分片、Workout/ECG/Watch 日汇总年分片、仓面板分片组折叠、thin core / 迁移 / 分片清单 / 全域 keep-all 年、导入批次联动 lastImportBatchId / 仓内批次摘要 / 配额预测 UI、**批次→分片反向索引 / 点批次看分片 / 离线连通横幅**）  
+**版本：** v1.92+（年分片 keep-N、双域一键裁剪、保存后可选自动裁剪、睡眠/步数年分片、HRV/静息/步行心率年分片、Workout/ECG/Watch 日汇总年分片、仓面板分片组折叠、thin core / 迁移 / 分片清单 / 全域 keep-all 年、导入批次联动 lastImportBatchId / 仓内批次摘要 / 配额预测 UI、批次→分片反向索引 / 点批次看分片 / 离线连通横幅、客户端分片过滤 / 来源时间线、**今日仓状态 chip / 趋势仓提示**）  
 **目的：** 补充自动化（视口 / 任务流 / 缩放 / 键盘 / 数据仓 / 连通）无法覆盖的真机与系统层体验。  
 **原则：** 本地优先 · 不上传健康明细 · 非诊断。
 
@@ -49,7 +49,7 @@
 - [ ] （可选）口令备份：正确口令可恢复，错误口令失败提示
 - [ ] 「清除所有本机健康数据」后结果消失、**仓一并清空**（含分片与授权）
 
-### 2.5 本机原始数据仓（分片 · v1.79–v1.90）
+### 2.5 本机原始数据仓（分片 · v1.79–v1.92）
 
 路径：**更多 → 数据管理 → 本机原始数据仓**。文案须保持非诊断语气；**不上传、非云同步**。
 
@@ -150,6 +150,15 @@
 - [ ] 时间线为 **meta only**：**无** 血压数值、CGM 点值、睡眠日明细；与 `#warehouse-import-batches` 可并存且不重复刷屏
 - [ ] 无批次或清空导入批次后时间线为空列表 / 明确「暂无」；文案 **非诊断、非云同步**
 
+**今日仓状态 chip · 趋势仓提示（v1.92 · UI 若已上线）**
+
+- [ ] 授权后写入仓并刷新：自动 hydrate 进入结果；切到 **今日** 工作区可见 **`#warehouse-today-chip`**（仓已启用 / 占用或分片摘要等 **meta**，**非** 临床点值）
+- [ ] Chip 文案可读、非诊断；点 chip（若可交互）可跳到 **更多 → 数据仓** 或仅展示状态，不误导「云同步」
+- [ ] 未授权或已 wipe 后：chip 隐藏或明确「未启用本机仓」；不残留旧占用数字
+- [ ] 切到 **趋势** 工作区：可见 **`#warehouse-trends-hint`**（提示当前曲线来自本机仓恢复 / 可回数据管理管理分片等）；**无** systolic/CGM 点值
+- [ ] 趋势 hint 与图表工作台并存时不遮挡主指标选择；关闭授权或清空仓后 hint 消失或降级
+- [ ] 小屏（约 390）今日 chip 与优先关注卡片不重叠到不可读；横屏仍可操作
+
 **备份**
 
 - [ ] 备份口令**可选**：留空 → 明文 `.json` / `.hae-backup.json`；填口令 → 加密导出，导入时需正确口令
@@ -192,6 +201,17 @@
 - [ ] （可选）仓接近软配额时有提示；硬配额拒绝写入并有可读错误（不静默丢数）
 - [ ] （可选）连续删除多个分片 / 导入备份时界面不卡死、状态一致（写入串行）
 
+### 5.1 （可选）真实大 ZIP / 本机性能基线
+
+个人 Apple Health 导出往往很大，**切勿提交** `export.xml` / ZIP 到仓库。在**自有设备或桌面本机**测解析与仓读写：
+
+| 命令 | 用途 |
+|------|------|
+| `npm run perf:parse -- --file=/path/to/export.xml` | 本地 `parseHealthXml` / `analyzeAll` 耗时与内存（可用 `PERF_XML_PATH`） |
+| `npm run perf:warehouse` | Playwright 合成多年数据测仓 `persist` / `load` / `status`（**不**读个人文件） |
+
+详细步骤、隐私注意与不要提交清单见 **`docs/REAL_DEVICE_ZIP.md`**。手测大包时仍以本节「中等 ZIP / 超大包」勾选项为准。
+
 ---
 
 ## 6. 记录模板
@@ -221,7 +241,10 @@ P0 结果：通过 / 失败
 | v1.89 batch linkage + quota forecast | `e2e/warehouse.spec.js` → `v1.89 import batches in warehouse…`（硬 API）/ `v1.89 quota forecast soft…`（软 UI） |
 | v1.90 batch→shard reverse index | `e2e/warehouse.spec.js` → `v1.90 batch→shard index…`（硬：`listWarehouseChunksByBatchId` / `getImportBatchShardIndex`；meta only） |
 | v1.90 offline connectivity banner | `e2e/connectivity.spec.js` → offline soft（`#connectivity-banner`；缺省 skip） |
+| v1.91 shard filter + provenance timeline | `e2e/warehouse.spec.js` → `v1.91 shard filter soft/hard…` / `v1.91 provenance timeline soft/hard…`（UI 缺失 soft log） |
+| v1.92 today chip + trends warehouse hint | `e2e/warehouse.spec.js` → `v1.92 today chip soft/hard…` / `v1.92 trends hint soft…`（`#warehouse-today-chip` / `#warehouse-trends-hint`；UI 缺失 soft log） |
 | （可选）仓读写耗时基线 | `npm run perf:warehouse` → `scripts/perf-warehouse-baseline.mjs` |
+| （可选）真实 export 解析基线 | `npm run perf:parse -- --file=/path/to/export.xml`；指南 `docs/REAL_DEVICE_ZIP.md` |
 | （可选）年分片 auto-trim | 手测优先：勾选 auto-trim + year keep-N 后跨年 BP/体重再保存；E2E 已有 year auto-trim 用例 |
 
 本地：`npm run test:e2e`  

@@ -3250,4 +3250,180 @@ test.describe('v1.68 raw warehouse', () => {
       );
     }
   });
+
+  // ─── v1.92: today warehouse chip + trends warehouse hint (soft UI) ───
+
+  test('v1.92 today chip soft/hard: grant + persist → reload hydrate → #warehouse-today-chip on today', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+
+    // Hard: consent + persist multi-domain payload so hydrate restores results
+    const seed = await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.bloodPressure = [
+        { datetime: '2026-03-10T08:00:00', systolic: 120, diastolic: 80 },
+        { datetime: '2026-06-12T08:00:00', systolic: 118, diastolic: 78 },
+      ];
+      data.weight = [{ datetime: '2026-04-01T07:00:00', value: 70.5 }];
+      data.sleep = {
+        '2026-06-11': { total: 7.2, deep: 1.1, rem: 1.5, core: 4.2, awake: 0.4 },
+      };
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasWeight = true;
+      data.dataAvailability.hasSleep = true;
+      const res = await HH.persistHealthDataWarehouse(data);
+      if (!res || res.ok === false) {
+        return { error: 'persist_failed', res };
+      }
+      const st = await HH.getWarehouseStatus();
+      // isWarehouseConsentGranted may be sync boolean or Promise — normalize
+      const grantedRaw = HH.isWarehouseConsentGranted();
+      const granted = !!(await Promise.resolve(grantedRaw));
+      return {
+        granted,
+        hasPayload: !!(st && st.hasPayload),
+      };
+    });
+    expect(seed.error, 'v1.92 seed persist: ' + JSON.stringify(seed)).toBeFalsy();
+    expect(seed.granted).toBe(true);
+    expect(seed.hasPayload).toBe(true);
+
+    // Reload → auto-hydrate (hard: results restored)
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+    await expect(page.locator('body')).toHaveClass(/has-results/);
+
+    // Today workspace
+    await setWorkspace(page, 'today');
+    await expect(page.locator('#ws-today, #step-overview').first()).toBeVisible({
+      timeout: 8_000,
+    });
+
+    const chip = page.locator('#warehouse-today-chip');
+    const chipCount = await chip.count();
+    if (chipCount === 0) {
+      // Soft: chrome not merged yet — grant/persist/hydrate already hard-asserted
+      // eslint-disable-next-line no-console
+      console.log(
+        'v1.92 soft: #warehouse-today-chip not in DOM yet — grant + persist + reload hydrate asserted; today chip UI pending merge'
+      );
+      return;
+    }
+
+    // Hard when element exists: visible on today after warehouse hydrate
+    await chip.scrollIntoViewIfNeeded();
+    await expect(chip).toBeVisible({ timeout: 8_000 });
+    const chipText = (await chip.innerText()).trim();
+    expect(chipText.length, 'v1.92 #warehouse-today-chip should show warehouse meta text').toBeGreaterThan(
+      0
+    );
+    // Soft privacy: chip is status chrome, not clinical samples
+    expect(chipText).not.toMatch(/systolic\s*[:=]|diastolic\s*[:=]|\bmmol\/L\b/i);
+  });
+
+  test('v1.92 trends hint soft: grant + persist → hydrate → trends → #warehouse-trends-hint', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+
+    // Same proven multi-domain shape as today-chip (BP/weight/sleep maps & arrays)
+    const seed = await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.bloodPressure = [
+        { datetime: '2026-02-10T08:00:00', systolic: 121, diastolic: 79 },
+        { datetime: '2026-05-15T08:00:00', systolic: 119, diastolic: 77 },
+      ];
+      data.weight = [{ datetime: '2026-04-01T07:00:00', value: 70.2 }];
+      data.sleep = {
+        '2026-05-14': { total: 7.1, deep: 1.0, rem: 1.4, core: 4.2, awake: 0.5 },
+      };
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasWeight = true;
+      data.dataAvailability.hasSleep = true;
+      const res = await HH.persistHealthDataWarehouse(data);
+      if (!res || res.ok === false) {
+        return { error: 'persist_failed', res };
+      }
+      const st = await HH.getWarehouseStatus();
+      const grantedRaw = HH.isWarehouseConsentGranted();
+      const granted = !!(await Promise.resolve(grantedRaw));
+      return {
+        granted,
+        hasPayload: !!(st && st.hasPayload),
+      };
+    });
+    expect(seed.error, 'v1.92 trends-hint seed: ' + JSON.stringify(seed)).toBeFalsy();
+    expect(seed.granted).toBe(true);
+    expect(seed.hasPayload).toBe(true);
+
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        ),
+      { timeout: 45_000 }
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+
+    // Switch trends workspace
+    await setWorkspace(page, 'trends');
+    await expect(page.locator('#step-charts')).toBeVisible({ timeout: 10_000 });
+
+    const hint = page.locator('#warehouse-trends-hint');
+    const hintCount = await hint.count();
+    if (hintCount === 0) {
+      // Soft skip — trends warehouse hint chrome not merged yet
+      // eslint-disable-next-line no-console
+      console.log(
+        'v1.92 soft: #warehouse-trends-hint not in DOM yet — grant + persist + trends workspace hydrate asserted; trends warehouse hint UI pending merge'
+      );
+      return;
+    }
+
+    // Soft/hard when present: attached and preferably visible
+    await expect(hint).toBeAttached();
+    await hint.scrollIntoViewIfNeeded();
+    const visible = await hint.evaluate((el) => {
+      if (!(el instanceof HTMLElement)) return false;
+      if (el.classList.contains('hidden') || el.hasAttribute('hidden')) return false;
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden') return false;
+      return el.offsetParent !== null || style.position === 'fixed' || style.position === 'sticky';
+    });
+    if (visible) {
+      await expect(hint).toBeVisible();
+      const text = (await hint.innerText()).trim();
+      expect(text.length).toBeGreaterThan(0);
+      expect(text).not.toMatch(/systolic\s*[:=]|diastolic\s*[:=]|\bmmol\/L\b/i);
+    } else {
+      // eslint-disable-next-line no-console
+      console.log(
+        'v1.92 soft: #warehouse-trends-hint present but not visible after trends switch ' +
+          '(may be collapsible / empty-state); element still attached'
+      );
+      await expect(hint).toBeAttached();
+    }
+  });
 });

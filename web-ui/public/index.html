@@ -398,6 +398,20 @@
       <div id="data-quality-banner" class="hidden" aria-live="polite"></div>
       <div id="warehouse-restored-banner" class="warehouse-restored-banner hidden" role="status" data-i18n="warehouse.restoredBanner">已从本机原始数据仓恢复 · 非重新上传</div>
 
+      <!-- v1.92 今日概览：本机仓状态芯片（仅元数据） -->
+      <div id="warehouse-today-chip" class="warehouse-today-chip hidden" role="region" aria-labelledby="warehouse-today-chip-title">
+        <div class="warehouse-today-chip-top">
+          <p id="warehouse-today-chip-title" class="warehouse-today-chip-title" data-i18n="warehouse.todayChipTitle">本机原始数据仓</p>
+          <span id="warehouse-today-chip-soft-badge" class="warehouse-today-chip-badge hidden" data-i18n="warehouse.todayChipSoftWarn">接近上限</span>
+        </div>
+        <p id="warehouse-today-chip-meta" class="warehouse-today-chip-meta hint compact-hint"></p>
+        <p id="warehouse-today-chip-from" class="warehouse-today-chip-from hint compact-hint hidden" data-i18n="warehouse.todayChipFromWh">当前结果来自本机仓</p>
+        <div class="warehouse-today-chip-actions">
+          <button type="button" id="btn-warehouse-today-open" class="btn-secondary btn-sm" data-i18n="warehouse.todayChipOpen">打开数据仓</button>
+          <button type="button" id="btn-warehouse-today-restore" class="btn-ghost btn-sm" data-i18n="warehouse.todayChipRefresh">从仓刷新</button>
+        </div>
+      </div>
+
       <!-- v1.72 今日优先关注：单条主结论 -->
       <div id="priority-focus" class="priority-focus hidden" role="region" data-i18n-aria="priority.aria" aria-label="今日优先关注">
         <div class="priority-focus-top">
@@ -489,6 +503,11 @@
           <button type="button" id="btn-chart-preset-save" class="btn-ghost btn-sm" data-i18n="charts.preset.save">保存当前</button>
           <button type="button" id="btn-chart-preset-delete" class="btn-danger-text btn-sm" data-i18n="charts.preset.delete">删除</button>
         </div>
+      </div>
+      <!-- v1.92: warehouse data-range hint in trends (meta only; hidden without payload) -->
+      <div id="warehouse-trends-hint" class="warehouse-trends-hint hidden" role="status" aria-live="polite">
+        <span id="warehouse-trends-hint-text" class="warehouse-trends-hint-text"></span>
+        <button type="button" id="btn-warehouse-trends-manage" class="btn-ghost btn-sm" data-i18n="warehouse.trendsHintManage">管理分片</button>
       </div>
       <div id="charts-content" class="charts-content"></div>
     </section>
@@ -652,7 +671,7 @@
           </div>
         </div>
 
-        <!-- v1.91: import provenance timeline (meta only; hidden without consent) -->
+        <!-- v1.92: import provenance timeline (meta only; hidden without consent) -->
         <div id="warehouse-provenance-timeline" class="warehouse-provenance-timeline hidden" role="region" aria-labelledby="warehouse-provenance-timeline-title">
           <h4 class="warehouse-cgm-months-title" id="warehouse-provenance-timeline-title" data-i18n="warehouse.timelineTitle">导入溯源时间线</h4>
           <p class="hint compact-hint" data-i18n="warehouse.timelineHint">按时间倒序显示导入批次与仓写入（仅元数据，无路径/明细）。</p>
@@ -1122,7 +1141,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.91</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.92</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

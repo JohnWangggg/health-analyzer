@@ -465,6 +465,115 @@ body.has-results .result-bottom-nav:not(.hidden) {
   display: none !important;
 }
 
+/* v1.92: Today overview warehouse status chip (meta only) */
+.warehouse-today-chip {
+  margin: 0 0 14px;
+  padding: 10px 12px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--primary) 20%, var(--border));
+  background: color-mix(in srgb, var(--muted-surface) 85%, var(--primary-light));
+}
+
+.warehouse-today-chip.hidden {
+  display: none !important;
+}
+
+.warehouse-today-chip-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0 0 4px;
+}
+
+.warehouse-today-chip-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.warehouse-today-chip-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: color-mix(in srgb, #a15c00 90%, var(--text));
+  background: color-mix(in srgb, #f5c84c 35%, var(--surface));
+  border: 1px solid color-mix(in srgb, #e0a800 40%, var(--border));
+}
+
+.warehouse-today-chip-badge.hidden {
+  display: none !important;
+}
+
+.warehouse-today-chip-meta {
+  margin: 0 0 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.warehouse-today-chip-from {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--primary-dark);
+}
+
+.warehouse-today-chip-from.hidden {
+  display: none !important;
+}
+
+.warehouse-today-chip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.warehouse-today-chip-actions .btn-sm {
+  min-height: 32px;
+}
+
+body.from-warehouse .warehouse-today-chip {
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
+}
+
+/* v1.92: trends workspace warehouse data-range hint (meta only) */
+.warehouse-trends-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 0 0 14px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--primary) 18%, var(--border));
+  background: color-mix(in srgb, var(--primary-light) 55%, var(--surface));
+  font-size: 13px;
+  color: var(--text);
+}
+
+.warehouse-trends-hint.hidden {
+  display: none !important;
+}
+
+.warehouse-trends-hint-text {
+  flex: 1 1 12rem;
+  min-width: 0;
+  line-height: 1.4;
+  color: var(--text-light, var(--text));
+}
+
+.warehouse-trends-hint .btn-sm {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  min-height: 32px;
+}
+
 .warehouse-panel {
   margin: 18px 0 8px;
   padding: 14px 16px 16px;
