@@ -88,6 +88,31 @@ test.describe('health-analyzer PWA smoke', () => {
     await expect(page.locator('#step-export')).toBeVisible();
   });
 
+  test('collapsed upload hint follows all supported locales after parse', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForFunction(() => window.HealthAnalyzer && window.I18n);
+
+    await page.locator('#advanced-source summary').click();
+    await page.locator('input[name="source"][value="xml_only"]').check();
+    await page.locator('#file-input').setInputFiles(FIXTURE);
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+
+    const source = page.locator('#step-source');
+    const hint = source.locator('.source-collapsed-hint');
+    await expect(source).toHaveClass(/source-collapsed/);
+    await expect(hint).toBeVisible();
+
+    await page.locator('#locale-select').selectOption('zh-CN');
+    await expect(hint).toHaveText('重新上传以更换数据');
+
+    await page.locator('#locale-select').selectOption('zh-TW');
+    await expect(hint).toHaveText('重新上傳以更換資料');
+
+    await page.locator('#locale-select').selectOption('en');
+    await expect(hint).toHaveText('Upload again to replace data');
+    await expect(hint).not.toContainText(/重新上傳|重新上传|更換資料|更换数据/);
+  });
+
   test('after parse, English locale refreshes analysis chrome', async ({ page }) => {
     await page.goto('/');
     await page.waitForFunction(() => window.HealthAnalyzer && window.I18n);

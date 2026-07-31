@@ -349,7 +349,7 @@
     }
     const resolved = resolveTheme(m);
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', resolved === 'dark' ? '#1a5276' : '#2980b9');
+    if (meta) meta.setAttribute('content', resolved === 'dark' ? '#061017' : '#07161d');
     const icon = $('theme-toggle-icon');
     const label = $('theme-toggle-label');
     if (icon) icon.textContent = resolved === 'dark' ? '☾' : '☀';
@@ -1499,15 +1499,16 @@
         return !isTouchDevice;
       }
     })();
+    // The drop zone is the single accessible picker surface. Keep native inputs
+    // visually hidden in every source mode so browsers do not expose untranslated
+    // "Choose file" chrome or create nested interactive controls.
+    fileInput.hidden = true;
+    folderInput.hidden = true;
     if (val === 'folder') {
-      fileInput.hidden = true;
-      folderInput.hidden = false;
       if (uploadText) uploadText.textContent = t('upload.folder');
       if (uploadHint) uploadHint.textContent = t('upload.folderHint');
       if (dropZone) dropZone.classList.remove('is-desktop-hint');
     } else if (val === 'xml_only') {
-      fileInput.hidden = false;
-      folderInput.hidden = true;
       fileInput.accept = '.xml';
       if (uploadText) {
         uploadText.textContent = isTouchDevice ? t('upload.xmlTap') : t('upload.xmlDrag');
@@ -1515,8 +1516,6 @@
       if (uploadHint) uploadHint.textContent = t('upload.xmlHint');
       if (dropZone) dropZone.classList.toggle('is-desktop-hint', desktopFine && !isTouchDevice);
     } else {
-      fileInput.hidden = false;
-      folderInput.hidden = true;
       fileInput.accept = '.zip,.xml';
       if (uploadText) {
         // 桌面精细指针时用更强的拖放提示
@@ -1792,6 +1791,13 @@
         console.warn('CSV 合并跳过', e);
       }
 
+      importDiag.domains = summarizeDomainCounts(data);
+      const supportedRecordCount = Object.values(importDiag.domains)
+        .reduce((sum, value) => sum + (Number(value) || 0), 0);
+      if (supportedRecordCount === 0) {
+        throw new Error(t('parse.err.noSupportedRecords'));
+      }
+
       setProgress(0.92, t('progress.stats'), { stage: 'stats', hint: t('progress.statsHint') });
       recoveryWeights = loadRecoveryWeights();
       currentAnalysis = window.HealthAnalyzer.analyzeAll(data, {
@@ -1800,7 +1806,6 @@
       });
       syncAnalysisSourceBatchIds(currentAnalysis);
 
-      importDiag.domains = summarizeDomainCounts(data);
       lastImportDiagnostics = importDiag;
 
       // 本机导入批次可追溯（v1.46 / 1.46.1：绑定 sourceBatchIds）
@@ -2348,6 +2353,111 @@
   })();
 
   let activeWorkspace = 'today';
+  let dashboardDataAgeDays = null;
+
+  const WORKSPACE_COMMAND_META = {
+    today: {
+      kicker: 'dashboard.today.kicker',
+      title: 'dashboard.today.title',
+      description: 'dashboard.today.description',
+    },
+    trends: {
+      kicker: 'dashboard.trends.kicker',
+      title: 'dashboard.trends.title',
+      description: 'dashboard.trends.description',
+    },
+    reports: {
+      kicker: 'dashboard.reports.kicker',
+      title: 'dashboard.reports.title',
+      description: 'dashboard.reports.description',
+    },
+    more: {
+      kicker: 'dashboard.more.kicker',
+      title: 'dashboard.more.title',
+      description: 'dashboard.more.description',
+    },
+  };
+
+  function updateWorkspaceCommandCenter(workspaceId) {
+    const ws = WORKSPACE_IDS.includes(workspaceId) ? workspaceId : 'today';
+    const meta = WORKSPACE_COMMAND_META[ws] || WORKSPACE_COMMAND_META.today;
+    document.body.setAttribute('data-active-workspace', ws);
+    const kicker = $('workspace-command-kicker');
+    const title = $('workspace-command-title');
+    const description = $('workspace-command-description');
+    if (kicker) kicker.textContent = t(meta.kicker);
+    if (title) {
+      const titleKey =
+        ws === 'today' && dashboardDataAgeDays != null && dashboardDataAgeDays > 7
+          ? 'dashboard.archive.title'
+          : ws === 'today' && dashboardDataAgeDays != null && dashboardDataAgeDays > 1
+            ? 'dashboard.latest.title'
+            : meta.title;
+      title.textContent = t(titleKey);
+    }
+    if (description) description.textContent = t(meta.description);
+    document.querySelectorAll('[data-command-workspace]').forEach((button) => {
+      const target = button.getAttribute('data-command-workspace');
+      const current = target === ws;
+      button.classList.toggle('is-current', current);
+      if (current) button.setAttribute('aria-current', 'page');
+      else button.removeAttribute('aria-current');
+    });
+  }
+
+  function renderWorkspaceCommandStats(analysis) {
+    const rangeEl = $('workspace-command-range');
+    const dimensionsEl = $('workspace-command-dimensions');
+    const freshnessEl = $('workspace-command-freshness');
+    const range = analysis && analysis.dateRange;
+    if (rangeEl) {
+      rangeEl.textContent =
+        range && range.start && range.end
+          ? `${range.start} — ${range.end}`
+          : t('dashboard.statUnavailable');
+    }
+    if (dimensionsEl) {
+      const availability =
+        (analysis && analysis.data && analysis.data.dataAvailability) || {};
+      const dimensions = Object.entries(availability).filter(
+        ([key, value]) => /^has[A-Z]/.test(key) && value === true
+      ).length;
+      dimensionsEl.textContent = dimensions
+        ? t('dashboard.dimensionsValue', { n: dimensions })
+        : t('dashboard.statUnavailable');
+    }
+    dashboardDataAgeDays = null;
+    const end = range && range.end ? String(range.end).slice(0, 10) : '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+      const [year, month, day] = end.split('-').map(Number);
+      const now = new Date();
+      const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+      const endUtc = Date.UTC(year, month - 1, day);
+      if (Number.isFinite(endUtc)) {
+        dashboardDataAgeDays = Math.max(0, Math.floor((todayUtc - endUtc) / 86400000));
+      }
+    }
+    const freshness =
+      dashboardDataAgeDays == null
+        ? t('dashboard.freshnessUnknown')
+        : dashboardDataAgeDays === 0
+          ? t('dashboard.freshnessToday')
+          : dashboardDataAgeDays === 1
+            ? t('dashboard.freshnessYesterday')
+            : t('dashboard.freshnessDays', { n: dashboardDataAgeDays });
+    if (freshnessEl) freshnessEl.textContent = freshness;
+    document.body.setAttribute(
+      'data-data-freshness',
+      dashboardDataAgeDays == null
+        ? 'unknown'
+        : dashboardDataAgeDays > 7
+          ? 'stale'
+          : dashboardDataAgeDays > 1
+            ? 'aging'
+            : 'fresh'
+    );
+    updateWorkspaceCommandCenter(activeWorkspace);
+  }
 
   function setWorkspaceNavActive(workspaceId) {
     if (!workspaceId) return;
@@ -2368,6 +2478,7 @@
     const ws = WORKSPACE_IDS.includes(workspaceId) ? workspaceId : 'today';
     activeWorkspace = ws;
     setWorkspaceNavActive(ws);
+    updateWorkspaceCommandCenter(ws);
 
     WORKSPACE_IDS.forEach((id) => {
       const panel = document.getElementById('ws-' + id);
@@ -2417,6 +2528,8 @@
 
   function setResultsVisible(visible) {
     document.body.classList.toggle('has-results', !!visible);
+    const commandCenter = $('workspace-command-center');
+    if (commandCenter) commandCenter.classList.toggle('hidden', !visible);
     const sticky = $('sticky-cta');
     if (sticky) sticky.classList.toggle('hidden', !visible);
     const bottomNav = $('result-bottom-nav');
@@ -2515,11 +2628,22 @@
     });
   }
 
+  function initWorkspaceCommandClicks() {
+    document.querySelectorAll('[data-command-workspace]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const workspaceId = button.getAttribute('data-command-workspace');
+        const focusSectionId = button.getAttribute('data-command-focus') || undefined;
+        if (workspaceId) setActiveWorkspace(workspaceId, { focusSectionId });
+      });
+    });
+  }
+
   // 恢复侧栏折叠状态（无结果时 class 存在但不生效，有结果后 CSS 立即响应）
   applySideNavCollapsed(loadSideNavCollapsed());
   $('side-nav-toggle')?.addEventListener('click', toggleSideNav);
   initResultNavKeyboard();
   initWorkspaceNavClicks();
+  initWorkspaceCommandClicks();
   // Expose for e2e / debugging
   try { window.__setWorkspace = setActiveWorkspace; } catch (e) { /* ignore */ }
 
@@ -2549,6 +2673,7 @@
     activeWorkspace = 'today';
     setResultsVisible(true);
     setActiveWorkspace('today', { scroll: false });
+    renderWorkspaceCommandStats(analysis);
 
     renderAvailability(analysis);
     maybeShowImportHints(analysis);
@@ -3057,7 +3182,7 @@
             ${canChart ? `<button type="button" class="insight-act" data-prefer="chart" data-anchor="${escapeHtml(anchor)}">${escapeHtml(t('action.chart'))}</button>` : ''}
           </span>`;
         return `
-        <li class="insight-item tone-${escapeHtml(b.tone || 'neutral')} is-clickable" data-anchor="${escapeHtml(anchor)}" data-idx="${idx}" role="button" tabindex="0">
+        <li class="insight-item tone-${escapeHtml(b.tone || 'neutral')} is-clickable" data-anchor="${escapeHtml(anchor)}" data-idx="${idx}">
           <div class="insight-meta">
             <span class="insight-badge">${toneLabelOf(b.tone)}</span>
             ${actions}
@@ -3078,12 +3203,6 @@
           return;
         }
         go('summary');
-      });
-      el.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          go('summary');
-        }
       });
     });
   }
@@ -8940,7 +9059,7 @@
    * Update collapsible warehouse domain groups:
    * - badge = count of visible (non-hidden / non-filter-empty) shard panels inside the group
    * - hide empty groups
-   * - open groups with content (respect localStorage pref when set)
+   * - keep groups collapsed by default (respect an explicit localStorage pref)
    */
   function refreshWarehouseShardGroups() {
     const groups = [
@@ -8949,7 +9068,6 @@
       { id: 'activity', elId: 'warehouse-group-activity', badgeId: 'warehouse-group-activity-badge' },
       { id: 'cardio', elId: 'warehouse-group-cardio', badgeId: 'warehouse-group-cardio-badge' },
     ];
-    let firstNonEmpty = null;
     groups.forEach((g) => {
       const details = $(g.elId);
       if (!details) return;
@@ -8975,8 +9093,6 @@
       }
       // Hide whole group when nothing inside is shown (except keep structure for empty)
       details.classList.toggle('is-empty', visible === 0);
-      if (visible > 0 && !firstNonEmpty) firstNonEmpty = g.id;
-
       let pref = null;
       try {
         const raw = window.localStorage.getItem(warehouseGroupPrefKey(g.id));
@@ -8989,12 +9105,11 @@
       } else if (pref != null) {
         details.open = pref;
       } else {
-        // Default: open groups that have content (all with content, not only first)
-        details.open = true;
+        // Dense warehouses can contain hundreds of controls. Start with domain
+        // summaries only; users explicitly open the domain they want to manage.
+        details.open = false;
       }
     });
-    // If no prefs and multiple open, still fine; if all empty, nothing open.
-    void firstNonEmpty;
   }
 
   function bindWarehouseShardGroupPrefs() {
@@ -10717,6 +10832,9 @@
   $('btn-reset')?.addEventListener('click', () => {
     resetResultsUi();
   });
+  $('btn-source-reupload')?.addEventListener('click', () => {
+    resetResultsUi();
+  });
 
   // 窗口尺寸变化时重绘图表
   let resizeTimer = null;
@@ -10733,6 +10851,7 @@
     }
     // 同步侧栏折叠按钮文案（applyDom 可能覆盖为默认展开文案）
     applySideNavCollapsed(loadSideNavCollapsed());
+    updateWorkspaceCommandCenter(activeWorkspace);
     // 上传区 / 进度卡 / 安装引导 / 主题
     try {
       updateUploadLabels();
@@ -10755,6 +10874,7 @@
     } catch (_) { /* ignore */ }
     if (!currentAnalysis) return;
     try {
+      renderWorkspaceCommandStats(currentAnalysis);
       // 重算恢复 statusLabel 以匹配当前语言（不改权重、不弹状态）
       recomputeRecoveryWithWeights(recoveryWeights, { quiet: true });
       renderSignals(currentAnalysis).catch(() => {});

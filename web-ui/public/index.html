@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="theme-color" content="#0f766e">
+  <meta name="theme-color" content="#07161d">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="description" content="本地隐私优先的苹果健康数据分析与大模型提示词工具" data-i18n-content="app.metaDescription">
@@ -79,7 +79,11 @@
     <div class="layout-main">
     <!-- 步骤 1：上传 -->
     <section id="step-source" class="card">
-      <h2><span class="step-num">1</span> <span data-i18n="step1.title">上传健康数据</span></h2>
+      <h2>
+        <span class="step-num">1</span>
+        <span data-i18n="step1.title">上传健康数据</span>
+        <button type="button" id="btn-source-reupload" class="source-collapsed-hint" data-i18n="step1.collapsedHint">重新上传以更换数据</button>
+      </h2>
       <p class="step-lead" data-i18n="step1.lead" data-i18n-html="1">推荐使用 iPhone「健康」App 导出的 <strong>ZIP</strong>。解析与统计均在本机完成。</p>
 
       <div id="warehouse-home-banner" class="warehouse-home-banner hidden" role="region" aria-live="polite">
@@ -359,29 +363,116 @@
 
     <!-- 桌面左侧工作区导航（≥1100px + has-results；CSS 控制可见性） -->
     <aside id="result-side-nav" class="result-side-nav hidden" data-i18n-aria="nav.aria" aria-label="健康工作区">
+      <div class="result-side-nav-brand" aria-hidden="true">
+        <span class="result-side-nav-mark">
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M3 12h4l2-5 4 10 2-5h6" />
+          </svg>
+        </span>
+        <span class="result-side-nav-brand-copy">
+          <strong>Health OS</strong>
+          <small data-i18n="dashboard.navLabel">健康工作区</small>
+        </span>
+      </div>
       <button type="button" id="side-nav-toggle" class="side-nav-toggle" data-i18n-aria="nav.toggle.aria" aria-expanded="true" aria-controls="result-side-nav">
         <span class="toggle-icon" aria-hidden="true">◀</span>
         <span class="toggle-text" data-i18n="nav.collapse">收起</span>
       </button>
       <button type="button" class="result-nav-link is-active" data-workspace="today" aria-current="page">
-        <span class="nav-icon" aria-hidden="true">🏠</span>
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M3 10.8 12 3l9 7.8" />
+          <path d="M5.5 9.5V21h13V9.5M9.5 21v-6h5v6" />
+        </svg>
         <span class="nav-text" data-i18n="nav.today">今日</span>
       </button>
       <button type="button" class="result-nav-link" data-workspace="trends">
-        <span class="nav-icon" aria-hidden="true">📈</span>
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M4 19V5M4 19h16" />
+          <path d="m7 15 4-4 3 3 5-7" />
+        </svg>
         <span class="nav-text" data-i18n="nav.trends">趋势</span>
       </button>
       <button type="button" class="result-nav-link" data-workspace="reports">
-        <span class="nav-icon" aria-hidden="true">📄</span>
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 3h8l4 4v14H6z" />
+          <path d="M14 3v5h4M9 12h6M9 16h6" />
+        </svg>
         <span class="nav-text" data-i18n="nav.reports">报告</span>
       </button>
       <button type="button" class="result-nav-link" data-workspace="more">
-        <span class="nav-icon" aria-hidden="true">⚙️</span>
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M4 7h16M4 17h16M8 4v6M16 14v6" />
+        </svg>
         <span class="nav-text" data-i18n="nav.more">更多</span>
       </button>
     </aside>
 
     <div class="results-layout">
+    <section id="workspace-command-center" class="workspace-command-center hidden" aria-labelledby="workspace-command-title">
+      <div class="workspace-command-identity">
+        <div class="workspace-command-orbit" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path d="M4 16h6l3-8 6 16 3-8h6" />
+          </svg>
+        </div>
+        <div class="workspace-command-copy">
+          <p id="workspace-command-kicker" class="workspace-command-kicker" data-i18n="dashboard.today.kicker">PERSONAL HEALTH OS</p>
+          <h2 id="workspace-command-title" data-i18n="dashboard.today.title">今日健康驾驶舱</h2>
+          <p id="workspace-command-description" class="workspace-command-description" data-i18n="dashboard.today.description">先看最重要的变化，再决定下一步。</p>
+          <div class="workspace-command-badges">
+            <span class="workspace-command-live"><i aria-hidden="true"></i><span data-i18n="dashboard.localCompute">本机即时分析</span></span>
+            <span class="workspace-command-private" data-i18n="dashboard.privateBadge">原始数据不离开设备</span>
+          </div>
+        </div>
+      </div>
+      <div class="workspace-command-stats" aria-label="dashboard status">
+        <div class="workspace-command-stat">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z" />
+          </svg>
+          <span>
+            <small data-i18n="dashboard.rangeLabel">数据窗口</small>
+            <strong id="workspace-command-range">—</strong>
+          </span>
+        </div>
+        <div class="workspace-command-stat">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="4" y="4" width="6" height="6" rx="1" />
+            <rect x="14" y="4" width="6" height="6" rx="1" />
+            <rect x="4" y="14" width="6" height="6" rx="1" />
+            <rect x="14" y="14" width="6" height="6" rx="1" />
+          </svg>
+          <span>
+            <small data-i18n="dashboard.dimensionsLabel">已连接维度</small>
+            <strong id="workspace-command-dimensions">—</strong>
+          </span>
+        </div>
+        <div class="workspace-command-stat workspace-command-stat--freshness">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="8" />
+            <path d="M12 8v4l3 2" />
+          </svg>
+          <span>
+            <small data-i18n="dashboard.freshnessLabel">数据新鲜度</small>
+            <strong id="workspace-command-freshness">—</strong>
+          </span>
+        </div>
+      </div>
+      <div class="workspace-command-actions" data-i18n-aria="dashboard.quickActionsAria" aria-label="快捷入口">
+        <button type="button" class="workspace-command-action" data-command-workspace="trends">
+          <span data-i18n="dashboard.openTrends">探索趋势</span>
+          <span aria-hidden="true">↗</span>
+        </button>
+        <button type="button" class="workspace-command-action" data-command-workspace="reports">
+          <span data-i18n="dashboard.openReports">生成报告</span>
+          <span aria-hidden="true">↗</span>
+        </button>
+        <button type="button" class="workspace-command-action" data-command-workspace="more" data-command-focus="warehouse-panel">
+          <span data-i18n="dashboard.openWarehouse">管理数据仓</span>
+          <span aria-hidden="true">↗</span>
+        </button>
+      </div>
+    </section>
     <!-- 工作区：今日（概览 + 提示） -->
     <div id="ws-today" class="workspace is-active" data-workspace="today" hidden>
     <section id="step-overview" class="card hidden result-hero">
@@ -393,6 +484,22 @@
         <button type="button" id="btn-reset" class="btn-ghost btn-reset" data-i18n="overview.reset">重新上传</button>
       </div>
       <p id="date-range-info" class="date-range-line"></p>
+      <!-- Primary interpretation stays above technical diagnostics on every device. -->
+      <div id="priority-focus" class="priority-focus hidden" role="region" data-i18n-aria="priority.aria" aria-label="优先关注">
+        <div class="priority-focus-top">
+          <p class="priority-focus-label" data-i18n="priority.label">优先关注</p>
+          <span id="priority-focus-badge" class="priority-focus-badge"></span>
+        </div>
+        <h3 id="priority-focus-title" class="priority-focus-title"></h3>
+        <p id="priority-focus-detail" class="priority-focus-detail"></p>
+        <p id="priority-focus-coverage" class="priority-focus-coverage hint compact-hint"></p>
+        <div class="priority-focus-actions">
+          <button type="button" id="btn-priority-detail" class="btn-secondary btn-sm" data-i18n="action.detail">看明细</button>
+          <button type="button" id="btn-priority-chart" class="btn-ghost btn-sm hidden" data-i18n="action.chart">看曲线</button>
+          <button type="button" id="btn-priority-trends" class="btn-ghost btn-sm" data-i18n="hero.openTrends">查看趋势</button>
+        </div>
+        <p class="priority-focus-note hint compact-hint" data-i18n="priority.note">规则线索，非诊断；其余条目见下方列表。</p>
+      </div>
       <p class="privacy-inline" data-i18n="overview.privacy">完整明细仅在本页；可复制提示词给大模型，或保存摘要到本机历史。</p>
       <p class="locale-analysis-note hint compact-hint" data-i18n="note.analysisLang">分析摘要与医学提示词内容目前以中文为主；界面可切换语言。</p>
       <div id="data-quality-banner" class="hidden" aria-live="polite"></div>
@@ -410,23 +517,6 @@
           <button type="button" id="btn-warehouse-today-open" class="btn-secondary btn-sm" data-i18n="warehouse.todayChipOpen">打开数据仓</button>
           <button type="button" id="btn-warehouse-today-restore" class="btn-ghost btn-sm" data-i18n="warehouse.todayChipRefresh">从仓刷新</button>
         </div>
-      </div>
-
-      <!-- v1.72 今日优先关注：单条主结论 -->
-      <div id="priority-focus" class="priority-focus hidden" role="region" data-i18n-aria="priority.aria" aria-label="今日优先关注">
-        <div class="priority-focus-top">
-          <p class="priority-focus-label" data-i18n="priority.label">今日优先关注</p>
-          <span id="priority-focus-badge" class="priority-focus-badge"></span>
-        </div>
-        <h3 id="priority-focus-title" class="priority-focus-title"></h3>
-        <p id="priority-focus-detail" class="priority-focus-detail"></p>
-        <p id="priority-focus-coverage" class="priority-focus-coverage hint compact-hint"></p>
-        <div class="priority-focus-actions">
-          <button type="button" id="btn-priority-detail" class="btn-secondary btn-sm" data-i18n="action.detail">看明细</button>
-          <button type="button" id="btn-priority-chart" class="btn-ghost btn-sm hidden" data-i18n="action.chart">看曲线</button>
-          <button type="button" id="btn-priority-trends" class="btn-ghost btn-sm" data-i18n="hero.openTrends">查看趋势</button>
-        </div>
-        <p class="priority-focus-note hint compact-hint" data-i18n="priority.note">规则线索，非诊断；其余条目见下方列表。</p>
       </div>
 
       <div class="insight-panel">
@@ -1105,19 +1195,30 @@
     <!-- 手机/平板底部工作区导航（有结果时显示；桌面端 CSS 隐藏） -->
     <nav id="result-bottom-nav" class="result-bottom-nav hidden" data-i18n-aria="nav.aria" aria-label="健康工作区">
       <button type="button" class="result-nav-link is-active" data-workspace="today" aria-current="page">
-        <span class="nav-icon" aria-hidden="true">🏠</span>
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M3 10.8 12 3l9 7.8" />
+          <path d="M5.5 9.5V21h13V9.5M9.5 21v-6h5v6" />
+        </svg>
         <span class="nav-text" data-i18n="nav.today">今日</span>
       </button>
       <button type="button" class="result-nav-link" data-workspace="trends">
-        <span class="nav-icon" aria-hidden="true">📈</span>
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M4 19V5M4 19h16" />
+          <path d="m7 15 4-4 3 3 5-7" />
+        </svg>
         <span class="nav-text" data-i18n="nav.trends">趋势</span>
       </button>
       <button type="button" class="result-nav-link" data-workspace="reports">
-        <span class="nav-icon" aria-hidden="true">📄</span>
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M6 3h8l4 4v14H6z" />
+          <path d="M14 3v5h4M9 12h6M9 16h6" />
+        </svg>
         <span class="nav-text" data-i18n="nav.reports">报告</span>
       </button>
       <button type="button" class="result-nav-link" data-workspace="more">
-        <span class="nav-icon" aria-hidden="true">⚙️</span>
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M4 7h16M4 17h16M8 4v6M16 14v6" />
+        </svg>
         <span class="nav-text" data-i18n="nav.more">更多</span>
       </button>
     </nav>
@@ -1141,7 +1242,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.92</p>
+    <p data-i18n="footer">开源 · 本地优先 · v2.0</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

@@ -53,6 +53,17 @@ test.describe('v1.74 keyboard a11y', () => {
     await expect(page.locator('#chart-primary-metric')).toBeFocused();
     await page.keyboard.press('ArrowDown');
 
+    // Canvas data is inspectable without a pointer.
+    const chartCanvas = page.locator('#charts-content .chart-canvas').first();
+    await chartCanvas.focus();
+    await expect(chartCanvas).toBeFocused();
+    const chartReadout = page.locator(`#${await chartCanvas.getAttribute('aria-describedby')}`);
+    await expect(chartReadout).toHaveClass(/is-hover/);
+    const latestReadout = await chartReadout.textContent();
+    await page.keyboard.press('Home');
+    await expect(chartReadout).not.toHaveText(latestReadout || '');
+    await page.keyboard.press('End');
+
     // Reports via keyboard
     const reportsNav = page.locator('#result-bottom-nav [data-workspace="reports"]');
     await reportsNav.focus();

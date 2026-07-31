@@ -19,7 +19,7 @@
       min: '最低',
       max: '最高',
       points: '点',
-      ariaInteractive: '，可按住查看读数',
+      ariaInteractive: '，可触摸或使用左右方向键查看读数',
       titleCgm: 'CGM（{range}）',
       titleAgp: 'CGM AGP 14 日分位带（按小时）',
       agpInsufficientHint: '覆盖不足时分位仅供参考',
@@ -93,7 +93,7 @@
       min: 'min',
       max: 'max',
       points: 'pts',
-      ariaInteractive: ', hold to read values',
+      ariaInteractive: ', touch or use the left and right arrow keys to inspect values',
       titleCgm: 'CGM ({range})',
       titleAgp: 'CGM AGP 14-day hourly bands',
       agpInsufficientHint: 'Insufficient coverage — bands illustrative only',
@@ -750,8 +750,18 @@
     }
 
     function bindHover(readoutEl) {
-      const onMove = (clientX) => {
-        const idx = indexFromClientX(clientX);
+      const readableIndexes = [];
+      for (let i = 0; i < n; i++) {
+        const primaryReadable = Number.isFinite(seriesA[i]);
+        const secondaryReadable = !!(sec && seriesB && Number.isFinite(seriesB[i]));
+        if (primaryReadable || secondaryReadable) readableIndexes.push(i);
+      }
+      let keyboardCursor = Math.max(0, readableIndexes.length - 1);
+
+      const selectIndex = (idx) => {
+        if (idx == null || idx < 0 || idx >= n) return;
+        const readablePosition = readableIndexes.indexOf(idx);
+        if (readablePosition >= 0) keyboardCursor = readablePosition;
         paint(idx);
         if (readoutEl) {
           readoutEl.classList.add('is-hover');
@@ -766,6 +776,7 @@
           options.onHover({ x: xLabels[idx], y: seriesA[idx] }, idx);
         }
       };
+      const onMove = (clientX) => selectIndex(indexFromClientX(clientX));
       const onLeave = () => {
         paint(null);
         if (readoutEl) {
@@ -788,7 +799,29 @@
       canvas.addEventListener('pointermove', (e) => onMove(e.clientX));
       canvas.addEventListener('pointerdown', (e) => onMove(e.clientX));
       canvas.addEventListener('pointerleave', onLeave);
+      canvas.addEventListener('focus', () => {
+        if (readableIndexes.length) selectIndex(readableIndexes[keyboardCursor]);
+      });
+      canvas.addEventListener('keydown', (e) => {
+        if (!readableIndexes.length) return;
+        let nextCursor = keyboardCursor;
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') nextCursor -= 1;
+        else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') nextCursor += 1;
+        else if (e.key === 'Home') nextCursor = 0;
+        else if (e.key === 'End') nextCursor = readableIndexes.length - 1;
+        else return;
+        e.preventDefault();
+        keyboardCursor = Math.max(0, Math.min(readableIndexes.length - 1, nextCursor));
+        selectIndex(readableIndexes[keyboardCursor]);
+      });
+      canvas.addEventListener('blur', onLeave);
       onLeave();
+      // Rendering is scheduled in requestAnimationFrame. If a keyboard user
+      // focused the canvas before handlers finished binding, announce the
+      // current point immediately instead of waiting for a second focus cycle.
+      if (document.activeElement === canvas && readableIndexes.length) {
+        selectIndex(readableIndexes[keyboardCursor]);
+      }
     }
 
     return { paint, bindHover, points: plotPoints, yMin, yMax, dualY: !!dualY };
@@ -1102,10 +1135,15 @@
     }
 
     function bindHover(readoutEl) {
-      const onMove = (clientX) => {
-        const raw = hourFromClientX(clientX);
-        const hour = nearestValidHour(raw);
+      const readableHours = byHour
+        .map((bin, hour) => (hasP50(bin) ? hour : null))
+        .filter((hour) => hour != null);
+      let keyboardCursor = Math.max(0, readableHours.length - 1);
+
+      const selectHour = (hour) => {
         if (hour == null) return;
+        const readablePosition = readableHours.indexOf(hour);
+        if (readablePosition >= 0) keyboardCursor = readablePosition;
         paint(hour);
         const b = byHour[hour];
         if (readoutEl && b) {
@@ -1119,6 +1157,10 @@
         }
         if (typeof options.onHover === 'function') options.onHover(b, hour);
       };
+      const onMove = (clientX) => {
+        const raw = hourFromClientX(clientX);
+        selectHour(nearestValidHour(raw));
+      };
       const onLeave = () => {
         paint(null);
         if (readoutEl) {
@@ -1129,7 +1171,26 @@
       canvas.addEventListener('pointermove', (e) => onMove(e.clientX));
       canvas.addEventListener('pointerdown', (e) => onMove(e.clientX));
       canvas.addEventListener('pointerleave', onLeave);
+      canvas.addEventListener('focus', () => {
+        if (readableHours.length) selectHour(readableHours[keyboardCursor]);
+      });
+      canvas.addEventListener('keydown', (e) => {
+        if (!readableHours.length) return;
+        let nextCursor = keyboardCursor;
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') nextCursor -= 1;
+        else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') nextCursor += 1;
+        else if (e.key === 'Home') nextCursor = 0;
+        else if (e.key === 'End') nextCursor = readableHours.length - 1;
+        else return;
+        e.preventDefault();
+        keyboardCursor = Math.max(0, Math.min(readableHours.length - 1, nextCursor));
+        selectHour(readableHours[keyboardCursor]);
+      });
+      canvas.addEventListener('blur', onLeave);
       onLeave();
+      if (document.activeElement === canvas && readableHours.length) {
+        selectHour(readableHours[keyboardCursor]);
+      }
     }
 
     return { paint, bindHover, byHour, yMin, yMax, summaryReadout };
@@ -1615,6 +1676,7 @@
 
     const events = Array.isArray(options.events) ? options.events : [];
     const showBaseline = !!options.showBaseline;
+    let chartOrdinal = 0;
 
     for (const b of blocks) {
       const isAgp = b.type === 'agp';
@@ -1622,6 +1684,7 @@
       if (hasCompare && b.key === compareKey) continue;
       if (!isAgp && (!b.points || b.points.length === 0)) continue;
       if (isAgp && (!b.bins || !b.bins.length)) continue;
+      const currentChartOrdinal = chartOrdinal++;
 
       const isPrimaryOverlay =
         hasCompare && b.key === primaryKey && !isAgp && compareBlock;
@@ -1677,6 +1740,7 @@
       canvas.className = 'chart-canvas';
       canvas.setAttribute('role', 'img');
       canvas.setAttribute('aria-label', title.textContent + S.ariaInteractive);
+      canvas.tabIndex = 0;
       wrap.appendChild(canvas);
 
       // Legend (+ baseline / events / compare when enabled)
@@ -1723,6 +1787,10 @@
 
       const readout = document.createElement('div');
       readout.className = 'chart-readout';
+      readout.id = `chart-readout-${currentChartOrdinal}`;
+      readout.setAttribute('aria-live', 'polite');
+      readout.setAttribute('aria-atomic', 'true');
+      canvas.setAttribute('aria-describedby', readout.id);
       if (!isAgp) {
         readout.textContent = statsLine(b.points, b.unit, S);
       }

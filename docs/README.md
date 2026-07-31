@@ -307,6 +307,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - v1.89：仓与导入批次联动（`persistHealthDataWarehouse(data, { batchId })` → `warehouseMeta.lastImportBatchId`）；仓面板导入批次摘要（`#warehouse-import-batches`）；**配额预测** UI（`#warehouse-quota-forecast`，客户端按分片 `approxBytes` 估算，常 &lt;~70% 软配额时 hidden）；E2E 硬 API + 软 UI；仓设计见 `docs/DATA_CENTER_v1.68.md`。
 - v1.90：**批次→分片反向索引**（`listWarehouseChunksByBatchId` / `getImportBatchShardIndex`，chunk 行 `batchId`，返回 meta only、无 payload）；仓面板可点批次查看分片 id；可选 **离线连通横幅** `#connectivity-banner`；E2E 硬 reverse-index + 软 offline；仓设计见 `docs/DATA_CENTER_v1.68.md`，手测见 `docs/MANUAL_QA.md`。
 - v1.91：**客户端分片过滤**（`#warehouse-shard-filter`，年/月列表 DOM 过滤，不改 IDB）+ **来源时间线合成**（`#warehouse-provenance-timeline`，`listImportBatches` + `lastImportBatchId`，meta only）；E2E soft/hard（UI 缺失则 soft log）；仓设计见 `docs/DATA_CENTER_v1.68.md`，手测见 `docs/MANUAL_QA.md`。
+- v2.0：Health OS 深海蓝绿视觉与桌面 12 栏驾驶舱 / 手机任务流；数据新鲜度与工作区快捷入口；SVG 导航图标；图表键盘可达；仓分组默认折叠；吸底复制条仅报告区。
 - v1.92：**今日仓状态 chip**（`#warehouse-today-chip`，hydrate 后今日工作区 meta 提示）+ **趋势仓提示**（`#warehouse-trends-hint`）；E2E soft/hard（grant→persist→reload hydrate 硬路径，UI 缺失 soft log）；真机大 ZIP / 本机性能基线见 `docs/REAL_DEVICE_ZIP.md`；手测见 `docs/MANUAL_QA.md`，仓设计见 `docs/DATA_CENTER_v1.68.md`。
 
 ## 许可

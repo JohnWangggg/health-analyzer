@@ -340,6 +340,7 @@ test.describe('v1.68 raw warehouse', () => {
     await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
     await setWorkspace(page, 'more');
     await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+    await page.locator('#warehouse-group-body > summary').click();
     await expect(page.locator('#warehouse-bp-years')).toBeVisible({ timeout: 8_000 });
     await expect(page.locator('#warehouse-weight-years')).toBeVisible({ timeout: 8_000 });
     await expect(page.locator('#warehouse-bp-year-list li')).toHaveCount(1);
@@ -439,6 +440,7 @@ test.describe('v1.68 raw warehouse', () => {
 
     await setWorkspace(page, 'more');
     await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+    await page.locator('#warehouse-group-cgm > summary').click();
     await expect(page.locator('#warehouse-cgm-months')).toBeVisible({ timeout: 8_000 });
     await expect(page.locator('#warehouse-cgm-month-list li')).toHaveCount(5, { timeout: 8_000 });
 
@@ -536,6 +538,7 @@ test.describe('v1.68 raw warehouse', () => {
 
     await setWorkspace(page, 'more');
     await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+    await page.locator('#warehouse-group-body > summary').click();
     await expect(page.locator('#warehouse-bp-years')).toBeVisible({ timeout: 8_000 });
     await expect(page.locator('#warehouse-bp-year-list li')).toHaveCount(4, { timeout: 8_000 });
 
@@ -625,6 +628,7 @@ test.describe('v1.68 raw warehouse', () => {
 
     await setWorkspace(page, 'more');
     await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+    await page.locator('#warehouse-group-body > summary').click();
     await expect(page.locator('#warehouse-weight-years')).toBeVisible({ timeout: 8_000 });
     await expect(page.locator('#warehouse-weight-year-list li')).toHaveCount(4, {
       timeout: 8_000,
@@ -706,6 +710,7 @@ test.describe('v1.68 raw warehouse', () => {
 
     await setWorkspace(page, 'more');
     await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+    await page.locator('#warehouse-group-body > summary').click();
     await expect(page.locator('#warehouse-years-both-actions')).toBeVisible({ timeout: 8_000 });
     await page.locator('#warehouse-bp-keep-years').selectOption('2');
     await expect(page.locator('#btn-warehouse-years-keep-both')).toContainText(/2/);
@@ -2119,6 +2124,7 @@ test.describe('v1.68 raw warehouse', () => {
       await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
       await setWorkspace(page, 'more');
       await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+      await page.locator('#warehouse-group-body > summary').click();
 
       const globalBtn = page.locator(
         '#btn-warehouse-years-keep-all-domains, #btn-warehouse-years-keep-all, #btn-warehouse-global-keep-years, #btn-warehouse-keep-all-years'
@@ -2804,7 +2810,7 @@ test.describe('v1.68 raw warehouse', () => {
 
   // ─── v1.91: client shard filter + provenance timeline composition ───
 
-  test('v1.91 shard filter soft/hard: multi-year seed → filter 2025 → clear restore', async ({
+  test('v1.91 shard filter: multi-year seed → filter 2025 → clear restore', async ({
     page,
   }) => {
     await waitAppReady(page);
@@ -2892,18 +2898,9 @@ test.describe('v1.68 raw warehouse', () => {
       .toBeGreaterThan(0);
 
     const filter = page.locator('#warehouse-shard-filter');
-    const filterCount = await filter.count();
-    if (filterCount === 0) {
-      // Soft skip: client filter UI not merged yet — multi-year seed + panel hydrate already hard path
-      // eslint-disable-next-line no-console
-      console.log(
-        'v1.91 soft: #warehouse-shard-filter not in DOM yet — multi-year BP/sleep/CGM seed + warehouse panel hydrate asserted; client filter UI pending merge'
-      );
-      return;
-    }
-
-    // Hard path when filter control is present
+    await expect(filter).toHaveCount(1);
     await expect(filter).toBeAttached();
+    await expect(filter).toBeVisible();
     await filter.scrollIntoViewIfNeeded();
 
     // Baseline: count visible year/month rows that mention non-2025 labels
@@ -3079,7 +3076,7 @@ test.describe('v1.68 raw warehouse', () => {
     ).toBeGreaterThanOrEqual(before.visible);
   });
 
-  test('v1.91 provenance timeline soft/hard: saveImportBatch + persist batchId → timeline items', async ({
+  test('v1.91 provenance timeline: saveImportBatch + persist batchId → timeline items', async ({
     page,
   }) => {
     await waitAppReady(page);
@@ -3129,7 +3126,7 @@ test.describe('v1.68 raw warehouse', () => {
       await HH.grantWarehouseConsent();
       const data = HA.createEmptyData();
       data.bloodPressure = [
-        { datetime: '2025-07-10T08:00:00', systolic: 121, diastolic: 79 },
+        { datetime: '2025-07-10T08:00:00', systolic: 183, diastolic: 117 },
         { datetime: '2026-01-12T08:00:00', systolic: 119, diastolic: 77 },
       ];
       data.sleep = {
@@ -3192,18 +3189,9 @@ test.describe('v1.68 raw warehouse', () => {
     await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
 
     const timeline = page.locator('#warehouse-provenance-timeline');
-    const timelineCount = await timeline.count();
-    if (timelineCount === 0) {
-      // Soft: UI not merged — API batch linkage already hard-asserted
-      // eslint-disable-next-line no-console
-      console.log(
-        'v1.91 soft: #warehouse-provenance-timeline not in DOM yet — saveImportBatch + persist batchId + lastImportBatchId asserted; timeline composition UI pending merge'
-      );
-      return;
-    }
-
-    // Hard when timeline element exists: at least one li / item
+    await expect(timeline).toHaveCount(1);
     await expect(timeline).toBeAttached();
+    await expect(timeline).toBeVisible({ timeout: 10_000 });
     await timeline.scrollIntoViewIfNeeded();
 
     await expect
@@ -3231,8 +3219,9 @@ test.describe('v1.68 raw warehouse', () => {
       return {
         itemCount: items.length,
         textLen: text.trim().length,
-        // Soft privacy: should not embed raw clinical series labels as values
-        hasRawClinical: /systolic\s*[:=]|diastolic\s*[:=]|\b6\.66\b/i.test(text),
+        // Meta-only timeline must not embed raw clinical field/value pairs.
+        hasRawClinical:
+          /systolic\s*[:=]|diastolic\s*[:=]|\b183\b|\b117\b/i.test(text),
       };
     });
 
@@ -3241,19 +3230,15 @@ test.describe('v1.68 raw warehouse', () => {
       'v1.91 #warehouse-provenance-timeline should list at least one batch/event item after saveImportBatch+persist: ' +
         JSON.stringify(probe)
     ).toBeGreaterThanOrEqual(1);
-    // Meta timeline: prefer no raw clinical point values
-    if (probe.hasRawClinical) {
-      // Soft warn only — do not fail if UI includes domain names without values
-      // eslint-disable-next-line no-console
-      console.log(
-        'v1.91 soft warn: provenance timeline text matched clinical-ish pattern — prefer meta-only composition'
-      );
-    }
+    expect(
+      probe.hasRawClinical,
+      'v1.91 provenance timeline must remain meta-only: ' + JSON.stringify(probe)
+    ).toBe(false);
   });
 
-  // ─── v1.92: today warehouse chip + trends warehouse hint (soft UI) ───
+  // ─── v1.92: today warehouse chip + trends warehouse hint ───
 
-  test('v1.92 today chip soft/hard: grant + persist → reload hydrate → #warehouse-today-chip on today', async ({
+  test('v1.92 today chip: grant + persist → reload hydrate → #warehouse-today-chip on today', async ({
     page,
   }) => {
     await waitAppReady(page);
@@ -3314,19 +3299,9 @@ test.describe('v1.68 raw warehouse', () => {
     });
 
     const chip = page.locator('#warehouse-today-chip');
-    const chipCount = await chip.count();
-    if (chipCount === 0) {
-      // Soft: chrome not merged yet — grant/persist/hydrate already hard-asserted
-      // eslint-disable-next-line no-console
-      console.log(
-        'v1.92 soft: #warehouse-today-chip not in DOM yet — grant + persist + reload hydrate asserted; today chip UI pending merge'
-      );
-      return;
-    }
-
-    // Hard when element exists: visible on today after warehouse hydrate
-    await chip.scrollIntoViewIfNeeded();
+    await expect(chip).toHaveCount(1);
     await expect(chip).toBeVisible({ timeout: 8_000 });
+    await chip.scrollIntoViewIfNeeded();
     const chipText = (await chip.innerText()).trim();
     expect(chipText.length, 'v1.92 #warehouse-today-chip should show warehouse meta text').toBeGreaterThan(
       0
@@ -3335,7 +3310,7 @@ test.describe('v1.68 raw warehouse', () => {
     expect(chipText).not.toMatch(/systolic\s*[:=]|diastolic\s*[:=]|\bmmol\/L\b/i);
   });
 
-  test('v1.92 trends hint soft: grant + persist → hydrate → trends → #warehouse-trends-hint', async ({
+  test('v1.92 trends hint: grant + persist → hydrate → trends → #warehouse-trends-hint', async ({
     page,
   }) => {
     await waitAppReady(page);
@@ -3392,38 +3367,12 @@ test.describe('v1.68 raw warehouse', () => {
     await expect(page.locator('#step-charts')).toBeVisible({ timeout: 10_000 });
 
     const hint = page.locator('#warehouse-trends-hint');
-    const hintCount = await hint.count();
-    if (hintCount === 0) {
-      // Soft skip — trends warehouse hint chrome not merged yet
-      // eslint-disable-next-line no-console
-      console.log(
-        'v1.92 soft: #warehouse-trends-hint not in DOM yet — grant + persist + trends workspace hydrate asserted; trends warehouse hint UI pending merge'
-      );
-      return;
-    }
-
-    // Soft/hard when present: attached and preferably visible
+    await expect(hint).toHaveCount(1);
     await expect(hint).toBeAttached();
+    await expect(hint).toBeVisible({ timeout: 8_000 });
     await hint.scrollIntoViewIfNeeded();
-    const visible = await hint.evaluate((el) => {
-      if (!(el instanceof HTMLElement)) return false;
-      if (el.classList.contains('hidden') || el.hasAttribute('hidden')) return false;
-      const style = getComputedStyle(el);
-      if (style.display === 'none' || style.visibility === 'hidden') return false;
-      return el.offsetParent !== null || style.position === 'fixed' || style.position === 'sticky';
-    });
-    if (visible) {
-      await expect(hint).toBeVisible();
-      const text = (await hint.innerText()).trim();
-      expect(text.length).toBeGreaterThan(0);
-      expect(text).not.toMatch(/systolic\s*[:=]|diastolic\s*[:=]|\bmmol\/L\b/i);
-    } else {
-      // eslint-disable-next-line no-console
-      console.log(
-        'v1.92 soft: #warehouse-trends-hint present but not visible after trends switch ' +
-          '(may be collapsible / empty-state); element still attached'
-      );
-      await expect(hint).toBeAttached();
-    }
+    const text = (await hint.innerText()).trim();
+    expect(text.length).toBeGreaterThan(0);
+    expect(text).not.toMatch(/systolic\s*[:=]|diastolic\s*[:=]|\bmmol\/L\b/i);
   });
 });
