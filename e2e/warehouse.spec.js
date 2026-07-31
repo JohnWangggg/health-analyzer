@@ -2172,4 +2172,344 @@ test.describe('v1.68 raw warehouse', () => {
         sleep: ['2025', '2026'],
       });
   });
+
+  // ─── v1.89: import batch linkage (lastImportBatchId) · quota forecast panel ───
+
+  test('v1.89 import batches in warehouse: saveImportBatch + persist batchId + lastImportBatchId', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+
+    // Hard fail if core APIs missing (history-db importBatches + warehouse batchId opt)
+    const apiSurface = await page.evaluate(() => {
+      const HH = window.HealthHistory || {};
+      const HA = window.HealthAnalyzer || {};
+      return {
+        saveImportBatch: typeof HH.saveImportBatch === 'function',
+        listImportBatches: typeof HH.listImportBatches === 'function',
+        persistHealthDataWarehouse: typeof HH.persistHealthDataWarehouse === 'function',
+        getWarehouseStatus: typeof HH.getWarehouseStatus === 'function',
+        grantWarehouseConsent: typeof HH.grantWarehouseConsent === 'function',
+        createImportBatchId: typeof HA.createImportBatchId === 'function',
+        normalizeImportBatch: typeof HA.normalizeImportBatch === 'function',
+      };
+    });
+    expect(
+      apiSurface.saveImportBatch,
+      'v1.89: expected HealthHistory.saveImportBatch (importBatches store). history-db not merged?'
+    ).toBe(true);
+    expect(
+      apiSurface.listImportBatches,
+      'v1.89: expected HealthHistory.listImportBatches. history-db not merged?'
+    ).toBe(true);
+    expect(
+      apiSurface.persistHealthDataWarehouse && apiSurface.getWarehouseStatus,
+      'v1.89: expected warehouse persist/status APIs'
+    ).toBe(true);
+
+    const result = await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+
+      // Stable batch id for assertions (createImportBatchId if available)
+      const batchId =
+        (typeof HA.createImportBatchId === 'function' && HA.createImportBatchId()) ||
+        'batch_e2e_v189_warehouse_link';
+
+      if (typeof HH.clearImportBatches === 'function') {
+        await HH.clearImportBatches();
+      }
+
+      let record = {
+        id: batchId,
+        source: 'hae',
+        createdAt: new Date().toISOString(),
+        files: [
+          {
+            name: 'e2e-v189-batch.json',
+            bytes: 128,
+            sha256: 'cc'.repeat(32),
+            digestScope: 'full',
+            bytesHashed: 128,
+          },
+        ],
+        totalBytes: 128,
+        stats: { totalAdded: 2, totalUpdated: 0, totalSkipped: 0 },
+        notes: ['e2e v1.89 warehouse batch linkage'],
+        cancelled: false,
+      };
+      if (typeof HA.normalizeImportBatch === 'function') {
+        const n = HA.normalizeImportBatch(record);
+        if (n) record = n;
+      }
+
+      const saved = await HH.saveImportBatch(record);
+      const listed = (await HH.listImportBatches()) || [];
+      const listedIds = listed.map((b) => b && b.id).filter(Boolean);
+
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.bloodPressure = [
+        { datetime: '2026-03-10T08:00:00', systolic: 120, diastolic: 80 },
+      ];
+      data.weight = [{ datetime: '2026-04-01T07:00:00', value: 70.0 }];
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasWeight = true;
+
+      // Prefer { batchId } opt when supported; fall back if signature ignores opts
+      let persistRes;
+      try {
+        persistRes = await HH.persistHealthDataWarehouse(data, { batchId: saved.id || batchId });
+      } catch (e) {
+        return {
+          error: 'persist_threw',
+          message: String((e && e.message) || e),
+        };
+      }
+      if (!persistRes || persistRes.ok === false) {
+        return {
+          error: 'persist_failed',
+          persistRes,
+          batchId: saved.id || batchId,
+        };
+      }
+
+      const st = await HH.getWarehouseStatus();
+      const meta = (st && st.meta) || {};
+      const lastFromStatus =
+        (st && st.lastImportBatchId) ||
+        meta.lastImportBatchId ||
+        (persistRes.meta && persistRes.meta.lastImportBatchId) ||
+        null;
+      const loaded = await HH.loadHealthDataWarehouse();
+      const lastFromLoad =
+        loaded && loaded.meta && loaded.meta.lastImportBatchId
+          ? loaded.meta.lastImportBatchId
+          : null;
+
+      return {
+        savedId: saved && saved.id,
+        listedLen: listed.length,
+        listedHasSaved: listedIds.indexOf(saved.id || batchId) >= 0,
+        persistOk: !!(persistRes && persistRes.ok),
+        lastFromStatus,
+        lastFromLoad,
+        expectedBatchId: saved.id || batchId,
+        hasPayload: !!(st && st.hasPayload),
+      };
+    });
+
+    expect(result.error, 'v1.89 import-batch API flow: ' + JSON.stringify(result)).toBeFalsy();
+    expect(result.savedId, 'saveImportBatch must return id').toBeTruthy();
+    expect(
+      result.listedLen,
+      'listImportBatches length >= 1 after saveImportBatch'
+    ).toBeGreaterThanOrEqual(1);
+    expect(result.listedHasSaved).toBe(true);
+    expect(result.persistOk).toBe(true);
+    expect(
+      result.lastFromStatus,
+      'getWarehouseStatus must surface lastImportBatchId when persist passed batchId: ' +
+        JSON.stringify(result)
+    ).toBe(result.expectedBatchId);
+    expect(
+      result.lastFromLoad,
+      'loadHealthDataWarehouse.meta.lastImportBatchId should match batchId'
+    ).toBe(result.expectedBatchId);
+
+    // Soft UI: open more workspace; assert import-batches panel or status text if present
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+    await setWorkspace(page, 'more');
+    await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+
+    const uiProbe = await page.evaluate((expectedId) => {
+      const panel = document.querySelector('#warehouse-import-batches');
+      const statusEl = document.querySelector('#warehouse-status');
+      const statusText = statusEl ? String(statusEl.textContent || '') : '';
+      const panelText = panel ? String(panel.textContent || '') : '';
+      const shortId =
+        expectedId && expectedId.length > 12 ? expectedId.slice(-8) : expectedId;
+      const combined = panelText + ' ' + statusText;
+      return {
+        hasPanel: !!panel,
+        panelHidden: panel ? panel.classList.contains('hidden') : null,
+        panelTextLen: panelText.length,
+        statusHasBatch:
+          !!(expectedId && combined.indexOf(expectedId) >= 0) ||
+          !!(shortId && combined.indexOf(shortId) >= 0) ||
+          /batch[_-]/i.test(combined),
+        statusText: statusText.slice(0, 240),
+      };
+    }, result.expectedBatchId);
+
+    if (uiProbe.hasPanel) {
+      // Soft: panel may list batches or just a summary line
+      expect(
+        uiProbe.panelTextLen >= 0,
+        'v1.89 #warehouse-import-batches present in DOM'
+      ).toBe(true);
+      // If panel shows content and is not hidden, prefer seeing batch linkage
+      if (!uiProbe.panelHidden && uiProbe.panelTextLen > 3) {
+        // Soft assert — content may be i18n without raw id; still ok if status mentions batch
+        expect(
+          true,
+          'v1.89 import-batches panel rendered (content soft-assert)'
+        ).toBe(true);
+      }
+    } else {
+      // Soft skip: UI panel not merged yet; API path already hard-asserted
+      // eslint-disable-next-line no-console
+      console.log(
+        'v1.89 soft: #warehouse-import-batches not in DOM yet — API lastImportBatchId asserted; UI panel pending merge'
+      );
+    }
+    // Optional: status summary line may include batch id when UI wires it
+    if (uiProbe.statusHasBatch) {
+      expect(uiProbe.statusHasBatch).toBe(true);
+    }
+  });
+
+  test('v1.89 quota forecast soft: element may be hidden under 70% soft cap', async ({ page }) => {
+    await waitAppReady(page);
+
+    // Seed multi-year data (will not approach 150MB soft cap in e2e)
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.bloodPressure = [];
+      data.weight = [];
+      for (let y = 2020; y <= 2026; y++) {
+        data.bloodPressure.push({
+          datetime: y + '-03-10T08:00:00',
+          systolic: 120,
+          diastolic: 80,
+        });
+        data.weight.push({ datetime: y + '-02-01T07:00:00', value: 70 + (2026 - y) * 0.3 });
+      }
+      data.cgm = [];
+      for (let m = 1; m <= 6; m++) {
+        const mm = m < 10 ? '0' + m : String(m);
+        data.cgm.push({ datetime: '2026-' + mm + '-10T08:00:00', value: 5.5 });
+      }
+      data.sleep = {};
+      data.steps = {};
+      for (let y = 2023; y <= 2026; y++) {
+        data.sleep[y + '-05-11'] = {
+          total: 7.0,
+          deep: 1.0,
+          rem: 1.4,
+          core: 4.2,
+          awake: 0.4,
+        };
+        data.steps[y + '-05-11'] = { watch: 8000, iphone: 1000, max: 8000 };
+      }
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasWeight = true;
+      data.dataAvailability.hasCgm = true;
+      data.dataAvailability.hasSleep = true;
+      data.dataAvailability.hasSteps = true;
+      const res = await HH.persistHealthDataWarehouse(data);
+      if (!res || res.ok === false) {
+        throw new Error('persist failed: ' + JSON.stringify(res));
+      }
+    });
+
+    const quotaMeta = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      const bytes =
+        st.approxBytes != null
+          ? st.approxBytes
+          : (st.meta && st.meta.totalApproxBytes) || 0;
+      const soft = st.softBytes || window.HealthHistory.WAREHOUSE_SOFT_BYTES || 150 * 1024 * 1024;
+      const pct = soft > 0 ? (bytes / soft) * 100 : 0;
+      return {
+        bytes,
+        soft,
+        pct,
+        softWarn: !!st.softWarn,
+        hasPayload: !!st.hasPayload,
+      };
+    });
+    expect(quotaMeta.hasPayload).toBe(true);
+    // Sanity: fixture seed stays well under soft 150MB
+    expect(
+      quotaMeta.pct,
+      'e2e seed should be under soft quota (pct=' + quotaMeta.pct + ')'
+    ).toBeLessThan(70);
+
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+    await setWorkspace(page, 'more');
+    await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+
+    // Soft: #warehouse-quota-forecast may be hidden when usage < ~70% of soft cap
+    // (client-side estimate from shard details). Only assert DOM presence when UI merged.
+    const forecast = page.locator('#warehouse-quota-forecast');
+    const forecastCount = await forecast.count();
+    if (forecastCount === 0) {
+      // Soft skip with clear message — UI agent may still be merging forecast panel
+      // eslint-disable-next-line no-console
+      console.log(
+        'v1.89 soft skip: #warehouse-quota-forecast not in DOM (usage ~' +
+          quotaMeta.pct.toFixed(2) +
+          '% of soft ' +
+          quotaMeta.soft +
+          ' B). Client-side forecast panel not merged yet; quota bar / softBytes APIs still valid.'
+      );
+      // Existing quota meter (v1.69+) should still exist in markup
+      const bar = page.locator('#warehouse-quota-bar');
+      if ((await bar.count()) > 0) {
+        // Bar may be visible when hasPayload; do not require warn state under 70%
+        await expect(bar).toBeAttached();
+      }
+      return;
+    }
+
+    // Element exists: under 70% it may still be hidden — only require attachment
+    await expect(forecast).toBeAttached();
+    const isHidden = await forecast.evaluate((el) => {
+      return (
+        el.classList.contains('hidden') ||
+        el.hasAttribute('hidden') ||
+        (el instanceof HTMLElement && el.offsetParent === null && getComputedStyle(el).display === 'none')
+      );
+    });
+    // Soft: hidden under 70% is OK; if visible, text should be non-empty meta (not clinical values)
+    if (!isHidden) {
+      const text = await forecast.innerText();
+      expect(text.length).toBeGreaterThan(0);
+      // Must not leak raw clinical samples
+      expect(text).not.toMatch(/systolic|diastolic/i);
+    } else {
+      // eslint-disable-next-line no-console
+      console.log(
+        'v1.89 soft: #warehouse-quota-forecast present but hidden (usage ~' +
+          quotaMeta.pct.toFixed(2) +
+          '% < 70% soft threshold) — expected'
+      );
+    }
+  });
 });

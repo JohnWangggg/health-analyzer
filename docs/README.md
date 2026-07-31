@@ -302,6 +302,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - v1.86：HRV / 静息 / 步行心率按年分片（`hrv|YYYY` payload `{ hrv, hrvOvernight }`、`restingHr|YYYY`、`walkingHr|YYYY`）；status `hrvYears`/`restingHrYears`/`walkingHrYears`；三域独立删年；E2E 与仓设计见 `docs/DATA_CENTER_v1.68.md`。
 - v1.87：Workout / ECG / Watch 日汇总按年分片（`workouts|YYYY` **数组**、`ecg|YYYY` **数组**（仅摘要）、`watchDaily|YYYY` **日 map**）；status `workoutsYears`/`ecgYears`/`watchDailyYears`；三域独立删年；仓面板分片组折叠 UX；E2E 与仓设计见 `docs/DATA_CENTER_v1.68.md`。
 - v1.88：全量分片后 **thin core**（`core|full` 不再嵌套年/月域明细）；`migrateLegacyCoreToShards`（legacy/胖 core → sharded）；`exportShardInventory`（chunk 元数据清单，无 raw 时序）；**全域 keep-all 年**一键裁剪；E2E + 可选 `npm run perf:warehouse`；仓设计见 `docs/DATA_CENTER_v1.68.md`。
+- v1.89：仓与导入批次联动（`persistHealthDataWarehouse(data, { batchId })` → `warehouseMeta.lastImportBatchId`）；仓面板导入批次摘要（`#warehouse-import-batches`）；**配额预测** UI（`#warehouse-quota-forecast`，客户端按分片 `approxBytes` 估算，常 &lt;~70% 软配额时 hidden）；E2E 硬 API + 软 UI；仓设计见 `docs/DATA_CENTER_v1.68.md`。
 
 ## 许可
 

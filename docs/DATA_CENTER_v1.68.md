@@ -1,9 +1,9 @@
 # v1.68 本地个人健康数据中心（Local Personal Health Data Center）
 
-**状态：** 设计 + **已实现**（v1.68 MVP → **v1.75** `core|full` + `cgm|YYYY-MM` → **v1.79–v1.81** `bloodPressure|YYYY` / `weight|YYYY` 年分片、面板删片、保留近 N 月/年 → **v1.82** 双域一键 keep-N 年 → **v1.83** 保存后可选自动 keep-N 裁剪 → **v1.85** `sleep|YYYY` / `steps|YYYY` 年分片 → **v1.86** `hrv|YYYY` / `restingHr|YYYY` / `walkingHr|YYYY` 年分片 → **v1.87** `workouts|YYYY` / `ecg|YYYY` / `watchDaily|YYYY` 年分片（与其它年分片**域独立**删片）→ **v1.88** **thin core** 全量分片后、`migrateLegacyCoreToShards`、分片清单导出 `exportShardInventory`、**全域 keep-all 年**；兼容 legacy `healthData|full`）  
+**状态：** 设计 + **已实现**（v1.68 MVP → **v1.75** `core|full` + `cgm|YYYY-MM` → **v1.79–v1.81** `bloodPressure|YYYY` / `weight|YYYY` 年分片、面板删片、保留近 N 月/年 → **v1.82** 双域一键 keep-N 年 → **v1.83** 保存后可选自动 keep-N 裁剪 → **v1.85** `sleep|YYYY` / `steps|YYYY` 年分片 → **v1.86** `hrv|YYYY` / `restingHr|YYYY` / `walkingHr|YYYY` 年分片 → **v1.87** `workouts|YYYY` / `ecg|YYYY` / `watchDaily|YYYY` 年分片（与其它年分片**域独立**删片）→ **v1.88** **thin core** 全量分片后、`migrateLegacyCoreToShards`、分片清单导出 `exportShardInventory`、**全域 keep-all 年** → **v1.89** 仓与导入批次联动 `lastImportBatchId`、仓面板导入批次摘要、**配额预测 UI**（客户端按分片 `approxBytes` 估算）；兼容 legacy `healthData|full`）  
 **范围：** 浏览器本机 IndexedDB 持久化「解析后的 typed 健康仓」+ 授权、配额、备份/清除、分片淘汰与手动/可选自动裁剪  
 **语言 / Language：** 中文（关键术语中英对照）  
-**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.88.0`+）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）；UI 偏好与自动裁剪见 `web-ui/public/app.js`
+**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.89.0`+）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）；UI 偏好与自动裁剪见 `web-ui/public/app.js`
 
 > 本地隐私优先 · 零服务器 · 非诊断 · 默认不上传  
 > 产品默认：自动 hydrate、关授权即删仓、软/硬字节配额、备份默认明文（可选口令 AES-GCM）、恢复整库替换。分片与口令加密**已落地**（见 §4.2 / §6 / §8）。
@@ -466,6 +466,39 @@ sessions: currentAnalysis ────────┘  （内存工作集，可�
 - 迁移 / 清单 UI：`#btn-warehouse-migrate-shards`、`#btn-warehouse-export-inventory`。
 - 与分域 keep-N、auto-trim（v1.83）并存：全域按钮是手动批量入口；不替代软/硬配额。
 
+#### 4.2.5 导入批次联动 · 配额预测（v1.89）
+
+**批次联动（batch linkage · `lastImportBatchId`）**
+
+| 项 | 说明 |
+|----|------|
+| 写入 | `persistHealthDataWarehouse(data, { batchId })` 将 `warehouseMeta.lastImportBatchId = batchId`（缺省则保留上次） |
+| 分片 | 各 `domainChunks` 行可带同一次写入的 `batchId`（摘要级；非点级 provenance） |
+| 读取 | `getWarehouseStatus().meta.lastImportBatchId` / `loadHealthDataWarehouse().meta.lastImportBatchId` |
+| 批次 store | 既有 `importBatches`（≤50）：`saveImportBatch` / `listImportBatches` / `getImportBatch`；与仓 **同库**、可独立 wipe |
+| Hydrate | 恢复分析时可把 `lastImportBatchId` 并入会话 `sourceBatchIds`，供报告 provenance 过滤 |
+| UI | 可选 `#warehouse-import-batches`：展示最近导入批次摘要（id 短码 / 来源 / 文件数 / 时间）；**无** raw 时序；非诊断 |
+
+流水线（授权开启时，与 §5.2 一致）：
+
+```text
+解析/合并 → saveImportBatch(record)
+         → persistHealthDataWarehouse(data, { batchId: record.id })
+         → meta.lastImportBatchId + chunk.batchId
+```
+
+**配额预测 UI（quota forecast · client-side）**
+
+| 项 | 说明 |
+|----|------|
+| 输入 | `getWarehouseStatus()`：`approxBytes`、`softBytes`（默认 150 MB）、`hardBytes`（200 MB）、各域/分片 `*Details[].approxBytes` |
+| 计算 | **纯前端**：`pct = approxBytes / softBytes`；可选按域汇总「若再导入一年 CGM / 多一年血压…」的粗估（用现有分片均值 × 预期片数） |
+| 展示阈值 | 建议占用 **≥ ~70% 软配额** 时展开 `#warehouse-quota-forecast` 提示；低于阈值可 **hidden**（元素仍可在 DOM） |
+| 文案 | 引导备份 / keep-N / 删旧分片；**非诊断**；不声称云端或系统真实剩余磁盘 |
+| 与配额条关系 | 既有 `#warehouse-quota-bar` 显示当前占比；forecast 为**前瞻**文案/估算，不替代软/硬拒绝逻辑（§6） |
+
+E2E：`e2e/warehouse.spec.js` → `v1.89 import batches…`（硬 API：`saveImportBatch` + `listImportBatches` + `persist` `batchId` + `lastImportBatchId`）/ `v1.89 quota forecast soft…`（软：元素存在或明确 skip；小样例通常 &lt;70% 软配额）。
+
 **默认不入仓：**
 
 - Apple Health 未映射的未知 HAE metric 时序（与 v1.40「不落库未知序列」一致，除非未来单独授权）  
@@ -695,13 +728,15 @@ interface ImportBatchRecordV168 extends ImportBatchRecord {
 | **全域 keep-all 年（v1.88）** | 「所有年分片仅保留近 N 年」；与分域 keep 共用 N 偏好时可同步 select |
 | **分片清单导出（v1.88）** | `exportShardInventory`：chunk id / 占用元数据，**无**原始时序 |
 | **迁移到 thin 分片（v1.88）** | `migrateLegacyCoreToShards`（可隐藏为启动/设置动作；已 sharded 则 no-op 成功） |
+| **导入批次摘要（v1.89）** | `#warehouse-import-batches`：最近 `importBatches` + 仓 `lastImportBatchId` 联动；**无** raw 时序 |
+| **配额预测（v1.89）** | `#warehouse-quota-forecast`：客户端按分片 `approxBytes` / 软硬 cap 估算；常见实现 **≥~70% 软配额** 才展开，否则可 hidden |
 | **自动裁剪（v1.83）** | 勾选「保存后自动按保留窗口裁剪」（默认关；localStorage） |
 | 日历覆盖 | 2024-03-01 → 2026-07-28 |
 | 操作 | 立即保存 / 从仓恢复 / 导出·导入备份（口令可选）/ **仅清空仓内明细（保留授权）** / 关授权清空 |
 
 **估算方法：** `approxBytes = sum(chunk.approxBytes)`；写入时用 `JSON.stringify` 长度缓存于 chunk / meta。
 
-**Storage API（可选增强）：** `navigator.storage.estimate()` 展示源站配额使用率；失败则仅显示内部估算。
+**Storage API（可选增强）：** `navigator.storage.estimate()` 展示源站配额使用率；失败则仅显示内部估算。v1.89 配额预测**优先**用仓内 `approxBytes`（与 soft/hard 一致），Storage API 仅作补充说明。
 
 ### 6.4 写入失败 UX
 
@@ -1243,6 +1278,7 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 | 实现对照 v1.86 | 2026-07-31 | `hrv\|YYYY`（payload `{ hrv, hrvOvernight }`）/ `restingHr\|YYYY` / `walkingHr\|YYYY`；status `hrvYears`/`restingHrYears`/`walkingHrYears`；三域独立删年；E2E `e2e/warehouse.spec.js` |
 | 实现对照 v1.87 | 2026-07-31 | `workouts\|YYYY`（数组）/ `ecg\|YYYY`（数组）/ `watchDaily\|YYYY`（日 map）；status `workoutsYears`/`ecgYears`/`watchDailyYears`；三域独立删年；仓面板分片组折叠 UX；E2E `e2e/warehouse.spec.js` |
 | 实现对照 v1.88 | 2026-07-31 | **Thin core** 全量分片后；`migrateLegacyCoreToShards`；`exportShardInventory`（chunk 元数据、无 raw）；**全域 keep-all 年**；E2E `e2e/warehouse.spec.js`；可选 `npm run perf:warehouse` |
+| 实现对照 v1.89 | 2026-07-31 | 仓 **`lastImportBatchId`** 与 `persist(..., { batchId })` / `importBatches` 联动；仓面板导入批次摘要 `#warehouse-import-batches`；**配额预测** `#warehouse-quota-forecast`（客户端按分片详情估算，常 &lt;70% soft 时 hidden）；E2E 硬 API + 软 UI |
 
 ---
 
@@ -1250,10 +1286,10 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 
 | 路径 | 说明 |
 |------|------|
-| `web-ui/public/history-db.js` | IDB v5、`HealthHistory`、分片 persist / 删片 / 配额 / 备份 / 写串行 / **v1.88 migrate + inventory** |
-| `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 双域·**全域** keep / 自动裁剪、多选删、wipe |
-| `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年 / 双域·全域按钮 / auto-trim） |
-| `e2e/warehouse.spec.js` | 仓 / 年分片（BP·体重·sleep·steps·hrv·resting/walking·workouts·ecg·watchDaily）/ 双域 keep / auto-trim / **v1.88 migrate·inventory·global keep** / 备份自动化 |
+| `web-ui/public/history-db.js` | IDB v5、`HealthHistory`、分片 persist / 删片 / 配额 / 备份 / 写串行 / **v1.88 migrate + inventory** / **v1.89 batchId → lastImportBatchId** |
+| `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 双域·**全域** keep / 自动裁剪、多选删、wipe、**v1.89 批次面板 + 配额预测** |
+| `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年 / 双域·全域按钮 / auto-trim / **import-batches / quota-forecast**） |
+| `e2e/warehouse.spec.js` | 仓 / 年分片 / 双域 keep / auto-trim / **v1.88 migrate·inventory·global keep** / **v1.89 batch linkage + quota forecast** / 备份自动化 |
 | `scripts/perf-warehouse-baseline.mjs` | 可选：Playwright 测 persist/load/status 耗时（`npm run perf:warehouse`） |
 | `lib/src/types.ts` | `HealthData` / `FullAnalysis` |
 | `lib/src/snapshot.ts` | 摘要快照（非明细） |

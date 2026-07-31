@@ -98,6 +98,8 @@
 
   /** Guard re-entry: auto-trim → reanalyze → maybePersist must not trim again nested. */
   let warehouseAutoTrimRunning = false;
+  /** Last getWarehouseStatus() snapshot for soft-quota forecast (meta only). */
+  let lastWarehouseStatusForForecast = null;
   /** When true, next renderResults skips auto maybePersist (auto-trim already applied). */
   let skipNextWarehouseAutoPersist = false;
   /**
@@ -5558,6 +5560,36 @@
     return String(id).length > 18 ? String(id).slice(0, 18) : String(id);
   }
 
+  /** Truncate long ids in the middle; full value belongs in title attr. */
+  function truncateMiddleId(id, maxLen) {
+    const s = String(id || '');
+    const max = maxLen || 36;
+    if (!s) return '—';
+    if (s.length <= max) return s;
+    const ell = '…';
+    const keep = max - ell.length;
+    const head = Math.ceil(keep * 0.55);
+    const tail = keep - head;
+    return s.slice(0, head) + ell + s.slice(s.length - tail);
+  }
+
+  /** Basename only — never show directory paths in UI. */
+  function fileBasenameOnly(name) {
+    const s = String(name || '').replace(/\\/g, '/');
+    const i = s.lastIndexOf('/');
+    return i >= 0 ? s.slice(i + 1) : s;
+  }
+
+  /** Privacy-safe file label: single basename or "n files". */
+  function formatImportBatchFilesLabel(files) {
+    if (!Array.isArray(files) || !files.length) return '';
+    if (files.length === 1) {
+      const base = fileBasenameOnly(files[0] && files[0].name);
+      return base || t('warehouse.batchesFiles', { n: '1' });
+    }
+    return t('warehouse.batchesFiles', { n: String(files.length) });
+  }
+
   /**
    * Persist a local import batch for provenance (IndexedDB).
    * Best-effort; never throws to callers if history-db unavailable.
@@ -7340,6 +7372,11 @@
     const records = meta.totalRecordCount != null ? meta.totalRecordCount : 0;
     lines.push(t('warehouse.statusSummary.records', { n: String(records) }));
 
+    const lastBid = meta.lastImportBatchId != null && meta.lastImportBatchId !== ''
+      ? String(meta.lastImportBatchId)
+      : '—';
+    lines.push(t('warehouse.statusSummary.lastImportBatch', { id: lastBid }));
+
     const range = meta.dateRange;
     if (range && (range.start || range.end)) {
       // Dates only (YYYY-MM-DD) — strip any time component for privacy.
@@ -7594,12 +7631,135 @@
     }
   }
 
+  /**
+   * v1.89: show warehouse meta.lastImportBatchId + up to 5 recent import batches.
+   * Hidden without consent or when there are no batches. No raw samples / full paths.
+   */
+  async function refreshWarehouseImportBatches(st) {
+    const wrap = $('warehouse-import-batches');
+    const lastEl = $('warehouse-import-batches-last');
+    const listEl = $('warehouse-import-batches-list');
+    if (!wrap) return;
+
+    const hide = () => {
+      wrap.classList.add('hidden');
+      if (listEl) listEl.innerHTML = '';
+      if (lastEl) {
+        lastEl.textContent = '';
+        lastEl.removeAttribute('title');
+      }
+    };
+
+    if (!st || !st.granted) {
+      hide();
+      return;
+    }
+
+    let batches = [];
+    try {
+      if (
+        window.HealthHistory &&
+        typeof window.HealthHistory.listImportBatches === 'function'
+      ) {
+        batches = (await window.HealthHistory.listImportBatches()) || [];
+      }
+    } catch (e) {
+      console.warn('refreshWarehouseImportBatches list failed', e);
+      batches = [];
+    }
+
+    // Newest first already from listImportBatches; keep first 5.
+    const recent = (Array.isArray(batches) ? batches : []).slice(0, 5);
+    if (!recent.length) {
+      hide();
+      return;
+    }
+
+    const lastIdRaw =
+      (st.meta && st.meta.lastImportBatchId) != null && st.meta.lastImportBatchId !== ''
+        ? String(st.meta.lastImportBatchId)
+        : '';
+    if (lastEl) {
+      if (lastIdRaw) {
+        lastEl.textContent = t('warehouse.batchesLast', {
+          id: truncateMiddleId(lastIdRaw, 40),
+        });
+        lastEl.setAttribute('title', lastIdRaw);
+      } else {
+        lastEl.textContent = t('warehouse.batchesLast', { id: '—' });
+        lastEl.removeAttribute('title');
+      }
+    }
+
+    if (listEl) {
+      listEl.innerHTML = recent
+        .map((b) => {
+          if (!b) return '';
+          const fullId = String(b.id || '');
+          const idShort = shortImportBatchId(fullId);
+          const isLast = !!(lastIdRaw && fullId && fullId === lastIdRaw);
+          const whenRaw = b.createdAt
+            ? String(b.createdAt).slice(0, 19).replace('T', ' ')
+            : '—';
+          const source = provenanceSourceLabel(b.source);
+          const bytes = formatBytes(b.totalBytes != null ? b.totalBytes : 0);
+          const stats = b.stats || {};
+          const hasStats =
+            stats.totalAdded != null ||
+            stats.totalSkipped != null ||
+            stats.added != null ||
+            stats.skipped != null;
+          const added =
+            stats.totalAdded != null
+              ? Number(stats.totalAdded) || 0
+              : Number(stats.added) || 0;
+          const skipped =
+            stats.totalSkipped != null
+              ? Number(stats.totalSkipped) || 0
+              : Number(stats.skipped) || 0;
+          const filesLabel = formatImportBatchFilesLabel(b.files);
+          const rowCore = t('warehouse.batchesRow', {
+            id: idShort,
+            when: whenRaw,
+            source,
+            bytes,
+          });
+          const extras = [];
+          if (hasStats) {
+            extras.push(t('warehouse.batchesStats', { added: String(added), skipped: String(skipped) }));
+          }
+          if (filesLabel) extras.push(filesLabel);
+          const badge = isLast
+            ? `<span class="wh-batch-badge">${escapeHtml(t('warehouse.batchesCurrent'))}</span>`
+            : '';
+          return (
+            `<li class="wh-batch-row${isLast ? ' is-last' : ''}">` +
+            `<div class="wh-batch-main">` +
+            `<code title="${escapeHtml(fullId || idShort)}">${escapeHtml(idShort)}</code>` +
+            badge +
+            `<span class="wh-batch-source">${escapeHtml(source)}</span>` +
+            `</div>` +
+            `<div class="wh-batch-meta" title="${escapeHtml(rowCore)}">` +
+            `${escapeHtml(whenRaw)} · ${escapeHtml(bytes)}` +
+            (extras.length ? ` · ${escapeHtml(extras.join(' · '))}` : '') +
+            `</div>` +
+            `</li>`
+          );
+        })
+        .filter(Boolean)
+        .join('');
+    }
+
+    wrap.classList.remove('hidden');
+  }
+
   async function refreshWarehousePanel() {
     const statusEl = $('warehouse-status');
     const consentEl = $('warehouse-consent');
     const listEl = $('warehouse-domain-list');
     const quotaBar = $('warehouse-quota-bar');
     const quotaFill = $('warehouse-quota-fill');
+    const quotaForecast = $('warehouse-quota-forecast');
     const storageEl = $('warehouse-storage-est');
     const layoutEl = $('warehouse-layout-line');
     const monthsWrap = $('warehouse-cgm-months');
@@ -7627,6 +7787,8 @@
     const HH = window.HealthHistory;
     if (!HH || typeof HH.getWarehouseStatus !== 'function') {
       if (statusEl) statusEl.textContent = t('warehouse.unavailable');
+      updateWarehouseQuotaForecast(null);
+      await refreshWarehouseImportBatches(null);
       return;
     }
     try {
@@ -7642,6 +7804,7 @@
         listEl.classList.add('hidden');
       }
       if (quotaBar) quotaBar.classList.add('hidden');
+      if (quotaForecast) quotaForecast.classList.add('hidden');
       if (storageEl) {
         storageEl.textContent = '';
         storageEl.classList.add('hidden');
@@ -7699,13 +7862,17 @@
       syncWarehouseAutoTrimUi();
 
       if (!statusEl) {
+        updateWarehouseQuotaForecast(st);
         refreshWarehouseShardGroups();
+        await refreshWarehouseImportBatches(st);
         await refreshWarehouseHomeBanner();
         return;
       }
       if (!st.granted) {
         statusEl.textContent = t('warehouse.status.off');
+        updateWarehouseQuotaForecast(st);
         refreshWarehouseShardGroups();
+        await refreshWarehouseImportBatches(st);
         await refreshWarehouseHomeBanner();
         return;
       }
@@ -7919,6 +8086,12 @@
       // Collapsible domain groups: badge counts + default open state
       refreshWarehouseShardGroups();
 
+      // v1.89: soft-quota forecast (keep-window reclaim; years/months/bytes only)
+      updateWarehouseQuotaForecast(st);
+
+      // v1.89: import batch linkage (lastImportBatchId + recent batches)
+      await refreshWarehouseImportBatches(st);
+
       // Browser origin storage estimate (best-effort)
       if (storageEl && navigator.storage && typeof navigator.storage.estimate === 'function') {
         try {
@@ -7934,6 +8107,8 @@
       await refreshWarehouseHomeBanner();
     } catch (e) {
       if (statusEl) statusEl.textContent = t('warehouse.err', { msg: (e && e.message) || String(e) });
+      updateWarehouseQuotaForecast(null);
+      await refreshWarehouseImportBatches(null);
     }
   }
 
@@ -8393,6 +8568,7 @@
     if (bothBtn) bothBtn.textContent = t('warehouse.yearKeepBothRecent', { n: String(n) });
     const allDomainsBtn = $('btn-warehouse-years-keep-all-domains');
     if (allDomainsBtn) allDomainsBtn.textContent = t('warehouse.yearKeepAllRecent', { n: String(n) });
+    refreshWarehouseQuotaForecastFromCache();
   }
 
   function yearsToDropForKeepN(years, keepN) {
@@ -8538,6 +8714,235 @@
     'ecg',
     'watchDaily',
   ];
+
+  /** Map domain → *YearDetails field on getWarehouseStatus(). */
+  const YEAR_DETAIL_STATUS_FIELDS = {
+    bloodPressure: 'bpYearDetails',
+    weight: 'weightYearDetails',
+    sleep: 'sleepYearDetails',
+    steps: 'stepsYearDetails',
+    hrv: 'hrvYearDetails',
+    restingHr: 'restingHrYearDetails',
+    walkingHr: 'walkingHrYearDetails',
+    workouts: 'workoutsYearDetails',
+    ecg: 'ecgYearDetails',
+    watchDaily: 'watchDailyYearDetails',
+  };
+
+  /**
+   * Year shard rows with approxBytes (prefer yearDetails / *YearDetails; no sample values).
+   * @returns {Array<{year: string, approxBytes: number, recordCount?: number}>}
+   */
+  function yearDetailsFromWarehouseStatus(st, domain) {
+    st = st || {};
+    if (st.yearDetails && Array.isArray(st.yearDetails[domain]) && st.yearDetails[domain].length) {
+      return st.yearDetails[domain];
+    }
+    const field = YEAR_DETAIL_STATUS_FIELDS[domain];
+    if (field && Array.isArray(st[field]) && st[field].length) return st[field];
+    return (yearsFromWarehouseStatus(st, domain) || [])
+      .map((y) => String(y || '').slice(0, 4))
+      .filter((y) => /^\d{4}$/.test(y))
+      .map((y) => ({ year: y, approxBytes: 0, recordCount: 0 }));
+  }
+
+  /**
+   * v1.89 soft-quota forecast plan: shards older than keep-Y / keep-M.
+   * Privacy: only years, months, approxBytes — no sample values.
+   */
+  function planKeepWindowTrim(st, keepY, keepM) {
+    st = st || {};
+    const keepYears = keepY != null ? Number(keepY) : getYearKeepYears();
+    const keepMonths = keepM != null ? Number(keepM) : getCgmKeepMonths();
+    let reclaimBytes = 0;
+    /** @type {Array<{ domain: string, drop: string[], approxBytes: number }>} */
+    const yearPlan = [];
+    let yearDropCount = 0;
+
+    for (let i = 0; i < YEAR_KEEP_ALL_DOMAINS.length; i += 1) {
+      const domain = YEAR_KEEP_ALL_DOMAINS[i];
+      const details = yearDetailsFromWarehouseStatus(st, domain);
+      const years = details.map((d) => String((d && d.year) || '')).filter(Boolean);
+      const { drop } = yearsToDropForKeepN(years, keepYears);
+      if (!drop.length) continue;
+      const dropSet = Object.create(null);
+      for (let j = 0; j < drop.length; j += 1) dropSet[drop[j]] = true;
+      let domainBytes = 0;
+      for (let j = 0; j < details.length; j += 1) {
+        const row = details[j] || {};
+        const y = String(row.year || '');
+        if (dropSet[y]) domainBytes += Number(row.approxBytes) || 0;
+      }
+      reclaimBytes += domainBytes;
+      yearPlan.push({ domain, drop, approxBytes: domainBytes });
+      yearDropCount += drop.length;
+    }
+
+    const monthDetails = Array.isArray(st.cgmMonthDetails) ? st.cgmMonthDetails : [];
+    const months = (
+      st.cgmMonths
+      || monthDetails.map((d) => d && d.month)
+      || []
+    )
+      .slice()
+      .filter(Boolean)
+      .map(String)
+      .sort();
+    const monthDrop =
+      months.length > keepMonths ? months.slice(0, months.length - keepMonths) : [];
+    let monthBytes = 0;
+    if (monthDrop.length) {
+      const dropSet = Object.create(null);
+      for (let j = 0; j < monthDrop.length; j += 1) dropSet[monthDrop[j]] = true;
+      for (let j = 0; j < monthDetails.length; j += 1) {
+        const row = monthDetails[j] || {};
+        const m = String(row.month || '');
+        if (dropSet[m]) monthBytes += Number(row.approxBytes) || 0;
+      }
+    }
+    reclaimBytes += monthBytes;
+
+    return {
+      keepY: keepYears,
+      keepM: keepMonths,
+      reclaimBytes,
+      yearPlan,
+      yearDropCount,
+      monthDrop,
+      monthBytes,
+    };
+  }
+
+  /**
+   * Show/hide soft-quota forecast near #warehouse-quota-bar.
+   * Visible when softWarn OR approxBytes/softBytes >= 0.7.
+   */
+  function updateWarehouseQuotaForecast(st) {
+    const wrap = $('warehouse-quota-forecast');
+    const textEl = $('warehouse-quota-forecast-text');
+    const btn = $('btn-warehouse-quota-apply-keep');
+    if (!wrap) return;
+
+    if (!st || !st.granted || st.hasPayload === false) {
+      lastWarehouseStatusForForecast = st || null;
+      wrap.classList.add('hidden');
+      return;
+    }
+
+    lastWarehouseStatusForForecast = st;
+    const soft = st.softBytes || (150 * 1024 * 1024);
+    const bytes =
+      st.approxBytes != null
+        ? st.approxBytes
+        : (st.meta && st.meta.totalApproxBytes) || 0;
+    const ratio = soft > 0 ? bytes / soft : 0;
+    const show = !!(st.softWarn || ratio >= 0.7);
+    if (!show) {
+      wrap.classList.add('hidden');
+      return;
+    }
+
+    const keepY = getYearKeepYears();
+    const keepM = getCgmKeepMonths();
+    const plan = planKeepWindowTrim(st, keepY, keepM);
+    const pct = Math.min(100, Math.round(ratio * 100));
+    const reclaim = formatBytes(plan.reclaimBytes);
+    const canTrim = plan.yearDropCount > 0 || plan.monthDrop.length > 0;
+
+    if (textEl) {
+      textEl.textContent = canTrim
+        ? t('warehouse.quotaForecast', {
+          pct: String(pct),
+          keepY: String(keepY),
+          keepM: String(keepM),
+          reclaim,
+        })
+        : t('warehouse.quotaForecastOk', { pct: String(pct) });
+    }
+    if (btn) {
+      btn.textContent = t('warehouse.quotaApplyKeep');
+      btn.disabled = !canTrim;
+      btn.setAttribute('aria-disabled', canTrim ? 'false' : 'true');
+    }
+    wrap.classList.remove('hidden');
+  }
+
+  /** Recompute forecast text when keep-N prefs change (cached status). */
+  function refreshWarehouseQuotaForecastFromCache() {
+    if (lastWarehouseStatusForForecast) {
+      updateWarehouseQuotaForecast(lastWarehouseStatusForForecast);
+    }
+  }
+
+  /**
+   * One-click: confirm once, then trim CGM months + all year domains to keep windows.
+   * Reuses yearsToDropForKeepN / year delete APIs / deleteCgmMonthShards (no second confirm).
+   */
+  async function applyWarehouseKeepWindowsUi() {
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.getWarehouseStatus !== 'function') return;
+    try {
+      const st = await HH.getWarehouseStatus();
+      const plan = planKeepWindowTrim(st);
+      if (!plan.yearDropCount && !plan.monthDrop.length) {
+        showToast(t('warehouse.quotaApplyKeepNone'), { ms: 2200 });
+        updateWarehouseQuotaForecast(st);
+        return;
+      }
+      if (!window.confirm(t('warehouse.quotaApplyKeepConfirm', {
+        months: String(plan.monthDrop.length),
+        years: String(plan.yearDropCount),
+        reclaim: formatBytes(plan.reclaimBytes),
+      }))) {
+        return;
+      }
+
+      let monthsDone = 0;
+      let yearsDone = 0;
+
+      if (plan.monthDrop.length) {
+        if (typeof HH.deleteCgmMonthShards === 'function') {
+          const res = await HH.deleteCgmMonthShards(plan.monthDrop);
+          if (!res || !res.ok) {
+            showToast(t('warehouse.err', { msg: (res && res.reason) || 'fail' }), { ms: 2800 });
+          } else {
+            filterAnalysisCgmMonths(plan.monthDrop);
+            monthsDone = plan.monthDrop.length;
+          }
+        }
+      }
+
+      for (let i = 0; i < plan.yearPlan.length; i += 1) {
+        const item = plan.yearPlan[i];
+        const api = resolveYearShardDeleteApi(HH, item.domain);
+        if (typeof api !== 'function') continue;
+        try {
+          const res = await api(item.drop);
+          if (!res || !res.ok) {
+            showToast(t('warehouse.err', { msg: (res && res.reason) || 'fail' }), { ms: 2800 });
+            continue;
+          }
+          filterAnalysisDomainYears(item.domain, item.drop);
+          yearsDone += item.drop.length;
+        } catch (e) {
+          showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+        }
+      }
+
+      if (monthsDone > 0 || yearsDone > 0) {
+        const msg = t('warehouse.quotaApplyKeepDone', {
+          months: String(monthsDone),
+          years: String(yearsDone),
+          reclaim: formatBytes(plan.reclaimBytes),
+        });
+        showToast(msg, { ok: true, ms: 2400 });
+        showWarehouseStatusMsg(msg);
+      }
+      await refreshWarehousePanel();
+    } catch (e) {
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+    }
+  }
 
   /**
    * Trim all year-shard domains to newest N years (shared YEAR_KEEP_YEARS).
@@ -8726,6 +9131,7 @@
     if (sel && sel.value !== String(n)) sel.value = String(n);
     const btn = $('btn-warehouse-cgm-keep-recent');
     if (btn) btn.textContent = t('warehouse.cgmKeepRecent', { n: String(n) });
+    refreshWarehouseQuotaForecastFromCache();
   }
 
   $('warehouse-cgm-select-all')?.addEventListener('change', (e) => {
@@ -8740,6 +9146,9 @@
   $('warehouse-cgm-keep-months')?.addEventListener('change', (e) => {
     setCgmKeepMonths(e.target && e.target.value);
     syncCgmKeepMonthsUi();
+  });
+  $('btn-warehouse-quota-apply-keep')?.addEventListener('click', () => {
+    applyWarehouseKeepWindowsUi();
   });
   window.addEventListener('health-analyzer-locale', () => {
     syncCgmKeepMonthsUi();

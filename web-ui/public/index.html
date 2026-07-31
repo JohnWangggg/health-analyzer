@@ -621,9 +621,20 @@
         <div id="warehouse-quota-bar" class="warehouse-quota-bar hidden" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
           <div id="warehouse-quota-fill" class="warehouse-quota-fill"></div>
         </div>
+        <div id="warehouse-quota-forecast" class="warehouse-quota-forecast hidden" aria-live="polite">
+          <p id="warehouse-quota-forecast-text" class="warehouse-quota-forecast-text hint compact-hint"></p>
+          <button type="button" id="btn-warehouse-quota-apply-keep" class="btn-secondary btn-sm" data-i18n="warehouse.quotaApplyKeep">按保留窗口裁剪</button>
+        </div>
         <p id="warehouse-storage-est" class="warehouse-storage-est hint compact-hint hidden"></p>
         <p id="warehouse-layout-line" class="warehouse-layout-line hint compact-hint hidden"></p>
         <ul id="warehouse-domain-list" class="warehouse-domain-list hidden" aria-label="domain breakdown"></ul>
+
+        <div id="warehouse-import-batches" class="warehouse-import-batches hidden" role="region" aria-labelledby="warehouse-import-batches-title">
+          <h4 class="warehouse-cgm-months-title" id="warehouse-import-batches-title" data-i18n="warehouse.batchesTitle">关联导入批次</h4>
+          <p class="hint compact-hint" data-i18n="warehouse.batchesHint">显示仓内最近写入批次与本机最近导入批次（仅元数据，无路径/明细）。</p>
+          <p id="warehouse-import-batches-last" class="warehouse-import-batches-last hint compact-hint"></p>
+          <ul id="warehouse-import-batches-list" class="warehouse-import-batches-list" aria-label="import batches"></ul>
+        </div>
 
         <!-- CGM group -->
         <details class="warehouse-shard-group" id="warehouse-group-cgm" data-wh-group="cgm">
@@ -1071,7 +1082,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.88</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.89</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">
