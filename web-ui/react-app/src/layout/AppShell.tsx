@@ -227,8 +227,9 @@ export function AppShell() {
           compatible with history-db.js. No CDN / analytics.
         </p>
         <p className="muted" style={{ marginTop: '0.75rem' }}>
-          <a href="../" data-testid="link-legacy-home">
-            ← legacy
+          {t('shell.defaultEntry')} ·{' '}
+          <a href="/legacy/" data-testid="link-legacy-home">
+            {t('shell.openLegacy')}
           </a>
         </p>
         <div className="row" style={{ marginTop: '0.75rem' }}>
@@ -253,12 +254,13 @@ export function AppShell() {
             onClick={() => {
               try {
                 localStorage.setItem('ha-ui-shell', 'legacy');
+                window.location.assign('/legacy/');
               } catch {
                 /* ignore */
               }
             }}
           >
-            ui-shell=legacy
+            ui-shell=legacy → /legacy/
           </Button>
         </div>
       </Sheet>

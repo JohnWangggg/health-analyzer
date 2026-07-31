@@ -18,7 +18,7 @@ const SECRET_DATE = '2026-07-15';
 
 /** @param {import('@playwright/test').Page} page */
 async function waitAppReady(page) {
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.waitForFunction(
     () =>
       !!(

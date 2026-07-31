@@ -10,7 +10,7 @@ const FIXTURE = path.join(__dirname, 'fixtures/minimal-export.xml');
 
 /** @param {import('@playwright/test').Page} page */
 async function parseFixture(page) {
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.waitForFunction(() => !!(window.HealthAnalyzer && window.I18n && window.__setWorkspace));
   await page.locator('#advanced-source summary').click();
   await page.locator('input[name="source"][value="xml_only"]').check();

@@ -211,7 +211,7 @@ Service Worker 缓存所有静态资源，断网也能用。安装后像原生 A
 cd lib
 npm install
 npm test          # 单元测试
-npm run build     # tsc + 生成 web-ui/public/lib.js
+npm run build     # tsc + 生成 web-ui/public/legacy/lib.js
 ```
 
 根目录可跑 `npm run perf:parse`（`scripts/perf-parse-baseline.mjs`）测 `parseHealthXml` / `analyzeAll` 本地耗时与内存；默认 `e2e/fixtures/minimal-export.xml` 很小，大 export 用 `PERF_XML_PATH` 或 `--file=` 自备且**不要提交**个人数据。
@@ -220,7 +220,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 
 真实大 ZIP / 本机 `export.xml` 性能与隐私注意见 **`docs/REAL_DEVICE_ZIP.md`**（`npm run perf:parse -- --file=…`，**勿提交**个人导出）。
 
-修改解析/统计/提示词请只改 `lib/src/**`，再执行 `npm run build`。不要手改 `web-ui/public/lib.js`。
+修改解析/统计/提示词请只改 `lib/src/**`，再执行 `npm run build`。不要手改 `web-ui/public/legacy/lib.js`。
 
 ## 局限与边界
 

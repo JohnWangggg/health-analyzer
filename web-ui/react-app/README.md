@@ -1,11 +1,11 @@
-# React preview shell（双轨）
+# React 生产壳（Strategy A 默认入口）
 
-并行的 **Vite + React 19 + TypeScript** 应用，用于 Health OS UI 现代化预览。
+**Vite + React 19 + TypeScript** — 本地优先健康 OS **默认 UI**。
 
-| 轨 | 路径 | 角色 |
-|----|------|------|
-| **Legacy（生产默认）** | `../public/` | 线上部署目录；勿删除 |
-| **React 预览** | 本目录 | 工程壳 + adapter + 四工作区 |
+| 路径 | 角色 |
+|------|------|
+| **`/`（本应用 cutover 到 `../public/` 根）** | **生产默认** |
+| **`/legacy/`（`../public/legacy/`）** | 旧版 PWA **回滚** |
 
 完整说明见仓库 **[docs/DUAL_TRACK_UI.md](../../docs/DUAL_TRACK_UI.md)**。
 
@@ -15,13 +15,12 @@
 
 ```bash
 npm run react:install
-npm run react:dev
-# 或
-npm run react:build && npm run react:preview
+npm run react:dev                 # 开发
+npm run react:export-cutover      # 发布：React → public 根
 npm run react:test
 npm run react:privacy
-npm run test:e2e:react
-npm run react:export-next   # 挂到 public/next/
+npm run test:e2e:react            # 生产形态静态根 e2e
+npm run test:cutover-layout       # 根 React + /legacy/ 结构门禁
 ```
 
 在本包：
@@ -32,44 +31,22 @@ npm run dev
 npm run build && npm run preview
 npm run test
 npm run privacy
-npm run export-next
+npm run export-cutover
 ```
+
+`export-next`（`/next/`）已废弃，仅兼容保留。
 
 ## 功能摘要
 
 - 路由：`/` 总览 · `/trends` · `/reports` · `/data`
 - 主题：light / dark / system
 - 导入：夹具 · XML（Worker）· ZIP（fflate）· HAE（JSON/CSV）
-- 数据仓：加载 reassemble；写入简化 `core|full`（需用户点「写入数据仓」）
+- 数据仓：sharded-v1 读写 + keep-N MVP
 - 快照：`buildAnalysisSnapshot` → IndexedDB `snapshots`
 - 图表：ECharts 懒加载 + 表回退
 - 报告：visit / weekly / clinical Markdown
-- 隐私：self-only PWA + `privacy-scan.mjs`
+- 隐私：self-only PWA + `privacy-scan.mjs`；SW 不 fallback `/legacy/`
 
-## 目录
+## 回滚
 
-```text
-src/
-  core/           # Adapter、Worker、ZIP、HAE、IDB
-  pages/          # 四工作区
-  components/ui/  # Button Card Badge Sheet …
-  components/charts/
-  stores/         # workspace 导航状态
-  store/          # 健康会话 Zustand
-  layout/         # AppShell
-  theme/
-  styles/
-scripts/
-  privacy-scan.mjs
-  export-next.mjs
-```
-
-## 约束
-
-- 不重写 `lib` 统计 / FHIR / 隐私文案
-- 不强制迁移 IDB schema（契约见 `idbContract.ts`）
-- 生产默认入口仍为 legacy，除非运维切换部署根目录
-
-## 浏览器
-
-现代 Chromium / Safari / Firefox。Tailwind v4 全量未接入；样式为 CSS 变量 + 系统字体。
+打开 **`/legacy/`**，或壳内「关于」→ 打开旧版回滚。

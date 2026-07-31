@@ -3,7 +3,7 @@
 **状态：** 设计 + **已实现**（v1.68 MVP → **v1.75** `core|full` + `cgm|YYYY-MM` → **v1.79–v1.81** `bloodPressure|YYYY` / `weight|YYYY` 年分片、面板删片、保留近 N 月/年 → **v1.82** 双域一键 keep-N 年 → **v1.83** 保存后可选自动 keep-N 裁剪 → **v1.85** `sleep|YYYY` / `steps|YYYY` 年分片 → **v1.86** `hrv|YYYY` / `restingHr|YYYY` / `walkingHr|YYYY` 年分片 → **v1.87** `workouts|YYYY` / `ecg|YYYY` / `watchDaily|YYYY` 年分片（与其它年分片**域独立**删片）→ **v1.88** **thin core** 全量分片后、`migrateLegacyCoreToShards`、分片清单导出 `exportShardInventory`、**全域 keep-all 年** → **v1.89** 仓与导入批次联动 `lastImportBatchId`、仓面板导入批次摘要、**配额预测 UI**（客户端按分片 `approxBytes` 估算）；兼容 legacy `healthData|full`）  
 **范围：** 浏览器本机 IndexedDB 持久化「解析后的 typed 健康仓」+ 授权、配额、备份/清除、分片淘汰与手动/可选自动裁剪  
 **语言 / Language：** 中文（关键术语中英对照）  
-**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.89.0`+）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）；UI 偏好与自动裁剪见 `web-ui/public/app.js`
+**对照实现基线：** `web-ui/public/legacy/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.89.0`+）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）；UI 偏好与自动裁剪见 `web-ui/public/legacy/app.js`
 
 > 本地隐私优先 · 零服务器 · 非诊断 · 默认不上传  
 > 产品默认：自动 hydrate、关授权即删仓、软/硬字节配额、备份默认明文（可选口令 AES-GCM）、恢复整库替换。分片与口令加密**已落地**（见 §4.2 / §6 / §8）。
@@ -1373,8 +1373,8 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 
 | 路径 | 说明 |
 |------|------|
-| `web-ui/public/history-db.js` | IDB v5、`HealthHistory`、分片 persist / 删片 / 配额 / 备份 / 写串行 / **v1.88 migrate + inventory** / **v1.89 batchId → lastImportBatchId** / **v1.90 batch→shard reverse index** |
-| `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 双域·**全域** keep / 自动裁剪、多选删、wipe、**v1.89 批次面板 + 配额预测** / **v1.90 点批次→分片 + connectivity banner** / **v1.91 shard filter + provenance timeline** / **v1.92 today chip + trends hint** |
+| `web-ui/public/legacy/history-db.js` | IDB v5、`HealthHistory`、分片 persist / 删片 / 配额 / 备份 / 写串行 / **v1.88 migrate + inventory** / **v1.89 batchId → lastImportBatchId** / **v1.90 batch→shard reverse index** |
+| `web-ui/public/legacy/app.js` | 授权 UI、hydrate、仓面板 keep-N / 双域·**全域** keep / 自动裁剪、多选删、wipe、**v1.89 批次面板 + 配额预测** / **v1.90 点批次→分片 + connectivity banner** / **v1.91 shard filter + provenance timeline** / **v1.92 today chip + trends hint** |
 | `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年 / 双域·全域按钮 / auto-trim / **import-batches / quota-forecast**）/ 可选 `#connectivity-banner` / **v1.91 `#warehouse-shard-filter` · `#warehouse-provenance-timeline`** / **v1.92 `#warehouse-today-chip` · `#warehouse-trends-hint`** |
 | `e2e/warehouse.spec.js` | 仓 / 年分片 / 双域 keep / auto-trim / **v1.88 migrate·inventory·global keep** / **v1.89 batch linkage + quota forecast** / **v1.90 batch→shard index** / **v1.91 shard filter + provenance timeline** / **v1.92 today chip + trends hint** / 备份自动化 |
 | `e2e/connectivity.spec.js` | **v1.90** 离线横幅软断言（`#connectivity-banner`；缺省 skip） |

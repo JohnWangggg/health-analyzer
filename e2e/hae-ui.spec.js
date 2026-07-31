@@ -10,7 +10,7 @@ const HAE_FIXTURE = path.join(__dirname, 'fixtures/hae-mini.json');
 
 /** @param {import('@playwright/test').Page} page */
 async function waitAppReady(page) {
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.waitForFunction(
     () =>
       !!(

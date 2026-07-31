@@ -37,40 +37,45 @@
 cd health-analyzer/lib
 npm install
 npm test
-npm run build   # 生成 web-ui/public/lib.js
+npm run build   # 生成 web-ui/public/legacy/lib.js（旧版回滚树）
 
-# 2. 启动本地预览
-cd ../web-ui/public
-python3 -m http.server 8000
-
-# 3. 浏览器打开 http://localhost:8000
-
-# 4. 仓库根目录：静态 smoke + Playwright E2E
-cd ../..
+# 2. 发布树：React 为默认根，旧版在 /legacy/
+cd ..
 npm install
-npx playwright install chromium   # 首次
-npm run smoke                     # i18n / 静态资源 / lib.js 语言
-npm run perf:parse                # 解析/analyzeAll 本地耗时基线（默认小 fixture；大文件自备 --file= 且勿提交）
-npm run test:e2e                  # 页面加载、语言切换、最小 XML 解析
-
-# 5. （可选）双轨 React 预览壳 — 非生产默认入口
-# 详见 docs/DUAL_TRACK_UI.md
 npm run react:install
-npm run react:dev                 # 或 react:build && react:preview
-npm run react:test
-npm run test:e2e:react            # React Playwright（:4174）
-# npm run react:export-next       # 挂到 web-ui/public/next/ 与 legacy 同域
+npm run react:export-cutover      # → web-ui/public/ 根 = React
 
-# 6. 部署：推送 main 后 GitHub Actions 先跑测试再部署 Pages
-#    生产默认仍部署 web-ui/public（legacy）
+# 3. 本地预览
+cd web-ui/public && python3 -m http.server 8000
+# http://localhost:8000        → React（生产默认）
+# http://localhost:8000/legacy/ → 旧版回滚
+
+# 4. 仓库根：smoke + E2E
+cd ../..
+npx playwright install chromium   # 首次
+npm run smoke                     # legacy 树 +（cutover 后）根 React 形态
+npm run test:e2e                  # 旧版 /legacy/
+npm run test:e2e:react            # 默认根 React
+npm run test:e2e:dual             # 仓互通 / ↔ /legacy/
+
+# 5. 开发 React 源码
+npm run react:dev
+npm run react:test
+
+# 6. 部署：CI 会 export-cutover 后发布 web-ui/public
 ```
 
-### 双轨 React 预览（工程向）
+### 入口与回滚（Strategy A）
 
-生产 **默认仍是** `web-ui/public`。并行轨 `web-ui/react-app` 提供现代壳（侧栏/底栏、ECharts 懒加载、XML/ZIP/HAE、仓读写简化路径）。说明与回滚：
+- **默认入口：`/` React**（`web-ui/react-app` → `react:export-cutover`）  
+- **回滚：`/legacy/`** 旧版 PWA（`web-ui/public/legacy/`）  
+- 说明：**[docs/DUAL_TRACK_UI.md](docs/DUAL_TRACK_UI.md)**、**[docs/DEPLOY.md](docs/DEPLOY.md)**  
 
-- **[docs/DUAL_TRACK_UI.md](docs/DUAL_TRACK_UI.md)** — 架构、脚本、IDB 契约、`/next/` 同域导出  
-- **[web-ui/react-app/README.md](web-ui/react-app/README.md)** — 包内快速开始  
+---
+
+## 继续推进（parity 跟进，非 dual 胶水）
+
+cutover 之后优先补 **React 产品能力**（加密备份 UI、数据中心级清理等），而不是再扩 `/next/` 双轨。
 
 ## 核心特性
 

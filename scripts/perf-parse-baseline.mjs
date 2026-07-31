@@ -19,7 +19,7 @@
  *            progress goes to stderr so pipes stay clean. Without --json, human
  *            summary is printed to stdout (default).
  *
- * Requires built browser bundle: web-ui/public/lib.js (npm run build:lib).
+ * Requires built browser bundle: web-ui/public/legacy/lib.js (npm run build:lib).
  * Exit 0 on success; 1 on load/parse failure.
  */
 
@@ -34,7 +34,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 
 const DEFAULT_FIXTURE = path.join(root, 'e2e/fixtures/minimal-export.xml');
-const LIB_JS = path.join(root, 'web-ui/public/lib.js');
+const LIB_JS = path.join(root, 'web-ui/public/legacy/lib.js');
 const LIB_DIR = path.join(root, 'lib');
 
 function parseArgs(argv) {
@@ -96,7 +96,7 @@ Options:
                   e2e/fixtures/minimal-export.xml
   --repeat=N      Run N times; report median (default 1)
   --json          Print one JSON summary object to stdout (progress → stderr)
-  --cjs           Prefer temporary CJS build of lib/ (else web-ui/public/lib.js)
+  --cjs           Prefer temporary CJS build of lib/ (else web-ui/public/legacy/lib.js)
   -h, --help      Show this help
 
 Env:
@@ -114,7 +114,7 @@ JSON shape (--json), main fields:
 Notes:
   - Default fixture is small (CI-friendly). For large ZIP/XML baselines, unzip
     locally and pass --file=…; do not commit large personal exports.
-  - Needs web-ui/public/lib.js (run: npm run build:lib) unless --cjs succeeds.
+  - Needs web-ui/public/legacy/lib.js (run: npm run build:lib) unless --cjs succeeds.
   - Privacy: reads local files only; no network / no upload.
 `);
 }

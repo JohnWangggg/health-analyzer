@@ -13,7 +13,7 @@ test.describe('v1.73 text zoom 200%', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   test('priority + bottom nav + trends usable at 200% zoom', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     await page.waitForFunction(() => !!(window.HealthAnalyzer && window.I18n && window.__setWorkspace));
 
     await page.locator('#advanced-source summary').click();

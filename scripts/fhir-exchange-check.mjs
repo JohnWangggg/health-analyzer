@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
-const libJsPath = path.join(root, 'web-ui/public/lib.js');
+const libJsPath = path.join(root, 'web-ui/public/legacy/lib.js');
 const sampleXmlPath = path.join(root, 'e2e/fixtures/minimal-export.xml');
 
 let failed = 0;

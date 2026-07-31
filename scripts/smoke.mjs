@@ -25,9 +25,9 @@ function ok(cond, msg) {
   }
 }
 
-// —— i18n parity ——
+// —— i18n parity (legacy tree; source of locale tables) ——
 console.log('\ni18n key parity');
-const i18nPath = path.join(root, 'web-ui/public/i18n.js');
+const i18nPath = path.join(root, 'web-ui/public/legacy/i18n.js');
 const i18nSrc = fs.readFileSync(i18nPath, 'utf8');
 
 function extractLocale(name) {
@@ -79,9 +79,9 @@ ok(missTw.length === 0, `no keys missing in zh-TW (${missTw.length})`);
 if (missEn.length) console.error('    missing en:', missEn.slice(0, 12).join(', '));
 if (missTw.length) console.error('    missing tw:', missTw.slice(0, 12).join(', '));
 
-// —— static assets ——
-console.log('\nweb-ui static assets');
-const assets = [
+// —— legacy static assets (rollback tree under /legacy/) ——
+console.log('\nweb-ui/public/legacy static assets');
+const legacyAssets = [
   'index.html',
   'app.js',
   'lib.js',
@@ -95,25 +95,50 @@ const assets = [
   'fflate.min.js',
   'manifest.json',
 ];
-for (const a of assets) {
-  const p = path.join(root, 'web-ui/public', a);
-  ok(fs.existsSync(p) && fs.statSync(p).size > 20, a);
+const legacyDir = path.join(root, 'web-ui/public/legacy');
+for (const a of legacyAssets) {
+  const p = path.join(legacyDir, a);
+  ok(fs.existsSync(p) && fs.statSync(p).size > 20, `legacy/${a}`);
 }
 
-const html = fs.readFileSync(path.join(root, 'web-ui/public/index.html'), 'utf8');
+const legacyHtml = fs.readFileSync(path.join(legacyDir, 'index.html'), 'utf8');
 for (const src of ['lib.js', 'app.js', 'i18n.js', 'styles.css']) {
-  ok(html.includes(src), `index.html references ${src}`);
+  ok(legacyHtml.includes(src), `legacy/index.html references ${src}`);
 }
+ok(
+  legacyHtml.includes('../') || legacyHtml.includes('返回新版'),
+  'legacy/index.html links back to React root',
+);
 
-const libJs = fs.readFileSync(path.join(root, 'web-ui/public/lib.js'), 'utf8');
-ok(/HealthAnalyzer|createL|analyzeAll/.test(libJs), 'lib.js contains analyzer exports');
-ok(libJs.length > 50_000, `lib.js size ok (${libJs.length} bytes)`);
+const libJs = fs.readFileSync(path.join(legacyDir, 'lib.js'), 'utf8');
+ok(/HealthAnalyzer|createL|analyzeAll/.test(libJs), 'legacy/lib.js contains analyzer exports');
+ok(libJs.length > 50_000, `legacy/lib.js size ok (${libJs.length} bytes)`);
+
+// —— React production root (after npm run react:export-cutover) ——
+console.log('\nweb-ui/public React root (cutover)');
+const rootIndex = path.join(root, 'web-ui/public/index.html');
+const hasRootReact = fs.existsSync(rootIndex) && fs.statSync(rootIndex).size > 20;
+if (hasRootReact) {
+  const rootHtml = fs.readFileSync(rootIndex, 'utf8');
+  ok(
+    /root|assets\/|type="module"|react/i.test(rootHtml) && !rootHtml.includes('id="file-input"'),
+    'root index.html looks like React shell (not legacy file-input page)',
+  );
+  ok(fs.existsSync(path.join(root, 'web-ui/public/legacy/index.html')), 'legacy rollback path exists');
+  const stamp = path.join(root, 'web-ui/public/CUTOVER_STAMP.txt');
+  ok(
+    !fs.existsSync(stamp) || fs.readFileSync(stamp, 'utf8').includes('react-default'),
+    'CUTOVER_STAMP present or optional',
+  );
+} else {
+  console.log('  · root React index not built yet (run npm run react:export-cutover before deploy)');
+}
 
 // —— analysis locale via browser IIFE (lib.js) ——
 console.log('\nlib.js locale smoke');
 try {
   const { createContext, runInContext } = await import('node:vm');
-  const code = fs.readFileSync(path.join(root, 'web-ui/public/lib.js'), 'utf8');
+  const code = fs.readFileSync(path.join(legacyDir, 'lib.js'), 'utf8');
   const ctx = createContext({ console });
   runInContext(code + '\nthis.HA = HealthAnalyzer;', ctx);
   const mod = ctx.HA;

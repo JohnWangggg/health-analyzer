@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "privacy": "node scripts/privacy-scan.mjs",
     "parity": "vitest run src/core/HealthCoreAdapter.test.ts",
+    "export-cutover": "node scripts/export-cutover.mjs",
     "export-next": "node scripts/export-next.mjs"
   },
   "dependencies": {

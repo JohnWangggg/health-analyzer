@@ -10,7 +10,7 @@ const FIXTURE = path.join(__dirname, 'fixtures/minimal-export.xml');
 
 /** @param {import('@playwright/test').Page} page */
 async function waitAppReady(page) {
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.waitForFunction(
     () =>
       !!(

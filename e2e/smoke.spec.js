@@ -8,7 +8,7 @@ const FIXTURE = path.join(__dirname, 'fixtures/minimal-export.xml');
 
 test.describe('health-analyzer PWA smoke', () => {
   test('loads shell: title, upload, locale control', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     await expect(page.locator('h1')).toBeVisible();
     await expect(page.locator('#drop-zone')).toBeVisible();
     await expect(page.locator('#locale-select')).toBeVisible();
@@ -20,7 +20,7 @@ test.describe('health-analyzer PWA smoke', () => {
   });
 
   test('locale switch updates document language and chrome', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     await page.waitForFunction(() => window.I18n && typeof window.I18n.setLocale === 'function');
 
     await page.locator('#locale-select').selectOption('en');
@@ -36,7 +36,7 @@ test.describe('health-analyzer PWA smoke', () => {
   });
 
   test('theme toggle cycles without error', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     const btn = page.locator('#theme-toggle');
     await expect(btn).toBeVisible();
     await btn.click();
@@ -47,7 +47,7 @@ test.describe('health-analyzer PWA smoke', () => {
   });
 
   test('parse minimal XML → shows results overview', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     await page.waitForFunction(() => window.HealthAnalyzer && window.I18n);
 
     // Prefer XML-only import path
@@ -89,7 +89,7 @@ test.describe('health-analyzer PWA smoke', () => {
   });
 
   test('collapsed upload hint follows all supported locales after parse', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     await page.waitForFunction(() => window.HealthAnalyzer && window.I18n);
 
     await page.locator('#advanced-source summary').click();
@@ -114,7 +114,7 @@ test.describe('health-analyzer PWA smoke', () => {
   });
 
   test('after parse, English locale refreshes analysis chrome', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     await page.waitForFunction(() => window.HealthAnalyzer && window.I18n);
 
     await page.locator('#advanced-source summary').click();
@@ -136,7 +136,7 @@ test.describe('health-analyzer PWA smoke', () => {
   });
 
   test('after parse, buildFhirExportBundle returns Observation Bundle (v1.48+)', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     await page.waitForFunction(
       () =>
         !!(
@@ -249,7 +249,7 @@ test.describe('health-analyzer PWA smoke', () => {
   test('v1.56–1.59: FHIR export download period/Patient/Device + exchange branches', async ({
     page,
   }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     await page.waitForFunction(
       () =>
         !!(

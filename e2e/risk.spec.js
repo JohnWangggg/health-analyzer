@@ -14,7 +14,7 @@ const NOT_HEALTH = path.join(__dirname, 'fixtures/not-health.txt');
 
 /** @param {import('@playwright/test').Page} page */
 async function waitAppReady(page) {
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.waitForFunction(() => !!(window.HealthAnalyzer && window.I18n));
 }
 

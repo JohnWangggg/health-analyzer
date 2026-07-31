@@ -10,7 +10,7 @@ import { PwaUpdateBanner } from './components/PwaUpdateBanner';
 import './styles/theme.css';
 import './styles/app.css';
 
-/** Vite base is `/` or `/next/` for dual-track export under public/next */
+/** Vite base is `/` (production default). Optional `/next/` only for deprecated preview export. */
 const basename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || '/';
 
 export default function App() {

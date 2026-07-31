@@ -11,7 +11,7 @@ const FIXTURE = path.join(__dirname, 'fixtures/minimal-export.xml');
 
 test.describe('v1.73 user task flow', () => {
   test('import → priority focus → trends → export visit one-pager', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     await page.waitForFunction(() => !!(window.HealthAnalyzer && window.I18n && window.__setWorkspace));
 
     // 1) Import

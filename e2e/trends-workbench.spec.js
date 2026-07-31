@@ -15,7 +15,7 @@ test.describe('v1.67 trends workbench', () => {
     const pageErrors = [];
     page.on('pageerror', (err) => pageErrors.push(String(err && err.message ? err.message : err)));
 
-    await page.goto('/');
+    await page.goto('/legacy/');
     await page.waitForFunction(() => window.HealthAnalyzer && window.I18n && window.HealthCharts);
 
     const advanced = page.locator('#advanced-source');

@@ -218,7 +218,7 @@
 ## 5b. 双轨 React 预览（v2.2-dual · 非生产默认）
 
 **文档：** `docs/DUAL_TRACK_UI.md` · **自动化：** `npm run test:e2e:react`（端口 4174）  
-**入口：** `npm run react:dev` 或 `react:export-next` 后访问 legacy 顶栏「试用新版」→ `/next/`
+**入口：** 默认 `npm run react:export-cutover` 后打开 `/`；开发可用 `npm run react:dev`；回滚 `/legacy/`
 
 ### P0（约 10 分钟）
 
@@ -235,7 +235,7 @@
 - [ ] （可选）SW 有更新时出现提示条，非自动整页抢占
 ### P1
 
-- [ ] `npm run react:export-next` 后 legacy 与 `/next/` 可切换；`ha-ui-shell=react` 仅在 next 存在时跳转
+- [ ] `npm run react:export-cutover` 后 `/` 为 React、`/legacy/` 可打开旧版回滚
 - [ ] 断网后 React preview 壳层仍可打开（self-only SW）
 - [ ] 与 legacy 共用同一浏览器时，快照/仓 meta 可读（不强制写分片）
 

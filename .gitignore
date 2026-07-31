@@ -36,5 +36,16 @@ yarn-error.log*
 # 本仓库专用 SSH 密钥（不提交到 GitHub）
 .ssh_key/
 
-# React dual-track export under legacy public
+# Obsolete dual-track /next/ preview (use export-cutover instead)
 web-ui/public/next/
+
+# React cutover build products at production root (legacy/ stays tracked)
+web-ui/public/assets/
+web-ui/public/index.html
+web-ui/public/sw.js
+web-ui/public/workbox-*.js
+web-ui/public/manifest.webmanifest
+web-ui/public/favicon.svg
+web-ui/public/icons.svg
+web-ui/public/CUTOVER_STAMP.txt
+web-ui/public/registerSW.js

@@ -9,7 +9,7 @@ const FIXTURE = path.join(__dirname, 'fixtures/minimal-export.xml');
 
 /** @param {import('@playwright/test').Page} page */
 async function parseFixture(page) {
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.waitForFunction(() => !!(window.HealthAnalyzer && window.I18n && window.__setWorkspace));
   await page.locator('#advanced-source summary').click();
   await page.locator('input[name="source"][value="xml_only"]').check();
@@ -21,7 +21,7 @@ test.describe('v1.74 keyboard a11y', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
   test('skip link moves focus to main', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     await page.waitForFunction(() => !!(window.I18n));
 
     await page.keyboard.press('Tab');

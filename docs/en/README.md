@@ -108,7 +108,7 @@ When you prefer scheduled **Health Auto Export** dumps (JSON/CSV) over re-export
 cd lib
 npm install
 npm test
-npm run build     # emits web-ui/public/lib.js
+npm run build     # emits web-ui/public/legacy/lib.js
 
 cd ../web-ui/public
 python3 -m http.server 8000
@@ -182,7 +182,7 @@ Layout adapts across phone and desktop: safe-area padding, sticky copy bar, comp
 
 ## Tech stack
 
-- **Core**: TypeScript only in `lib/src`, esbuild IIFE → `web-ui/public/lib.js`
+- **Core**: TypeScript only in `lib/src`, esbuild IIFE → `web-ui/public/legacy/lib.js`
 - **ZIP**: local `fflate.min.js` (no CDN)
 - **PWA**: Service Worker + manifest + SVG icons
 - **UI**: vanilla CSS (responsive + dark mode); overview KPIs / sticky CTAs
@@ -197,7 +197,7 @@ npm test
 npm run build
 ```
 
-Change parse/stats/prompts only under `lib/src/**`, then rebuild. Do not hand-edit `web-ui/public/lib.js`.
+Change parse/stats/prompts only under `lib/src/**`, then rebuild. Do not hand-edit `web-ui/public/legacy/lib.js`.
 
 ## Limits & caveats
 

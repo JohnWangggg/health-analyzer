@@ -2,11 +2,11 @@
 const { defineConfig, devices } = require('@playwright/test');
 const path = require('path');
 
-const reactApp = path.join(__dirname, 'web-ui/react-app');
+const publicDir = path.join(__dirname, 'web-ui/public');
 
 /**
- * React dual-track shell smoke (separate from legacy public e2e).
- * Serves vite preview of react-app/dist on 4174.
+ * Production-shaped React e2e: export-cutover → static host on :4174.
+ * Root `/` is React; `/legacy/` is rollback-only.
  */
 module.exports = defineConfig({
   testDir: './e2e-react',
@@ -29,9 +29,9 @@ module.exports = defineConfig({
     },
   ],
   webServer: {
-    command: `npm --prefix "${reactApp}" run build && npm --prefix "${reactApp}" run preview -- --host 127.0.0.1 --port 4174`,
+    command: `npm run react:export-cutover && npx --yes serve "${publicDir}" -l 4174 --no-port-switching --cors`,
     url: 'http://127.0.0.1:4174',
     reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
+    timeout: 300_000,
   },
 });

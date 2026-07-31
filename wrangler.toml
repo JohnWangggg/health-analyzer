@@ -7,11 +7,11 @@ name = "health-analyzer"
 compatibility_date = "2026-07-29"
 
 # 将纯前端 PWA 目录作为静态资源发布（无后端 Worker 逻辑也可）
-# assets.directory → web-ui/public（与 GitHub Pages 同源产物）
+# assets.directory → web-ui/public
+# Strategy A: root = React (npm run react:export-cutover); rollback = /legacy/
 [assets]
 directory = "./web-ui/public"
-# not_found_handling：未知路径如何处理
-# - 默认（注释掉）：返回 404
-# - "single-page-application"：回退到 index.html（适合前端路由 SPA）
-# 本 PWA 以 ./ 相对路径与单页 index 为主，一般无需开启；若自定义子路径深链可取消下一行注释
-# not_found_handling = "single-page-application"
+# React SPA deep links (/trends, /reports, /data) need index fallback.
+# Legacy under /legacy/ uses its own relative index; SPA fallback must not break it
+# if the host only rewrites unknown paths without a file (verify on deploy).
+not_found_handling = "single-page-application"

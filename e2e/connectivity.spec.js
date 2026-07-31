@@ -7,7 +7,7 @@ const { test, expect } = require('@playwright/test');
 
 test.describe('connectivity banner (v1.90)', () => {
   test('offline shows the banner; restoring online hides it', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     await page.waitForFunction(() => !!(window.I18n || window.HealthAnalyzer));
 
     const banner = page.locator('#connectivity-banner');

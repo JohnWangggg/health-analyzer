@@ -20,7 +20,7 @@ const BATCH_FILES = Array.from({ length: 10 }, (_, i) =>
 
 /** @param {import('@playwright/test').Page} page */
 async function waitAppReady(page) {
-  await page.goto('/');
+  await page.goto('/legacy/');
   await page.waitForFunction(
     () =>
       !!(

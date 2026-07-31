@@ -43,6 +43,8 @@ export type MessageKey =
   | 'dualTrack'
   | 'shell.sessionReady'
   | 'shell.sessionIdle'
+  | 'shell.defaultEntry'
+  | 'shell.openLegacy'
   | 'shell.kbdHint'
   | 'trends.title'
   | 'trends.lead'
@@ -130,8 +132,8 @@ export type MessageKey =
   | 'data.keepN.sharedPrefs';
 
 const zh: Record<MessageKey, string> = {
-  brand: '健康 OS · React',
-  brandSub: '本地优先预览 · 非默认生产入口',
+  brand: '健康 OS',
+  brandSub: '本地优先 · 生产默认入口',
   'nav.overview': '总览',
   'nav.trends': '趋势',
   'nav.reports': '报告',
@@ -141,7 +143,9 @@ const zh: Record<MessageKey, string> = {
   'theme.light': '浅色',
   'theme.dark': '深色',
   about: '关于',
-  footer: '本地优先 · 无 CDN · 生产默认仍为 web-ui/public',
+  footer: '本地优先 · 无 CDN · 默认 React · 回滚 /legacy/',
+  'shell.defaultEntry': '默认入口为本壳',
+  'shell.openLegacy': '打开旧版回滚 → /legacy/',
   'overview.title': '今日健康状态',
   'overview.lead':
     '本地优先预览：XML/ZIP/HAE · sharded-v1 数据仓 · 报告与趋势。内核经 adapter/lib，非诊断。',
@@ -270,8 +274,8 @@ const zh: Record<MessageKey, string> = {
 };
 
 const en: Record<MessageKey, string> = {
-  brand: 'Health OS · React',
-  brandSub: 'Local-first preview · not production default',
+  brand: 'Health OS',
+  brandSub: 'Local-first · production default',
   'nav.overview': 'Overview',
   'nav.trends': 'Trends',
   'nav.reports': 'Reports',
@@ -281,7 +285,9 @@ const en: Record<MessageKey, string> = {
   'theme.light': 'Light',
   'theme.dark': 'Dark',
   about: 'About',
-  footer: 'Local-first · no CDN · production still web-ui/public',
+  footer: 'Local-first · no CDN · React default · rollback /legacy/',
+  'shell.defaultEntry': 'This shell is the default entry',
+  'shell.openLegacy': 'Open legacy rollback → /legacy/',
   'overview.title': "Today's health status",
   'overview.lead':
     'Local-first preview: XML/ZIP/HAE · sharded-v1 warehouse · reports & trends. Core via adapter/lib — not a diagnosis.',

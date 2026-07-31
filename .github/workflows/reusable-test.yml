@@ -48,7 +48,19 @@ jobs:
       - name: Build (tsc + browser bundle)
         run: npm run build
 
-      - name: UI / i18n smoke (static + locale)
+      - name: Install root (Playwright + scripts)
+        working-directory: .
+        run: npm ci
+
+      - name: Install React app deps
+        working-directory: .
+        run: npm run react:install
+
+      - name: Export cutover (React at public root)
+        working-directory: .
+        run: npm run react:export-cutover
+
+      - name: UI / i18n smoke (legacy tree + React root)
         working-directory: .
         run: node scripts/smoke.mjs
 
@@ -59,16 +71,18 @@ jobs:
           # Belt-and-suspenders: scripts also set REQUIRED=1
           FHIR_HL7_REQUIRED: '1'
 
-      - name: Install root (Playwright)
-        working-directory: .
-        run: npm ci
-
       - name: Install Playwright Chromium
         working-directory: .
         run: npx playwright install --with-deps chromium
 
-      - name: E2E smoke (Playwright)
+      - name: E2E legacy rollback (/legacy/)
         working-directory: .
         run: npx playwright test
+        env:
+          CI: 'true'
+
+      - name: E2E React default root
+        working-directory: .
+        run: npm run test:e2e:react
         env:
           CI: 'true'

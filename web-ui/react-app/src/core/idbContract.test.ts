@@ -18,7 +18,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const HISTORY_DB_JS = resolve(
   __dirname,
-  '../../../public/history-db.js',
+  '../../../public/legacy/history-db.js',
 );
 
 const TEST_DB = 'ha-react-idb-schema-parity-test';

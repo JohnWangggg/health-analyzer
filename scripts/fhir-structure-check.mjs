@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const fixturePath = path.join(root, 'lib/test/fixtures/fhir-bundle-structure.json');
-const libJsPath = path.join(root, 'web-ui/public/lib.js');
+const libJsPath = path.join(root, 'web-ui/public/legacy/lib.js');
 
 const URN_UUID_RE =
   /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -102,7 +102,7 @@ ok(
 );
 
 // —— validate via built lib.js (same surface as UI) ——
-console.log('\nvalidateFhirExportBundle via web-ui/public/lib.js');
+console.log('\nvalidateFhirExportBundle via web-ui/public/legacy/lib.js');
 ok(fs.existsSync(libJsPath), `lib.js exists: ${path.relative(root, libJsPath)}`);
 
 try {

@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /**
- * Build React app with base=/next/ and copy into web-ui/public/next/
- * so a single static host serves legacy `/` and React `/next/`.
- * Then rebuild dist with base=/ so local `react:preview` stays usable.
+ * @deprecated Strategy A cutover: production default is React at `/`.
+ * Prefer: `npm run react:export-cutover` (root React + `/legacy/` rollback).
+ *
+ * This script remains for temporary `/next/` preview builds only.
+ * Build React with base=/next/ → web-ui/public/next/, then restore dist base=/.
  *
  * Usage: node scripts/export-next.mjs
  */

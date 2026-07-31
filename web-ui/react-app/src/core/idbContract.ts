@@ -1,5 +1,5 @@
 /**
- * IndexedDB warehouse / history contract — shared with legacy `web-ui/public/history-db.js`.
+ * IndexedDB warehouse / history contract — shared with legacy `web-ui/public/legacy/history-db.js`.
  *
  * Dual-track rule: React shell may OPEN the existing database and READ store names,
  * but must NOT change DB_NAME, DB_VERSION, store names, keyPaths, indexes, or

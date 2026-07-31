@@ -2,28 +2,36 @@
 
 **语言 / Language：** **中文** | [English](./en/DEPLOY.md)
 
-将 `web-ui/public/` 目录中的所有文件托管到任意静态 Web 服务器即可。
+将 **`web-ui/public/`**（**React 在根路径**，旧版在 **`legacy/`**）托管到任意静态 Web 服务器即可。
 
-### 双轨 React 预览（可选 · 非默认）
+### Strategy A：React 默认 + `/legacy/` 回滚
 
-生产 **Publish directory 仍为** `health-analyzer/web-ui/public`。若需同域挂载 React 预览：
+发布前必须构建 React 到 public 根（产物 gitignore）：
 
 ```bash
 cd health-analyzer
-npm run react:export-next   # → web-ui/public/next/（gitignore，需构建机生成）
+npm run react:install
+npm run react:export-cutover   # → public/index.html + assets…；保留 public/legacy/
 ```
 
-用户访问 `/` 为 legacy；`/next/` 或顶栏「试用新版」为 React 壳。完整说明与回滚见 **[DUAL_TRACK_UI.md](./DUAL_TRACK_UI.md)**。  
-**不要**在未评审前将默认发布根改为 `react-app/dist`。
+| URL | 内容 |
+|-----|------|
+| `/` | **生产默认** React 壳 |
+| `/legacy/` | 旧版 PWA 回滚 |
+
+详见 **[DUAL_TRACK_UI.md](./DUAL_TRACK_UI.md)**。`react:export-next`（`/next/`）已废弃，勿作默认。
 
 ## 选项 1：本地 Python 快速预览
 
 适合开发测试：
 
 ```bash
-cd health-analyzer/web-ui/public
+cd health-analyzer
+npm run react:export-cutover
+cd web-ui/public
 python3 -m http.server 8000
-# 浏览器打开 http://localhost:8000
+# 浏览器打开 http://localhost:8000  （React）
+# 回滚：http://localhost:8000/legacy/
 ```
 
 ## 选项 2：本地 Node 服务器
@@ -137,5 +145,5 @@ cd lib && npm run build
 2. 在 `lib/src/parser.ts` 添加解析逻辑
 3. 在 `lib/src/stats.ts` 添加统计函数
 4. 在 `lib/src/prompts/llm-prompt.ts` 的 `formatAnalysisForLLM()` 添加对应章节
-5. 运行 `cd lib && npm run build` 更新 `web-ui/public/lib.js`
+5. 运行 `cd lib && npm run build` 更新 `web-ui/public/legacy/lib.js`
 6. 在 `app.js` 的 `renderSummary()` 添加渲染

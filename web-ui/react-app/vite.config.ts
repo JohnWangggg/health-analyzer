@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const libSrc = path.resolve(__dirname, '../../lib/src/index.ts');
 
-/** Dual-track: set VITE_BASE=/next/ when exporting under web-ui/public/next */
+/** Production default base=/ ; optional VITE_BASE=/next/ for deprecated preview export */
 const base = process.env.VITE_BASE || '/';
 
 // https://vite.dev/config/
@@ -17,14 +17,14 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      // P1: user confirms refresh — avoid mid-import SW takeover
+      // User confirms refresh — avoid mid-import SW takeover
       registerType: 'prompt',
       injectRegister: false,
       includeAssets: ['favicon.svg'],
       manifest: {
-        name: '健康分析 · React 预览',
-        short_name: '健康预览',
-        description: '本地优先健康分析 React 预览壳（非生产默认入口）',
+        name: '健康 OS',
+        short_name: '健康 OS',
+        description: '本地优先健康分析（生产默认 React 壳；/legacy/ 为回滚）',
         lang: 'zh-CN',
         start_url: base,
         scope: base,
@@ -65,7 +65,8 @@ export default defineConfig({
           '**/Image-*.js',
         ],
         navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api\//],
+        // Do not SPA-fallback the legacy rollback tree
+        navigateFallbackDenylist: [/^\/api\//, /^\/legacy(?:\/|$)/],
         runtimeCaching: [],
         cleanupOutdatedCaches: true,
         clientsClaim: false,

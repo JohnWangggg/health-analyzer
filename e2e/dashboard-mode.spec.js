@@ -21,7 +21,7 @@ async function softLog(page, msg) {
 
 test.describe('v2.1 dashboard / TV mode', () => {
   test('enter / body class / exit when button exists (soft if incomplete)', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     await page.waitForFunction(() => !!(window.I18n || window.HealthAnalyzer));
 
     const enterBtn = page.locator('#btn-dashboard-mode');
@@ -65,7 +65,7 @@ test.describe('v2.1 dashboard / TV mode', () => {
   });
 
   test('with results: dashboard keeps overview chrome; exit restores', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/legacy/');
     await page.waitForFunction(() => !!(window.HealthAnalyzer && window.I18n));
 
     const enterBtn = page.locator('#btn-dashboard-mode');
