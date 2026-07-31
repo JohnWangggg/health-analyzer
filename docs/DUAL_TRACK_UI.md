@@ -55,7 +55,7 @@ React must open the **same** database as legacy `history-db.js` without force-mi
 | `DB_VERSION` | `5` |
 | Stores | `snapshots`, `weeklyReports`, `healthEvents`, `importBatches`, `warehouseMeta`, `domainChunks` |
 
-Source of truth for schema evolution remains `web-ui/public/history-db.js`. React helper: `web-ui/react-app/src/core/idbContract.ts` (probe only; compatible empty create if DB missing).
+Source of truth for schema evolution remains `web-ui/public/history-db.js`. React helper: `web-ui/react-app/src/core/idbContract.ts` — empty-create `onupgradeneeded` must mirror legacy indexes exactly (`healthEvents`: `date`+`createdAt`; `importBatches`: `createdAt`; `domainChunks`: `domain`+`updatedAt`). Automated lock: `src/core/idbContract.test.ts` (fake-indexeddb empty create + `history-db.js` source assertions).
 
 ### Privacy model (both tracks)
 

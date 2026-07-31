@@ -85,6 +85,13 @@ export function DataPage() {
               open version={probe.version}; stores=
               {probe.storeNames.join(', ') || '(none)'}
             </p>
+            {probe.schemaMismatches?.length ? (
+              <ul className="status-err" data-testid="idb-schema-mismatches">
+                {probe.schemaMismatches.map((m) => (
+                  <li key={m}>{m}</li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         ) : null}
       </div>
