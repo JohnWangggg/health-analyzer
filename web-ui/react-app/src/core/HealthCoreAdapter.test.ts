@@ -96,4 +96,19 @@ describe('HealthCoreAdapter parity', () => {
     expect(keys).toContain('data');
     expect(keys).toContain('recoveryWeek');
   });
+
+  it('analyzeXmlAsync falls back to main thread when Worker unavailable', async () => {
+    const prev = globalThis.Worker;
+    // @ts-expect-error force fallback path
+    globalThis.Worker = undefined;
+    try {
+      const r = await healthCore.analyzeXmlAsync(xml, { locale: 'zh-CN' });
+      expect(r.via).toBe('main');
+      expect(r.summary.counts.cgm).toBeGreaterThan(0);
+      expect(r.analysis.dateRange.end).toBeTruthy();
+    } finally {
+      globalThis.Worker = prev;
+    }
+  });
 });
+

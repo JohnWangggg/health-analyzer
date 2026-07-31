@@ -14,6 +14,20 @@
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
+
+  <script>
+    /* Dual-track preference: only redirect if user chose React and /next is present */
+    (function () {
+      try {
+        if (localStorage.getItem('ha-ui-shell') !== 'react') return;
+        if (location.pathname.indexOf('/next') !== -1) return;
+        fetch('./next/index.html', { method: 'HEAD', cache: 'no-store' })
+          .then(function (r) { if (r && r.ok) location.replace('./next/'); })
+          .catch(function () {});
+      } catch (e) {}
+    })();
+  </script>
+
   <a href="#main-content" class="skip-link" data-i18n="a11y.skipMain">跳到主内容</a>
   <div class="bg-aurora" aria-hidden="true"></div>
   <div class="bg-grid" aria-hidden="true"></div>
@@ -38,6 +52,13 @@
             <option value="en">English</option>
           </select>
         </label>
+        <a
+          id="link-react-preview"
+          class="btn-ghost header-react-link"
+          href="./next/"
+          data-testid="link-react-preview"
+          title="试用 React 预览壳（需先 npm run react:export-next）"
+        >试用新版</a>
         <button type="button" id="btn-dashboard-mode" class="btn-dashboard-mode" data-i18n-aria="tv.enterAria" data-i18n-title="tv.enter" aria-label="健康大屏" title="健康大屏" aria-pressed="false">
           <span class="btn-dashboard-mode-icon" aria-hidden="true">▣</span>
           <span class="btn-dashboard-mode-label" data-i18n="tv.enter">健康大屏</span>
@@ -47,6 +68,7 @@
           <span id="theme-toggle-label" data-i18n="theme.toggle">外观</span>
         </button>
       </div>
+
     </div>
   </header>
 

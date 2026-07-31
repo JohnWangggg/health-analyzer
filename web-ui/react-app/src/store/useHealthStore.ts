@@ -11,10 +11,12 @@ type HealthState = {
   status: 'idle' | 'loading' | 'ready' | 'error';
   error: string | null;
   summary: AnalysisSummary | null;
-  /** Full analysis kept for Trends/Reports (adapter-backed, not re-stats). */
   analysis: FullAnalysis | null;
   sourceLabel: string | null;
+  /** How last analysis ran (worker vs main). */
+  analyzeVia: 'worker' | 'main' | null;
   loadXml: (xml: string, sourceLabel: string) => void;
+  loadXmlAsync: (xml: string, sourceLabel: string) => Promise<void>;
   clear: () => void;
 };
 
@@ -24,6 +26,7 @@ export const useHealthStore = create<HealthState>((set) => ({
   summary: null,
   analysis: null,
   sourceLabel: null,
+  analyzeVia: null,
   loadXml: (xml, sourceLabel) => {
     set({ status: 'loading', error: null });
     try {
@@ -33,6 +36,7 @@ export const useHealthStore = create<HealthState>((set) => ({
         summary: result.summary,
         analysis: result.analysis,
         sourceLabel,
+        analyzeVia: 'main',
         error: null,
       });
     } catch (e) {
@@ -42,6 +46,32 @@ export const useHealthStore = create<HealthState>((set) => ({
         summary: null,
         analysis: null,
         sourceLabel,
+        analyzeVia: null,
+      });
+    }
+  },
+  loadXmlAsync: async (xml, sourceLabel) => {
+    set({ status: 'loading', error: null });
+    try {
+      const result = await healthCore.analyzeXmlAsync(xml, {
+        locale: 'zh-CN',
+      });
+      set({
+        status: 'ready',
+        summary: result.summary,
+        analysis: result.analysis,
+        sourceLabel,
+        analyzeVia: result.via,
+        error: null,
+      });
+    } catch (e) {
+      set({
+        status: 'error',
+        error: e instanceof Error ? e.message : String(e),
+        summary: null,
+        analysis: null,
+        sourceLabel,
+        analyzeVia: null,
       });
     }
   },
@@ -52,5 +82,6 @@ export const useHealthStore = create<HealthState>((set) => ({
       summary: null,
       analysis: null,
       sourceLabel: null,
+      analyzeVia: null,
     }),
 }));

@@ -8,10 +8,13 @@ import { DataPage } from './pages/DataPage';
 import './styles/theme.css';
 import './styles/app.css';
 
+/** Vite base is `/` or `/next/` for dual-track export under public/next */
+const basename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || '/';
+
 export default function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={basename === '/' ? undefined : basename}>
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<OverviewPage />} />
@@ -25,3 +28,4 @@ export default function App() {
     </ThemeProvider>
   );
 }
+

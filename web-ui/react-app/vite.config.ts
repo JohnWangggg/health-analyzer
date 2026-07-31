@@ -5,12 +5,15 @@ import { VitePWA } from 'vite-plugin-pwa';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const libSrc = path.resolve(__dirname, '../../lib/src/index.ts');
 
+/** Dual-track: set VITE_BASE=/next/ when exporting under web-ui/public/next */
+const base = process.env.VITE_BASE || '/';
+
 // https://vite.dev/config/
 export default defineConfig({
+  base,
   plugins: [
     react(),
     VitePWA({
@@ -22,8 +25,8 @@ export default defineConfig({
         short_name: '健康预览',
         description: '本地优先健康分析 React 预览壳（非生产默认入口）',
         lang: 'zh-CN',
-        start_url: '/',
-        scope: '/',
+        start_url: base,
+        scope: base,
         display: 'standalone',
         background_color: '#0b1220',
         theme_color: '#0b1220',
@@ -37,9 +40,8 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Self-only precache of built assets — no runtime CDN / remote health APIs
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest,json}'],
-        navigateFallback: '/index.html',
+        navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [],
         cleanupOutdatedCaches: true,
@@ -53,9 +55,11 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      // Bundler resolves extensionless lib source (dist is ESM without .js extensions)
       '@health-analyzer/lib': libSrc,
     },
+  },
+  worker: {
+    format: 'es',
   },
   server: {
     port: 5173,

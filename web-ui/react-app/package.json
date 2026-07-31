@@ -12,8 +12,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "privacy": "node scripts/privacy-scan.mjs",
-    "parity": "vitest run src/core/HealthCoreAdapter.test.ts"
+    "parity": "vitest run src/core/HealthCoreAdapter.test.ts",
+    "export-next": "node scripts/export-next.mjs"
   },
+
   "dependencies": {
     "echarts": "^6.1.0",
     "react": "^19.2.8",

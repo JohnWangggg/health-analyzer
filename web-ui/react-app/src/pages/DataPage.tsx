@@ -4,6 +4,12 @@ import {
   probeIdbContract,
   type IdbProbeResult,
 } from '../core/idbContract';
+import {
+  listSnapshotSummaries,
+  readWarehouseMetaView,
+  type SnapshotListItem,
+  type WarehouseMetaView,
+} from '../core/legacyHistoryRead';
 import { useHealthStore } from '../store/useHealthStore';
 import { Button } from '../components/ui/Button';
 import { Card, CardDesc, CardTitle } from '../components/ui/Card';
@@ -22,17 +28,27 @@ export function DataPage() {
   const analysis = useHealthStore((s) => s.analysis);
   const sourceLabel = useHealthStore((s) => s.sourceLabel);
   const [probe, setProbe] = useState<IdbProbeResult | null>(null);
+  const [snapshots, setSnapshots] = useState<SnapshotListItem[] | null>(null);
+  const [whMeta, setWhMeta] = useState<WarehouseMetaView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const runProbe = useCallback(async () => {
+  const refreshLegacy = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
-      const result = await probeIdbContract();
-      setProbe(result);
+      const [p, snaps, meta] = await Promise.all([
+        probeIdbContract(),
+        listSnapshotSummaries(12),
+        readWarehouseMetaView(),
+      ]);
+      setProbe(p);
+      setSnapshots(snaps);
+      setWhMeta(meta);
     } catch (e) {
       setProbe(null);
+      setSnapshots(null);
+      setWhMeta(null);
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
@@ -46,25 +62,24 @@ export function DataPage() {
       <div>
         <h1 className="page-title">数据仓</h1>
         <p className="page-lead">
-          本地来源、跨度与仓库契约。Schema 与{' '}
-          <code>history-db.js</code> 对齐（
+          本地来源、跨度与 legacy IndexedDB 只读视图（
           <code>
             {IDB_CONTRACT.name}@v{IDB_CONTRACT.version}
           </code>
-          ），React 不强制迁移分片格式。
+          ）。不写入分片、不强制迁移。
         </p>
       </div>
 
       <div className="card-grid">
         <Card data-testid="data-source-card">
-          <CardTitle>数据来源</CardTitle>
+          <CardTitle>会话来源</CardTitle>
           <p className="kpi" style={{ fontSize: '1rem' }} data-testid="data-source">
             {sourceLabel || '尚未加载会话数据'}
           </p>
-          <CardDesc>当前会话经适配器解析；未改动 IndexedDB 写入路径。</CardDesc>
+          <CardDesc>当前 React 会话经适配器解析的 XML/夹具。</CardDesc>
         </Card>
         <Card data-testid="data-span-card">
-          <CardTitle>数据跨度</CardTitle>
+          <CardTitle>会话跨度</CardTitle>
           <p className="kpi" style={{ fontSize: '1rem' }} data-testid="data-span">
             {summary
               ? `${summary.dateRange.start || '—'} → ${summary.dateRange.end || '—'}`
@@ -73,7 +88,7 @@ export function DataPage() {
           <CardDesc>
             {summary
               ? `CGM ${summary.counts.cgm} · 体重 ${summary.counts.weight} · 步数日 ${summary.counts.stepsDays}`
-              : '加载夹具后显示'}
+              : '加载数据后显示'}
           </CardDesc>
         </Card>
         <Card data-testid="data-storage-card">
@@ -81,52 +96,29 @@ export function DataPage() {
           <p className="kpi" style={{ fontSize: '1rem' }} data-testid="data-bytes">
             {memoryBytes ? `${(memoryBytes / 1024).toFixed(1)} KB` : '—'}
           </p>
-          <CardDesc>内存中 FullAnalysis JSON 近似；非磁盘配额。</CardDesc>
+          <CardDesc>内存 FullAnalysis 近似。</CardDesc>
         </Card>
         <Card>
-          <CardTitle>备份策略</CardTitle>
+          <CardTitle>备份</CardTitle>
           <CardDesc>
-            备份/恢复仍由 legacy history-db 负责。本壳只读探测 store/index，避免分叉
-            schema。
+            加密备份/恢复仍由 legacy history-db 完整实现。本壳只读探测。
           </CardDesc>
           <div style={{ marginTop: '0.5rem' }}>
-            <Badge tone="watch">备份 UI → legacy 完整实现</Badge>
+            <Badge tone="watch">完整备份 → legacy</Badge>
           </div>
         </Card>
       </div>
 
       <Card>
-        <CardTitle>IDB 契约</CardTitle>
-        <table className="table">
-          <tbody>
-            <tr>
-              <th>DB_NAME</th>
-              <td>
-                <code>{IDB_CONTRACT.name}</code>
-              </td>
-            </tr>
-            <tr>
-              <th>DB_VERSION</th>
-              <td>
-                <code>{IDB_CONTRACT.version}</code>
-              </td>
-            </tr>
-            <tr>
-              <th>Stores</th>
-              <td>
-                <code>{IDB_CONTRACT.stores.join(', ')}</code>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div className="row" style={{ marginTop: '1rem' }}>
+        <CardTitle>Legacy 仓库（只读）</CardTitle>
+        <div className="row" style={{ marginBottom: '0.75rem' }}>
           <Button
             variant="primary"
-            onClick={runProbe}
+            onClick={() => void refreshLegacy()}
             disabled={busy}
             data-testid="probe-idb"
           >
-            {busy ? '探测中…' : '探测本地仓库'}
+            {busy ? '读取中…' : '读取本地仓库'}
           </Button>
         </div>
         {error ? (
@@ -134,22 +126,89 @@ export function DataPage() {
             {error}
           </p>
         ) : null}
+
         {probe ? (
-          <div style={{ marginTop: '1rem' }} data-testid="idb-probe-result">
+          <div data-testid="idb-probe-result">
             <p className={probe.ok ? 'status-ok' : 'status-err'}>
               {probe.ok ? '契约匹配' : '契约不完整'} — {probe.note}
             </p>
             <p className="muted">
-              open version={probe.version}; stores=
-              {probe.storeNames.join(', ') || '(none)'}
+              version={probe.version}; stores={probe.storeNames.join(', ')}
             </p>
-            {probe.schemaMismatches?.length ? (
-              <ul className="status-err" data-testid="idb-schema-mismatches">
-                {probe.schemaMismatches.map((m) => (
-                  <li key={m}>{m}</li>
-                ))}
-              </ul>
-            ) : null}
+          </div>
+        ) : null}
+
+        {whMeta ? (
+          <div style={{ marginTop: '1rem' }} data-testid="warehouse-meta-view">
+            <h3 className="ui-card-title">warehouseMeta</h3>
+            <table className="table">
+              <tbody>
+                <tr>
+                  <th>consent</th>
+                  <td data-testid="wh-consent">
+                    {whMeta.consentGranted ? '已授权' : '未授权'}
+                  </td>
+                </tr>
+                <tr>
+                  <th>跨度</th>
+                  <td>
+                    {whMeta.dateRange
+                      ? `${whMeta.dateRange.start || '—'} → ${whMeta.dateRange.end || '—'}`
+                      : '—'}
+                  </td>
+                </tr>
+                <tr>
+                  <th>约占用</th>
+                  <td>
+                    {whMeta.totalApproxBytes != null
+                      ? `${(whMeta.totalApproxBytes / (1024 * 1024)).toFixed(2)} MB`
+                      : '—'}
+                  </td>
+                </tr>
+                <tr>
+                  <th>记录数</th>
+                  <td>{whMeta.totalRecordCount ?? '—'}</td>
+                </tr>
+                <tr>
+                  <th>最近写入</th>
+                  <td>{whMeta.lastWrittenAt || '—'}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
+        {snapshots ? (
+          <div style={{ marginTop: '1rem' }} data-testid="snapshot-list">
+            <h3 className="ui-card-title">
+              摘要快照（{snapshots.length}）
+            </h3>
+            {snapshots.length === 0 ? (
+              <p className="muted">尚无快照（可在 legacy 分析后保存）。</p>
+            ) : (
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>标签</th>
+                    <th>savedAt</th>
+                    <th>区间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {snapshots.map((s) => (
+                    <tr key={s.id}>
+                      <td>{s.label}</td>
+                      <td className="muted">{s.savedAt || '—'}</td>
+                      <td className="muted">
+                        {s.dateRange
+                          ? `${s.dateRange.start || '—'} → ${s.dateRange.end || '—'}`
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         ) : null}
       </Card>

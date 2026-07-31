@@ -28,8 +28,10 @@
     "react:preview": "npm --prefix web-ui/react-app run preview",
     "react:privacy": "npm --prefix web-ui/react-app run privacy",
     "react:parity": "npm --prefix web-ui/react-app run parity",
-    "react:test": "npm --prefix web-ui/react-app run test"
+    "react:test": "npm --prefix web-ui/react-app run test",
+    "react:export-next": "node web-ui/react-app/scripts/export-next.mjs"
   },
+
 
   "devDependencies": {
     "@playwright/test": "^1.51.0"

@@ -124,7 +124,44 @@ export function AppShell() {
         <p className="muted" style={{ marginTop: '0.75rem' }}>
           切换生产入口见 docs/DUAL_TRACK_UI.md；legacy 始终可回退。
         </p>
+        <p className="muted" style={{ marginTop: '0.75rem' }}>
+          <a href="../" data-testid="link-legacy-home">
+            返回 legacy 稳定版
+          </a>
+          （同域部署在 <code>/next/</code> 时生效）
+        </p>
+        <div className="row" style={{ marginTop: '0.75rem' }}>
+          <Button
+            size="sm"
+            variant="secondary"
+            data-testid="prefer-react-shell"
+            onClick={() => {
+              try {
+                localStorage.setItem('ha-ui-shell', 'react');
+              } catch {
+                /* ignore */
+              }
+            }}
+          >
+            记住偏好：React
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            data-testid="prefer-legacy-shell"
+            onClick={() => {
+              try {
+                localStorage.setItem('ha-ui-shell', 'legacy');
+              } catch {
+                /* ignore */
+              }
+            }}
+          >
+            记住偏好：legacy
+          </Button>
+        </div>
       </Sheet>
+
     </div>
   );
 }

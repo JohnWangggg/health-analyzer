@@ -256,9 +256,35 @@ export function analyzeHealthXmlViaLibDirect(
   };
 }
 
+export type AsyncAnalyzeResult = ParseAnalyzeResult & {
+  via: 'worker' | 'main';
+};
+
 export class HealthCoreAdapter {
   analyzeXml(xml: string, options?: AnalyzeOptions): ParseAnalyzeResult {
     return analyzeHealthXml(xml, options);
+  }
+
+  /**
+   * Prefer module Worker for parse+analyze; fall back to main thread.
+   * UI should call this for user file imports.
+   */
+  async analyzeXmlAsync(
+    xml: string,
+    options?: AnalyzeOptions,
+  ): Promise<AsyncAnalyzeResult> {
+    const { analyzeXmlOffMainThread } = await import('./parseWorkerClient');
+    const locale = options?.locale ?? null;
+    const { analysis, via } = await analyzeXmlOffMainThread(xml, locale, () => {
+      const r = analyzeHealthXml(xml, options);
+      return { analysis: r.analysis };
+    });
+    return {
+      data: analysis.data,
+      analysis,
+      summary: summarizeAnalysis(analysis),
+      via,
+    };
   }
 
   trendSeries(analysis: FullAnalysis, domain: TrendDomain) {
@@ -275,3 +301,4 @@ export class HealthCoreAdapter {
 }
 
 export const healthCore = new HealthCoreAdapter();
+

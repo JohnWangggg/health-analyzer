@@ -6,6 +6,14 @@ declare module '*?raw' {
   export default content;
 }
 
+declare module '*?worker' {
+  const workerConstructor: {
+    new (): Worker;
+  };
+  export default workerConstructor;
+}
+
+
 /**
  * Typed surface for the adapter. Vite resolves `@health-analyzer/lib` to
  * `lib/src/index.ts` at bundle time; ambient types avoid pulling lib into tsc.

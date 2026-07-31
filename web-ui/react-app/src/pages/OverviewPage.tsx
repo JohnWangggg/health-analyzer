@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHealthStore } from '../store/useHealthStore';
 import { Button } from '../components/ui/Button';
@@ -18,7 +18,8 @@ function freshnessLabel(days: number | null): {
   tone: 'ok' | 'watch' | 'alert' | 'neutral';
 } {
   if (days == null) return { text: '未知', tone: 'neutral' };
-  if (days <= 1) return { text: `截至 ${days === 0 ? '今天' : '昨天'}`, tone: 'ok' };
+  if (days <= 1)
+    return { text: `截至 ${days === 0 ? '今天' : '昨天'}`, tone: 'ok' };
   if (days <= 7) return { text: `${days} 天前`, tone: 'watch' };
   return { text: `${days} 天前（偏旧）`, tone: 'alert' };
 }
@@ -67,15 +68,45 @@ function priorityFromSummary(summary: NonNullable<
 
 export function OverviewPage() {
   const navigate = useNavigate();
-  const { status, error, summary, sourceLabel, loadXml, clear } =
-    useHealthStore();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const {
+    status,
+    error,
+    summary,
+    sourceLabel,
+    analyzeVia,
+    loadXml,
+    loadXmlAsync,
+    clear,
+  } = useHealthStore();
 
   const loadFixture = useCallback(() => {
     loadXml(fixtureXml, 'e2e/fixtures/minimal-export.xml');
   }, [loadXml]);
 
+  const onPickFile = useCallback(
+    async (file: File | null) => {
+      if (!file) return;
+      const name = file.name || 'export.xml';
+      if (!/\.xml$/i.test(name) && file.type && !file.type.includes('xml')) {
+        useHealthStore.setState({
+          status: 'error',
+          error: '请选择 Apple Health 导出的 .xml（ZIP 导入仍走 legacy 完整链路）',
+          summary: null,
+          analysis: null,
+          sourceLabel: name,
+          analyzeVia: null,
+        });
+        return;
+      }
+      const text = await file.text();
+      await loadXmlAsync(text, name);
+    },
+    [loadXmlAsync],
+  );
+
   if (status === 'loading') {
-    return <LoadingState label="正在通过 HealthCoreAdapter 分析…" />;
+    return <LoadingState label="正在通过 HealthCoreAdapter 分析（优先 Worker）…" />;
   }
 
   return (
@@ -83,8 +114,8 @@ export function OverviewPage() {
       <div>
         <h1 className="page-title">总览</h1>
         <p className="page-lead">
-          数据新鲜度 → 优先事项 → 核心指标。分析由适配器调用 lib，不在 React
-          内重算统计。
+          数据新鲜度 → 优先事项 → 核心指标。解析/统计经适配器调用 lib；用户文件优先
+          Web Worker，失败回退主线程。
         </p>
       </div>
 
@@ -96,12 +127,39 @@ export function OverviewPage() {
         >
           加载演示夹具
         </Button>
+        <Button
+          variant="secondary"
+          onClick={() => fileRef.current?.click()}
+          data-testid="import-xml-btn"
+        >
+          导入 XML
+        </Button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".xml,text/xml,application/xml"
+          className="sr-only"
+          data-testid="import-xml-input"
+          onChange={(e) => {
+            const f = e.target.files?.[0] ?? null;
+            void onPickFile(f);
+            e.target.value = '';
+          }}
+        />
         <Button variant="secondary" onClick={clear} disabled={status === 'idle'}>
           清除
         </Button>
         {sourceLabel ? (
           <Badge tone="neutral" data-testid="source-label">
             来源 {sourceLabel}
+          </Badge>
+        ) : null}
+        {analyzeVia ? (
+          <Badge
+            tone={analyzeVia === 'worker' ? 'ok' : 'watch'}
+            data-testid="analyze-via"
+          >
+            {analyzeVia === 'worker' ? 'Worker 分析' : '主线程分析'}
           </Badge>
         ) : null}
       </div>
@@ -112,7 +170,7 @@ export function OverviewPage() {
         <EmptyState
           testId="overview-empty"
           title="尚未加载数据"
-          description="加载 e2e/fixtures/minimal-export.xml，将通过 parseHealthXml + analyzeAll 生成摘要。"
+          description="可加载演示夹具，或导入本机 export.xml。ZIP/HAE 完整链路仍使用 legacy PWA。"
           actionLabel="加载演示夹具"
           onAction={loadFixture}
         />
@@ -133,7 +191,9 @@ export function OverviewPage() {
                       {summary.dateRange.end || '—'}
                     </CardDesc>
                     <div style={{ marginTop: '0.5rem' }}>
-                      <Badge tone={f.tone}>{f.tone === 'ok' ? '较新' : '需关注'}</Badge>
+                      <Badge tone={f.tone}>
+                        {f.tone === 'ok' ? '较新' : '需关注'}
+                      </Badge>
                     </div>
                   </>
                 );
@@ -145,7 +205,11 @@ export function OverviewPage() {
               return (
                 <Card className="priority-card" data-testid="priority-card">
                   <CardTitle>优先事项</CardTitle>
-                  <p className="kpi" style={{ fontSize: '1.1rem' }} data-testid="priority-title">
+                  <p
+                    className="kpi"
+                    style={{ fontSize: '1.1rem' }}
+                    data-testid="priority-title"
+                  >
                     {p.title}
                   </p>
                   <CardDesc>{p.detail}</CardDesc>
