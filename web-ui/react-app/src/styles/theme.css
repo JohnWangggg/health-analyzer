@@ -1,0 +1,107 @@
+/* Local theme tokens only — no external fonts/CDN */
+
+:root {
+  color-scheme: light dark;
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --radius: 12px;
+  --nav-height: 56px;
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --max-width: 72rem;
+}
+
+/* Light */
+:root,
+[data-theme='light'] {
+  --bg: #f4f6fa;
+  --bg-elevated: #ffffff;
+  --bg-muted: #e8edf5;
+  --border: #d0d7e2;
+  --text: #0f172a;
+  --text-muted: #5b6577;
+  --accent: #0d6e6e;
+  --accent-contrast: #ffffff;
+  --focus: #2563eb;
+  --danger: #b42318;
+  --ok: #067647;
+  --shadow: 0 1px 2px rgb(15 23 42 / 6%), 0 8px 24px rgb(15 23 42 / 6%);
+}
+
+/* Dark */
+[data-theme='dark'] {
+  --bg: #0b1220;
+  --bg-elevated: #121a2b;
+  --bg-muted: #1a2438;
+  --border: #2a364d;
+  --text: #e8eef9;
+  --text-muted: #9aa8c0;
+  --accent: #2dd4bf;
+  --accent-contrast: #042f2e;
+  --focus: #60a5fa;
+  --danger: #f97066;
+  --ok: #32d583;
+  --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 35%);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']):not([data-theme='dark']) {
+    --bg: #0b1220;
+    --bg-elevated: #121a2b;
+    --bg-muted: #1a2438;
+    --border: #2a364d;
+    --text: #e8eef9;
+    --text-muted: #9aa8c0;
+    --accent: #2dd4bf;
+    --accent-contrast: #042f2e;
+    --focus: #60a5fa;
+    --danger: #f97066;
+    --ok: #32d583;
+    --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 35%);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}

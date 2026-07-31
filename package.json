@@ -21,8 +21,16 @@
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium",
     "test:all": "npm run test:lib && npm run build:lib && npm run smoke && npm run test:fhir && npm run test:e2e",
-    "test:release": "npm run test:lib && npm run build:lib && npm run smoke && npm run test:fhir:ci && npm run test:e2e"
+    "test:release": "npm run test:lib && npm run build:lib && npm run smoke && npm run test:fhir:ci && npm run test:e2e",
+    "react:install": "npm --prefix web-ui/react-app install",
+    "react:dev": "npm --prefix web-ui/react-app run dev",
+    "react:build": "npm --prefix web-ui/react-app run build",
+    "react:preview": "npm --prefix web-ui/react-app run preview",
+    "react:privacy": "npm --prefix web-ui/react-app run privacy",
+    "react:parity": "npm --prefix web-ui/react-app run parity",
+    "react:test": "npm --prefix web-ui/react-app run test"
   },
+
   "devDependencies": {
     "@playwright/test": "^1.51.0"
   }
