@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Dual-track React preview shell — not the production default entry",
+  "description": "Production-default React shell (Strategy A: site root /; legacy rollback at /legacy/)",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

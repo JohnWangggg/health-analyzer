@@ -39,15 +39,16 @@
 - ✅ **界面与文档 i18n**：中英双语文档（`docs/` / `docs/en/`）；UI 语言资源目录 `web-ui/public/i18n/`
 - ✅ **Health Auto Export 增量导入**：JSON/CSV 多文件或文件夹本机合并、去重统计、未知指标清单（完整 ZIP 仍可用）
 
-## 双轨 UI（React 预览 · 非默认生产入口）
+## 入口：React 默认 + `/legacy/` 回滚（Strategy A）
 
-| 轨 | 路径 | 说明 |
-|----|------|------|
-| 生产默认 | `web-ui/public/` | 现有 PWA，部署与 e2e 主门禁 |
-| 预览 | `web-ui/react-app/` | Vite+React+TS；脚本 `npm run react:*` |
-| 同域可选 | `web-ui/public/next/` | `npm run react:export-next`（gitignore） |
+| 路径 | 说明 |
+|------|------|
+| **生产默认 `/`** | React 壳 → `npm run react:export-cutover` 写入 `web-ui/public/` 根 |
+| **回滚 `/legacy/`** | 旧版 PWA 源码在 `web-ui/public/legacy/` |
+| **源码** | `web-ui/react-app/`（Vite+React+TS；`npm run react:*`） |
+| **废弃** | `/next/`（`react:export-next` 仅兼容，非产品路径） |
 
-完整说明：**[DUAL_TRACK_UI.md](./DUAL_TRACK_UI.md)**。手测见 [MANUAL_QA.md](./MANUAL_QA.md)「双轨 React」节。
+完整说明：**[DUAL_TRACK_UI.md](./DUAL_TRACK_UI.md)** · 部署 **[DEPLOY.md](./DEPLOY.md)** · 手测 [MANUAL_QA.md](./MANUAL_QA.md)「React 默认入口」节。
 
 ## 目录结构
 
@@ -64,20 +65,21 @@ health-analyzer/
 │   ├── package.json
 │   └── tsconfig.json
 ├── web-ui/
-│   ├── public/                   # ★ 生产默认 PWA（legacy）
-│   │   ├── index.html            # 「试用新版」→ ./next/
-│   │   ├── styles.css / app.js / history-db.js / workers …
-│   │   ├── lib.js                # 由 lib/src 构建，勿手改
-│   │   └── next/                 # 可选 React 同域导出（gitignore）
-│   └── react-app/                # ★ 双轨 React 预览（见 DUAL_TRACK_UI.md）
+│   ├── public/                   # ★ 部署根：React 默认（export-cutover 产物）
+│   │   ├── index.html · assets/ · sw…   # React（gitignore 构建产物）
+│   │   └── legacy/               # ★ 旧版 PWA 回滚（/legacy/）
+│   │       ├── index.html · app.js · history-db.js · lib.js …
+│   │       └── lib.js            # 由 lib/src 构建，勿手改
+│   └── react-app/                # ★ React 生产壳源码（见 DUAL_TRACK_UI.md）
 │       ├── src/core|pages|…
-│       └── scripts/privacy-scan.mjs · export-next.mjs
-├── e2e/                          # legacy Playwright
-├── e2e-react/                    # React Playwright（:4174）
+│       └── scripts/export-cutover.mjs · privacy-scan.mjs
+├── e2e/                          # 旧版 /legacy/ Playwright
+├── e2e-react/                    # 默认根 React Playwright
+├── e2e-dual/                     # / ↔ /legacy/ 仓互通
 └── docs/
     ├── README.md                 # 本文档（中文）
-    ├── DUAL_TRACK_UI.md          # 双轨架构与脚本
-    ├── MANUAL_QA.md              # 真机手测（含双轨节）
+    ├── DUAL_TRACK_UI.md          # cutover 架构与脚本
+    ├── MANUAL_QA.md              # 真机手测（含 React 默认入口）
     ├── DEPLOY.md · PROMPT_DESIGN.md · DATA_CENTER_*.md
     └── en/                       # English docs
 ```
@@ -202,7 +204,7 @@ Service Worker 缓存所有静态资源，断网也能用。安装后像原生 A
 - **ZIP 解压**：本地 `fflate.min.js`（无 CDN）
 - **PWA**：Service Worker（network-first + 离线回退）+ manifest + SVG 图标
 - **UI**：原生 CSS（响应式自适应 + 深色模式）；结果概览 / 吸底 CTA
-- **i18n**：`docs/en/*` 英文文档；`web-ui/public/i18n/` UI 语言资源
+- **i18n**：`docs/en/*` 英文文档；旧版 UI 语言资源 `web-ui/public/legacy/i18n.js`（React 壳自带 zh/en messages）
 - **存储**：完整明细默认仅内存；可选 localStorage（背景）/ IndexedDB（摘要历史、周报）
 
 ## 开发构建
@@ -317,7 +319,8 @@ npm run build     # tsc + 生成 web-ui/public/legacy/lib.js
 - v1.91：**客户端分片过滤**（`#warehouse-shard-filter`，年/月列表 DOM 过滤，不改 IDB）+ **来源时间线合成**（`#warehouse-provenance-timeline`，`listImportBatches` + `lastImportBatchId`，meta only）；E2E soft/hard（UI 缺失则 soft log）；仓设计见 `docs/DATA_CENTER_v1.68.md`，手测见 `docs/MANUAL_QA.md`。
 - v2.0：Health OS 深海蓝绿视觉与桌面 12 栏驾驶舱 / 手机任务流；数据新鲜度与工作区快捷入口；SVG 导航图标；图表键盘可达；仓分组默认折叠；吸底复制条仅报告区。
 - v2.1：**健康大屏 / TV 模式**（`#btn-dashboard-mode` → `body.health-dashboard-mode`）：隐藏上传/仓批量/吸底复制/FHIR 等，保留 KPI·优先关注·信号·图表与数据新鲜度；大时钟 + 数据截止；约 12s 焦点轮播（`prefers-reduced-motion` 关闭）；Esc /「退出大屏」；`sessionStorage` 可选记忆；E2E soft/hard 见 `e2e/dashboard-mode.spec.js`。非诊断文案；无新网络请求。
-- v2.2-dual：**双轨 React 预览**（`web-ui/react-app`，**生产默认仍为** `web-ui/public`）：HealthCoreAdapter、桌面侧栏/手机底栏、ECharts 懒加载、XML Worker / ZIP(fflate) / HAE、仓 core\|full 读写、摘要快照、privacy-scan、`react:export-next`→`/next/`、`npm run test:e2e:react`。见 `docs/DUAL_TRACK_UI.md`、手测 `docs/MANUAL_QA.md`。
+- v2.2-dual：**双轨 React 预览轨**（`web-ui/react-app` 壳 + adapter + 四工作区 + 仓 sharded-v1）；历史曾以 `/next/` 可选挂载。
+- **v2.3-cutover（Strategy A）**：**生产默认入口为 React `/`**（`npm run react:export-cutover`）；旧版仅 **`/legacy/`** 回滚；主门禁含 `test:e2e:react` + cutover 布局检查；`export-next` 废弃。见 `docs/DUAL_TRACK_UI.md`、`docs/DEPLOY.md`、手测 `docs/MANUAL_QA.md`。
 - v1.92：**今日仓状态 chip**（`#warehouse-today-chip`，hydrate 后今日工作区 meta 提示）+ **趋势仓提示**（`#warehouse-trends-hint`）；E2E soft/hard（grant→persist→reload hydrate 硬路径，UI 缺失 soft log）；真机大 ZIP / 本机性能基线见 `docs/REAL_DEVICE_ZIP.md`；手测见 `docs/MANUAL_QA.md`，仓设计见 `docs/DATA_CENTER_v1.68.md`。
 
 ## 许可

@@ -215,10 +215,10 @@
 
 ---
 
-## 5b. 双轨 React 预览（v2.2-dual · 非生产默认）
+## 5b. React 默认入口 + `/legacy/` 回滚（Strategy A cutover）
 
-**文档：** `docs/DUAL_TRACK_UI.md` · **自动化：** `npm run test:e2e:react`（端口 4174）  
-**入口：** 默认 `npm run react:export-cutover` 后打开 `/`；开发可用 `npm run react:dev`；回滚 `/legacy/`
+**文档：** `docs/DUAL_TRACK_UI.md` · **自动化：** `npm run test:e2e:react`（生产静态根 :4174）  
+**入口：** **`/` = 生产默认 React**（`npm run react:export-cutover`）；开发可用 `npm run react:dev`；**回滚 `/legacy/`**
 
 ### P0（约 10 分钟）
 
@@ -236,7 +236,7 @@
 ### P1
 
 - [ ] `npm run react:export-cutover` 后 `/` 为 React、`/legacy/` 可打开旧版回滚
-- [ ] 断网后 React preview 壳层仍可打开（self-only SW）
+- [ ] 断网后 React 默认壳（cutover 根或 `react:dev`）仍可打开（self-only SW）
 - [ ] 与 legacy 共用同一浏览器时，快照/仓 meta 可读（不强制写分片）
 
 **注意：** React 仓写入 **不是** 全量 year/month 分片 keep-N；大规模仓仍用 legacy「更多 → 数据管理」。
@@ -280,5 +280,5 @@ P0 结果：通过 / 失败
 | React 单元（adapter/IDB/ZIP/HAE/仓） | `npm run react:test` |
 | React dist 隐私扫描 | `npm run react:privacy` |
 
-本地：`npm run test:e2e` · 双轨：`npm run test:e2e:react`  
-手测本清单后，再发版更稳妥。生产发版以 **legacy** `web-ui/public` 为主门禁。
+本地：`npm run test:e2e:react`（**主门禁 · 根 React**）· `npm run test:cutover-layout` · `npm run test:e2e`（`/legacy/` 回滚）· `npm run test:e2e:dual`（仓互通）  
+手测本清单后，再发版更稳妥。生产发版以 **`react:export-cutover` 后的根 React** 为主门禁；`/legacy/` 为回滚回归，不是默认产品入口。
