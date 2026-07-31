@@ -33,6 +33,15 @@ test.describe('React dual-track shell', () => {
     await expect(page.getByTestId('report-preview')).toBeVisible();
     const md = await page.getByTestId('report-preview').innerText();
     expect(md.length).toBeGreaterThan(40);
+    await page.getByTestId('report-copy').click();
+    await expect(page.getByTestId('report-action-status')).toContainText('复制', {
+      timeout: 5_000,
+    });
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('report-download').click(),
+    ]);
+    expect(download.suggestedFilename()).toMatch(/\.md$/);
   });
 
   test('XML and ZIP import via adapter', async ({ page }) => {

@@ -1,82 +1,220 @@
-# Dual-track UI: legacy PWA + React Health OS preview
+# Dual-track UI：legacy PWA + React Health OS 预览
 
-**Baseline tip (migration start):** `cb1685d` (v2.1 legacy)  
-**React track status:** phases **0–6** + follow-on (XML import/Worker, IDB read, `/next` export).  
-**Production default entry:** still **`web-ui/public`** (legacy).
+本地优先、无 CDN、无埋点。分析内核仍是 `@health-analyzer/lib` / Workers / IndexedDB；React 只负责壳与交互。
 
-## Default production path (unchanged)
+| 项 | 值 |
+|----|-----|
+| **迁移 baseline tip** | `cb1685d`（v2.1 legacy） |
+| **生产默认入口** | `web-ui/public/`（legacy PWA） |
+| **React 预览包** | `web-ui/react-app/` |
+| **同域可选挂载** | `web-ui/public/next/`（`npm run react:export-next`，**gitignore**） |
+| **文档版本** | 覆盖至 `dd55e05` 及本轮文档固化 |
 
-| Path | Role |
-|------|------|
-| `web-ui/public/` | **Default shippable PWA** |
-| Root scripts | `npm run smoke`, `npm run test:e2e`, `npm run test:lib`, `npm run test:fhir*` |
+---
 
-## React preview track
+## 1. 双轨一览
 
-| Path | Role |
-|------|------|
-| `web-ui/react-app/` | Vite + React + TypeScript source |
-| `web-ui/react-app/dist/` | Standalone preview build (`base=/`) |
-| `web-ui/public/next/` | **Optional** same-host export (`base=/next/`, gitignored) |
-
-### Scripts (repo root)
-
-```bash
-npm run react:install
-npm run react:dev
-npm run react:build
-npm run react:preview
-npm run react:privacy
-npm run react:parity
-npm run react:test
-npm run react:export-next   # build base=/next/ → web-ui/public/next/
-npm run test:e2e:react      # Playwright React shell smoke (port 4174)
+```text
+health-analyzer/
+├─ lib/                      # 解析 / 统计 / 报告 / FHIR 内核（勿在 React 重写）
+├─ web-ui/
+│  ├─ public/                # ★ 生产默认：legacy PWA
+│  │  ├─ index.html          # 「试用新版」→ ./next/
+│  │  ├─ history-db.js       # IDB schema 权威
+│  │  ├─ parse-worker.js …
+│  │  └─ next/               # 可选：React 同域导出（构建产物，不入库）
+│  └─ react-app/             # ★ React + Vite + TS 预览轨
+│     ├─ src/core/           # Adapter / Worker / ZIP / HAE / IDB
+│     ├─ src/pages/          # Overview · Trends · Reports · Data
+│     └─ scripts/            # privacy-scan · export-next
+├─ e2e/                      # legacy Playwright
+└─ e2e-react/                # React Playwright（端口 4174）
 ```
 
+| 路径 | 角色 |
+|------|------|
+| `web-ui/public/` | **默认部署目录**；smoke / e2e 门禁 |
+| `web-ui/react-app/` | 现代壳源码；`npm run react:*` |
+| `web-ui/react-app/dist/` | 独立 preview（`base=/`） |
+| `web-ui/public/next/` | 同域 `/next/`（`base=/next/`，导出后可删） |
 
-### Same-host dual-track (`/next/`)
+---
+
+## 2. 脚本（仓库根 `health-analyzer/`）
+
+```bash
+# Legacy 门禁（生产轨）
+npm run smoke
+npm run test:e2e
+npm run test:lib
+npm run test:fhir          # 按需
+
+# React 轨
+npm run react:install      # web-ui/react-app 依赖
+npm run react:dev          # Vite 开发服
+npm run react:build        # → web-ui/react-app/dist
+npm run react:preview      # 默认 127.0.0.1:4173
+npm run react:test         # Vitest（adapter / IDB / ZIP / HAE / 仓…）
+npm run react:parity       # 夹具 parity 子集
+npm run react:privacy      # dist 隐私扫描（禁 CDN/分析域）
+npm run react:export-next  # base=/next/ → public/next/，并恢复 dist 为 base=/
+npm run test:e2e:react     # Playwright React 壳（build + preview :4174）
+```
+
+包内亦可：`cd web-ui/react-app && npm run dev|build|test|privacy|export-next`。
+
+---
+
+## 3. 同域双轨（`/next/`）
 
 1. `npm run react:export-next`
-2. Serve `web-ui/public` as today.
-3. Open **legacy** `/` or click header **「试用新版」** → `/next/`.
-4. React shell → 关于 → **返回 legacy**（`../`）或设置 `localStorage ha-ui-shell`.
+2. 静态服务 **`web-ui/public`**（与线上一致）
+3. 打开 `/`（legacy）或点顶栏 **「试用新版」** → `/next/`
+4. React「关于」→ **返回 legacy**（`../`）
 
-**Preference key:** `localStorage['ha-ui-shell'] = 'react' | 'legacy'`  
-- React 关于面板可写入偏好。  
-- Legacy `index.html` 仅在偏好为 `react` **且** `./next/index.html` 可访问时跳转（e2e 默认不设置，不误跳）。
+### 偏好键
 
-**Rollback:** delete `web-ui/public/next/` or clear preference; production root stays `public/`.
+`localStorage['ha-ui-shell'] = 'react' | 'legacy'`
 
-### Feature surface (shipped)
+- React 关于面板可写入。
+- Legacy `index.html`：**仅当** 偏好为 `react` **且** `HEAD ./next/index.html` 成功时跳转（e2e 不设偏好，不误跳）。
 
-| Area | Behavior |
-|------|----------|
-| Shell | Desktop sidebar + mobile bottom nav (`workspaceStore`), Sheet, theme |
-| Overview | Fixture + **XML/ZIP** + **HAE JSON/CSV** (lib `mergeHaeIntoData`) + Worker XML |
-| Overview | **Load / persist warehouse** (simplified `core|full` write; full sharding stays legacy) + **save snapshot** |
-| Trends | Lazy local ECharts + table fallback |
-| Reports | visit / weekly / clinical via lib |
-| Data | IDB contract probe + snapshots / warehouseMeta (read-only list) |
-| Privacy | Self-only PWA; privacy-scan; no CDN |
-| Tests | `npm run react:test` · `npm run test:e2e:react` (Playwright on preview :4174) |
+### 回滚
 
+删除 `web-ui/public/next/` 或清除偏好；生产根目录始终可只部署 `public/` 本体。
 
-### Architecture boundary
+---
 
-- `HealthCoreAdapter` → lib parse/analyze/report/series  
-- Module Worker `analyze.worker.ts` (fallback main thread)  
-- IDB empty-create + indexes locked to `history-db.js`  
-- No force schema migration; no stats reimplementation in React  
+## 4. 已交付功能面
 
-### Privacy
+### 4.1 应用壳（阶段 3）
 
-Health data stays in browser / Worker / IndexedDB only.
+| 能力 | 实现 |
+|------|------|
+| 桌面侧栏 + 手机底栏 | `workspaceStore` 同源 `active` |
+| 主题 light / dark / system | `ThemeProvider` + CSS 变量 |
+| UI primitives | Button · Card · Badge · Sheet · Empty/Loading/Error |
+| 无 CDN 字体 | 系统字体栈 |
 
-## Out of scope (still deferred)
+### 4.2 四工作区（阶段 4）
 
-Full multi-domain year/month **shard trim & quota eviction** (legacy history-db), HAE unknown-metric write-through, CommandPalette, Tailwind/shadcn full suite, production default cutover without operator decision.
+| 页 | 行为 |
+|----|------|
+| **总览** | 新鲜度 / 优先事项 / KPI；夹具；**XML / ZIP / HAE**；Worker 优先；加载/写入数据仓；保存摘要快照 |
+| **趋势** | 本地 **ECharts 懒加载** chunk + 数据表回退；`extractTrendSeries` |
+| **报告** | 门诊一页纸 / 周报 / 临床复盘 → lib 生成器（adapter） |
+| **数据** | IDB 契约探测（store+index）；快照列表；warehouseMeta 只读 |
 
-### Warehouse write note
+### 4.3 导入与 I/O
 
-React `persistHealthDataSimple` grants consent and stores **one** `core|full` blob (layout `react-core-full-v1`). Compatible with React load path. For production-scale CGM month shards + keep-N, continue using legacy data center UI.
+| 路径 | 模块 | 说明 |
+|------|------|------|
+| XML | `HealthCoreAdapter.analyzeXml(Async)` | Worker：`analyze.worker.ts`，失败回退主线程 |
+| ZIP | `zipImport.ts` + npm **fflate** | 选 `export.xml` / `导出.xml`；可选 ECG CSV |
+| HAE | `haeImport.ts` → `mergeHaeIntoData` | JSON/CSV，可叠在当前 `HealthData` |
+| 仓加载 | `warehouseLoad.ts` | 需 consent；reassemble domainChunks |
+| 仓写入 | `warehousePersist.ts` | **简化** `core\|full` + 授权（`react-core-full-v1`） |
+| 快照 | `snapshotWrite.ts` | `buildAnalysisSnapshot` → `snapshots` keep-30 |
 
+### 4.4 隐私 / PWA（阶段 5）
+
+- `vite-plugin-pwa`：同域 precache only，`runtimeCaching: []`
+- `scripts/privacy-scan.mjs`：扫描 dist 禁 unpkg/jsdelivr/fonts.googleapis/analytics/sentry 等
+- ECharts / Worker **分 chunk**，Overview 首屏不强制拉满 ECharts
+
+### 4.5 内核边界与 IDB
+
+- **禁止**在 React 重写 parse/stats/FHIR。
+- IDB：`health-analyzer-history` **v5**；indexes 与 `history-db.js` 对齐（`idbContract.test.ts` 锁源码 + fake-indexeddb 内省）。
+- React **不**做分片 keep-N / 硬配额驱逐；大规模仓仍用 legacy 数据中心。
+
+### 4.6 测试矩阵
+
+| 命令 | 覆盖 |
+|------|------|
+| `npm run react:test` | Adapter parity、IDB schema、ZIP、HAE、仓 load/persist、快照、workspace |
+| `npm run test:e2e:react` | 夹具/路由/Sheet、XML+ZIP、快照列表、HAE+仓往返（Chromium :4174） |
+| `npm run smoke` / `test:e2e` | **Legacy 不回归** |
+
+---
+
+## 5. 源码地图（`web-ui/react-app/src`）
+
+```text
+core/
+  HealthCoreAdapter.ts    # parse/analyze/report/series 边界
+  analyze.worker.ts       # module Worker
+  parseWorkerClient.ts
+  zipImport.ts
+  haeImport.ts
+  idbContract.ts          # 契约 + empty-create
+  legacyHistoryRead.ts    # 快照/meta 只读
+  warehouseLoad.ts        # reassemble + analyze
+  warehousePersist.ts     # core|full 写入
+  snapshotWrite.ts
+components/ui/            # 设计 primitives
+components/charts/        # TrendChart（lazy echarts）
+pages/                    # Overview Trends Reports Data
+stores/workspaceStore.ts
+store/useHealthStore.ts
+layout/AppShell.tsx
+theme/ThemeProvider.tsx
+styles/                   # CSS 变量 tokens（非 Tailwind 全量）
+```
+
+---
+
+## 6. 架构示意
+
+```mermaid
+flowchart LR
+  U[用户文件 XML/ZIP/HAE] --> A[HealthCoreAdapter / Workers]
+  A --> L["@health-analyzer/lib"]
+  L --> S[Zustand useHealthStore]
+  S --> O[Overview]
+  S --> T[Trends + ECharts lazy]
+  S --> R[Reports]
+  S --> D[Data / IDB]
+  D <--> IDB[(IndexedDB history v5)]
+  SW[Service Worker self-only] --> Shell[React shell cache]
+```
+
+全程无后端、无登录、无云健康 API。
+
+---
+
+## 7. 提交里程碑（便于对照 git）
+
+| Commit | 内容 |
+|--------|------|
+| `801cbb1` | React 壳 + adapter + privacy + 双轨文档初版 |
+| `6367f07` | IDB empty schema 与 legacy indexes 对齐 |
+| `cad4ade` | 阶段 3–6：侧栏/底栏、四工作区、ECharts、报告 |
+| `cc0dbc9` | XML Worker、IDB 只读、`/next` export、偏好键 |
+| `19a7ca7` | ZIP、仓加载、快照、`e2e-react` |
+| `dd55e05` | HAE、仓写入、进度文案 |
+
+---
+
+## 8. 明确非目标 / 差异
+
+| 项 | 状态 |
+|----|------|
+| Tailwind v4 / 全量 shadcn | **未上**；CSS 变量 + 自有 primitives（Safari 矩阵风险更低） |
+| 生产默认 cutover 到 React | **未做**；需运维改部署根目录 |
+| 仓按月/年分片 + keep-N | **仅 legacy**；React 为 `core\|full` 简化写 |
+| HAE 未知指标落库 / CommandPalette | 未做 |
+| 与 legacy 像素级全页对等 | 非目标 |
+
+### 仓写入说明
+
+`persistHealthDataSimple`：授权后写入 **一个** `core|full`（layout `react-core-full-v1`），React 加载路径可读。生产级 CGM 分月与配额策略请用 legacy。
+
+---
+
+## 9. 相关文档
+
+- 总览与上手：`README.md`、`docs/README.md`
+- 手工 QA：`docs/MANUAL_QA.md`（含双轨检查项）
+- 数据中心 / 分片权威：`docs/DATA_CENTER_v1.68.md`、`web-ui/public/history-db.js`
+- 包内说明：`web-ui/react-app/README.md`

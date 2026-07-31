@@ -4,6 +4,18 @@
 
 将 `web-ui/public/` 目录中的所有文件托管到任意静态 Web 服务器即可。
 
+### 双轨 React 预览（可选 · 非默认）
+
+生产 **Publish directory 仍为** `health-analyzer/web-ui/public`。若需同域挂载 React 预览：
+
+```bash
+cd health-analyzer
+npm run react:export-next   # → web-ui/public/next/（gitignore，需构建机生成）
+```
+
+用户访问 `/` 为 legacy；`/next/` 或顶栏「试用新版」为 React 壳。完整说明与回滚见 **[DUAL_TRACK_UI.md](./DUAL_TRACK_UI.md)**。  
+**不要**在未评审前将默认发布根改为 `react-app/dist`。
+
 ## 选项 1：本地 Python 快速预览
 
 适合开发测试：

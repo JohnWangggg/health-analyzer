@@ -1,6 +1,7 @@
 # 真实设备手测清单（Manual QA）
 
-**版本：** v1.92+（年分片 keep-N、双域一键裁剪、保存后可选自动裁剪、睡眠/步数年分片、HRV/静息/步行心率年分片、Workout/ECG/Watch 日汇总年分片、仓面板分片组折叠、thin core / 迁移 / 分片清单 / 全域 keep-all 年、导入批次联动 lastImportBatchId / 仓内批次摘要 / 配额预测 UI、批次→分片反向索引 / 点批次看分片 / 离线连通横幅、客户端分片过滤 / 来源时间线、**今日仓状态 chip / 趋势仓提示**）  
+**版本：** v1.92+ legacy；**v2.2-dual** 双轨 React 预览（见文末专节与 `docs/DUAL_TRACK_UI.md`）  
+（年分片 keep-N、双域一键裁剪、保存后可选自动裁剪、睡眠/步数年分片、HRV/静息/步行心率年分片、Workout/ECG/Watch 日汇总年分片、仓面板分片组折叠、thin core / 迁移 / 分片清单 / 全域 keep-all 年、导入批次联动 lastImportBatchId / 仓内批次摘要 / 配额预测 UI、批次→分片反向索引 / 点批次看分片 / 离线连通横幅、客户端分片过滤 / 来源时间线、**今日仓状态 chip / 趋势仓提示**）  
 **目的：** 补充自动化（视口 / 任务流 / 缩放 / 键盘 / 数据仓 / 连通）无法覆盖的真机与系统层体验。  
 **原则：** 本地优先 · 不上传健康明细 · 非诊断。
 
@@ -214,6 +215,33 @@
 
 ---
 
+## 5b. 双轨 React 预览（v2.2-dual · 非生产默认）
+
+**文档：** `docs/DUAL_TRACK_UI.md` · **自动化：** `npm run test:e2e:react`（端口 4174）  
+**入口：** `npm run react:dev` 或 `react:export-next` 后访问 legacy 顶栏「试用新版」→ `/next/`
+
+### P0（约 10 分钟）
+
+- [ ] 总览：加载演示夹具 → KPI / 新鲜度 / 优先事项非空
+- [ ] 导入本机 **export.xml** 或小 **ZIP** 成功；徽章显示 Worker / ZIP
+- [ ] （可选）导入 `e2e/fixtures/hae-mini.json` → HAE 徽章与 CGM
+- [ ] 趋势：有序列表；主图加载后无整页白屏；数据表可滚动
+- [ ] 报告：切换门诊一页纸 / 周报 / 临床复盘有 Markdown；**复制 / 下载 .md** 可用
+- [ ] 数据：探测 IDB 契约匹配；保存快照后列表可见
+- [ ] 写入数据仓 → 清除会话 → 加载数据仓可恢复 KPI（简化 core|full）
+- [ ] 主题 浅色/深色/系统；桌面见侧栏、手机宽见底栏
+- [ ] 关于 Sheet 可开可关；无第三方网络请求（可开 DevTools Network 抽检）
+
+### P1
+
+- [ ] `npm run react:export-next` 后 legacy 与 `/next/` 可切换；`ha-ui-shell=react` 仅在 next 存在时跳转
+- [ ] 断网后 React preview 壳层仍可打开（self-only SW）
+- [ ] 与 legacy 共用同一浏览器时，快照/仓 meta 可读（不强制写分片）
+
+**注意：** React 仓写入 **不是** 全量 year/month 分片 keep-N；大规模仓仍用 legacy「更多 → 数据管理」。
+
+---
+
 ## 6. 记录模板
 
 ```text
@@ -247,5 +275,9 @@ P0 结果：通过 / 失败
 | （可选）真实 export 解析基线 | `npm run perf:parse -- --file=/path/to/export.xml`；指南 `docs/REAL_DEVICE_ZIP.md` |
 | （可选）年分片 auto-trim | 手测优先：勾选 auto-trim + year keep-N 后跨年 BP/体重再保存；E2E 已有 year auto-trim 用例 |
 
-本地：`npm run test:e2e`  
-手测本清单后，再发版更稳妥。
+| React 双轨壳 / 导入 / 仓 / 快照 | `e2e-react/shell.spec.js` · `npm run test:e2e:react` |
+| React 单元（adapter/IDB/ZIP/HAE/仓） | `npm run react:test` |
+| React dist 隐私扫描 | `npm run react:privacy` |
+
+本地：`npm run test:e2e` · 双轨：`npm run test:e2e:react`  
+手测本清单后，再发版更稳妥。生产发版以 **legacy** `web-ui/public` 为主门禁。

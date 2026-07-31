@@ -39,6 +39,16 @@
 - ✅ **界面与文档 i18n**：中英双语文档（`docs/` / `docs/en/`）；UI 语言资源目录 `web-ui/public/i18n/`
 - ✅ **Health Auto Export 增量导入**：JSON/CSV 多文件或文件夹本机合并、去重统计、未知指标清单（完整 ZIP 仍可用）
 
+## 双轨 UI（React 预览 · 非默认生产入口）
+
+| 轨 | 路径 | 说明 |
+|----|------|------|
+| 生产默认 | `web-ui/public/` | 现有 PWA，部署与 e2e 主门禁 |
+| 预览 | `web-ui/react-app/` | Vite+React+TS；脚本 `npm run react:*` |
+| 同域可选 | `web-ui/public/next/` | `npm run react:export-next`（gitignore） |
+
+完整说明：**[DUAL_TRACK_UI.md](./DUAL_TRACK_UI.md)**。手测见 [MANUAL_QA.md](./MANUAL_QA.md)「双轨 React」节。
+
 ## 目录结构
 
 ```
@@ -53,25 +63,23 @@ health-analyzer/
 │   │   └── index.ts             # 统一导出
 │   ├── package.json
 │   └── tsconfig.json
-├── web-ui/                       # PWA 前端
-│   └── public/
-│       ├── index.html            # 主页面
-│       ├── styles.css            # 样式
-│       ├── lib.js                # 浏览器版核心库（由 lib/src 构建，勿手改）
-│       ├── app.js                # 应用逻辑
-│       ├── sw.js                 # Service Worker（离线缓存）
-│       ├── manifest.json         # PWA 配置
-│       └── icons/
-│           ├── icon-192.svg
-│           └── icon-512.svg
+├── web-ui/
+│   ├── public/                   # ★ 生产默认 PWA（legacy）
+│   │   ├── index.html            # 「试用新版」→ ./next/
+│   │   ├── styles.css / app.js / history-db.js / workers …
+│   │   ├── lib.js                # 由 lib/src 构建，勿手改
+│   │   └── next/                 # 可选 React 同域导出（gitignore）
+│   └── react-app/                # ★ 双轨 React 预览（见 DUAL_TRACK_UI.md）
+│       ├── src/core|pages|…
+│       └── scripts/privacy-scan.mjs · export-next.mjs
+├── e2e/                          # legacy Playwright
+├── e2e-react/                    # React Playwright（:4174）
 └── docs/
     ├── README.md                 # 本文档（中文）
-    ├── DEPLOY.md                 # 部署指南
-    ├── PROMPT_DESIGN.md          # 提示词设计说明
+    ├── DUAL_TRACK_UI.md          # 双轨架构与脚本
+    ├── MANUAL_QA.md              # 真机手测（含双轨节）
+    ├── DEPLOY.md · PROMPT_DESIGN.md · DATA_CENTER_*.md
     └── en/                       # English docs
-        ├── README.md
-        ├── DEPLOY.md
-        └── PROMPT_DESIGN.md
 ```
 
 ## 快速开始
@@ -309,6 +317,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - v1.91：**客户端分片过滤**（`#warehouse-shard-filter`，年/月列表 DOM 过滤，不改 IDB）+ **来源时间线合成**（`#warehouse-provenance-timeline`，`listImportBatches` + `lastImportBatchId`，meta only）；E2E soft/hard（UI 缺失则 soft log）；仓设计见 `docs/DATA_CENTER_v1.68.md`，手测见 `docs/MANUAL_QA.md`。
 - v2.0：Health OS 深海蓝绿视觉与桌面 12 栏驾驶舱 / 手机任务流；数据新鲜度与工作区快捷入口；SVG 导航图标；图表键盘可达；仓分组默认折叠；吸底复制条仅报告区。
 - v2.1：**健康大屏 / TV 模式**（`#btn-dashboard-mode` → `body.health-dashboard-mode`）：隐藏上传/仓批量/吸底复制/FHIR 等，保留 KPI·优先关注·信号·图表与数据新鲜度；大时钟 + 数据截止；约 12s 焦点轮播（`prefers-reduced-motion` 关闭）；Esc /「退出大屏」；`sessionStorage` 可选记忆；E2E soft/hard 见 `e2e/dashboard-mode.spec.js`。非诊断文案；无新网络请求。
+- v2.2-dual：**双轨 React 预览**（`web-ui/react-app`，**生产默认仍为** `web-ui/public`）：HealthCoreAdapter、桌面侧栏/手机底栏、ECharts 懒加载、XML Worker / ZIP(fflate) / HAE、仓 core\|full 读写、摘要快照、privacy-scan、`react:export-next`→`/next/`、`npm run test:e2e:react`。见 `docs/DUAL_TRACK_UI.md`、手测 `docs/MANUAL_QA.md`。
 - v1.92：**今日仓状态 chip**（`#warehouse-today-chip`，hydrate 后今日工作区 meta 提示）+ **趋势仓提示**（`#warehouse-trends-hint`）；E2E soft/hard（grant→persist→reload hydrate 硬路径，UI 缺失 soft log）；真机大 ZIP / 本机性能基线见 `docs/REAL_DEVICE_ZIP.md`；手测见 `docs/MANUAL_QA.md`，仓设计见 `docs/DATA_CENTER_v1.68.md`。
 
 ## 许可

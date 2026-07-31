@@ -53,8 +53,24 @@ npm run smoke                     # i18n / 静态资源 / lib.js 语言
 npm run perf:parse                # 解析/analyzeAll 本地耗时基线（默认小 fixture；大文件自备 --file= 且勿提交）
 npm run test:e2e                  # 页面加载、语言切换、最小 XML 解析
 
-# 5. 部署：推送 main 后 GitHub Actions 先跑测试再部署 Pages
+# 5. （可选）双轨 React 预览壳 — 非生产默认入口
+# 详见 docs/DUAL_TRACK_UI.md
+npm run react:install
+npm run react:dev                 # 或 react:build && react:preview
+npm run react:test
+npm run test:e2e:react            # React Playwright（:4174）
+# npm run react:export-next       # 挂到 web-ui/public/next/ 与 legacy 同域
+
+# 6. 部署：推送 main 后 GitHub Actions 先跑测试再部署 Pages
+#    生产默认仍部署 web-ui/public（legacy）
 ```
+
+### 双轨 React 预览（工程向）
+
+生产 **默认仍是** `web-ui/public`。并行轨 `web-ui/react-app` 提供现代壳（侧栏/底栏、ECharts 懒加载、XML/ZIP/HAE、仓读写简化路径）。说明与回滚：
+
+- **[docs/DUAL_TRACK_UI.md](docs/DUAL_TRACK_UI.md)** — 架构、脚本、IDB 契约、`/next/` 同域导出  
+- **[web-ui/react-app/README.md](web-ui/react-app/README.md)** — 包内快速开始  
 
 ## 核心特性
 
@@ -178,6 +194,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
+| v2.2-dual | **双轨 React 预览**（`web-ui/react-app`）：四工作区壳、HealthCoreAdapter、Worker/ZIP/HAE、仓 core\|full、快照、`/next` 导出、privacy-scan、`test:e2e:react`；**生产默认仍为 legacy public**。见 `docs/DUAL_TRACK_UI.md` |
 | v2.1 | 本地 ECharts 趋势增强；手机趋势筛选 Sheet；更多五页；健康大屏模式 |
 | v2.0 | 个人健康驾驶舱视觉系统；桌面 12 栏大屏与手机任务流；数据新鲜度、快捷工作区、可键盘浏览图表与交互可靠性加固 |
 | v1.92 | 今日仓状态卡片；趋势区本机仓范围提示；真机大包基线说明 |
