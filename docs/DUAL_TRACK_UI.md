@@ -200,7 +200,7 @@ flowchart LR
 | Tailwind v4 / 全量 shadcn | **未上**；CSS 变量 + 自有 primitives |
 | 仓按月/年分片 + keep-N | React 有写入 + keep-N MVP；legacy 仍有更全多选删除 UI |
 | 高品质健康大屏 UI | **未做**（非可编辑栅格） |
-| 加密备份 UI 迁入 React | **未做**（仍可走 `/legacy/`） |
+| 加密备份 UI 迁入 React | **已做 MVP**（`warehouseBackup` + Data 页 `BackupPanel`；legacy 格式兼容） |
 
 ### P0 — 共享数据仓互通
 

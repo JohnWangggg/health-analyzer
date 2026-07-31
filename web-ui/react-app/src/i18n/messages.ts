@@ -89,6 +89,21 @@ export type MessageKey =
   | 'data.backup'
   | 'data.backupDesc'
   | 'data.backupBadge'
+  | 'data.backup.title'
+  | 'data.backup.lead'
+  | 'data.backup.pass'
+  | 'data.backup.passHint'
+  | 'data.backup.includeSnapshots'
+  | 'data.backup.includeEvents'
+  | 'data.backup.includeReports'
+  | 'data.backup.includeBatches'
+  | 'data.backup.export'
+  | 'data.backup.import'
+  | 'data.backup.exporting'
+  | 'data.backup.importing'
+  | 'data.backup.exportOk'
+  | 'data.backup.importOk'
+  | 'data.backup.fail'
   | 'data.probe'
   | 'data.probeBusy'
   | 'data.probeAction'
@@ -214,7 +229,7 @@ const zh: Record<MessageKey, string> = {
   'data.title': '数据仓',
   'data.leadPrefix': '会话状态 + 共享 IDB（',
   'data.leadSuffix':
-    '）。写入在总览走 sharded-v1 整仓替换；加密备份仍在 legacy。',
+    '）。写入在总览走 sharded-v1 整仓替换；本地可选口令备份与 legacy 兼容。',
   'data.source': '会话来源',
   'data.sourceEmpty': '尚未加载会话数据',
   'data.sourceDesc': '当前 React 会话（adapter 解析结果）。',
@@ -225,8 +240,25 @@ const zh: Record<MessageKey, string> = {
   'data.bytes': '会话占用（约）',
   'data.bytesDesc': '内存 FullAnalysis 近似。',
   'data.backup': '备份',
-  'data.backupDesc': '加密备份/恢复 → legacy 数据中心完整实现。',
-  'data.backupBadge': '完整备份 → legacy',
+  'data.backupDesc':
+    '本地 AES-GCM 可选口令；与 legacy .hae-backup.json 兼容。',
+  'data.backupBadge': 'AES-GCM · .hae-backup.json',
+  'data.backup.title': '仓库备份',
+  'data.backup.lead':
+    '导出/导入本地数据仓备份。可选口令 AES-GCM 加密；格式兼容 legacy .hae-backup.json。非诊断。',
+  'data.backup.pass': '备份口令（可选）',
+  'data.backup.passHint': '留空则明文 JSON；填写则加密（至少 4 位）',
+  'data.backup.includeSnapshots': '包含摘要快照',
+  'data.backup.includeEvents': '包含健康事件',
+  'data.backup.includeReports': '包含周报',
+  'data.backup.includeBatches': '包含导入批次',
+  'data.backup.export': '导出备份',
+  'data.backup.import': '导入备份',
+  'data.backup.exporting': '导出中…',
+  'data.backup.importing': '导入中…',
+  'data.backup.exportOk': '备份已导出并开始下载',
+  'data.backup.importOk': '备份已导入仓库',
+  'data.backup.fail': '备份失败',
   'data.probe': '共享仓库探测',
   'data.probeBusy': '读取中…',
   'data.probeAction': '读取本地仓库',
@@ -357,7 +389,7 @@ const en: Record<MessageKey, string> = {
   'data.title': 'Data warehouse',
   'data.leadPrefix': 'Session state + shared IDB (',
   'data.leadSuffix':
-    '). Writes on Overview use sharded-v1 full-warehouse replace; encrypted backup remains on legacy.',
+    '). Writes on Overview use sharded-v1 full-warehouse replace; local optional-passphrase backup is legacy-compatible.',
   'data.source': 'Session source',
   'data.sourceEmpty': 'No session data loaded yet',
   'data.sourceDesc': 'Current React session (adapter parse result).',
@@ -369,8 +401,24 @@ const en: Record<MessageKey, string> = {
   'data.bytesDesc': 'In-memory FullAnalysis estimate.',
   'data.backup': 'Backup',
   'data.backupDesc':
-    'Encrypted backup/restore → full implementation in legacy data center.',
-  'data.backupBadge': 'Full backup → legacy',
+    'Local AES-GCM optional passphrase; compatible with legacy .hae-backup.json.',
+  'data.backupBadge': 'AES-GCM · .hae-backup.json',
+  'data.backup.title': 'Warehouse backup',
+  'data.backup.lead':
+    'Export/import local warehouse backups. Optional AES-GCM passphrase; format compatible with legacy .hae-backup.json. Not a diagnosis.',
+  'data.backup.pass': 'Passphrase (optional)',
+  'data.backup.passHint': 'Leave empty for plain JSON; set to encrypt (min 4 chars)',
+  'data.backup.includeSnapshots': 'Include summary snapshots',
+  'data.backup.includeEvents': 'Include health events',
+  'data.backup.includeReports': 'Include weekly reports',
+  'data.backup.includeBatches': 'Include import batches',
+  'data.backup.export': 'Export backup',
+  'data.backup.import': 'Import backup',
+  'data.backup.exporting': 'Exporting…',
+  'data.backup.importing': 'Importing…',
+  'data.backup.exportOk': 'Backup exported — download started',
+  'data.backup.importOk': 'Backup imported into warehouse',
+  'data.backup.fail': 'Backup failed',
   'data.probe': 'Shared warehouse probe',
   'data.probeBusy': 'Reading…',
   'data.probeAction': 'Read local warehouse',

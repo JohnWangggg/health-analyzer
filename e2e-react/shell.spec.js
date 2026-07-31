@@ -114,6 +114,8 @@ test.describe('React dual-track shell', () => {
     await page.locator('[data-testid="desktop-sidebar"] [data-workspace-nav="data"]').click();
     await expect(page.getByTestId('keep-n-panel')).toBeVisible();
     await expect(page.getByTestId('soft-quota-panel')).toBeVisible();
+    await expect(page.getByTestId('backup-panel')).toBeVisible();
+    await expect(page.getByTestId('backup-export')).toBeVisible();
     await page.getByTestId('probe-idb').click();
     await expect(page.getByTestId('snapshot-list')).toBeVisible({
       timeout: 10_000,

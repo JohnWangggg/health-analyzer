@@ -10,6 +10,7 @@ import {
   type SnapshotListItem,
   type WarehouseMetaView,
 } from '../core/legacyHistoryRead';
+import { BackupPanel } from '../features/data/BackupPanel';
 import { SoftQuotaPanel } from '../features/data/SoftQuotaPanel';
 import { KeepNPanel } from '../features/data/KeepNPanel';
 import { useHealthStore } from '../store/useHealthStore';
@@ -105,14 +106,9 @@ export function DataPage() {
           </p>
           <CardDesc>{t('data.bytesDesc')}</CardDesc>
         </Card>
-        <Card>
-          <CardTitle>{t('data.backup')}</CardTitle>
-          <CardDesc>{t('data.backupDesc')}</CardDesc>
-          <div style={{ marginTop: '0.5rem' }}>
-            <Badge tone="watch">{t('data.backupBadge')}</Badge>
-          </div>
-        </Card>
       </div>
+
+      <BackupPanel onImported={() => void refreshLegacy()} />
 
       <SoftQuotaPanel
         layout={whMeta?.layout}

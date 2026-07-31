@@ -1023,3 +1023,72 @@
 .keep-n-actions {
   margin-top: var(--space-2);
 }
+
+/* Backup panel */
+.backup-panel .ui-card-desc {
+  margin-bottom: var(--space-3);
+}
+.backup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+.backup-input {
+  max-width: 22rem;
+  width: 100%;
+  min-height: var(--touch-min);
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  color: var(--text);
+  font-size: 0.9rem;
+}
+.backup-input:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+}
+.backup-pass-hint {
+  margin: 0 0 var(--space-3);
+  font-size: 0.8rem;
+}
+.backup-includes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin-bottom: var(--space-3);
+}
+.backup-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: var(--touch-min);
+  font-size: 0.85rem;
+  color: var(--text);
+  cursor: pointer;
+}
+.backup-actions {
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  margin-bottom: var(--space-2);
+}
+.backup-file-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: var(--touch-min);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.backup-file-label input[type='file'] {
+  max-width: 12rem;
+  font-size: 0.78rem;
+}
+.backup-panel [data-testid='backup-status'] {
+  margin: var(--space-2) 0 0;
+  font-size: 0.88rem;
+}

@@ -26,6 +26,9 @@ describe('i18n messages', () => {
     'data.softQuota.step.cgm',
     'data.keepN.title',
     'data.keepN.apply',
+    'data.backup.title',
+    'data.backup.export',
+    'data.backup.import',
   ];
 
   it('zh-CN and en both define shell keys', () => {
