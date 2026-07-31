@@ -65,9 +65,27 @@ function priorityFromSummary(summary: NonNullable<
   };
 }
 
+function viaLabel(via: string | null): string {
+  switch (via) {
+    case 'worker':
+      return 'Worker 分析';
+    case 'zip':
+      return 'ZIP 分析';
+    case 'warehouse':
+      return '数据仓';
+    case 'hae':
+      return 'HAE 合并';
+    case 'main':
+      return '主线程分析';
+    default:
+      return '';
+  }
+}
+
 export function OverviewPage() {
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
+  const haeRef = useRef<HTMLInputElement>(null);
   const [snapMsg, setSnapMsg] = useState<string | null>(null);
   const {
     status,
@@ -76,10 +94,15 @@ export function OverviewPage() {
     sourceLabel,
     analyzeVia,
     lastSnapshotId,
+    lastHaeNotes,
+    warehousePersistMsg,
+    progressLabel,
     loadXml,
     loadXmlAsync,
     loadZipFile,
+    loadHaeFiles,
     loadWarehouse,
+    persistWarehouse,
     saveSnapshot,
     clear,
   } = useHealthStore();
@@ -105,9 +128,10 @@ export function OverviewPage() {
       if (!/\.xml$/i.test(name) && file.type && !file.type.includes('xml')) {
         useHealthStore.setState({
           status: 'error',
-          error: '请选择 export.xml 或 Apple Health 导出 ZIP',
+          error: '请选择 export.xml / ZIP，或使用「导入 HAE」选择 JSON/CSV',
           summary: null,
           analysis: null,
+          data: null,
           sourceLabel: name,
           analyzeVia: null,
         });
@@ -119,6 +143,15 @@ export function OverviewPage() {
     [loadXmlAsync, loadZipFile],
   );
 
+  const onPickHae = useCallback(
+    async (list: FileList | null) => {
+      if (!list?.length) return;
+      setSnapMsg(null);
+      await loadHaeFiles(Array.from(list));
+    },
+    [loadHaeFiles],
+  );
+
   const onSaveSnap = useCallback(async () => {
     const id = await saveSnapshot('React 预览');
     setSnapMsg(id ? `已保存快照 ${id}` : '保存失败');
@@ -126,7 +159,9 @@ export function OverviewPage() {
 
   if (status === 'loading') {
     return (
-      <LoadingState label="正在分析（Worker / ZIP / 数据仓）…" />
+      <LoadingState
+        label={progressLabel || '正在分析…'}
+      />
     );
   }
 
@@ -135,8 +170,8 @@ export function OverviewPage() {
       <div>
         <h1 className="page-title">总览</h1>
         <p className="page-lead">
-          夹具 · XML/ZIP 导入 · 可选加载已授权数据仓。统计经 lib；ZIP 用本地
-          fflate。
+          XML/ZIP · HAE(JSON/CSV) · 数据仓读写（简化 core|full）。内核经
+          adapter/lib。
         </p>
       </div>
 
@@ -162,8 +197,26 @@ export function OverviewPage() {
           className="sr-only"
           data-testid="import-file-input"
           onChange={(e) => {
-            const f = e.target.files?.[0] ?? null;
-            void onPickFile(f);
+            void onPickFile(e.target.files?.[0] ?? null);
+            e.target.value = '';
+          }}
+        />
+        <Button
+          variant="secondary"
+          onClick={() => haeRef.current?.click()}
+          data-testid="import-hae-btn"
+        >
+          导入 HAE
+        </Button>
+        <input
+          ref={haeRef}
+          type="file"
+          accept=".json,.csv,application/json,text/csv"
+          multiple
+          className="sr-only"
+          data-testid="import-hae-input"
+          onChange={(e) => {
+            void onPickHae(e.target.files);
             e.target.value = '';
           }}
         />
@@ -176,13 +229,26 @@ export function OverviewPage() {
         </Button>
         <Button
           variant="secondary"
+          onClick={() => void persistWarehouse()}
+          disabled={!summary}
+          data-testid="persist-warehouse"
+        >
+          写入数据仓
+        </Button>
+        <Button
+          variant="secondary"
           onClick={() => void onSaveSnap()}
           disabled={!summary}
           data-testid="save-snapshot"
         >
           保存摘要快照
         </Button>
-        <Button variant="secondary" onClick={clear} disabled={status === 'idle'}>
+        <Button
+          variant="secondary"
+          onClick={clear}
+          disabled={status === 'idle'}
+          data-testid="clear-session"
+        >
           清除
         </Button>
         {sourceLabel ? (
@@ -193,7 +259,9 @@ export function OverviewPage() {
         {analyzeVia ? (
           <Badge
             tone={
-              analyzeVia === 'worker' || analyzeVia === 'zip'
+              analyzeVia === 'worker' ||
+              analyzeVia === 'zip' ||
+              analyzeVia === 'hae'
                 ? 'ok'
                 : analyzeVia === 'warehouse'
                   ? 'accent'
@@ -201,13 +269,7 @@ export function OverviewPage() {
             }
             data-testid="analyze-via"
           >
-            {analyzeVia === 'worker'
-              ? 'Worker 分析'
-              : analyzeVia === 'zip'
-                ? 'ZIP 分析'
-                : analyzeVia === 'warehouse'
-                  ? '数据仓'
-                  : '主线程分析'}
+            {viaLabel(analyzeVia)}
           </Badge>
         ) : null}
       </div>
@@ -217,6 +279,21 @@ export function OverviewPage() {
           {snapMsg || `最近快照 ${lastSnapshotId}`}
         </p>
       ) : null}
+      {warehousePersistMsg ? (
+        <p className="muted" data-testid="warehouse-persist-status">
+          {warehousePersistMsg}
+        </p>
+      ) : null}
+      {lastHaeNotes.length ? (
+        <Card data-testid="hae-notes">
+          <CardTitle>HAE 合并摘要</CardTitle>
+          <ul className="muted" style={{ margin: '0.5rem 0 0', paddingLeft: '1.2rem' }}>
+            {lastHaeNotes.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       {error ? <ErrorState message={error} /> : null}
 
@@ -224,7 +301,7 @@ export function OverviewPage() {
         <EmptyState
           testId="overview-empty"
           title="尚未加载数据"
-          description="演示夹具、本机 XML/ZIP，或 legacy 已授权的数据仓。"
+          description="演示夹具、XML/ZIP、HAE JSON/CSV，或本地数据仓。"
           actionLabel="加载演示夹具"
           onAction={loadFixture}
         />

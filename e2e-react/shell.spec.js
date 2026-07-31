@@ -77,4 +77,33 @@ test.describe('React dual-track shell', () => {
     const text = await page.getByTestId('snapshot-list').innerText();
     expect(text.length).toBeGreaterThan(10);
   });
+
+  test('HAE import and warehouse persist/load roundtrip', async ({ page }) => {
+    await page.goto('/');
+    const haePath = path.join(__dirname, '../e2e/fixtures/hae-mini.json');
+    await page.setInputFiles('[data-testid="import-hae-input"]', haePath);
+    await expect(page.getByTestId('analyze-via')).toContainText('HAE', {
+      timeout: 20_000,
+    });
+    await expect(page.getByTestId('kpi-cgm')).toBeVisible();
+    const cgm1 = Number(await page.getByTestId('kpi-cgm').innerText());
+    expect(cgm1).toBeGreaterThan(0);
+    await expect(page.getByTestId('hae-notes')).toBeVisible();
+
+    await page.getByTestId('persist-warehouse').click();
+    await expect(page.getByTestId('warehouse-persist-status')).toContainText(
+      '已写入',
+      { timeout: 10_000 },
+    );
+
+    await page.getByTestId('clear-session').click();
+    await expect(page.getByTestId('overview-empty')).toBeVisible();
+
+    await page.getByTestId('load-warehouse').click();
+    await expect(page.getByTestId('analyze-via')).toContainText('数据仓', {
+      timeout: 20_000,
+    });
+    const cgm2 = Number(await page.getByTestId('kpi-cgm').innerText());
+    expect(cgm2).toBeCloseTo(cgm1, 1);
+  });
 });

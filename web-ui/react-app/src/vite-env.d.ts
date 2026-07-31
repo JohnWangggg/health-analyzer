@@ -102,6 +102,24 @@ declare module '@health-analyzer/lib' {
 
   export function parseEcgCsv(text: string): unknown;
 
+  export function createEmptyData(referenceDate?: string): HealthData;
+
+  export function mergeHaeIntoData(
+    data: HealthData,
+    files: Array<{ name: string; text: string }>,
+    options?: { includeUnknown?: string[]; includeWorkouts?: boolean },
+  ): {
+    sourceFormat: string;
+    files: string[];
+    totalAdded: number;
+    totalUpdated: number;
+    totalSkipped: number;
+    byDomain: Record<string, unknown>;
+    knownMetrics: string[];
+    unknownMetrics: Array<{ name: string; sampleCount: number }>;
+    notes: string[];
+  };
+
   export function buildAnalysisSnapshot(
     analysis: FullAnalysis,
     options?: { id?: string; label?: string; savedAt?: string },
