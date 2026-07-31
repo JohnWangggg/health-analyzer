@@ -338,7 +338,7 @@ English:
 | `b2e7363` | 分片删除 e2e 硬路径；总览导入进度 / 会话就绪条 |
 | `2e99eec` | 明文+**加密备份 e2e**；趋势域 `data-has-data` / 空域切换 |
 | `f58d6fc` | 报告空态 CTA + meta；Keep-N **一键预设** |
-| **本提交** | GitHub Pages **base=/\<repo\>/** + `404.html` SPA；总览 **复制大模型提示词**；中英文 README 合并更新 |
+| **v2.3.1** `bb9a6d4` | GitHub Pages **base=/<repo>/** + `404.html` SPA；总览 **复制大模型提示词**；中英文 README 版本要点表 |
 
 ### 发版检查清单（每次 push 前）
 
