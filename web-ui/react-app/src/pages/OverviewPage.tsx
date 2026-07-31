@@ -230,12 +230,13 @@ export function OverviewPage() {
         <Button
           variant="secondary"
           onClick={() => void persistWarehouse()}
-          disabled
-          title="P0：共享仓简化写入已禁用，待统一分片写入模块"
+          disabled={!summary}
+          title="以 legacy 兼容 sharded-v1 全量替换 domainChunks"
           data-testid="persist-warehouse"
         >
-          写入数据仓（已禁用）
+          写入数据仓
         </Button>
+
         <Button
           variant="secondary"
           onClick={() => void onSaveSnap()}

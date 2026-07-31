@@ -194,7 +194,7 @@ English:
 
 | 版本 | 内容 |
 |------|------|
-| v2.2-dual | **双轨 React MVP 预览**（非可切主）：四工作区、Adapter、Worker/ZIP/HAE、快照、`/next`、privacy-scan、`test:e2e:react`；**共享仓写入已禁用（P0）**；生产默认仍 legacy。见 `docs/DUAL_TRACK_UI.md` |
+| v2.2-dual | **双轨 React MVP 预览**（非可切主）：四工作区、Adapter、Worker/ZIP/HAE、快照、`/next`；仓写入 **sharded-v1**（与 legacy 分片兼容，整仓替换）；PWA 壳层 precache / 更新确认。见 `docs/DUAL_TRACK_UI.md` |
 | v2.1 | 本地 ECharts 趋势增强；手机趋势筛选 Sheet；更多五页；健康大屏模式 |
 | v2.0 | 个人健康驾驶舱视觉系统；桌面 12 栏大屏与手机任务流；数据新鲜度、快捷工作区、可键盘浏览图表与交互可靠性加固 |
 | v1.92 | 今日仓状态卡片；趋势区本机仓范围提示；真机大包基线说明 |

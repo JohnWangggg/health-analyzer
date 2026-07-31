@@ -1,19 +1,29 @@
 /**
- * Dual-track warehouse safety flags.
+ * Dual-track warehouse safety.
  *
- * P0 (2026-07): Writing simplified `core|full` into a shared DB that may
- * already contain legacy domain shards is unsafe (load merges shards over core).
- * Until a shared full-shard persist module exists, shared writes are disabled
- * in product UI; API returns reason `disabled_until_shared_shard_writer`.
+ * Full shared write uses layout `sharded-v1` via warehouseShards.ts
+ * (clear + put domainChunks, same as history-db.js).
+ * Legacy simplified core-only write remains force-gated for tests only.
  */
-export const REACT_CORE_FULL_LAYOUT = 'react-core-full-v1';
+import { WH_LAYOUT_SHARDED } from './warehouseShards';
 
-/** Product UI must not call persist on shared warehouse until this is true. */
-export const WAREHOUSE_SHARED_WRITE_ENABLED = false;
+export const REACT_CORE_FULL_LAYOUT = 'react-core-full-v1';
+export const REACT_SHARED_SHARDED_LAYOUT = WH_LAYOUT_SHARDED;
+
+/**
+ * Product UI may persist when true (full sharded-v1 writer).
+ * core|full-only experimental path still requires force.
+ */
+export const WAREHOUSE_SHARED_WRITE_ENABLED = true;
+
+/** @deprecated core-only write remains blocked without force */
+export function warehouseCoreOnlyWriteBlockedReason(): string {
+  return (
+    'disabled_core_only_write: use persistHealthDataSharded (sharded-v1). ' +
+    'See docs/DUAL_TRACK_UI.md'
+  );
+}
 
 export function warehouseWriteBlockedReason(): string {
-  return (
-    'disabled_until_shared_shard_writer: React 简化 core|full 写入会与 legacy ' +
-    '分片混读；请在 legacy「数据管理」写入仓，或仅会话内分析。详见 docs/DUAL_TRACK_UI.md'
-  );
+  return warehouseCoreOnlyWriteBlockedReason();
 }

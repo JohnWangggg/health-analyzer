@@ -1,23 +1,30 @@
 /**
- * Dual-track warehouse write (simplified layout) — **gated off by default**.
+ * Dual-track warehouse persist.
  *
- * P0: Writing only `core|full` while legacy domain shards remain causes
- * load path to prefer shards over core fields. Product UI must not call
- * this until a shared full-shard writer exists (see warehouseSafety.ts).
- *
- * Unit tests may pass `{ force: true }` to exercise the serializer path.
+ * Primary: persistHealthDataSharded — legacy-compatible sharded-v1
+ *   (clear domainChunks + put full chunk set from splitHealthDataShards).
+ * Experimental: persistHealthDataSimple — core|full only; requires force.
  */
 import type { HealthData } from '@health-analyzer/lib';
 import { IDB_CONTRACT, openLegacyHistoryDb } from './idbContract';
 import {
   REACT_CORE_FULL_LAYOUT,
-  WAREHOUSE_SHARED_WRITE_ENABLED,
-  warehouseWriteBlockedReason,
+  warehouseCoreOnlyWriteBlockedReason,
 } from './warehouseSafety';
+import {
+  WH_HARD_BYTES,
+  WH_LAYOUT_SHARDED,
+  WH_SOFT_BYTES,
+  approxJsonBytes,
+  buildDomainChunkRows,
+  countHealthRecords,
+  inferDateRange,
+  reassembleFromSplit,
+  splitHealthDataShards,
+} from './warehouseShards';
 
 const WH_CHUNK_CORE = 'core|full';
 const WAREHOUSE_POLICY = IDB_CONTRACT.warehousePolicyVersion;
-
 
 export type PersistWarehouseResult =
   | {
@@ -25,52 +32,11 @@ export type PersistWarehouseResult =
       approxBytes: number;
       recordCount: number;
       dateRange: { start: string; end: string } | null;
+      layout: string;
+      chunkCount: number;
+      softWarn?: boolean;
     }
   | { ok: false; reason: string };
-
-function approxBytes(value: unknown): number {
-  try {
-    return new TextEncoder().encode(JSON.stringify(value)).length;
-  } catch {
-    return 0;
-  }
-}
-
-function countRecords(data: HealthData): number {
-  let n = 0;
-  n += data.cgm?.length || 0;
-  n += data.bloodPressure?.length || 0;
-  n += data.weight?.length || 0;
-  n += data.bodyFat?.length || 0;
-  n += data.workouts?.length || 0;
-  n += data.ecg?.length || 0;
-  n += Object.keys(data.steps || {}).length;
-  n += Object.keys(data.sleep || {}).length;
-  n += Object.keys(data.hrv || {}).length;
-  n += Object.keys(data.restingHr || {}).length;
-  n += Object.keys(data.watchDaily || {}).length;
-  return n;
-}
-
-function inferDateRange(
-  data: HealthData,
-): { start: string; end: string } | null {
-  const dates: string[] = [];
-  const push = (d?: string) => {
-    if (d && /^\d{4}-\d{2}-\d{2}/.test(d)) dates.push(d.slice(0, 10));
-  };
-  for (const p of data.cgm || []) push((p as { datetime?: string }).datetime);
-  for (const p of data.weight || []) push((p as { date?: string }).date);
-  for (const p of data.bloodPressure || [])
-    push((p as { date?: string }).date);
-  for (const d of Object.keys(data.steps || {})) push(d);
-  for (const d of Object.keys(data.sleep || {})) push(d);
-  for (const d of Object.keys(data.hrv || {})) push(d);
-  for (const d of Object.keys(data.restingHr || {})) push(d);
-  if (!dates.length) return null;
-  dates.sort();
-  return { start: dates[0]!, end: dates[dates.length - 1]! };
-}
 
 /** Grant warehouse consent (idempotent). */
 export async function grantWarehouseConsent(): Promise<void> {
@@ -108,25 +74,130 @@ export async function grantWarehouseConsent(): Promise<void> {
 }
 
 /**
- * Persist HealthData as core|full after ensuring consent.
- * Soft cap warn only — hard reject above 200MB JSON approx.
- *
- * @param opts.force — test-only / experimental bypass of product gate
+ * Legacy-compatible full warehouse write (sharded-v1).
+ * Clears domainChunks then writes complete chunk set — no mixed-state with old shards.
+ */
+export async function persistHealthDataSharded(
+  healthData: HealthData,
+  opts?: { grantIfNeeded?: boolean; batchId?: string | null },
+): Promise<PersistWarehouseResult> {
+  if (!healthData || typeof healthData !== 'object') {
+    return { ok: false, reason: 'no_data' };
+  }
+
+  if (opts?.grantIfNeeded !== false) {
+    await grantWarehouseConsent();
+  }
+
+  let split;
+  try {
+    split = splitHealthDataShards(healthData);
+  } catch (e) {
+    return {
+      ok: false,
+      reason: `clone_failed: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+
+  if (split.totalBytes > WH_HARD_BYTES) {
+    return { ok: false, reason: 'quota_hard' };
+  }
+
+  const payload = reassembleFromSplit(split);
+  const recordCount = countHealthRecords(payload);
+  const dateRange = inferDateRange(payload);
+  const now = new Date().toISOString();
+  const rows = buildDomainChunkRows(split, {
+    batchId: opts?.batchId ?? null,
+    now,
+  });
+
+  const db = await openLegacyHistoryDb();
+  try {
+    const metaRow = await new Promise<Record<string, unknown> | null>(
+      (resolve, reject) => {
+        const tx = db.transaction('warehouseMeta', 'readonly');
+        const req = tx.objectStore('warehouseMeta').get(IDB_CONTRACT.metaId);
+        req.onsuccess = () =>
+          resolve((req.result as Record<string, unknown>) || null);
+        req.onerror = () => reject(req.error);
+      },
+    );
+    const consent = metaRow?.consent as { granted?: boolean } | undefined;
+    if (!consent?.granted) {
+      return { ok: false, reason: 'no_consent' };
+    }
+
+    const meta = {
+      ...(metaRow || {}),
+      id: IDB_CONTRACT.metaId,
+      consent,
+      dateRange,
+      totalApproxBytes: split.totalBytes,
+      totalRecordCount: recordCount,
+      lastWrittenAt: now,
+      lastImportBatchId: opts?.batchId ?? metaRow?.lastImportBatchId ?? null,
+      layout: WH_LAYOUT_SHARDED,
+      codec: 'json',
+      cgmMonths: split.months.map((m) => m.month),
+      bpYears: split.bpYears.map((y) => y.year),
+      weightYears: split.weightYears.map((y) => y.year),
+      sleepYears: split.sleepYears.map((y) => y.year),
+      stepsYears: split.stepsYears.map((y) => y.year),
+      hrvYears: split.hrvYears.map((y) => y.year),
+      restingHrYears: split.restingHrYears.map((y) => y.year),
+      walkingHrYears: split.walkingHrYears.map((y) => y.year),
+      workoutsYears: split.workoutsYears.map((y) => y.year),
+      ecgYears: split.ecgYears.map((y) => y.year),
+      watchDailyYears: split.watchDailyYears.map((y) => y.year),
+      notes:
+        split.totalBytes > WH_SOFT_BYTES ? ['soft_quota_exceeded'] : [],
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(
+        ['domainChunks', 'warehouseMeta'],
+        'readwrite',
+      );
+      const store = tx.objectStore('domainChunks');
+      // Same as history-db: clear then write full set (no orphan domain shards)
+      store.clear();
+      for (const row of rows) store.put(row);
+      tx.objectStore('warehouseMeta').put(meta);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+
+    return {
+      ok: true,
+      approxBytes: split.totalBytes,
+      recordCount,
+      dateRange,
+      layout: WH_LAYOUT_SHARDED,
+      chunkCount: rows.length,
+      softWarn: split.totalBytes > WH_SOFT_BYTES,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * @deprecated core|full-only — blocked without force (P0 mix risk with domain shards)
  */
 export async function persistHealthDataSimple(
   healthData: HealthData,
   opts?: { grantIfNeeded?: boolean; force?: boolean },
 ): Promise<PersistWarehouseResult> {
-  if (!WAREHOUSE_SHARED_WRITE_ENABLED && !opts?.force) {
-    return { ok: false, reason: warehouseWriteBlockedReason() };
+  if (!opts?.force) {
+    return { ok: false, reason: warehouseCoreOnlyWriteBlockedReason() };
   }
   if (!healthData || typeof healthData !== 'object') {
     return { ok: false, reason: 'no_data' };
   }
 
-  const bytes = approxBytes(healthData);
-  const HARD = 200 * 1024 * 1024;
-  if (bytes > HARD) {
+  const bytes = approxJsonBytes(healthData);
+  if (bytes > WH_HARD_BYTES) {
     return { ok: false, reason: 'quota_hard' };
   }
 
@@ -136,7 +207,6 @@ export async function persistHealthDataSimple(
 
   const db = await openLegacyHistoryDb();
   try {
-    // verify consent
     const metaRow = await new Promise<Record<string, unknown> | null>(
       (resolve, reject) => {
         const tx = db.transaction('warehouseMeta', 'readonly');
@@ -153,7 +223,7 @@ export async function persistHealthDataSimple(
 
     const now = new Date().toISOString();
     const dateRange = inferDateRange(healthData);
-    const recordCount = countRecords(healthData);
+    const recordCount = countHealthRecords(healthData);
     const payload = JSON.parse(JSON.stringify(healthData)) as HealthData;
 
     await new Promise<void>((resolve, reject) => {
@@ -161,6 +231,8 @@ export async function persistHealthDataSimple(
         ['domainChunks', 'warehouseMeta'],
         'readwrite',
       );
+      // force path still clears orphans to avoid mix if someone enables it
+      tx.objectStore('domainChunks').clear();
       tx.objectStore('domainChunks').put({
         id: WH_CHUNK_CORE,
         domain: 'core',
@@ -183,20 +255,20 @@ export async function persistHealthDataSimple(
         totalRecordCount: recordCount,
         lastWrittenAt: now,
         layout: REACT_CORE_FULL_LAYOUT,
-        notes: [
-          ...(((metaRow?.notes as string[]) || []).filter(
-            (n) => n !== REACT_CORE_FULL_LAYOUT,
-          ) || []),
-          REACT_CORE_FULL_LAYOUT,
-          'experimental_force_only',
-        ],
+        notes: [REACT_CORE_FULL_LAYOUT, 'experimental_force_only'],
       });
-
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
 
-    return { ok: true, approxBytes: bytes, recordCount, dateRange };
+    return {
+      ok: true,
+      approxBytes: bytes,
+      recordCount,
+      dateRange,
+      layout: REACT_CORE_FULL_LAYOUT,
+      chunkCount: 1,
+    };
   } finally {
     db.close();
   }

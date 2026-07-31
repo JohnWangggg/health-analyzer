@@ -87,7 +87,9 @@ test.describe('React dual-track shell', () => {
     expect(text.length).toBeGreaterThan(10);
   });
 
-  test('HAE import and warehouse write stays disabled (P0)', async ({ page }) => {
+  test('HAE import and sharded warehouse persist/load roundtrip', async ({
+    page,
+  }) => {
     await page.goto('/');
     const haePath = path.join(__dirname, '../e2e/fixtures/hae-mini.json');
     await page.setInputFiles('[data-testid="import-hae-input"]', haePath);
@@ -99,9 +101,20 @@ test.describe('React dual-track shell', () => {
     expect(cgm1).toBeGreaterThan(0);
     await expect(page.getByTestId('hae-notes')).toBeVisible();
 
-    // P0: shared warehouse write disabled in product UI (no force-write path)
-    const btn = page.getByTestId('persist-warehouse');
-    await expect(btn).toBeDisabled();
-    await expect(btn).toContainText('已禁用');
+    await page.getByTestId('persist-warehouse').click();
+    await expect(page.getByTestId('warehouse-persist-status')).toContainText(
+      'sharded-v1',
+      { timeout: 15_000 },
+    );
+
+    await page.getByTestId('clear-session').click();
+    await expect(page.getByTestId('overview-empty')).toBeVisible();
+
+    await page.getByTestId('load-warehouse').click();
+    await expect(page.getByTestId('analyze-via')).toContainText('数据仓', {
+      timeout: 20_000,
+    });
+    const cgm2 = Number(await page.getByTestId('kpi-cgm').innerText());
+    expect(cgm2).toBeCloseTo(cgm1, 1);
   });
 });

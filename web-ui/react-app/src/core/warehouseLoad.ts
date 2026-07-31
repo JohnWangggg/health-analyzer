@@ -7,6 +7,8 @@ import { openLegacyHistoryDb, IDB_CONTRACT } from './idbContract';
 import { readWarehouseMetaView } from './legacyHistoryRead';
 import { summarizeAnalysis, type AnalysisSummary } from './HealthCoreAdapter';
 import { REACT_CORE_FULL_LAYOUT } from './warehouseSafety';
+import { WH_LAYOUT_SHARDED } from './warehouseShards';
+
 
 const WH_CHUNK_HEALTH = 'healthData|full';
 const WH_CHUNK_CORE = 'core|full';
@@ -213,17 +215,19 @@ export async function loadAndAnalyzeWarehouse(options?: {
     db.close();
   }
 
-  // Prefer meta.layout; also core-only if only core chunk exists (no domain shards)
+  // sharded-v1: merge domain shards (legacy-compatible)
+  // react-core-full-v1: never overlay domain shards (even if orphans remain)
   const domainShardCount = chunks.filter(
     (c) => c.domain && c.domain !== 'core' && c.id !== WH_CHUNK_CORE,
   ).length;
+  const mergeShards =
+    meta.layout === WH_LAYOUT_SHARDED ||
+    (domainShardCount > 0 && meta.layout !== REACT_CORE_FULL_LAYOUT);
   const assembled = reassembleFromChunks(chunks, {
     metaLayout: meta.layout,
-    coreOnly:
-      meta.layout === REACT_CORE_FULL_LAYOUT ||
-      // pure core-only warehouse (no domain shards) — use core as-is
-      (domainShardCount === 0 && !!chunks.find((c) => c.id === WH_CHUNK_CORE)),
+    coreOnly: !mergeShards,
   });
+
   if (!assembled?.data) return null;
 
   const analysis = analyzeAll(assembled.data, {

@@ -101,7 +101,7 @@ npm run test:e2e:react     # Playwright React 壳（build + preview :4174）
 
 | 页 | 行为 |
 |----|------|
-| **总览** | 新鲜度 / 优先 / KPI；夹具；**XML / ZIP / HAE**；Worker；**加载仓**；**写入仓已禁用（P0）**；快照 |
+| **总览** | 新鲜度 / 优先 / KPI；夹具；**XML / ZIP / HAE**；Worker；**加载/写入仓（sharded-v1）**；快照 |
 | **趋势** | 本地 **ECharts 懒加载** + 表回退（ECharts **不**进 SW 首装 precache） |
 | **报告** | 门诊一页纸 / 周报 / 临床复盘 + 复制/下载 .md |
 | **数据** | IDB 契约探测；快照列表；warehouseMeta 只读 |
@@ -114,7 +114,7 @@ npm run test:e2e:react     # Playwright React 壳（build + preview :4174）
 | ZIP | `zipImport.ts` + npm **fflate** | 选 `export.xml` / `导出.xml`；可选 ECG CSV |
 | HAE | `haeImport.ts` → `mergeHaeIntoData` | JSON/CSV，可叠在当前 `HealthData` |
 | 仓加载 | `warehouseLoad.ts` | consent；reassemble；`react-core-full-v1` **core-only** |
-| 仓写入 | `warehousePersist.ts` | **产品禁用**（`WAREHOUSE_SHARED_WRITE_ENABLED=false`） |
+| 仓写入 | `warehousePersist.ts` + `warehouseShards.ts` | **sharded-v1** 全量替换（legacy 兼容） |
 | 快照 | `snapshotWrite.ts` | `buildAnalysisSnapshot` → `snapshots` keep-30 |
 
 ### 4.4 隐私 / PWA（阶段 5）
@@ -210,14 +210,15 @@ flowchart LR
 | 高品质健康大屏 UI | **未做**（仍为功能壳） |
 | HAE 未知指标落库 / CommandPalette | 未做 |
 
-### P0 — 共享数据仓互通（阻断切主）
+### P0 — 共享数据仓互通
 
-| 问题 | 仅写 `core\|full` 时，若 DB 仍有 legacy 分片，读取会用分片覆盖 core 字段 → 混态。 |
+| 问题（曾） | 仅写 `core\|full` 时，legacy 分片会覆盖 core → 混态。 |
 |------|------|
-| **当前处置** | `WAREHOUSE_SHARED_WRITE_ENABLED=false`；UI「写入数据仓」**禁用**；无 `force` 拒绝写入。 |
-| **读取安全** | `meta.layout === react-core-full-v1` 时 **core-only**，不叠 domain 分片。 |
-| **长期修复** | 共享完整分片序列化 + 配额模块；双向兼容 E2E。**勿**默认清空旧分片。 |
-| **生产建议** | 真实旧仓用户用 **legacy 数据管理** 写仓。 |
+| **当前写入** | `persistHealthDataSharded`：与 history-db 一致 **clear domainChunks + put 全量 sharded-v1 分片**（`warehouseShards.ts`）。 |
+| **core-only 旧路径** | `persistHealthDataSimple` 仅 `force` 可测；产品 UI 不用。 |
+| **读取** | `layout=sharded-v1` 或存在 domain 分片 → 合并分片；`react-core-full-v1` → core-only。 |
+| **仍缺** | 与 legacy 同级的软配额多域 eviction keep-N UI；真实「旧版写→React写→旧版读」浏览器交叉 E2E（单测已覆盖分片往返）。 |
+| **生产建议** | 可试用 React 写仓（会**整仓替换**分片集）；大规模 keep-N 仍用 legacy 面板。 |
 
 ### P1 工程
 
