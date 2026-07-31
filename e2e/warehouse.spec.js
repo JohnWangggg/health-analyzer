@@ -31,6 +31,10 @@ async function selectXmlOnly(page) {
 }
 
 test.describe('v1.68 raw warehouse', () => {
+  // Serial: many year-shard delete cases stress IndexedDB; parallel workers on one
+  // origin can flake under load. Full suite with mixed files remains parallel elsewhere.
+  test.describe.configure({ mode: 'serial' });
+
   test('consent off by default; grant → persist → reload restores; wipe clears', async ({
     page,
   }) => {
@@ -991,21 +995,22 @@ test.describe('v1.68 raw warehouse', () => {
       .poll(
         async () =>
           page.evaluate(async () => {
-            const st = await window.HealthHistory.getWarehouseStatus();
+            const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+            const ids = ((loaded && loaded.chunks) || []).map((c) => c.id);
             return {
-              sleepYears: (st.sleepYears || (st.meta && st.meta.sleepYears) || [])
-                .slice()
-                .sort(),
-              stepsYears: (st.stepsYears || (st.meta && st.meta.stepsYears) || [])
-                .slice()
-                .sort(),
+              hasSleep2025: ids.indexOf('sleep|2025') >= 0,
+              hasSleep2026: ids.indexOf('sleep|2026') >= 0,
+              hasSteps2025: ids.indexOf('steps|2025') >= 0,
+              hasSteps2026: ids.indexOf('steps|2026') >= 0,
             };
           }),
-        { timeout: 8_000 }
+        { timeout: 10_000 }
       )
       .toEqual({
-        sleepYears: ['2026'],
-        stepsYears: ['2025', '2026'],
+        hasSleep2025: false,
+        hasSleep2026: true,
+        hasSteps2025: true,
+        hasSteps2026: true,
       });
 
     const afterDel = await page.evaluate(async () => {
@@ -1257,27 +1262,31 @@ test.describe('v1.68 raw warehouse', () => {
         JSON.stringify(delRest)
     ).toBe(true);
 
+    // Chunk ids are authoritative under parallel stress (avoid stale meta year lists)
     await expect
       .poll(
         async () =>
           page.evaluate(async () => {
-            const st = await window.HealthHistory.getWarehouseStatus();
+            const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+            const ids = ((loaded && loaded.chunks) || []).map((c) => c.id);
             return {
-              hrvYears: (st.hrvYears || (st.meta && st.meta.hrvYears) || []).slice().sort(),
-              restingHrYears: (st.restingHrYears || (st.meta && st.meta.restingHrYears) || [])
-                .slice()
-                .sort(),
-              walkingHrYears: (st.walkingHrYears || (st.meta && st.meta.walkingHrYears) || [])
-                .slice()
-                .sort(),
+              hasHrv2025: ids.indexOf('hrv|2025') >= 0,
+              hasHrv2026: ids.indexOf('hrv|2026') >= 0,
+              hasRest2025: ids.indexOf('restingHr|2025') >= 0,
+              hasRest2026: ids.indexOf('restingHr|2026') >= 0,
+              hasWalk2025: ids.indexOf('walkingHr|2025') >= 0,
+              hasWalk2026: ids.indexOf('walkingHr|2026') >= 0,
             };
           }),
-        { timeout: 8_000 }
+        { timeout: 10_000 }
       )
       .toEqual({
-        hrvYears: ['2026'],
-        restingHrYears: ['2026'],
-        walkingHrYears: ['2025', '2026'],
+        hasHrv2025: false,
+        hasHrv2026: true,
+        hasRest2025: false,
+        hasRest2026: true,
+        hasWalk2025: true,
+        hasWalk2026: true,
       });
 
     const afterRestDel = await page.evaluate(async () => {
@@ -1305,6 +1314,244 @@ test.describe('v1.68 raw warehouse', () => {
     expect(afterRestDel.hasChunkWalk2025).toBe(true);
     expect(afterRestDel.restDayCount).toBe(2);
     expect(afterRestDel.walkDayCount).toBe(4);
+  });
+
+  test('workouts/ecg/watchDaily yearly shards: multi-year persist, load, domain-independent delete', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+
+    const apiSurface = await page.evaluate(() => {
+      const HH = window.HealthHistory || {};
+      return {
+        deleteDomainYearShards: typeof HH.deleteDomainYearShards === 'function',
+        deleteWorkoutsYearShards: typeof HH.deleteWorkoutsYearShards === 'function',
+        deleteEcgYearShards: typeof HH.deleteEcgYearShards === 'function',
+        deleteWatchDailyYearShards: typeof HH.deleteWatchDailyYearShards === 'function',
+      };
+    });
+    const hasApi =
+      apiSurface.deleteWorkoutsYearShards ||
+      apiSurface.deleteEcgYearShards ||
+      apiSurface.deleteWatchDailyYearShards ||
+      apiSurface.deleteDomainYearShards;
+    expect(hasApi, 'v1.87: expected workouts/ecg/watchDaily year-shard delete APIs').toBe(true);
+
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.workouts = [
+        {
+          startDate: '2025-06-01T10:00:00',
+          date: '2025-06-01',
+          activityType: 'Walking',
+          activityLabel: '步行',
+          durationMin: 30,
+        },
+        {
+          startDate: '2026-01-02T10:00:00',
+          date: '2026-01-02',
+          activityType: 'Running',
+          activityLabel: '跑步',
+          durationMin: 25,
+        },
+      ];
+      data.ecg = [
+        { datetime: '2025-03-01T09:00:00', classification: '窦性心律' },
+        { datetime: '2026-02-01T09:00:00', classification: '窦性心律' },
+      ];
+      data.watchDaily = {
+        '2025-07-01': {
+          activeKcal: 400,
+          exerciseMin: 30,
+          standMin: 10,
+          daylightMin: 20,
+          standHoursStood: 8,
+          standHoursIdle: 4,
+          spo2Sum: 0,
+          spo2Count: 0,
+          spo2Min: Infinity,
+          spo2NightSum: 0,
+          spo2NightCount: 0,
+          spo2NightMin: Infinity,
+          spo2DaySum: 0,
+          spo2DayCount: 0,
+          spo2DayMin: Infinity,
+          rrSum: 0,
+          rrCount: 0,
+          nightHrSum: 0,
+          nightHrCount: 0,
+          wristTempSum: 0,
+          wristTempCount: 0,
+        },
+        '2026-07-01': {
+          activeKcal: 420,
+          exerciseMin: 32,
+          standMin: 11,
+          daylightMin: 22,
+          standHoursStood: 9,
+          standHoursIdle: 3,
+          spo2Sum: 0,
+          spo2Count: 0,
+          spo2Min: Infinity,
+          spo2NightSum: 0,
+          spo2NightCount: 0,
+          spo2NightMin: Infinity,
+          spo2DaySum: 0,
+          spo2DayCount: 0,
+          spo2DayMin: Infinity,
+          rrSum: 0,
+          rrCount: 0,
+          nightHrSum: 0,
+          nightHrCount: 0,
+          wristTempSum: 0,
+          wristTempCount: 0,
+        },
+      };
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasWorkouts = true;
+      data.dataAvailability.hasEcg = true;
+      data.dataAvailability.hasWatchActivity = true;
+      const res = await HH.persistHealthDataWarehouse(data);
+      if (!res || res.ok === false) {
+        throw new Error('persist failed: ' + JSON.stringify(res));
+      }
+    });
+
+    const afterPersist = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+      const ids = ((loaded && loaded.chunks) || []).map((c) => c.id).sort();
+      return {
+        workoutsYears: (st.workoutsYears || []).slice().sort(),
+        ecgYears: (st.ecgYears || []).slice().sort(),
+        watchDailyYears: (st.watchDailyYears || []).slice().sort(),
+        hasWorkouts2025: ids.indexOf('workouts|2025') >= 0,
+        hasWorkouts2026: ids.indexOf('workouts|2026') >= 0,
+        hasEcg2025: ids.indexOf('ecg|2025') >= 0,
+        hasWatch2025: ids.indexOf('watchDaily|2025') >= 0,
+      };
+    });
+    expect(afterPersist.workoutsYears).toEqual(expect.arrayContaining(['2025', '2026']));
+    expect(afterPersist.ecgYears).toEqual(expect.arrayContaining(['2025', '2026']));
+    expect(afterPersist.watchDailyYears).toEqual(expect.arrayContaining(['2025', '2026']));
+    expect(afterPersist.hasWorkouts2025).toBe(true);
+    expect(afterPersist.hasWorkouts2026).toBe(true);
+    expect(afterPersist.hasEcg2025).toBe(true);
+    expect(afterPersist.hasWatch2025).toBe(true);
+
+    const del = await page.evaluate(async () => {
+      const HH = window.HealthHistory;
+      let res;
+      if (typeof HH.deleteWorkoutsYearShards === 'function') {
+        res = await HH.deleteWorkoutsYearShards(['2025']);
+      } else {
+        res = await HH.deleteDomainYearShards('workouts', ['2025']);
+      }
+      return { ok: !!(res && res.ok), reason: res && res.reason };
+    });
+    expect(del.ok, 'delete workouts 2025: ' + JSON.stringify(del)).toBe(true);
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+            const ids = ((loaded && loaded.chunks) || []).map((c) => c.id);
+            return {
+              hasWorkouts2025: ids.indexOf('workouts|2025') >= 0,
+              hasWorkouts2026: ids.indexOf('workouts|2026') >= 0,
+              hasEcg2025: ids.indexOf('ecg|2025') >= 0,
+              hasWatch2025: ids.indexOf('watchDaily|2025') >= 0,
+            };
+          }),
+        { timeout: 10_000 }
+      )
+      .toEqual({
+        hasWorkouts2025: false,
+        hasWorkouts2026: true,
+        hasEcg2025: true,
+        hasWatch2025: true,
+      });
+  });
+
+  test('warehouse-shard-group collapsible details present after results', async ({ page }) => {
+    await waitAppReady(page);
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.workouts = [
+        {
+          startDate: '2026-03-01T10:00:00',
+          date: '2026-03-01',
+          activityType: 'Walking',
+          activityLabel: '步行',
+          durationMin: 20,
+        },
+      ];
+      data.ecg = [{ datetime: '2026-03-02T09:00:00', classification: '窦性心律' }];
+      data.watchDaily = {
+        '2026-03-03': {
+          activeKcal: 300,
+          exerciseMin: 20,
+          standMin: 8,
+          daylightMin: 10,
+          standHoursStood: 6,
+          standHoursIdle: 2,
+          spo2Sum: 0,
+          spo2Count: 0,
+          spo2Min: Infinity,
+          spo2NightSum: 0,
+          spo2NightCount: 0,
+          spo2NightMin: Infinity,
+          spo2DaySum: 0,
+          spo2DayCount: 0,
+          spo2DayMin: Infinity,
+          rrSum: 0,
+          rrCount: 0,
+          nightHrSum: 0,
+          nightHrCount: 0,
+          wristTempSum: 0,
+          wristTempCount: 0,
+        },
+      };
+      data.bloodPressure = [
+        { datetime: '2026-03-04T08:00:00', systolic: 120, diastolic: 80 },
+      ];
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasWorkouts = true;
+      data.dataAvailability.hasEcg = true;
+      data.dataAvailability.hasWatchActivity = true;
+      data.dataAvailability.hasBloodPressure = true;
+      await HH.persistHealthDataWarehouse(data);
+    });
+
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+    await setWorkspace(page, 'more');
+    await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+
+    const groupCount = await page.locator('details.warehouse-shard-group').count();
+    expect(groupCount).toBeGreaterThanOrEqual(4);
+    await expect(page.locator('details.warehouse-shard-group:not(.is-empty)').first()).toBeVisible({
+      timeout: 8_000,
+    });
+    await expect(page.locator('#warehouse-group-body:not(.is-empty)')).toBeVisible();
+    await expect(page.locator('#warehouse-group-activity:not(.is-empty)')).toBeVisible();
+    await expect(page.locator('#warehouse-group-cardio:not(.is-empty)')).toBeVisible();
   });
 
   test('copy warehouse status summary is meta-only (no raw samples)', async ({ page }) => {

@@ -5,6 +5,7 @@
  * + v1.79 BP/体重按年分片（bloodPressure|YYYY、weight|YYYY；bodyFat 并入 weight 年片）
  * + v1.85 sleep/steps 按年分片（sleep|YYYY、steps|YYYY；date-keyed map 切片）
  * + v1.86 hrv/restingHr/walkingHr 按年分片（hrv|YYYY 含 overnight；restingHr|YYYY；walkingHr|YYYY）
+ * + v1.87 workouts/ecg/watchDaily 按年分片（workouts|YYYY 数组；ecg|YYYY 数组；watchDaily|YYYY map）
  * 不上传；摘要仓不含完整 CGM；原始仓仅在 consent 开启后写入
  */
 (function (global) {
@@ -26,7 +27,7 @@
   /** Soft / hard byte caps for raw warehouse (approx JSON size) */
   const WAREHOUSE_SOFT_BYTES = 150 * 1024 * 1024;
   const WAREHOUSE_HARD_BYTES = 200 * 1024 * 1024;
-  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.86.0';
+  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.87.0';
   /** @deprecated legacy single-blob id; still read for migrate */
   const WH_CHUNK_HEALTH = 'healthData|full';
   const WH_CHUNK_CORE = 'core|full';
@@ -39,6 +40,9 @@
   const WH_DOMAIN_HRV = 'hrv';
   const WH_DOMAIN_RESTING_HR = 'restingHr';
   const WH_DOMAIN_WALKING_HR = 'walkingHr';
+  const WH_DOMAIN_WORKOUTS = 'workouts';
+  const WH_DOMAIN_ECG = 'ecg';
+  const WH_DOMAIN_WATCH = 'watchDaily';
 
   /**
    * Serialize warehouse mutations (persist / delete / clear / import).
@@ -251,7 +255,10 @@
     (data.cgm || []).forEach((p) => pushDate(p && p.datetime));
     (data.bloodPressure || []).forEach((p) => pushDate(p && p.datetime));
     (data.weight || []).forEach((p) => pushDate(p && p.datetime));
-    (data.workouts || []).forEach((p) => pushDate(p && (p.start || p.datetime)));
+    (data.workouts || []).forEach((p) =>
+      pushDate(p && (p.startDate || p.date || p.start || p.datetime))
+    );
+    (data.ecg || []).forEach((p) => pushDate(p && ecgRecordDatetime(p)));
     Object.keys(data.sleep || {}).forEach(pushDate);
     Object.keys(data.hrv || {}).forEach(pushDate);
     Object.keys(data.watchDaily || {}).forEach(pushDate);
@@ -394,11 +401,23 @@
     return /^\d{4}$/.test(s) ? s : 'unknown';
   }
 
-  /** Year key for date-keyed maps (sleep/steps/hrv/restingHr/walkingHr): YYYY-MM-DD → YYYY, else yearKeyFromDatetime. */
+  /** Year key for date-keyed maps (sleep/steps/hrv/restingHr/walkingHr/watchDaily): YYYY-MM-DD → YYYY, else yearKeyFromDatetime. */
   function yearKeyFromDateMapKey(key) {
     const s = String(key || '');
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 4);
     return yearKeyFromDatetime(s);
+  }
+
+  /** ECG summary date field: first available of date / startDate / datetime / recordedAt. */
+  function ecgRecordDatetime(p) {
+    if (!p || typeof p !== 'object') return '';
+    return p.date || p.startDate || p.datetime || p.recordedAt || '';
+  }
+
+  /** Workout session year from startDate (fallback date/start/datetime). */
+  function workoutRecordDatetime(p) {
+    if (!p || typeof p !== 'object') return '';
+    return p.startDate || p.date || p.start || p.datetime || '';
   }
 
   function isDateKeyedMap(m) {
@@ -444,6 +463,9 @@
     const hrvBytes = (split.hrvYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
     const restingHrBytes = (split.restingHrYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
     const walkingHrBytes = (split.walkingHrYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
+    const workoutsBytes = (split.workoutsYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
+    const ecgBytes = (split.ecgYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
+    const watchDailyBytes = (split.watchDailyYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
     split.totalBytes =
       (split.coreBytes || 0) +
       monthBytes +
@@ -453,7 +475,10 @@
       stepsBytes +
       hrvBytes +
       restingHrBytes +
-      walkingHrBytes;
+      walkingHrBytes +
+      workoutsBytes +
+      ecgBytes +
+      watchDailyBytes;
     return split.totalBytes;
   }
 
@@ -538,6 +563,23 @@
           Object.assign(payload.walkingHr, y.payload);
         }
       });
+    payload.workouts = [];
+    (split.workoutsYears || []).forEach((y) => {
+      payload.workouts = payload.workouts.concat(y.points || y.payload || []);
+    });
+    payload.ecg = [];
+    (split.ecgYears || []).forEach((y) => {
+      payload.ecg = payload.ecg.concat(y.points || y.payload || []);
+    });
+    payload.watchDaily = {};
+    (split.watchDailyYears || [])
+      .slice()
+      .sort((a, b) => String(a.year || '').localeCompare(String(b.year || '')))
+      .forEach((y) => {
+        if (y && y.payload && typeof y.payload === 'object') {
+          Object.assign(payload.watchDaily, y.payload);
+        }
+      });
     if (payload.dataAvailability) {
       payload.dataAvailability.hasCgm = payload.cgm.length > 0;
       payload.dataAvailability.hasBloodPressure = payload.bloodPressure.length > 0;
@@ -546,6 +588,9 @@
       if (Object.keys(payload.hrv).length || Object.keys(payload.hrvOvernight).length) {
         payload.dataAvailability.hasHrv = true;
       }
+      if (payload.workouts.length) payload.dataAvailability.hasWorkouts = true;
+      if (payload.ecg.length) payload.dataAvailability.hasEcg = true;
+      if (Object.keys(payload.watchDaily).length) payload.dataAvailability.hasWatchActivity = true;
     }
     return payload;
   }
@@ -586,10 +631,38 @@
   }
 
   /**
-   * Split HealthData into core (no cgm / BP / weight / sleep / steps / hrv / restingHr / walkingHr)
-   * + monthly CGM + yearly BP/weight/sleep/steps/hrv/restingHr/walkingHr shards.
+   * Bucket an array of session/summary records by year using a datetime extractor.
+   * @param {object[]} rows
+   * @param {(row: object) => string} getDt
+   * @returns {{ year: string, points: object[], payload: object[], approxBytes: number, recordCount: number }[]}
+   */
+  function bucketArrayByYear(rows, getDt) {
+    /** @type {Record<string, object[]>} */
+    const byYear = {};
+    (rows || []).forEach((p) => {
+      const y = yearKeyFromDatetime(getDt(p));
+      if (!byYear[y]) byYear[y] = [];
+      byYear[y].push(p);
+    });
+    return Object.keys(byYear)
+      .sort()
+      .map((year) => {
+        const points = byYear[year];
+        return {
+          year,
+          points,
+          payload: points,
+          approxBytes: approxJsonBytes(points),
+          recordCount: points.length,
+        };
+      });
+  }
+
+  /**
+   * Split HealthData into core (no cgm / BP / weight / sleep / steps / hrv / restingHr / walkingHr /
+   * workouts / ecg / watchDaily) + monthly CGM + yearly domain shards.
    * bodyFat rides with weight year shards; hrvOvernight rides with hrv year shards.
-   * @returns {{ core: object, months: object[], bpYears: object[], weightYears: object[], sleepYears: object[], stepsYears: object[], hrvYears: object[], restingHrYears: object[], walkingHrYears: object[], coreBytes: number, totalBytes: number }}
+   * @returns {{ core: object, months: object[], bpYears: object[], weightYears: object[], sleepYears: object[], stepsYears: object[], hrvYears: object[], restingHrYears: object[], walkingHrYears: object[], workoutsYears: object[], ecgYears: object[], watchDailyYears: object[], coreBytes: number, totalBytes: number }}
    */
   function splitHealthDataShards(healthData) {
     const full = clonePlain(healthData);
@@ -603,6 +676,9 @@
     const hrvOvernightMap = isDateKeyedMap(full.hrvOvernight) ? full.hrvOvernight : {};
     const restingHrMap = isDateKeyedMap(full.restingHr) ? full.restingHr : {};
     const walkingHrMap = isDateKeyedMap(full.walkingHr) ? full.walkingHr : {};
+    const workoutsArr = Array.isArray(full.workouts) ? full.workouts : [];
+    const ecgArr = Array.isArray(full.ecg) ? full.ecg : [];
+    const watchDailyMap = isDateKeyedMap(full.watchDaily) ? full.watchDaily : {};
     full.cgm = [];
     full.bloodPressure = [];
     full.weight = [];
@@ -613,6 +689,9 @@
     full.hrvOvernight = {};
     full.restingHr = {};
     full.walkingHr = {};
+    full.workouts = [];
+    full.ecg = [];
+    full.watchDaily = {};
 
     /** @type {Record<string, object[]>} */
     const byMonth = {};
@@ -679,6 +758,9 @@
     const hrvYears = bucketHrvYears(hrvMap, hrvOvernightMap);
     const restingHrYears = bucketDateMapByYear(restingHrMap);
     const walkingHrYears = bucketDateMapByYear(walkingHrMap);
+    const workoutsYears = bucketArrayByYear(workoutsArr, workoutRecordDatetime);
+    const ecgYears = bucketArrayByYear(ecgArr, ecgRecordDatetime);
+    const watchDailyYears = bucketDateMapByYear(watchDailyMap);
 
     const coreBytes = approxJsonBytes(full);
     const split = {
@@ -691,6 +773,9 @@
       hrvYears,
       restingHrYears,
       walkingHrYears,
+      workoutsYears,
+      ecgYears,
+      watchDailyYears,
       coreBytes,
       totalBytes: 0,
     };
@@ -920,15 +1005,93 @@
   }
 
   /**
-   * Run CGM month eviction then optional BP/weight, sleep/steps, then hrv/hr year eviction.
+   * After hrv/hr year eviction: drop oldest workouts / ecg / watchDaily year shards.
+   * Safe: keep ≥1 year per domain when possible (never drop last year of a domain).
+   * Mutates split.workoutsYears / split.ecgYears / split.watchDailyYears.
+   */
+  function evictOldestWorkoutsEcgWatchYears(split) {
+    let removedWorkouts = 0;
+    let removedEcg = 0;
+    let removedWatchDaily = 0;
+    let removedYears = 0;
+    const beforeBytes = split.totalBytes;
+    if (!split.workoutsYears) split.workoutsYears = [];
+    if (!split.ecgYears) split.ecgYears = [];
+    if (!split.watchDailyYears) split.watchDailyYears = [];
+
+    while (split.totalBytes > WAREHOUSE_SOFT_BYTES) {
+      /** @type {{ domain: string, year: string, idx: number }[]} */
+      const candidates = [];
+      if (split.workoutsYears.length > 1) {
+        split.workoutsYears.forEach((y, idx) => {
+          candidates.push({ domain: 'workouts', year: String(y.year || ''), idx });
+        });
+      }
+      if (split.ecgYears.length > 1) {
+        split.ecgYears.forEach((y, idx) => {
+          candidates.push({ domain: 'ecg', year: String(y.year || ''), idx });
+        });
+      }
+      if (split.watchDailyYears.length > 1) {
+        split.watchDailyYears.forEach((y, idx) => {
+          candidates.push({ domain: 'watchDaily', year: String(y.year || ''), idx });
+        });
+      }
+      if (!candidates.length) break;
+
+      candidates.sort((a, b) => {
+        const yc = String(a.year).localeCompare(String(b.year));
+        if (yc !== 0) return yc;
+        // Prefer drop workouts first for same year, then ecg, then watchDaily
+        const order = { workouts: 0, ecg: 1, watchDaily: 2 };
+        return (order[a.domain] || 0) - (order[b.domain] || 0);
+      });
+      const pick = candidates[0];
+      if (pick.domain === 'workouts') {
+        const row = split.workoutsYears.splice(pick.idx, 1)[0];
+        removedWorkouts += row.recordCount || 0;
+        removedYears += 1;
+      } else if (pick.domain === 'ecg') {
+        const row = split.ecgYears.splice(pick.idx, 1)[0];
+        removedEcg += row.recordCount || 0;
+        removedYears += 1;
+      } else if (pick.domain === 'watchDaily') {
+        const row = split.watchDailyYears.splice(pick.idx, 1)[0];
+        removedWatchDaily += row.recordCount || 0;
+        removedYears += 1;
+      } else {
+        break;
+      }
+      recomputeSplitTotalBytes(split);
+    }
+    return {
+      trimmed: removedWorkouts > 0 || removedEcg > 0 || removedWatchDaily > 0,
+      removedWorkouts,
+      removedEcg,
+      removedWatchDaily,
+      removedYears,
+      beforeBytes,
+      afterBytes: split.totalBytes,
+    };
+  }
+
+  /**
+   * Run CGM month eviction then BP/weight, sleep/steps, hrv/hr, then workouts/ecg/watch year eviction.
    */
   function applyShardQuotaEviction(split) {
     const cgmEv = evictOldestCgmMonths(split);
     const yearEv = evictOldestBpWeightYears(split);
     const mapYearEv = evictOldestSleepStepsYears(split);
     const hrvHrEv = evictOldestHrvHrYears(split);
+    const wewEv = evictOldestWorkoutsEcgWatchYears(split);
     return {
-      trimmed: !!(cgmEv.trimmed || yearEv.trimmed || mapYearEv.trimmed || hrvHrEv.trimmed),
+      trimmed: !!(
+        cgmEv.trimmed ||
+        yearEv.trimmed ||
+        mapYearEv.trimmed ||
+        hrvHrEv.trimmed ||
+        wewEv.trimmed
+      ),
       removedCgm: cgmEv.removedCgm || 0,
       removedMonths: cgmEv.removedMonths || 0,
       removedBp: yearEv.removedBp || 0,
@@ -938,8 +1101,14 @@
       removedHrv: hrvHrEv.removedHrv || 0,
       removedRestingHr: hrvHrEv.removedRestingHr || 0,
       removedWalkingHr: hrvHrEv.removedWalkingHr || 0,
+      removedWorkouts: wewEv.removedWorkouts || 0,
+      removedEcg: wewEv.removedEcg || 0,
+      removedWatchDaily: wewEv.removedWatchDaily || 0,
       removedYears:
-        (yearEv.removedYears || 0) + (mapYearEv.removedYears || 0) + (hrvHrEv.removedYears || 0),
+        (yearEv.removedYears || 0) +
+        (mapYearEv.removedYears || 0) +
+        (hrvHrEv.removedYears || 0) +
+        (wewEv.removedYears || 0),
       beforeBytes: cgmEv.beforeBytes,
       afterBytes: split.totalBytes,
     };
@@ -966,6 +1135,9 @@
         removedHrv: ev.removedHrv,
         removedRestingHr: ev.removedRestingHr,
         removedWalkingHr: ev.removedWalkingHr,
+        removedWorkouts: ev.removedWorkouts,
+        removedEcg: ev.removedEcg,
+        removedWatchDaily: ev.removedWatchDaily,
         removedYears: ev.removedYears,
         beforeBytes: ev.beforeBytes,
         afterBytes: approxJsonBytes(payload),
@@ -1135,6 +1307,50 @@
       data.walkingHr = {};
     }
 
+    // Workouts year shards (v1.87+): payload is array of sessions. Merge by year order; keep core if none.
+    const workoutsChunks = allChunks
+      .filter((c) => c && c.domain === WH_DOMAIN_WORKOUTS && Array.isArray(c.payload))
+      .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+    if (workoutsChunks.length) {
+      data.workouts = [];
+      workoutsChunks.forEach((c) => {
+        data.workouts = data.workouts.concat(c.payload);
+      });
+    } else if (!Array.isArray(data.workouts)) {
+      data.workouts = [];
+    }
+
+    // ECG year shards (v1.87+): payload is array of summaries. Merge by year order; keep core if none.
+    const ecgChunks = allChunks
+      .filter((c) => c && c.domain === WH_DOMAIN_ECG && Array.isArray(c.payload))
+      .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+    if (ecgChunks.length) {
+      data.ecg = [];
+      ecgChunks.forEach((c) => {
+        data.ecg = data.ecg.concat(c.payload);
+      });
+    } else if (!Array.isArray(data.ecg)) {
+      data.ecg = [];
+    }
+
+    // watchDaily year shards (v1.87+): payload is date-keyed map. Merge by year order; keep core if none.
+    const watchDailyChunks = allChunks
+      .filter(
+        (c) =>
+          c && c.domain === WH_DOMAIN_WATCH && c.payload != null && typeof c.payload === 'object'
+      )
+      .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+    if (watchDailyChunks.length) {
+      data.watchDaily = {};
+      watchDailyChunks.forEach((c) => {
+        if (c.payload && typeof c.payload === 'object' && !Array.isArray(c.payload)) {
+          Object.assign(data.watchDaily, c.payload);
+        }
+      });
+    } else if (!data.watchDaily || typeof data.watchDaily !== 'object' || Array.isArray(data.watchDaily)) {
+      data.watchDaily = {};
+    }
+
     if (data.dataAvailability) {
       data.dataAvailability.hasCgm = (data.cgm && data.cgm.length) > 0;
       data.dataAvailability.hasBloodPressure = (data.bloodPressure && data.bloodPressure.length) > 0;
@@ -1145,6 +1361,11 @@
         (data.hrvOvernight && Object.keys(data.hrvOvernight).length)
       ) {
         data.dataAvailability.hasHrv = true;
+      }
+      if (data.workouts && data.workouts.length) data.dataAvailability.hasWorkouts = true;
+      if (data.ecg && data.ecg.length) data.dataAvailability.hasEcg = true;
+      if (data.watchDaily && Object.keys(data.watchDaily).length) {
+        data.dataAvailability.hasWatchActivity = true;
       }
     }
     return {
@@ -1160,6 +1381,9 @@
       hrvChunks,
       restingHrChunks,
       walkingHrChunks,
+      workoutsChunks,
+      ecgChunks,
+      watchDailyChunks,
     };
   }
 
@@ -1177,7 +1401,8 @@
   }
 
   /**
-   * Persist merged HealthData into warehouse (CGM by month; BP/weight/sleep/steps/hrv/restingHr/walkingHr by year).
+   * Persist merged HealthData into warehouse (CGM by month; BP/weight/sleep/steps/hrv/restingHr/walkingHr/
+   * workouts/ecg/watchDaily by year).
    * @param {object} healthData
    * @param {{ batchId?: string|null }} [opts]
    * @returns {Promise<{ ok: boolean, reason?: string, meta?: object, approxBytes?: number }>}
@@ -1342,6 +1567,45 @@
         updatedAt: now,
         codec: 'json',
       }));
+      const workoutsChunks = (split.workoutsYears || []).map((y) => ({
+        id: 'workouts|' + y.year,
+        domain: WH_DOMAIN_WORKOUTS,
+        shard: y.year,
+        dateStart: y.year + '-01-01',
+        dateEnd: y.year + '-12-31',
+        payload: y.payload || y.points || [],
+        approxBytes: y.approxBytes,
+        recordCount: y.recordCount,
+        batchId,
+        updatedAt: now,
+        codec: 'json',
+      }));
+      const ecgChunks = (split.ecgYears || []).map((y) => ({
+        id: 'ecg|' + y.year,
+        domain: WH_DOMAIN_ECG,
+        shard: y.year,
+        dateStart: y.year + '-01-01',
+        dateEnd: y.year + '-12-31',
+        payload: y.payload || y.points || [],
+        approxBytes: y.approxBytes,
+        recordCount: y.recordCount,
+        batchId,
+        updatedAt: now,
+        codec: 'json',
+      }));
+      const watchDailyChunks = (split.watchDailyYears || []).map((y) => ({
+        id: 'watchDaily|' + y.year,
+        domain: WH_DOMAIN_WATCH,
+        shard: y.year,
+        dateStart: y.year + '-01-01',
+        dateEnd: y.year + '-12-31',
+        payload: y.payload || {},
+        approxBytes: y.approxBytes,
+        recordCount: y.recordCount,
+        batchId,
+        updatedAt: now,
+        codec: 'json',
+      }));
 
       meta.dateRange = dateRange;
       meta.domainStats = buildDomainStats(payload);
@@ -1376,6 +1640,15 @@
       if (meta.domainStats.walkingHr && walkingHrChunks.length) {
         meta.domainStats.walkingHr.chunkCount = walkingHrChunks.length;
       }
+      if (meta.domainStats.workouts && workoutsChunks.length) {
+        meta.domainStats.workouts.chunkCount = workoutsChunks.length;
+      }
+      if (meta.domainStats.ecg && ecgChunks.length) {
+        meta.domainStats.ecg.chunkCount = ecgChunks.length;
+      }
+      if (meta.domainStats.watchDaily && watchDailyChunks.length) {
+        meta.domainStats.watchDaily.chunkCount = watchDailyChunks.length;
+      }
       meta.totalApproxBytes = approxBytes;
       meta.totalRecordCount = recordCount;
       meta.lastImportBatchId = batchId || meta.lastImportBatchId || null;
@@ -1390,6 +1663,9 @@
       meta.hrvYears = hrvChunks.map((c) => c.shard);
       meta.restingHrYears = restingHrChunks.map((c) => c.shard);
       meta.walkingHrYears = walkingHrChunks.map((c) => c.shard);
+      meta.workoutsYears = workoutsChunks.map((c) => c.shard);
+      meta.ecgYears = ecgChunks.map((c) => c.shard);
+      meta.watchDailyYears = watchDailyChunks.map((c) => c.shard);
       if (approxBytes > WAREHOUSE_SOFT_BYTES) {
         meta.notes = ['soft_quota_exceeded'];
       } else if (trimMeta.trimmed) {
@@ -1401,6 +1677,9 @@
         }
         if (trimMeta.removedHrv || trimMeta.removedRestingHr || trimMeta.removedWalkingHr) {
           notes.push('hrv_hr_years_evicted_for_quota');
+        }
+        if (trimMeta.removedWorkouts || trimMeta.removedEcg || trimMeta.removedWatchDaily) {
+          notes.push('workouts_ecg_watch_years_evicted_for_quota');
         }
         meta.notes = notes.length ? notes : ['shards_evicted_for_quota'];
       } else {
@@ -1431,6 +1710,9 @@
             hrvChunks.forEach((c) => store.put(c));
             restingHrChunks.forEach((c) => store.put(c));
             walkingHrChunks.forEach((c) => store.put(c));
+            workoutsChunks.forEach((c) => store.put(c));
+            ecgChunks.forEach((c) => store.put(c));
+            watchDailyChunks.forEach((c) => store.put(c));
             tx.objectStore(STORE_WH_META).put(Object.assign(defaultWarehouseMeta(), meta, { id: WH_META_ID }));
             tx.oncomplete = () => {
               db.close();
@@ -1449,6 +1731,9 @@
                 removedHrv: trimMeta.removedHrv || 0,
                 removedRestingHr: trimMeta.removedRestingHr || 0,
                 removedWalkingHr: trimMeta.removedWalkingHr || 0,
+                removedWorkouts: trimMeta.removedWorkouts || 0,
+                removedEcg: trimMeta.removedEcg || 0,
+                removedWatchDaily: trimMeta.removedWatchDaily || 0,
                 removedYears: trimMeta.removedYears || 0,
                 layout: 'sharded-v1',
                 cgmMonthCount: cgmChunks.length,
@@ -1459,6 +1744,9 @@
                 hrvYearCount: hrvChunks.length,
                 restingHrYearCount: restingHrChunks.length,
                 walkingHrYearCount: walkingHrChunks.length,
+                workoutsYearCount: workoutsChunks.length,
+                ecgYearCount: ecgChunks.length,
+                watchDailyYearCount: watchDailyChunks.length,
               });
             };
             tx.onerror = () => {
@@ -1527,6 +1815,9 @@
         hrvYears: meta.hrvYears || [],
         restingHrYears: meta.restingHrYears || [],
         walkingHrYears: meta.walkingHrYears || [],
+        workoutsYears: meta.workoutsYears || [],
+        ecgYears: meta.ecgYears || [],
+        watchDailyYears: meta.watchDailyYears || [],
       };
     }).then((status) => {
       if (!status.granted) return status;
@@ -1636,11 +1927,34 @@
               status.hrvYearDetails = hrvYearDetails;
               status.restingHrYearDetails = mapYearDetails(WH_DOMAIN_RESTING_HR);
               status.walkingHrYearDetails = mapYearDetails(WH_DOMAIN_WALKING_HR);
+              const arrayYearDetails = (domain) =>
+                (all || [])
+                  .filter((c) => c && c.domain === domain)
+                  .slice()
+                  .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')))
+                  .map((c) => ({
+                    year: c.shard || '',
+                    recordCount:
+                      c.recordCount != null
+                        ? c.recordCount
+                        : Array.isArray(c.payload)
+                          ? c.payload.length
+                          : 0,
+                    approxBytes: c.approxBytes || 0,
+                  }));
+              status.workoutsYearDetails = arrayYearDetails(WH_DOMAIN_WORKOUTS);
+              status.ecgYearDetails = arrayYearDetails(WH_DOMAIN_ECG);
+              status.watchDailyYearDetails = mapYearDetails(WH_DOMAIN_WATCH);
               status.sleepYears = status.sleepYearDetails.map((d) => d.year).filter(Boolean);
               status.stepsYears = status.stepsYearDetails.map((d) => d.year).filter(Boolean);
               status.hrvYears = status.hrvYearDetails.map((d) => d.year).filter(Boolean);
               status.restingHrYears = status.restingHrYearDetails.map((d) => d.year).filter(Boolean);
               status.walkingHrYears = status.walkingHrYearDetails.map((d) => d.year).filter(Boolean);
+              status.workoutsYears = status.workoutsYearDetails.map((d) => d.year).filter(Boolean);
+              status.ecgYears = status.ecgYearDetails.map((d) => d.year).filter(Boolean);
+              status.watchDailyYears = status.watchDailyYearDetails
+                .map((d) => d.year)
+                .filter(Boolean);
               status.yearDetails = {
                 bloodPressure: status.bpYearDetails,
                 weight: status.weightYearDetails,
@@ -1649,6 +1963,9 @@
                 hrv: status.hrvYearDetails,
                 restingHr: status.restingHrYearDetails,
                 walkingHr: status.walkingHrYearDetails,
+                workouts: status.workoutsYearDetails,
+                ecg: status.ecgYearDetails,
+                watchDaily: status.watchDailyYearDetails,
               };
               status.chunkCount = (all || []).length;
               status.coreBytes = ((all || []).find((c) => c && (c.id === WH_CHUNK_CORE || c.domain === 'core')) || {}).approxBytes || 0;
@@ -1661,6 +1978,9 @@
               status.hrvYearDetails = [];
               status.restingHrYearDetails = [];
               status.walkingHrYearDetails = [];
+              status.workoutsYearDetails = [];
+              status.ecgYearDetails = [];
+              status.watchDailyYearDetails = [];
               status.yearDetails = {
                 bloodPressure: [],
                 weight: [],
@@ -1669,6 +1989,9 @@
                 hrv: [],
                 restingHr: [],
                 walkingHr: [],
+                workouts: [],
+                ecg: [],
+                watchDaily: [],
               };
               status.chunkCount = 1;
             }
@@ -1915,6 +2238,21 @@
             .sort();
           meta.walkingHrYears = toWrite
             .filter((c) => c && c.domain === WH_DOMAIN_WALKING_HR)
+            .map((c) => c.shard)
+            .filter(Boolean)
+            .sort();
+          meta.workoutsYears = toWrite
+            .filter((c) => c && c.domain === WH_DOMAIN_WORKOUTS)
+            .map((c) => c.shard)
+            .filter(Boolean)
+            .sort();
+          meta.ecgYears = toWrite
+            .filter((c) => c && c.domain === WH_DOMAIN_ECG)
+            .map((c) => c.shard)
+            .filter(Boolean)
+            .sort();
+          meta.watchDailyYears = toWrite
+            .filter((c) => c && c.domain === WH_DOMAIN_WATCH)
             .map((c) => c.shard)
             .filter(Boolean)
             .sort();
@@ -2766,6 +3104,21 @@
       .map((c) => c.shard)
       .filter(Boolean)
       .sort();
+    next.workoutsYears = remaining
+      .filter((c) => c && c.domain === WH_DOMAIN_WORKOUTS)
+      .map((c) => c.shard)
+      .filter(Boolean)
+      .sort();
+    next.ecgYears = remaining
+      .filter((c) => c && c.domain === WH_DOMAIN_ECG)
+      .map((c) => c.shard)
+      .filter(Boolean)
+      .sort();
+    next.watchDailyYears = remaining
+      .filter((c) => c && c.domain === WH_DOMAIN_WATCH)
+      .map((c) => c.shard)
+      .filter(Boolean)
+      .sort();
   }
 
   function recomputeMetaAfterShardDeletes(meta, remaining, note) {
@@ -2800,6 +3153,11 @@
         if (!data.walkingHr || typeof data.walkingHr !== 'object' || Array.isArray(data.walkingHr)) {
           data.walkingHr = {};
         }
+        if (!Array.isArray(data.workouts)) data.workouts = [];
+        if (!Array.isArray(data.ecg)) data.ecg = [];
+        if (!data.watchDaily || typeof data.watchDaily !== 'object' || Array.isArray(data.watchDaily)) {
+          data.watchDaily = {};
+        }
         next.totalApproxBytes =
           remaining.reduce((s, c) => s + (c.approxBytes || 0), 0) ||
           core.approxBytes ||
@@ -2822,6 +3180,9 @@
         next.hrvYears = [];
         next.restingHrYears = [];
         next.walkingHrYears = [];
+        next.workoutsYears = [];
+        next.ecgYears = [];
+        next.watchDailyYears = [];
       }
     }
     next.lastWrittenAt = now;
@@ -2971,9 +3332,10 @@
   }
 
   /**
-   * Delete one or more yearly shards for bloodPressure, weight, sleep, steps, hrv, restingHr, or walkingHr.
+   * Delete one or more yearly shards for bloodPressure, weight, sleep, steps, hrv, restingHr, walkingHr,
+   * workouts, ecg, or watchDaily.
    * For hrv, deleting a year removes both hrv and hrvOvernight (same chunk hrv|YYYY).
-   * @param {'bloodPressure'|'weight'|'sleep'|'steps'|'hrv'|'restingHr'|'walkingHr'} domain
+   * @param {'bloodPressure'|'weight'|'sleep'|'steps'|'hrv'|'restingHr'|'walkingHr'|'workouts'|'ecg'|'watchDaily'} domain
    * @param {string|string[]} years e.g. '2025' or ['2024','2025']
    */
   function deleteDomainYearShards(domain, years) {
@@ -2985,7 +3347,10 @@
       dom !== WH_DOMAIN_STEPS &&
       dom !== WH_DOMAIN_HRV &&
       dom !== WH_DOMAIN_RESTING_HR &&
-      dom !== WH_DOMAIN_WALKING_HR
+      dom !== WH_DOMAIN_WALKING_HR &&
+      dom !== WH_DOMAIN_WORKOUTS &&
+      dom !== WH_DOMAIN_ECG &&
+      dom !== WH_DOMAIN_WATCH
     ) {
       return Promise.resolve({ ok: false, reason: 'invalid_domain' });
     }
@@ -3050,6 +3415,18 @@
     return deleteDomainYearShards(WH_DOMAIN_WALKING_HR, years);
   }
 
+  function deleteWorkoutsYearShards(years) {
+    return deleteDomainYearShards(WH_DOMAIN_WORKOUTS, years);
+  }
+
+  function deleteEcgYearShards(years) {
+    return deleteDomainYearShards(WH_DOMAIN_ECG, years);
+  }
+
+  function deleteWatchDailyYearShards(years) {
+    return deleteDomainYearShards(WH_DOMAIN_WATCH, years);
+  }
+
   global.HealthHistory = {
     saveSnapshot,
     listSnapshots,
@@ -3100,6 +3477,9 @@
     deleteHrvYearShards,
     deleteRestingHrYearShards,
     deleteWalkingHrYearShards,
+    deleteWorkoutsYearShards,
+    deleteEcgYearShards,
+    deleteWatchDailyYearShards,
     buildDomainStats,
     trimCgmForSoftQuota,
     splitHealthDataShards,

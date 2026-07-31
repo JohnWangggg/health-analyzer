@@ -7457,6 +7457,39 @@
       }));
     }
 
+    const workoutsYears = (st.workoutsYears || (st.workoutsYearDetails || []).map((d) => d && d.year) || [])
+      .map((y) => String(y || '').slice(0, 4))
+      .filter((y) => /^\d{4}$/.test(y))
+      .sort();
+    if (st.workoutsYears || (st.workoutsYearDetails && st.workoutsYearDetails.length) || workoutsYears.length) {
+      lines.push(t('warehouse.statusSummary.workoutsYears', {
+        n: String(workoutsYears.length),
+        list: workoutsYears.length ? workoutsYears.join(', ') : '—',
+      }));
+    }
+
+    const ecgYears = (st.ecgYears || (st.ecgYearDetails || []).map((d) => d && d.year) || [])
+      .map((y) => String(y || '').slice(0, 4))
+      .filter((y) => /^\d{4}$/.test(y))
+      .sort();
+    if (st.ecgYears || (st.ecgYearDetails && st.ecgYearDetails.length) || ecgYears.length) {
+      lines.push(t('warehouse.statusSummary.ecgYears', {
+        n: String(ecgYears.length),
+        list: ecgYears.length ? ecgYears.join(', ') : '—',
+      }));
+    }
+
+    const watchDailyYears = (st.watchDailyYears || (st.watchDailyYearDetails || []).map((d) => d && d.year) || [])
+      .map((y) => String(y || '').slice(0, 4))
+      .filter((y) => /^\d{4}$/.test(y))
+      .sort();
+    if (st.watchDailyYears || (st.watchDailyYearDetails && st.watchDailyYearDetails.length) || watchDailyYears.length) {
+      lines.push(t('warehouse.statusSummary.watchDailyYears', {
+        n: String(watchDailyYears.length),
+        list: watchDailyYears.length ? watchDailyYears.join(', ') : '—',
+      }));
+    }
+
     lines.push(t('warehouse.statusSummary.softWarn', { v: st.softWarn ? yes : no }));
     lines.push(t('warehouse.statusSummary.autoTrim', {
       v: isWarehouseAutoTrimEnabled() ? on : off,
@@ -7585,6 +7618,12 @@
     const restingHrList = $('warehouse-resting-hr-year-list');
     const walkingHrWrap = $('warehouse-walking-hr-years');
     const walkingHrList = $('warehouse-walking-hr-year-list');
+    const workoutsWrap = $('warehouse-workouts-years');
+    const workoutsList = $('warehouse-workouts-year-list');
+    const ecgWrap = $('warehouse-ecg-years');
+    const ecgList = $('warehouse-ecg-year-list');
+    const watchWrap = $('warehouse-watch-years');
+    const watchList = $('warehouse-watch-year-list');
     const HH = window.HealthHistory;
     if (!HH || typeof HH.getWarehouseStatus !== 'function') {
       if (statusEl) statusEl.textContent = t('warehouse.unavailable');
@@ -7627,6 +7666,12 @@
       if (restingHrList) restingHrList.innerHTML = '';
       if (walkingHrWrap) walkingHrWrap.classList.add('hidden');
       if (walkingHrList) walkingHrList.innerHTML = '';
+      if (workoutsWrap) workoutsWrap.classList.add('hidden');
+      if (workoutsList) workoutsList.innerHTML = '';
+      if (ecgWrap) ecgWrap.classList.add('hidden');
+      if (ecgList) ecgList.innerHTML = '';
+      if (watchWrap) watchWrap.classList.add('hidden');
+      if (watchList) watchList.innerHTML = '';
       const bothActions = $('warehouse-years-both-actions');
       if (bothActions) bothActions.classList.add('hidden');
       const bpSelectAll = $('warehouse-bp-select-all');
@@ -7636,6 +7681,9 @@
       const hrvSelectAll = $('warehouse-hrv-select-all');
       const restingHrSelectAll = $('warehouse-resting-hr-select-all');
       const walkingHrSelectAll = $('warehouse-walking-hr-select-all');
+      const workoutsSelectAll = $('warehouse-workouts-select-all');
+      const ecgSelectAll = $('warehouse-ecg-select-all');
+      const watchSelectAll = $('warehouse-watch-select-all');
       if (bpSelectAll) bpSelectAll.checked = false;
       if (weightSelectAll) weightSelectAll.checked = false;
       if (sleepSelectAll) sleepSelectAll.checked = false;
@@ -7643,14 +7691,19 @@
       if (hrvSelectAll) hrvSelectAll.checked = false;
       if (restingHrSelectAll) restingHrSelectAll.checked = false;
       if (walkingHrSelectAll) walkingHrSelectAll.checked = false;
+      if (workoutsSelectAll) workoutsSelectAll.checked = false;
+      if (ecgSelectAll) ecgSelectAll.checked = false;
+      if (watchSelectAll) watchSelectAll.checked = false;
       syncWarehouseAutoTrimUi();
 
       if (!statusEl) {
+        refreshWarehouseShardGroups();
         await refreshWarehouseHomeBanner();
         return;
       }
       if (!st.granted) {
         statusEl.textContent = t('warehouse.status.off');
+        refreshWarehouseShardGroups();
         await refreshWarehouseHomeBanner();
         return;
       }
@@ -7693,6 +7746,12 @@
               || ((st.restingHrYearDetails && st.restingHrYearDetails.length) || 0)),
             walkingHrYears: String((st.walkingHrYears && st.walkingHrYears.length)
               || ((st.walkingHrYearDetails && st.walkingHrYearDetails.length) || 0)),
+            workoutsYears: String((st.workoutsYears && st.workoutsYears.length)
+              || ((st.workoutsYearDetails && st.workoutsYearDetails.length) || 0)),
+            ecgYears: String((st.ecgYears && st.ecgYears.length)
+              || ((st.ecgYearDetails && st.ecgYearDetails.length) || 0)),
+            watchDailyYears: String((st.watchDailyYears && st.watchDailyYears.length)
+              || ((st.watchDailyYearDetails && st.watchDailyYearDetails.length) || 0)),
             chunks: String(st.chunkCount || 0),
           });
           layoutEl.classList.remove('hidden');
@@ -7812,12 +7871,36 @@
         'walkingHr',
         'walkingHr'
       );
+      renderYearShardList(
+        workoutsWrap,
+        workoutsList,
+        yearShardDetailsOrFallback(st.workoutsYearDetails, st.workoutsYears),
+        'workouts',
+        'workouts'
+      );
+      renderYearShardList(
+        ecgWrap,
+        ecgList,
+        yearShardDetailsOrFallback(st.ecgYearDetails, st.ecgYears),
+        'ecg',
+        'ecg'
+      );
+      renderYearShardList(
+        watchWrap,
+        watchList,
+        yearShardDetailsOrFallback(st.watchDailyYearDetails, st.watchDailyYears),
+        'watch',
+        'watchDaily'
+      );
       if (bothActions) {
         const hasYears =
           (bpWrap && !bpWrap.classList.contains('hidden')) ||
           (weightWrap && !weightWrap.classList.contains('hidden'));
         bothActions.classList.toggle('hidden', !hasYears);
       }
+
+      // Collapsible domain groups: badge counts + default open state
+      refreshWarehouseShardGroups();
 
       // Browser origin storage estimate (best-effort)
       if (storageEl && navigator.storage && typeof navigator.storage.estimate === 'function') {
@@ -7929,6 +8012,28 @@
       });
       currentAnalysis.data.walkingHr = next;
     }
+    // Workouts: array of sessions filtered by startDate year
+    if (domain === 'workouts' && Array.isArray(currentAnalysis.data.workouts)) {
+      currentAnalysis.data.workouts = currentAnalysis.data.workouts.filter((p) => {
+        const dt = (p && (p.startDate || p.start || p.datetime || p.date)) || '';
+        return !dropYear(dt);
+      });
+    }
+    // ECG: array filtered by date / startDate / datetime
+    if (domain === 'ecg' && Array.isArray(currentAnalysis.data.ecg)) {
+      currentAnalysis.data.ecg = currentAnalysis.data.ecg.filter((p) => {
+        const dt = (p && (p.date || p.startDate || p.datetime || p.start)) || '';
+        return !dropYear(dt);
+      });
+    }
+    // Watch daily: date-map drop keys by year
+    if (domain === 'watchDaily' && currentAnalysis.data.watchDaily && typeof currentAnalysis.data.watchDaily === 'object') {
+      const next = {};
+      Object.keys(currentAnalysis.data.watchDaily).forEach((k) => {
+        if (!dropYear(k)) next[k] = currentAnalysis.data.watchDaily[k];
+      });
+      currentAnalysis.data.watchDaily = next;
+    }
     reanalyzeAfterWarehouseTrim();
   }
 
@@ -7973,6 +8078,15 @@
     if (domain === 'walkingHr' && typeof HH.deleteWalkingHrYearShards === 'function') {
       return (years) => HH.deleteWalkingHrYearShards(years);
     }
+    if (domain === 'workouts' && typeof HH.deleteWorkoutsYearShards === 'function') {
+      return (years) => HH.deleteWorkoutsYearShards(years);
+    }
+    if (domain === 'ecg' && typeof HH.deleteEcgYearShards === 'function') {
+      return (years) => HH.deleteEcgYearShards(years);
+    }
+    if (domain === 'watchDaily' && typeof HH.deleteWatchDailyYearShards === 'function') {
+      return (years) => HH.deleteWatchDailyYearShards(years);
+    }
     if (typeof HH.deleteDomainYearShards === 'function') {
       return (years) => HH.deleteDomainYearShards(domain, years);
     }
@@ -7983,8 +8097,8 @@
    * @param {HTMLElement|null} wrap
    * @param {HTMLElement|null} listEl
    * @param {Array<{year?: string, recordCount?: number, approxBytes?: number}>} details
-   * @param {'bp'|'weight'|'sleep'|'steps'|'hrv'|'restingHr'|'walkingHr'} kind
-   * @param {'bloodPressure'|'weight'|'sleep'|'steps'|'hrv'|'restingHr'|'walkingHr'} domain
+   * @param {'bp'|'weight'|'sleep'|'steps'|'hrv'|'restingHr'|'walkingHr'|'workouts'|'ecg'|'watch'} kind
+   * @param {'bloodPressure'|'weight'|'sleep'|'steps'|'hrv'|'restingHr'|'walkingHr'|'workouts'|'ecg'|'watchDaily'} domain
    */
   function renderYearShardList(wrap, listEl, details, kind, domain) {
     if (!wrap || !listEl) return;
@@ -8028,9 +8142,92 @@
     if (domain === 'hrv') return t('warehouse.domain.hrv');
     if (domain === 'restingHr') return t('warehouse.domain.restingHr');
     if (domain === 'walkingHr') return t('warehouse.domain.walkingHr');
+    if (domain === 'workouts') return t('warehouse.domain.workouts');
+    if (domain === 'ecg') return t('warehouse.domain.ecg');
+    if (domain === 'watchDaily') return t('warehouse.domain.watch');
     const key = WAREHOUSE_DOMAIN_I18N[domain];
     return key ? t(key) : domain;
   }
+
+  /** localStorage key for warehouse shard group open/closed preference */
+  function warehouseGroupPrefKey(groupId) {
+    return 'health-analyzer-wh-group-' + groupId;
+  }
+
+  /**
+   * Update collapsible warehouse domain groups:
+   * - badge = count of visible (non-hidden) shard panels inside the group
+   * - hide empty groups
+   * - open groups with content (respect localStorage pref when set)
+   */
+  function refreshWarehouseShardGroups() {
+    const groups = [
+      { id: 'cgm', elId: 'warehouse-group-cgm', badgeId: 'warehouse-group-cgm-badge' },
+      { id: 'body', elId: 'warehouse-group-body', badgeId: 'warehouse-group-body-badge' },
+      { id: 'activity', elId: 'warehouse-group-activity', badgeId: 'warehouse-group-activity-badge' },
+      { id: 'cardio', elId: 'warehouse-group-cardio', badgeId: 'warehouse-group-cardio-badge' },
+    ];
+    let firstNonEmpty = null;
+    groups.forEach((g) => {
+      const details = $(g.elId);
+      if (!details) return;
+      const panels = details.querySelectorAll(
+        '.warehouse-cgm-months, .warehouse-year-shards, .warehouse-years-both-actions'
+      );
+      let visible = 0;
+      panels.forEach((p) => {
+        // both-actions doesn't count as a shard domain for the badge
+        if (p.classList.contains('warehouse-years-both-actions')) return;
+        if (!p.classList.contains('hidden')) visible += 1;
+      });
+      const badge = $(g.badgeId);
+      if (badge) {
+        if (visible > 0) {
+          badge.textContent = String(visible);
+          badge.hidden = false;
+        } else {
+          badge.textContent = '';
+          badge.hidden = true;
+        }
+      }
+      // Hide whole group when nothing inside is shown (except keep structure for empty)
+      details.classList.toggle('is-empty', visible === 0);
+      if (visible > 0 && !firstNonEmpty) firstNonEmpty = g.id;
+
+      let pref = null;
+      try {
+        const raw = window.localStorage.getItem(warehouseGroupPrefKey(g.id));
+        if (raw === '1') pref = true;
+        else if (raw === '0') pref = false;
+      } catch (e) { /* ignore */ }
+
+      if (visible === 0) {
+        details.open = false;
+      } else if (pref != null) {
+        details.open = pref;
+      } else {
+        // Default: open groups that have content (all with content, not only first)
+        details.open = true;
+      }
+    });
+    // If no prefs and multiple open, still fine; if all empty, nothing open.
+    void firstNonEmpty;
+  }
+
+  function bindWarehouseShardGroupPrefs() {
+    document.querySelectorAll('details.warehouse-shard-group[data-wh-group]').forEach((el) => {
+      if (el.dataset.whGroupBound) return;
+      el.dataset.whGroupBound = '1';
+      el.addEventListener('toggle', () => {
+        const id = el.getAttribute('data-wh-group');
+        if (!id) return;
+        try {
+          window.localStorage.setItem(warehouseGroupPrefKey(id), el.open ? '1' : '0');
+        } catch (e) { /* ignore */ }
+      });
+    });
+  }
+  bindWarehouseShardGroupPrefs();
 
   function getSelectedYearsFromUi(listId) {
     return Array.from(document.querySelectorAll(`#${listId} .wh-year-cb:checked`))
@@ -8091,6 +8288,9 @@
   bindYearSelectAll('warehouse-hrv-select-all', 'warehouse-hrv-year-list');
   bindYearSelectAll('warehouse-resting-hr-select-all', 'warehouse-resting-hr-year-list');
   bindYearSelectAll('warehouse-walking-hr-select-all', 'warehouse-walking-hr-year-list');
+  bindYearSelectAll('warehouse-workouts-select-all', 'warehouse-workouts-year-list');
+  bindYearSelectAll('warehouse-ecg-select-all', 'warehouse-ecg-year-list');
+  bindYearSelectAll('warehouse-watch-select-all', 'warehouse-watch-year-list');
   $('btn-warehouse-bp-delete-selected')?.addEventListener('click', () => {
     deleteDomainYearShardsUi('bloodPressure', getSelectedYearsFromUi('warehouse-bp-year-list'));
   });
@@ -8111,6 +8311,15 @@
   });
   $('btn-warehouse-walking-hr-delete-selected')?.addEventListener('click', () => {
     deleteDomainYearShardsUi('walkingHr', getSelectedYearsFromUi('warehouse-walking-hr-year-list'));
+  });
+  $('btn-warehouse-workouts-delete-selected')?.addEventListener('click', () => {
+    deleteDomainYearShardsUi('workouts', getSelectedYearsFromUi('warehouse-workouts-year-list'));
+  });
+  $('btn-warehouse-ecg-delete-selected')?.addEventListener('click', () => {
+    deleteDomainYearShardsUi('ecg', getSelectedYearsFromUi('warehouse-ecg-year-list'));
+  });
+  $('btn-warehouse-watch-delete-selected')?.addEventListener('click', () => {
+    deleteDomainYearShardsUi('watchDaily', getSelectedYearsFromUi('warehouse-watch-year-list'));
   });
 
   function getYearKeepYears() {
@@ -8140,6 +8349,9 @@
       'warehouse-hrv-keep-years',
       'warehouse-resting-hr-keep-years',
       'warehouse-walking-hr-keep-years',
+      'warehouse-workouts-keep-years',
+      'warehouse-ecg-keep-years',
+      'warehouse-watch-keep-years',
     ].forEach((id) => {
       const sel = $(id);
       if (sel && sel.value !== String(n)) sel.value = String(n);
@@ -8153,6 +8365,9 @@
       'btn-warehouse-hrv-keep-recent',
       'btn-warehouse-resting-hr-keep-recent',
       'btn-warehouse-walking-hr-keep-recent',
+      'btn-warehouse-workouts-keep-recent',
+      'btn-warehouse-ecg-keep-recent',
+      'btn-warehouse-watch-keep-recent',
     ].forEach((id) => {
       const btn = $(id);
       if (btn) btn.textContent = label;
@@ -8191,6 +8406,15 @@
     }
     if (domain === 'walkingHr') {
       return st.walkingHrYears || (st.walkingHrYearDetails || []).map((d) => d && d.year) || [];
+    }
+    if (domain === 'workouts') {
+      return st.workoutsYears || (st.workoutsYearDetails || []).map((d) => d && d.year) || [];
+    }
+    if (domain === 'ecg') {
+      return st.ecgYears || (st.ecgYearDetails || []).map((d) => d && d.year) || [];
+    }
+    if (domain === 'watchDaily') {
+      return st.watchDailyYears || (st.watchDailyYearDetails || []).map((d) => d && d.year) || [];
     }
     return [];
   }
@@ -8295,6 +8519,9 @@
   bindYearKeepYearsSelect('warehouse-hrv-keep-years');
   bindYearKeepYearsSelect('warehouse-resting-hr-keep-years');
   bindYearKeepYearsSelect('warehouse-walking-hr-keep-years');
+  bindYearKeepYearsSelect('warehouse-workouts-keep-years');
+  bindYearKeepYearsSelect('warehouse-ecg-keep-years');
+  bindYearKeepYearsSelect('warehouse-watch-keep-years');
   $('btn-warehouse-bp-keep-recent')?.addEventListener('click', () => {
     keepRecentDomainYearsUi('bloodPressure');
   });
@@ -8315,6 +8542,15 @@
   });
   $('btn-warehouse-walking-hr-keep-recent')?.addEventListener('click', () => {
     keepRecentDomainYearsUi('walkingHr');
+  });
+  $('btn-warehouse-workouts-keep-recent')?.addEventListener('click', () => {
+    keepRecentDomainYearsUi('workouts');
+  });
+  $('btn-warehouse-ecg-keep-recent')?.addEventListener('click', () => {
+    keepRecentDomainYearsUi('ecg');
+  });
+  $('btn-warehouse-watch-keep-recent')?.addEventListener('click', () => {
+    keepRecentDomainYearsUi('watchDaily');
   });
   $('btn-warehouse-years-keep-both')?.addEventListener('click', () => {
     keepRecentBothDomainYearsUi();
@@ -8487,6 +8723,9 @@
       const hrvYears = (st.hrvYears || []).slice().filter(Boolean).map(String).sort();
       const restingHrYears = (st.restingHrYears || []).slice().filter(Boolean).map(String).sort();
       const walkingHrYears = (st.walkingHrYears || []).slice().filter(Boolean).map(String).sort();
+      const workoutsYears = (st.workoutsYears || []).slice().filter(Boolean).map(String).sort();
+      const ecgYears = (st.ecgYears || []).slice().filter(Boolean).map(String).sort();
+      const watchDailyYears = (st.watchDailyYears || []).slice().filter(Boolean).map(String).sort();
 
       const monthDrop =
         months.length > keepM ? months.slice(0, months.length - keepM) : [];
@@ -8497,6 +8736,9 @@
       const hrvDrop = yearsToDropForKeepN(hrvYears, keepY).drop;
       const restingHrDrop = yearsToDropForKeepN(restingHrYears, keepY).drop;
       const walkingHrDrop = yearsToDropForKeepN(walkingHrYears, keepY).drop;
+      const workoutsDrop = yearsToDropForKeepN(workoutsYears, keepY).drop;
+      const ecgDrop = yearsToDropForKeepN(ecgYears, keepY).drop;
+      const watchDailyDrop = yearsToDropForKeepN(watchDailyYears, keepY).drop;
 
       if (
         !monthDrop.length &&
@@ -8506,7 +8748,10 @@
         !stepsDrop.length &&
         !hrvDrop.length &&
         !restingHrDrop.length &&
-        !walkingHrDrop.length
+        !walkingHrDrop.length &&
+        !workoutsDrop.length &&
+        !ecgDrop.length &&
+        !watchDailyDrop.length
       ) {
         return {
           monthDrop,
@@ -8517,6 +8762,9 @@
           hrvDrop,
           restingHrDrop,
           walkingHrDrop,
+          workoutsDrop,
+          ecgDrop,
+          watchDailyDrop,
           changed: false,
         };
       }
@@ -8541,57 +8789,52 @@
         return true;
       }
 
+      function autoTrimResult(changed, error) {
+        return {
+          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
+          hrvDrop, restingHrDrop, walkingHrDrop,
+          workoutsDrop, ecgDrop, watchDailyDrop,
+          changed: !!changed,
+          error: !!error,
+        };
+      }
+
       if (monthDrop.length && typeof HH.deleteCgmMonthShards === 'function') {
         const r = await HH.deleteCgmMonthShards(monthDrop);
         if (!r || !r.ok) {
           showToast(t('warehouse.err', { msg: (r && r.reason) || 'cgm_auto_trim' }), { ms: 2800 });
-          return {
-            monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
-            hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
-          };
+          return autoTrimResult(false, true);
         }
       }
       if (!(await deleteYearDomain(bpDrop, 'deleteBloodPressureYearShards', 'bloodPressure', 'bp_auto_trim'))) {
-        return {
-          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
-          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
-        };
+        return autoTrimResult(false, true);
       }
       if (!(await deleteYearDomain(wtDrop, 'deleteWeightYearShards', 'weight', 'weight_auto_trim'))) {
-        return {
-          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
-          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
-        };
+        return autoTrimResult(false, true);
       }
       if (!(await deleteYearDomain(sleepDrop, 'deleteSleepYearShards', 'sleep', 'sleep_auto_trim'))) {
-        return {
-          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
-          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
-        };
+        return autoTrimResult(false, true);
       }
       if (!(await deleteYearDomain(stepsDrop, 'deleteStepsYearShards', 'steps', 'steps_auto_trim'))) {
-        return {
-          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
-          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
-        };
+        return autoTrimResult(false, true);
       }
       if (!(await deleteYearDomain(hrvDrop, 'deleteHrvYearShards', 'hrv', 'hrv_auto_trim'))) {
-        return {
-          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
-          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
-        };
+        return autoTrimResult(false, true);
       }
       if (!(await deleteYearDomain(restingHrDrop, 'deleteRestingHrYearShards', 'restingHr', 'restingHr_auto_trim'))) {
-        return {
-          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
-          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
-        };
+        return autoTrimResult(false, true);
       }
       if (!(await deleteYearDomain(walkingHrDrop, 'deleteWalkingHrYearShards', 'walkingHr', 'walkingHr_auto_trim'))) {
-        return {
-          monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
-          hrvDrop, restingHrDrop, walkingHrDrop, changed: false, error: true,
-        };
+        return autoTrimResult(false, true);
+      }
+      if (!(await deleteYearDomain(workoutsDrop, 'deleteWorkoutsYearShards', 'workouts', 'workouts_auto_trim'))) {
+        return autoTrimResult(false, true);
+      }
+      if (!(await deleteYearDomain(ecgDrop, 'deleteEcgYearShards', 'ecg', 'ecg_auto_trim'))) {
+        return autoTrimResult(false, true);
+      }
+      if (!(await deleteYearDomain(watchDailyDrop, 'deleteWatchDailyYearShards', 'watchDaily', 'watchDaily_auto_trim'))) {
+        return autoTrimResult(false, true);
       }
 
       // Filter in-memory analysis once, then reanalyze without a second auto-persist.
@@ -8665,6 +8908,25 @@
           });
           data.walkingHr = next;
         }
+        if (workoutsDrop.length && Array.isArray(data.workouts)) {
+          data.workouts = data.workouts.filter((p) => {
+            const dt = String((p && (p.startDate || p.start || p.datetime || p.date)) || '');
+            return !workoutsDrop.some((y) => dt.startsWith(y));
+          });
+        }
+        if (ecgDrop.length && Array.isArray(data.ecg)) {
+          data.ecg = data.ecg.filter((p) => {
+            const dt = String((p && (p.date || p.startDate || p.datetime || p.start)) || '');
+            return !ecgDrop.some((y) => dt.startsWith(y));
+          });
+        }
+        if (watchDailyDrop.length && data.watchDaily && typeof data.watchDaily === 'object') {
+          const next = {};
+          Object.keys(data.watchDaily).forEach((k) => {
+            if (!watchDailyDrop.some((y) => String(k).startsWith(y))) next[k] = data.watchDaily[k];
+          });
+          data.watchDaily = next;
+        }
         skipNextWarehouseAutoPersist = true;
         reanalyzeAfterWarehouseTrim();
         // Persist trimmed working set once (skip nested auto-trim via warehouseAutoTrimRunning).
@@ -8684,10 +8946,7 @@
           { ok: true, ms: 3200 }
         );
       }
-      return {
-        monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop,
-        hrvDrop, restingHrDrop, walkingHrDrop, changed: true,
-      };
+      return autoTrimResult(true, false);
     } catch (e) {
       console.warn('warehouse auto-trim', e);
       showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });

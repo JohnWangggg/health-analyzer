@@ -554,6 +554,95 @@ body.has-results .result-bottom-nav:not(.hidden) {
   display: none !important;
 }
 
+/* Collapsible warehouse domain groups */
+.warehouse-shard-group {
+  margin: 0 0 12px;
+  padding: 0;
+  border-radius: var(--radius-sm, 10px);
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, var(--muted-surface, var(--border)));
+  overflow: hidden;
+}
+
+.warehouse-shard-group.is-empty {
+  display: none !important;
+}
+
+.warehouse-shard-group-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 12px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.warehouse-shard-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.warehouse-shard-group-summary::before {
+  content: '';
+  width: 0.45em;
+  height: 0.45em;
+  border-right: 2px solid var(--text-muted, var(--text-light));
+  border-bottom: 2px solid var(--text-muted, var(--text-light));
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+  margin-top: -2px;
+}
+
+.warehouse-shard-group[open] > .warehouse-shard-group-summary::before {
+  transform: rotate(45deg);
+  margin-top: 0;
+}
+
+.warehouse-shard-group-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.warehouse-shard-group-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5em;
+  min-height: 1.5em;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary-dark, var(--primary));
+  background: color-mix(in srgb, var(--primary-light, var(--primary)) 28%, transparent);
+}
+
+.warehouse-shard-group-badge[hidden] {
+  display: none !important;
+}
+
+.warehouse-shard-group-body {
+  padding: 0 10px 10px;
+}
+
+.warehouse-shard-group-body > .warehouse-cgm-months,
+.warehouse-shard-group-body > .warehouse-year-shards {
+  margin-bottom: 10px;
+}
+
+.warehouse-shard-group-body > .warehouse-cgm-months:last-child,
+.warehouse-shard-group-body > .warehouse-year-shards:last-child,
+.warehouse-shard-group-body > .warehouse-years-both-actions:last-child {
+  margin-bottom: 0;
+}
+
 .warehouse-year-shards {
   margin: 0 0 14px;
   padding: 12px 12px 10px;

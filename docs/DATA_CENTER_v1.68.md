@@ -1,9 +1,9 @@
 # v1.68 本地个人健康数据中心（Local Personal Health Data Center）
 
-**状态：** 设计 + **已实现**（v1.68 MVP → **v1.75** `core|full` + `cgm|YYYY-MM` → **v1.79–v1.81** `bloodPressure|YYYY` / `weight|YYYY` 年分片、面板删片、保留近 N 月/年 → **v1.82** 双域一键 keep-N 年 → **v1.83** 保存后可选自动 keep-N 裁剪 → **v1.85** `sleep|YYYY` / `steps|YYYY` 年分片 → **v1.86** `hrv|YYYY` / `restingHr|YYYY` / `walkingHr|YYYY` 年分片（与 sleep/steps/BP/体重**域独立**删片）；兼容 legacy `healthData|full`）  
+**状态：** 设计 + **已实现**（v1.68 MVP → **v1.75** `core|full` + `cgm|YYYY-MM` → **v1.79–v1.81** `bloodPressure|YYYY` / `weight|YYYY` 年分片、面板删片、保留近 N 月/年 → **v1.82** 双域一键 keep-N 年 → **v1.83** 保存后可选自动 keep-N 裁剪 → **v1.85** `sleep|YYYY` / `steps|YYYY` 年分片 → **v1.86** `hrv|YYYY` / `restingHr|YYYY` / `walkingHr|YYYY` 年分片 → **v1.87** `workouts|YYYY` / `ecg|YYYY` / `watchDaily|YYYY` 年分片（与其它年分片**域独立**删片）；兼容 legacy `healthData|full`）  
 **范围：** 浏览器本机 IndexedDB 持久化「解析后的 typed 健康仓」+ 授权、配额、备份/清除、分片淘汰与手动/可选自动裁剪  
 **语言 / Language：** 中文（关键术语中英对照）  
-**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.86.0`+）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）；UI 偏好与自动裁剪见 `web-ui/public/app.js`
+**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.87.0`+）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）；UI 偏好与自动裁剪见 `web-ui/public/app.js`
 
 > 本地隐私优先 · 零服务器 · 非诊断 · 默认不上传  
 > 产品默认：自动 hydrate、关授权即删仓、软/硬字节配额、备份默认明文（可选口令 AES-GCM）、恢复整库替换。分片与口令加密**已落地**（见 §4.2 / §6 / §8）。
@@ -288,7 +288,7 @@ sessions: currentAnalysis ────────┘  （内存工作集，可�
 
 | Chunk id | 域 | 分片键 | payload |
 |----------|-----|--------|---------|
-| `core\|full` | core | `full` | 除 CGM / 血压 / 体重 / 体脂 / **睡眠 / 步数**（v1.85+）/ **HRV / 静息·步行心率**（v1.86+）年分片后外的 `HealthData` 字段 |
+| `core\|full` | core | `full` | 除 CGM / 血压 / 体重 / 体脂 / **睡眠 / 步数**（v1.85+）/ **HRV / 静息·步行心率**（v1.86+）/ **Workout / ECG / Watch 日汇总**（v1.87+）年分片后外的 `HealthData` 字段 |
 | `cgm\|YYYY-MM` | `cgm` | 自然月 | `CgmPoint[]` |
 | `bloodPressure\|YYYY` | `bloodPressure` | 自然年 | `BloodPressureRecord[]` |
 | `weight\|YYYY` | `weight` | 自然年 | `{ weight, bodyFat }`（**体脂并入体重年片**，无独立 `bodyFat|…` 片） |
@@ -297,8 +297,11 @@ sessions: currentAnalysis ────────┘  （内存工作集，可�
 | `hrv\|YYYY` | `hrv` | 自然年 | `{ hrv, hrvOvernight }`（**过夜 HRV 并入 HRV 年片**；v1.86+） |
 | `restingHr\|YYYY` | `restingHr` | 自然年 | **日 map 切片** `Record<YYYY-MM-DD, number>`（v1.86+） |
 | `walkingHr\|YYYY` | `walkingHr` | 自然年 | **日 map 切片** `Record<YYYY-MM-DD, number>`（v1.86+） |
+| `workouts\|YYYY` | `workouts` | 自然年 | **`WorkoutSession[]` 数组**（按 `startDate` 年桶；v1.87+） |
+| `ecg\|YYYY` | `ecg` | 自然年 | **`ERecordSummary[]` 数组**（按 `date` / `datetime` 年桶；**不存**波形 CSV；v1.87+） |
+| `watchDaily\|YYYY` | `watchDaily` | 自然年 | **日 map 切片** `Record<YYYY-MM-DD, WatchDaySummary>`（v1.87+） |
 
-兼容：仍可读 legacy 单片 `healthData|full`；无 BP/体重年片时回退 core 内嵌数组（v1.75 仅 CGM 分片时代数据）；**无 sleep/steps 年片时**回退 core 内 `sleep` / `steps` 全日 map（v1.84 及更早）；**无 hrv/restingHr/walkingHr 年片时**回退 core 内对应全日 map（v1.85 及更早）。
+兼容：仍可读 legacy 单片 `healthData|full`；无 BP/体重年片时回退 core 内嵌数组（v1.75 仅 CGM 分片时代数据）；**无 sleep/steps 年片时**回退 core 内 `sleep` / `steps` 全日 map（v1.84 及更早）；**无 hrv/restingHr/walkingHr 年片时**回退 core 内对应全日 map（v1.85 及更早）；**无 workouts/ecg/watchDaily 年片时**回退 core 内对应数组/map（v1.86 及更早）。
 
 | 域 | 形态（对齐 `types.ts`） | 分片粒度 | 说明 |
 |----|-------------------------|----------|------|
@@ -310,7 +313,9 @@ sessions: currentAnalysis ────────┘  （内存工作集，可�
 | `hrv` / `hrvOvernight` | `Record<YYYY-MM-DD, number[]>` | **按年** `hrv\|YYYY`（v1.86+） | 过夜 HRV **rides with** HRV 年片：`payload = { hrv, hrvOvernight }`；删年则两者同删 |
 | `restingHr` | `Record<YYYY-MM-DD, number>` | **按年** `restingHr\|YYYY`（v1.86+） | 日 map 切片；与 hrv / walkingHr **域独立** |
 | `walkingHr` | `Record<YYYY-MM-DD, number>` | **按年** `walkingHr\|YYYY`（v1.86+） | 日 map 切片；与 hrv / restingHr **域独立** |
-| `watchDaily` / `workouts` / `ecg` 等 | 日汇总或会话 | 写入 **`core\|full`** | Watch 已是日汇总，**禁止**再拆逐条 HR；ECG **不存**波形 CSV |
+| `workouts` | `WorkoutSession[]` | **按年** `workouts\|YYYY`（v1.87+） | **数组** payload；年键优先 `startDate`（回退 `date` / `start` / `datetime`）；与 ecg / watchDaily **域独立** |
+| `ecg` | `ERecordSummary[]` | **按年** `ecg\|YYYY`（v1.87+） | **数组** payload；年键 `date` / `startDate` / `datetime` / `recordedAt`；**仅摘要**（分类/设备等），**禁止**波形采样 CSV |
+| `watchDaily` | `Record<YYYY-MM-DD, WatchDaySummary>` | **按年** `watchDaily\|YYYY`（v1.87+） | **日 map** payload（与 sleep 同类）；Watch 已是日汇总，**禁止**再拆逐条 HR |
 | `availability` | `{ dataAvailability, dataQuality }` | 写入 core | 小对象 |
 
 #### 4.2.1 睡眠 / 步数年分片（v1.85）
@@ -378,11 +383,60 @@ sessions: currentAnalysis ────────┘  （内存工作集，可�
   - 同理 `walkingHr`。  
 - **状态字段：** `getWarehouseStatus()` 暴露 `hrvYears` / `restingHrYears` / `walkingHrYears`（`string[]`），及可选 `yearDetails.hrv` / `.restingHr` / `.walkingHr`。
 
+#### 4.2.3 Workout / ECG / Watch 日汇总年分片（v1.87）
+
+**为何独立于 core：** 多年 Workout 会话与 ECG 摘要数组、以及 `watchDaily` 日 map 随导入膨胀；按自然年拆片后可分域删年，且 **workouts / ecg / watchDaily 三域互不连带**（删 workouts 某年不影响同年 ECG / Watch）。
+
+**两种 payload 形态（数组 vs 日 map）：**
+
+```ts
+// workouts|2025  — 数组（与 BP 同类）
+[
+  {
+    startDate: '2025-06-01T10:00:00',
+    date: '2025-06-01',
+    activityType: 'Walking',
+    activityLabel: '步行',
+    durationMin: 30,
+    activeKcal: 120
+  }
+]
+
+// ecg|2025  — 数组；仅 ERecordSummary，无波形点
+[
+  { datetime: '2025-03-01T09:00:00', classification: '窦性心律' }
+]
+
+// watchDaily|2025  — 日 map（与 sleep 同类；非数组）
+{
+  '2025-07-01': {
+    activeKcal: 400,
+    exerciseMin: 40,
+    standMin: 12,
+    // …WatchDaySummary 其余能量/血氧汇总字段
+  }
+}
+```
+
+| Chunk id | payload 类型 | 年桶字段 |
+|----------|--------------|----------|
+| `workouts\|YYYY` | **数组** `WorkoutSession[]` | `startDate` → 否则 `date` / `start` / `datetime` |
+| `ecg\|YYYY` | **数组** `ERecordSummary[]` | `date` → 否则 `startDate` / `datetime` / `recordedAt` |
+| `watchDaily\|YYYY` | **日 map** `Record<YYYY-MM-DD, WatchDaySummary>` | 日期键前缀 `YYYY`（`yearKeyFromDateMapKey`） |
+
+- **Hydrate：** 合并各年 `workouts|YYYY` 数组成 `HealthData.workouts`；合并 `ecg|YYYY` 成 `ecg`；合并 `watchDaily|YYYY` map 键值到 `watchDaily`；若无年片则沿用 core 内嵌数组/map。  
+- **Persist：** 按年桶写片后，**core 内 `workouts` / `ecg` 应为空数组、`watchDaily` 应为空 map**（与 BP / sleep 从 core 剥离一致）。  
+- **域独立删除：**  
+  - `deleteDomainYearShards('workouts', ['2025'])`（或 `deleteWorkoutsYearShards`）只删 `workouts|2025`，**同年** `ecg|2025` / `watchDaily|2025` / sleep/steps/hrv/BP/weight **保留**。  
+  - 同理 `ecg` / `watchDaily`（`deleteEcgYearShards` / `deleteWatchDailyYearShards` 薄封装可选）。  
+- **状态字段：** `getWarehouseStatus()` 暴露 `workoutsYears` / `ecgYears` / `watchDailyYears`（`string[]`），及可选 `workoutsYearDetails` / `ecgYearDetails` / `watchDailyYearDetails`。  
+- **UI 折叠（collapse UX）：** 仓面板年分片列表随域增多，建议用 `<details class="warehouse-shard-group">`（或等价）按域折叠；默认折叠次要域、展开有数据域；**非诊断**文案；删年确认仍走 dialog。手测见 `docs/MANUAL_QA.md`。
+
 **默认不入仓：**
 
 - Apple Health 未映射的未知 HAE metric 时序（与 v1.40「不落库未知序列」一致，除非未来单独授权）  
 - Workout GPS 轨迹 GPX  
-- ECG 原始采样点 CSV  
+- ECG 原始采样点 CSV（**仅** `ERecordSummary` 摘要可入 `ecg|YYYY`）  
 - 用户上传的 ZIP 二进制
 
 ### 4.3 编码：JSON vs Structured Clone
@@ -539,8 +593,8 @@ interface ImportBatchRecordV168 extends ImportBatchRecord {
 
 1. 当估算占用超过 **软配额**（`WAREHOUSE_SOFT_BYTES` = 150 MB）：  
 2. **先**按月淘汰最旧 **CGM 月片**（尽量至少保留最新一个月；单月仍超则点级裁剪兜底）；  
-3. **再**淘汰最旧 **血压 / 体重 / 睡眠 / 步数 / HRV / 静息·步行心率年片**（跨域按最旧自然年推进；尽量至少保留一个有数据年；v1.85 起含 `sleep|YYYY` / `steps|YYYY`；v1.86 起含 `hrv|YYYY` / `restingHr|YYYY` / `walkingHr|YYYY`）；  
-4. 更新 `warehouseMeta`（`cgmMonths` / `bpYears` / `weightYears` / `sleepYears` / `stepsYears` / `hrvYears` / `restingHrYears` / `walkingHrYears`、`notes` 如 `cgm_months_evicted_for_quota`）；写 UI toast 提示。  
+3. **再**淘汰最旧 **血压 / 体重 / 睡眠 / 步数 / HRV / 静息·步行心率 / Workout / ECG / Watch 日汇总年片**（跨域按最旧自然年推进；尽量至少保留一个有数据年；v1.85 起含 `sleep|YYYY` / `steps|YYYY`；v1.86 起含 `hrv|YYYY` / `restingHr|YYYY` / `walkingHr|YYYY`；v1.87 起含 `workouts|YYYY` / `ecg|YYYY` / `watchDaily|YYYY`）；  
+4. 更新 `warehouseMeta`（`cgmMonths` / `bpYears` / `weightYears` / `sleepYears` / `stepsYears` / `hrvYears` / `restingHrYears` / `walkingHrYears` / `workoutsYears` / `ecgYears` / `watchDailyYears`、`notes` 如 `cgm_months_evicted_for_quota`）；写 UI toast 提示。  
 5. **硬配额**（200 MB）：拒绝 persist（`reason: 'quota_hard'`），不半写。  
 6. **不自动删** `healthEvents` / 用户周报 / 摘要 snapshots。
 
@@ -556,13 +610,16 @@ interface ImportBatchRecordV168 extends ImportBatchRecord {
 | HRV（v1.86+） | 近 **1 / 2 / 3 / 5** 年（若 UI 暴露） | 删除更旧 `hrv|YYYY`（含过夜）；**不**删 resting/walking 同年片 |
 | 静息心率（v1.86+） | 同上 | 删除更旧 `restingHr|YYYY`；与 hrv / walking **域独立** |
 | 步行心率（v1.86+） | 同上 | 删除更旧 `walkingHr|YYYY`；与 hrv / resting **域独立** |
+| Workout（v1.87+） | 近 **1 / 2 / 3 / 5** 年（若 UI 暴露） | 删除更旧 `workouts|YYYY`；**不**删 ecg / watchDaily 同年片 |
+| ECG（v1.87+） | 同上 | 删除更旧 `ecg|YYYY`；与 workouts / watchDaily **域独立** |
+| Watch 日汇总（v1.87+） | 同上 | 删除更旧 `watchDaily|YYYY`；与 workouts / ecg **域独立** |
 | **双域一键（v1.82）** | 同上 N | 「双域仅保留近 N 年」**一次**对血压 + 体重各裁 keep-N（两域共用同一 N / 同一偏好键） |
 
 - 偏好记在 **localStorage**（**非云、不上传**）。键示例：
   - `health-analyzer-cgm-keep-months`（CGM 保留月数）
   - `health-analyzer-year-keep-years`（血压 / 体重共用保留年数；面板上 BP / 体重各有 select，值同步）
 - 手动 keep-N（含双域按钮）有确认对话框；删除不可撤销（可先备份）。
-- 另支持：**多选删除** CGM 月 / BP 年 / weight 年 / **sleep 年 / steps 年 / hrv 年 / restingHr 年 / walkingHr 年**（`deleteCgmMonthShards` / `deleteDomainYearShards(domain, years)`；v1.85 域含 `'sleep' | 'steps'`；v1.86 域含 `'hrv' | 'restingHr' | 'walkingHr'`；亦可有 `deleteHrvYearShards` / `deleteRestingHrYearShards` / `deleteWalkingHrYearShards` 薄封装）。
+- 另支持：**多选删除** CGM 月 / BP 年 / weight 年 / **sleep 年 / steps 年 / hrv 年 / restingHr 年 / walkingHr 年 / workouts 年 / ecg 年 / watchDaily 年**（`deleteCgmMonthShards` / `deleteDomainYearShards(domain, years)`；v1.85 域含 `'sleep' | 'steps'`；v1.86 域含 `'hrv' | 'restingHr' | 'walkingHr'`；v1.87 域含 `'workouts' | 'ecg' | 'watchDaily'`；亦可有 `deleteWorkoutsYearShards` / `deleteEcgYearShards` / `deleteWatchDailyYearShards` 等薄封装）。
 
 **策略 C：滚动天数（设计可选）**
 
@@ -597,6 +654,8 @@ interface ImportBatchRecordV168 extends ImportBatchRecord {
 | **血压 / 体重年列表** | 多选删除、分域保留近 N 年；体重提示含体脂 |
 | **睡眠 / 步数年列表（v1.85）** | 有数据时展示 `sleepYears` / `stepsYears`；多选删年；**两域互不连带** |
 | **HRV / 静息 / 步行心率年列表（v1.86）** | 有数据时展示 `hrvYears` / `restingHrYears` / `walkingHrYears`；多选删年；**三域互不连带**（HRV 年含过夜） |
+| **Workout / ECG / Watch 年列表（v1.87）** | 有数据时展示 `workoutsYears` / `ecgYears` / `watchDailyYears`；多选删年；**三域互不连带**；数组域 vs map 域见 §4.2.3 |
+| **分片组折叠（v1.87 UX）** | 多域年列表用 collapsible 分组（如 `details.warehouse-shard-group`），避免面板过长；有数据域优先可见 |
 | **双域 keep（v1.82）** | 「双域仅保留近 N 年」一键裁血压 + 体重 |
 | **自动裁剪（v1.83）** | 勾选「保存后自动按保留窗口裁剪」（默认关；localStorage） |
 | 日历覆盖 | 2024-03-01 → 2026-07-28 |
@@ -1144,6 +1203,7 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 | 实现对照 v1.82–v1.83 | 2026-07-30 | v1.82 双域一键 keep-N 年；v1.83 保存成功后 opt-in 自动 keep-N（localStorage，默认关，无确认，写队列串行）；非云、非诊断 |
 | 实现对照 v1.85 | 2026-07-31 | `sleep\|YYYY` / `steps\|YYYY` 日 map 年分片；status `sleepYears`/`stepsYears`；`deleteDomainYearShards('sleep'\|'steps')` 域独立；E2E `e2e/warehouse.spec.js` |
 | 实现对照 v1.86 | 2026-07-31 | `hrv\|YYYY`（payload `{ hrv, hrvOvernight }`）/ `restingHr\|YYYY` / `walkingHr\|YYYY`；status `hrvYears`/`restingHrYears`/`walkingHrYears`；三域独立删年；E2E `e2e/warehouse.spec.js` |
+| 实现对照 v1.87 | 2026-07-31 | `workouts\|YYYY`（数组）/ `ecg\|YYYY`（数组）/ `watchDaily\|YYYY`（日 map）；status `workoutsYears`/`ecgYears`/`watchDailyYears`；三域独立删年；仓面板分片组折叠 UX；E2E `e2e/warehouse.spec.js` |
 
 ---
 
@@ -1154,7 +1214,7 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 | `web-ui/public/history-db.js` | IDB v5、`HealthHistory`、分片 persist / 删片 / 配额 / 备份 / 写串行 |
 | `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 双域 keep / 自动裁剪、多选删、wipe |
 | `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年 / 双域按钮 / auto-trim） |
-| `e2e/warehouse.spec.js` | 仓 / 年分片（BP·体重·sleep·steps·**hrv·restingHr·walkingHr**）/ 双域 keep / auto-trim / 备份自动化 |
+| `e2e/warehouse.spec.js` | 仓 / 年分片（BP·体重·sleep·steps·hrv·resting/walking·**workouts·ecg·watchDaily**）/ 双域 keep / auto-trim / 备份自动化 |
 | `lib/src/types.ts` | `HealthData` / `FullAnalysis` |
 | `lib/src/snapshot.ts` | 摘要快照（非明细） |
 | `lib/src/provenance.ts` | `ImportBatchRecord` |

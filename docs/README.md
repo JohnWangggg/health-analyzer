@@ -298,6 +298,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - v1.84：复制仓状态摘要（仅元数据，无明细序列）；年分片 auto-trim E2E。
 - v1.85：睡眠 / 步数按年分片（`sleep|YYYY`、`steps|YYYY` 日 map 载荷）；status `sleepYears`/`stepsYears`；域独立删年；E2E 与仓设计见 `docs/DATA_CENTER_v1.68.md`。
 - v1.86：HRV / 静息 / 步行心率按年分片（`hrv|YYYY` payload `{ hrv, hrvOvernight }`、`restingHr|YYYY`、`walkingHr|YYYY`）；status `hrvYears`/`restingHrYears`/`walkingHrYears`；三域独立删年；E2E 与仓设计见 `docs/DATA_CENTER_v1.68.md`。
+- v1.87：Workout / ECG / Watch 日汇总按年分片（`workouts|YYYY` **数组**、`ecg|YYYY` **数组**（仅摘要）、`watchDaily|YYYY` **日 map**）；status `workoutsYears`/`ecgYears`/`watchDailyYears`；三域独立删年；仓面板分片组折叠 UX；E2E 与仓设计见 `docs/DATA_CENTER_v1.68.md`。
 
 ## 许可
 

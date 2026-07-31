@@ -624,6 +624,14 @@
         <p id="warehouse-storage-est" class="warehouse-storage-est hint compact-hint hidden"></p>
         <p id="warehouse-layout-line" class="warehouse-layout-line hint compact-hint hidden"></p>
         <ul id="warehouse-domain-list" class="warehouse-domain-list hidden" aria-label="domain breakdown"></ul>
+
+        <!-- CGM group -->
+        <details class="warehouse-shard-group" id="warehouse-group-cgm" data-wh-group="cgm">
+          <summary class="warehouse-shard-group-summary">
+            <span class="warehouse-shard-group-title" data-i18n="warehouse.group.cgm">CGM</span>
+            <span class="warehouse-shard-group-badge" id="warehouse-group-cgm-badge" hidden></span>
+          </summary>
+          <div class="warehouse-shard-group-body">
         <div id="warehouse-cgm-months" class="warehouse-cgm-months hidden" role="region" aria-labelledby="warehouse-cgm-months-title">
           <h4 class="warehouse-cgm-months-title" id="warehouse-cgm-months-title" data-i18n="warehouse.cgmMonthsTitle">CGM 月分片</h4>
           <p class="hint compact-hint" data-i18n="warehouse.cgmMonthsHint">按月存储；超配额时优先淘汰最旧月份。可多选批量删除。非诊断。</p>
@@ -646,6 +654,16 @@
           </div>
           <ul id="warehouse-cgm-month-list" class="warehouse-cgm-month-list" aria-label="CGM months"></ul>
         </div>
+          </div>
+        </details>
+
+        <!-- 体征 body: BP + weight (+ dual keep) -->
+        <details class="warehouse-shard-group" id="warehouse-group-body" data-wh-group="body">
+          <summary class="warehouse-shard-group-summary">
+            <span class="warehouse-shard-group-title" data-i18n="warehouse.group.body">体征</span>
+            <span class="warehouse-shard-group-badge" id="warehouse-group-body-badge" hidden></span>
+          </summary>
+          <div class="warehouse-shard-group-body">
         <div id="warehouse-bp-years" class="warehouse-year-shards hidden" role="region" aria-labelledby="warehouse-bp-years-title">
           <h4 class="warehouse-cgm-months-title" id="warehouse-bp-years-title" data-i18n="warehouse.bpYearsTitle">血压年分片</h4>
           <p class="hint compact-hint" data-i18n="warehouse.bpYearsHint">按自然年存储；可多选删除以释放空间。非诊断。</p>
@@ -693,6 +711,16 @@
           </div>
           <ul id="warehouse-weight-year-list" class="warehouse-cgm-month-list" aria-label="Weight years"></ul>
         </div>
+          </div>
+        </details>
+
+        <!-- 活动 activity: sleep, steps, workouts, watchDaily -->
+        <details class="warehouse-shard-group" id="warehouse-group-activity" data-wh-group="activity">
+          <summary class="warehouse-shard-group-summary">
+            <span class="warehouse-shard-group-title" data-i18n="warehouse.group.activity">活动</span>
+            <span class="warehouse-shard-group-badge" id="warehouse-group-activity-badge" hidden></span>
+          </summary>
+          <div class="warehouse-shard-group-body">
         <div id="warehouse-sleep-years" class="warehouse-year-shards hidden" role="region" aria-labelledby="warehouse-sleep-years-title">
           <h4 class="warehouse-cgm-months-title" id="warehouse-sleep-years-title" data-i18n="warehouse.sleepYearsTitle">睡眠年分片</h4>
           <p class="hint compact-hint" data-i18n="warehouse.sleepYearsHint">按自然年存储；可多选删除以释放空间。非诊断。</p>
@@ -737,6 +765,60 @@
           </div>
           <ul id="warehouse-steps-year-list" class="warehouse-cgm-month-list" aria-label="Steps years"></ul>
         </div>
+        <div id="warehouse-workouts-years" class="warehouse-year-shards hidden" role="region" aria-labelledby="warehouse-workouts-years-title">
+          <h4 class="warehouse-cgm-months-title" id="warehouse-workouts-years-title" data-i18n="warehouse.workoutsYearsTitle">训练年分片</h4>
+          <p class="hint compact-hint" data-i18n="warehouse.workoutsYearsHint">按自然年存储；可多选删除以释放空间。非诊断。</p>
+          <div class="warehouse-cgm-bulk-actions export-actions">
+            <label class="check-inline" for="warehouse-workouts-select-all">
+              <input type="checkbox" id="warehouse-workouts-select-all" />
+              <span data-i18n="warehouse.cgmSelectAll">全选</span>
+            </label>
+            <button type="button" id="btn-warehouse-workouts-delete-selected" class="btn-danger-text btn-sm" data-i18n="warehouse.yearDeleteSelected">删除所选年</button>
+            <label class="warehouse-cgm-keep-label" for="warehouse-workouts-keep-years">
+              <span data-i18n="warehouse.yearKeepYearsLabel">保留年数</span>
+              <select id="warehouse-workouts-keep-years" data-i18n-aria="warehouse.yearKeepYearsLabel" aria-label="保留年数">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+              </select>
+            </label>
+            <button type="button" id="btn-warehouse-workouts-keep-recent" class="btn-ghost btn-sm">仅保留近 3 年</button>
+          </div>
+          <ul id="warehouse-workouts-year-list" class="warehouse-cgm-month-list" aria-label="Workouts years"></ul>
+        </div>
+        <div id="warehouse-watch-years" class="warehouse-year-shards hidden" role="region" aria-labelledby="warehouse-watch-years-title">
+          <h4 class="warehouse-cgm-months-title" id="warehouse-watch-years-title" data-i18n="warehouse.watchYearsTitle">手表日汇总年分片</h4>
+          <p class="hint compact-hint" data-i18n="warehouse.watchYearsHint">按自然年存储；可多选删除以释放空间。非诊断。</p>
+          <div class="warehouse-cgm-bulk-actions export-actions">
+            <label class="check-inline" for="warehouse-watch-select-all">
+              <input type="checkbox" id="warehouse-watch-select-all" />
+              <span data-i18n="warehouse.cgmSelectAll">全选</span>
+            </label>
+            <button type="button" id="btn-warehouse-watch-delete-selected" class="btn-danger-text btn-sm" data-i18n="warehouse.yearDeleteSelected">删除所选年</button>
+            <label class="warehouse-cgm-keep-label" for="warehouse-watch-keep-years">
+              <span data-i18n="warehouse.yearKeepYearsLabel">保留年数</span>
+              <select id="warehouse-watch-keep-years" data-i18n-aria="warehouse.yearKeepYearsLabel" aria-label="保留年数">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+              </select>
+            </label>
+            <button type="button" id="btn-warehouse-watch-keep-recent" class="btn-ghost btn-sm">仅保留近 3 年</button>
+          </div>
+          <ul id="warehouse-watch-year-list" class="warehouse-cgm-month-list" aria-label="Watch daily years"></ul>
+        </div>
+          </div>
+        </details>
+
+        <!-- 心脏 cardio: hrv, restingHr, walkingHr, ecg -->
+        <details class="warehouse-shard-group" id="warehouse-group-cardio" data-wh-group="cardio">
+          <summary class="warehouse-shard-group-summary">
+            <span class="warehouse-shard-group-title" data-i18n="warehouse.group.cardio">心脏</span>
+            <span class="warehouse-shard-group-badge" id="warehouse-group-cardio-badge" hidden></span>
+          </summary>
+          <div class="warehouse-shard-group-body">
         <div id="warehouse-hrv-years" class="warehouse-year-shards hidden" role="region" aria-labelledby="warehouse-hrv-years-title">
           <h4 class="warehouse-cgm-months-title" id="warehouse-hrv-years-title" data-i18n="warehouse.hrvYearsTitle">HRV 年分片</h4>
           <p class="hint compact-hint" data-i18n="warehouse.hrvYearsHint">按自然年存储；可多选删除以释放空间。非诊断。</p>
@@ -803,6 +885,31 @@
           </div>
           <ul id="warehouse-walking-hr-year-list" class="warehouse-cgm-month-list" aria-label="Walking HR years"></ul>
         </div>
+        <div id="warehouse-ecg-years" class="warehouse-year-shards hidden" role="region" aria-labelledby="warehouse-ecg-years-title">
+          <h4 class="warehouse-cgm-months-title" id="warehouse-ecg-years-title" data-i18n="warehouse.ecgYearsTitle">心电图年分片</h4>
+          <p class="hint compact-hint" data-i18n="warehouse.ecgYearsHint">按自然年存储；可多选删除以释放空间。非诊断。</p>
+          <div class="warehouse-cgm-bulk-actions export-actions">
+            <label class="check-inline" for="warehouse-ecg-select-all">
+              <input type="checkbox" id="warehouse-ecg-select-all" />
+              <span data-i18n="warehouse.cgmSelectAll">全选</span>
+            </label>
+            <button type="button" id="btn-warehouse-ecg-delete-selected" class="btn-danger-text btn-sm" data-i18n="warehouse.yearDeleteSelected">删除所选年</button>
+            <label class="warehouse-cgm-keep-label" for="warehouse-ecg-keep-years">
+              <span data-i18n="warehouse.yearKeepYearsLabel">保留年数</span>
+              <select id="warehouse-ecg-keep-years" data-i18n-aria="warehouse.yearKeepYearsLabel" aria-label="保留年数">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+              </select>
+            </label>
+            <button type="button" id="btn-warehouse-ecg-keep-recent" class="btn-ghost btn-sm">仅保留近 3 年</button>
+          </div>
+          <ul id="warehouse-ecg-year-list" class="warehouse-cgm-month-list" aria-label="ECG years"></ul>
+        </div>
+          </div>
+        </details>
+
         <label class="check-inline warehouse-auto-trim-row" for="warehouse-auto-trim">
           <input type="checkbox" id="warehouse-auto-trim" />
           <span data-i18n="warehouse.autoTrim">保存后自动按保留窗口裁剪</span>
@@ -958,7 +1065,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.86</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.87</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">
