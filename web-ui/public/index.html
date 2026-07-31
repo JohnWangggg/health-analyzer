@@ -652,6 +652,30 @@
           </div>
         </div>
 
+        <!-- v1.91: import provenance timeline (meta only; hidden without consent) -->
+        <div id="warehouse-provenance-timeline" class="warehouse-provenance-timeline hidden" role="region" aria-labelledby="warehouse-provenance-timeline-title">
+          <h4 class="warehouse-cgm-months-title" id="warehouse-provenance-timeline-title" data-i18n="warehouse.timelineTitle">导入溯源时间线</h4>
+          <p class="hint compact-hint" data-i18n="warehouse.timelineHint">按时间倒序显示导入批次与仓写入（仅元数据，无路径/明细）。</p>
+          <ul id="warehouse-provenance-timeline-list" class="warehouse-provenance-timeline-list" aria-label="provenance timeline"></ul>
+        </div>
+
+        <div id="warehouse-shard-filter-wrap" class="warehouse-shard-filter-wrap">
+          <label class="warehouse-shard-filter-label" for="warehouse-shard-filter" data-i18n="warehouse.shardFilterLabel">过滤分片</label>
+          <input
+            type="search"
+            id="warehouse-shard-filter"
+            class="warehouse-shard-filter-input"
+            maxlength="80"
+            autocomplete="off"
+            enterkeyhint="search"
+            placeholder="过滤分片：域名或年份如 2025 / cgm / sleep"
+            data-i18n-placeholder="warehouse.shardFilterPh"
+            data-i18n-aria="warehouse.shardFilterLabel"
+            aria-label="过滤分片"
+          />
+          <p id="warehouse-shard-filter-count" class="warehouse-shard-filter-count hint compact-hint" aria-live="polite"></p>
+        </div>
+
         <!-- CGM group -->
         <details class="warehouse-shard-group" id="warehouse-group-cgm" data-wh-group="cgm">
           <summary class="warehouse-shard-group-summary">
@@ -1098,7 +1122,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.90</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.91</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

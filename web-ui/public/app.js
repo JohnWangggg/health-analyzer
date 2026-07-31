@@ -95,9 +95,12 @@
   const YEAR_KEEP_YEARS_DEFAULT = 3;
   /** 保存到仓后是否自动按 keep-N 裁剪 CGM 月 + BP/体重年（默认关） */
   const WAREHOUSE_AUTO_TRIM_KEY = 'health-analyzer-warehouse-auto-trim';
+  /** v1.91: last warehouse shard filter query (session only; labels on screen only) */
+  const WAREHOUSE_SHARD_FILTER_KEY = 'health-analyzer-wh-shard-filter';
 
   /** Guard re-entry: auto-trim → reanalyze → maybePersist must not trim again nested. */
   let warehouseAutoTrimRunning = false;
+  let warehouseShardFilterTimer = null;
   /** Last getWarehouseStatus() snapshot for soft-quota forecast (meta only). */
   let lastWarehouseStatusForForecast = null;
   /** When true, next renderResults skips auto maybePersist (auto-trim already applied). */
@@ -7649,9 +7652,9 @@
       return;
     }
 
-    // Highlight selected batch row
+    // Highlight selected batch row (import list + provenance timeline)
     const rows = document.querySelectorAll(
-      '#warehouse-import-batches-list .wh-batch-row'
+      '#warehouse-import-batches-list .wh-batch-row, #warehouse-provenance-timeline-list .wh-timeline-item[data-batch-id]'
     );
     rows.forEach((row) => {
       const id = row.getAttribute('data-batch-id') || '';
@@ -7913,6 +7916,235 @@
     wrap.classList.remove('hidden');
   }
 
+  /**
+   * v1.91: chronological import provenance timeline near import batches (meta only).
+   * Events: import batches + warehouse lastWrittenAt write; optional chunkCount.
+   * Newest first, cap ~12. Hidden without consent. No raw samples / full paths.
+   * @param {object|null} st getWarehouseStatus() snapshot
+   */
+  async function refreshWarehouseProvenanceTimeline(st) {
+    const wrap = $('warehouse-provenance-timeline');
+    const listEl = $('warehouse-provenance-timeline-list');
+    if (!wrap) return;
+
+    const hide = () => {
+      wrap.classList.add('hidden');
+      if (listEl) listEl.innerHTML = '';
+    };
+
+    if (!st || !st.granted) {
+      hide();
+      return;
+    }
+
+    /** @type {{ type: string, at: string, batchId: string, label: string, title: string, clickable: boolean }[]} */
+    const events = [];
+
+    // Warehouse last written (meta only)
+    const lastWrittenRaw =
+      st.meta && st.meta.lastWrittenAt != null && st.meta.lastWrittenAt !== ''
+        ? String(st.meta.lastWrittenAt)
+        : '';
+    const lastBidRaw =
+      st.meta && st.meta.lastImportBatchId != null && st.meta.lastImportBatchId !== ''
+        ? String(st.meta.lastImportBatchId)
+        : '';
+    if (lastWrittenRaw) {
+      const when = lastWrittenRaw.slice(0, 19).replace('T', ' ');
+      const idShort = lastBidRaw ? shortImportBatchId(lastBidRaw) : '—';
+      const label = t('warehouse.timelineWrite', { when, id: idShort });
+      events.push({
+        type: 'write',
+        at: lastWrittenRaw,
+        batchId: lastBidRaw,
+        label,
+        title: lastBidRaw || lastWrittenRaw,
+        clickable: !!lastBidRaw,
+      });
+    }
+
+    // Import batches (newest first from listImportBatches)
+    let batches = [];
+    try {
+      if (
+        window.HealthHistory &&
+        typeof window.HealthHistory.listImportBatches === 'function'
+      ) {
+        batches = (await window.HealthHistory.listImportBatches()) || [];
+      }
+    } catch (e) {
+      console.warn('refreshWarehouseProvenanceTimeline list failed', e);
+      batches = [];
+    }
+
+    // Optional reverse index: batchId → chunkCount (meta only)
+    /** @type {Record<string, number>} */
+    const chunkCountByBatch = {};
+    try {
+      if (
+        window.HealthHistory &&
+        typeof window.HealthHistory.getImportBatchShardIndex === 'function'
+      ) {
+        const idx = await window.HealthHistory.getImportBatchShardIndex({
+          limit: 20,
+        });
+        if (idx && idx.ok && Array.isArray(idx.batches)) {
+          idx.batches.forEach((row) => {
+            if (!row || row.batchId == null) return;
+            const bid = String(row.batchId).trim();
+            if (!bid) return;
+            const n =
+              row.chunkCount != null ? Number(row.chunkCount) : 0;
+            if (Number.isFinite(n) && n > 0) chunkCountByBatch[bid] = n;
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('refreshWarehouseProvenanceTimeline shard index failed', e);
+    }
+
+    (Array.isArray(batches) ? batches : []).forEach((b) => {
+      if (!b) return;
+      const fullId = b.id != null ? String(b.id) : '';
+      const at = b.createdAt != null ? String(b.createdAt) : '';
+      if (!fullId && !at) return;
+      const idShort = shortImportBatchId(fullId);
+      const when = at
+        ? at.slice(0, 19).replace('T', ' ')
+        : '—';
+      const source = provenanceSourceLabel(b.source);
+      const bytes = formatBytes(b.totalBytes != null ? b.totalBytes : 0);
+      const files = Array.isArray(b.files) ? b.files : [];
+      const filesLabel =
+        formatImportBatchFilesLabel(files) ||
+        t('warehouse.batchesFiles', { n: String(files.length) });
+      const stats = b.stats || {};
+      const hasStats =
+        stats.totalAdded != null ||
+        stats.totalSkipped != null ||
+        stats.added != null ||
+        stats.skipped != null;
+      const added =
+        stats.totalAdded != null
+          ? Number(stats.totalAdded) || 0
+          : Number(stats.added) || 0;
+      const skipped =
+        stats.totalSkipped != null
+          ? Number(stats.totalSkipped) || 0
+          : Number(stats.skipped) || 0;
+      let label = t('warehouse.timelineImport', {
+        id: idShort,
+        when,
+        source,
+        files: filesLabel,
+        bytes,
+      });
+      if (hasStats) {
+        label +=
+          ' · ' +
+          t('warehouse.batchesStats', {
+            added: String(added),
+            skipped: String(skipped),
+          });
+      }
+      const chunkN = fullId ? chunkCountByBatch[fullId] : 0;
+      if (chunkN > 0) {
+        label +=
+          ' · ' + t('warehouse.timelineChunks', { n: String(chunkN) });
+      }
+      events.push({
+        type: 'import',
+        at: at || fullId,
+        batchId: fullId,
+        label,
+        title: fullId || when,
+        clickable: !!fullId,
+      });
+    });
+
+    // Newest first, cap ~12
+    events.sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')));
+    const capped = events.slice(0, 12);
+
+    wrap.classList.remove('hidden');
+    if (!listEl) return;
+
+    if (!capped.length) {
+      listEl.innerHTML =
+        `<li class="wh-timeline-item wh-timeline-empty">` +
+        escapeHtml(t('warehouse.timelineEmpty')) +
+        `</li>`;
+      return;
+    }
+
+    listEl.innerHTML = capped
+      .map((ev) => {
+        if (!ev) return '';
+        const kindClass = ev.type === 'write' ? 'is-write' : 'is-import';
+        const bidAttr = ev.batchId
+          ? ` data-batch-id="${escapeHtml(ev.batchId)}"`
+          : '';
+        const roleAttrs = ev.clickable
+          ? ` tabindex="0" role="button"`
+          : '';
+        // Kind chip: first segment of i18n template (before ·)
+        const kindSeed =
+          ev.type === 'write'
+            ? t('warehouse.timelineWrite', { when: '…', id: '…' })
+            : t('warehouse.timelineImport', {
+                id: '…',
+                when: '…',
+                source: '…',
+                files: '…',
+                bytes: '…',
+              });
+        const kindText = String(kindSeed).split('·')[0].trim() || ev.type;
+        return (
+          `<li class="wh-timeline-item ${kindClass}"${bidAttr}${roleAttrs} title="${escapeHtml(ev.title || '')}">` +
+          `<span class="wh-timeline-kind">${escapeHtml(kindText)}</span>` +
+          `<div class="wh-timeline-main">` +
+          (ev.batchId
+            ? `<code title="${escapeHtml(ev.batchId)}">${escapeHtml(shortImportBatchId(ev.batchId))}</code>`
+            : '') +
+          `</div>` +
+          `<div class="wh-timeline-meta">${escapeHtml(ev.label)}</div>` +
+          `</li>`
+        );
+      })
+      .filter(Boolean)
+      .join('');
+
+    // Click / keyboard → showWarehouseBatchShards when batch id present
+    if (!listEl._whTimelineBound) {
+      listEl._whTimelineBound = true;
+      listEl.addEventListener('click', (ev) => {
+        const tEl = ev.target;
+        if (!tEl || !tEl.closest) return;
+        const row = tEl.closest('.wh-timeline-item');
+        if (!row || !listEl.contains(row)) return;
+        const bid = row.getAttribute('data-batch-id') || '';
+        if (!bid) return;
+        if (typeof showWarehouseBatchShards === 'function') {
+          void showWarehouseBatchShards(bid);
+        }
+      });
+      listEl.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        const row =
+          ev.target && ev.target.closest
+            ? ev.target.closest('.wh-timeline-item')
+            : null;
+        if (!row || !listEl.contains(row)) return;
+        const bid = row.getAttribute('data-batch-id') || '';
+        if (!bid) return;
+        ev.preventDefault();
+        if (typeof showWarehouseBatchShards === 'function') {
+          void showWarehouseBatchShards(bid);
+        }
+      });
+    }
+  }
+
   async function refreshWarehousePanel() {
     const statusEl = $('warehouse-status');
     const consentEl = $('warehouse-consent');
@@ -7949,6 +8181,7 @@
       if (statusEl) statusEl.textContent = t('warehouse.unavailable');
       updateWarehouseQuotaForecast(null);
       await refreshWarehouseImportBatches(null);
+      await refreshWarehouseProvenanceTimeline(null);
       return;
     }
     try {
@@ -8023,16 +8256,18 @@
 
       if (!statusEl) {
         updateWarehouseQuotaForecast(st);
-        refreshWarehouseShardGroups();
+        applyWarehouseShardFilter();
         await refreshWarehouseImportBatches(st);
+        await refreshWarehouseProvenanceTimeline(st);
         await refreshWarehouseHomeBanner();
         return;
       }
       if (!st.granted) {
         statusEl.textContent = t('warehouse.status.off');
         updateWarehouseQuotaForecast(st);
-        refreshWarehouseShardGroups();
+        applyWarehouseShardFilter();
         await refreshWarehouseImportBatches(st);
+        await refreshWarehouseProvenanceTimeline(st);
         await refreshWarehouseHomeBanner();
         return;
       }
@@ -8243,7 +8478,11 @@
         allYearsActionsEl.classList.toggle('hidden', !hasAnyYearShards);
       }
 
+      // v1.91: re-apply label-only shard filter after list rebuild
+      applyWarehouseShardFilter();
+
       // Collapsible domain groups: badge counts + default open state
+      // (applyWarehouseShardFilter already calls this; keep as safety if filter skipped)
       refreshWarehouseShardGroups();
 
       // v1.89: soft-quota forecast (keep-window reclaim; years/months/bytes only)
@@ -8251,6 +8490,8 @@
 
       // v1.89: import batch linkage (lastImportBatchId + recent batches)
       await refreshWarehouseImportBatches(st);
+      // v1.91: import provenance timeline (meta only)
+      await refreshWarehouseProvenanceTimeline(st);
 
       // Browser origin storage estimate (best-effort)
       if (storageEl && navigator.storage && typeof navigator.storage.estimate === 'function') {
@@ -8269,6 +8510,7 @@
       if (statusEl) statusEl.textContent = t('warehouse.err', { msg: (e && e.message) || String(e) });
       updateWarehouseQuotaForecast(null);
       await refreshWarehouseImportBatches(null);
+      await refreshWarehouseProvenanceTimeline(null);
     }
   }
 
@@ -8508,7 +8750,7 @@
 
   /**
    * Update collapsible warehouse domain groups:
-   * - badge = count of visible (non-hidden) shard panels inside the group
+   * - badge = count of visible (non-hidden / non-filter-empty) shard panels inside the group
    * - hide empty groups
    * - open groups with content (respect localStorage pref when set)
    */
@@ -8530,7 +8772,8 @@
       panels.forEach((p) => {
         // both-actions doesn't count as a shard domain for the badge
         if (p.classList.contains('warehouse-years-both-actions')) return;
-        if (!p.classList.contains('hidden')) visible += 1;
+        if (p.classList.contains('hidden') || p.classList.contains('wh-filter-empty')) return;
+        visible += 1;
       });
       const badge = $(g.badgeId);
       if (badge) {
@@ -8580,6 +8823,271 @@
     });
   }
   bindWarehouseShardGroupPrefs();
+
+  /**
+   * v1.91: domain keyword bags for warehouse shard filter (labels already on screen only).
+   * Includes short English tokens + current locale domain/title strings.
+   */
+  function warehouseShardFilterPanels() {
+    return [
+      {
+        wrapId: 'warehouse-cgm-months',
+        listId: 'warehouse-cgm-month-list',
+        keywords: [
+          'cgm', 'glucose', '血糖', 'continuous',
+          t('warehouse.domain.cgm'), t('warehouse.cgmMonthsTitle'), t('warehouse.group.cgm'),
+        ],
+      },
+      {
+        wrapId: 'warehouse-bp-years',
+        listId: 'warehouse-bp-year-list',
+        keywords: [
+          'bp', 'blood', 'pressure', '血压', '血壓', 'bloodpressure',
+          t('warehouse.domain.bp'), t('warehouse.bpYearsTitle'), t('warehouse.group.body'),
+        ],
+      },
+      {
+        wrapId: 'warehouse-weight-years',
+        listId: 'warehouse-weight-year-list',
+        keywords: [
+          'weight', '体重', '體重', 'body', 'fat', '体脂', '體脂', 'bodyfat',
+          t('warehouse.domain.weight'), t('warehouse.domain.bodyFat'),
+          t('warehouse.weightYearsTitle'), t('warehouse.group.body'),
+        ],
+      },
+      {
+        wrapId: 'warehouse-sleep-years',
+        listId: 'warehouse-sleep-year-list',
+        keywords: [
+          'sleep', '睡眠',
+          t('warehouse.domain.sleep'), t('warehouse.sleepYearsTitle'), t('warehouse.group.activity'),
+        ],
+      },
+      {
+        wrapId: 'warehouse-steps-years',
+        listId: 'warehouse-steps-year-list',
+        keywords: [
+          'steps', 'step', '步数', '步數',
+          t('warehouse.domain.steps'), t('warehouse.stepsYearsTitle'), t('warehouse.group.activity'),
+        ],
+      },
+      {
+        wrapId: 'warehouse-workouts-years',
+        listId: 'warehouse-workouts-year-list',
+        keywords: [
+          'workouts', 'workout', '训练', '訓練', 'exercise',
+          t('warehouse.domain.workouts'), t('warehouse.workoutsYearsTitle'), t('warehouse.group.activity'),
+        ],
+      },
+      {
+        wrapId: 'warehouse-watch-years',
+        listId: 'warehouse-watch-year-list',
+        keywords: [
+          'watch', '手表', '手錶', 'daily', 'watchdaily',
+          t('warehouse.domain.watch'), t('warehouse.watchYearsTitle'), t('warehouse.group.activity'),
+        ],
+      },
+      {
+        wrapId: 'warehouse-hrv-years',
+        listId: 'warehouse-hrv-year-list',
+        keywords: [
+          'hrv', 'heart', 'variability',
+          t('warehouse.domain.hrv'), t('warehouse.domain.hrvNight'),
+          t('warehouse.hrvYearsTitle'), t('warehouse.group.cardio'),
+        ],
+      },
+      {
+        wrapId: 'warehouse-resting-hr-years',
+        listId: 'warehouse-resting-hr-year-list',
+        keywords: [
+          'resting', 'restinghr', 'rhr', '静息', '靜息', '心率',
+          t('warehouse.domain.restingHr'), t('warehouse.restingHrYearsTitle'), t('warehouse.group.cardio'),
+        ],
+      },
+      {
+        wrapId: 'warehouse-walking-hr-years',
+        listId: 'warehouse-walking-hr-year-list',
+        keywords: [
+          'walking', 'walkinghr', '步行', '心率',
+          t('warehouse.domain.walkingHr'), t('warehouse.walkingHrYearsTitle'), t('warehouse.group.cardio'),
+        ],
+      },
+      {
+        wrapId: 'warehouse-ecg-years',
+        listId: 'warehouse-ecg-year-list',
+        keywords: [
+          'ecg', 'ekg', '心电图', '心電圖', 'electrocardiogram',
+          t('warehouse.domain.ecg'), t('warehouse.ecgYearsTitle'), t('warehouse.group.cardio'),
+        ],
+      },
+    ];
+  }
+
+  function isWarehouseShardPanelEffectivelyVisible(el) {
+    return !!(el && !el.classList.contains('hidden') && !el.classList.contains('wh-filter-empty'));
+  }
+
+  /** Keep bulk keep-N bars in sync with filter-visible domain panels. */
+  function updateWarehouseFilterBulkActions() {
+    const bothActions = $('warehouse-years-both-actions');
+    if (bothActions) {
+      const show =
+        isWarehouseShardPanelEffectivelyVisible($('warehouse-bp-years')) ||
+        isWarehouseShardPanelEffectivelyVisible($('warehouse-weight-years'));
+      bothActions.classList.toggle('hidden', !show);
+    }
+    const allYearsActions = $('warehouse-years-all-actions');
+    if (allYearsActions) {
+      const yearIds = [
+        'warehouse-bp-years',
+        'warehouse-weight-years',
+        'warehouse-sleep-years',
+        'warehouse-steps-years',
+        'warehouse-hrv-years',
+        'warehouse-resting-hr-years',
+        'warehouse-walking-hr-years',
+        'warehouse-workouts-years',
+        'warehouse-ecg-years',
+        'warehouse-watch-years',
+      ];
+      const any = yearIds.some((id) => isWarehouseShardPanelEffectivelyVisible($(id)));
+      allYearsActions.classList.toggle('hidden', !any);
+    }
+  }
+
+  function readWarehouseShardFilterQuery() {
+    const input = $('warehouse-shard-filter');
+    if (input && typeof input.value === 'string') return input.value.trim();
+    try {
+      const raw = window.sessionStorage.getItem(WAREHOUSE_SHARD_FILTER_KEY);
+      return raw != null ? String(raw).trim() : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function persistWarehouseShardFilterQuery(q) {
+    try {
+      if (q) window.sessionStorage.setItem(WAREHOUSE_SHARD_FILTER_KEY, q);
+      else window.sessionStorage.removeItem(WAREHOUSE_SHARD_FILTER_KEY);
+    } catch (e) { /* ignore */ }
+  }
+
+  /**
+   * v1.91 warehouse shard search/filter.
+   * Privacy: only matches labels already rendered on screen (+ fixed domain keyword tokens).
+   * Does not load raw payloads.
+   * @param {string} [queryOverride]
+   */
+  function applyWarehouseShardFilter(queryOverride) {
+    const input = $('warehouse-shard-filter');
+    const countEl = $('warehouse-shard-filter-count');
+    const qRaw = queryOverride != null
+      ? String(queryOverride)
+      : (input && typeof input.value === 'string' ? input.value : readWarehouseShardFilterQuery());
+    const q = String(qRaw || '').trim().toLowerCase();
+    persistWarehouseShardFilterQuery(q);
+    if (input) {
+      input.classList.toggle('wh-filter-active', !!q);
+      input.setAttribute('data-filter-active', q ? '1' : '0');
+    }
+
+    let total = 0;
+    let shown = 0;
+    const panels = warehouseShardFilterPanels();
+    panels.forEach((p) => {
+      const wrap = $(p.wrapId);
+      const list = $(p.listId);
+      if (!wrap || !list) return;
+      // Domains with no data stay fully hidden (not filter-empty)
+      if (wrap.classList.contains('hidden') && !list.querySelector('li')) {
+        wrap.classList.remove('wh-filter-empty');
+        return;
+      }
+      const domainTokens = (p.keywords || []).map((k) => String(k || '').toLowerCase()).filter(Boolean);
+      const rows = list.querySelectorAll('li');
+      let panelVisibleRows = 0;
+      rows.forEach((li) => {
+        total += 1;
+        const labelEl = li.querySelector('.wh-month');
+        const label = ((labelEl && labelEl.textContent) || '').trim().toLowerCase();
+        // Prefer shard label (year/month only); domain keyword match only on whole tokens
+        // (avoids matching every row when searching a domain name — still intentional)
+        let match = !q;
+        if (!match) {
+          match = label.includes(q) || domainTokens.some((tok) => tok === q || tok.includes(q));
+        }
+        li.classList.toggle('wh-filter-hidden', !match);
+        if (match) {
+          shown += 1;
+          panelVisibleRows += 1;
+        }
+      });
+      // Only mark filter-empty when panel has rows but none match
+      if (rows.length && q) {
+        wrap.classList.toggle('wh-filter-empty', panelVisibleRows === 0);
+      } else {
+        wrap.classList.remove('wh-filter-empty');
+      }
+    });
+
+    if (countEl) {
+      if (!q) {
+        countEl.textContent = total > 0
+          ? t('warehouse.shardFilterCount', { n: String(shown), m: String(total) })
+          : '';
+      } else if (total === 0) {
+        countEl.textContent = '';
+      } else if (shown === 0) {
+        countEl.textContent = t('warehouse.shardFilterNone');
+      } else {
+        countEl.textContent = t('warehouse.shardFilterCount', { n: String(shown), m: String(total) });
+      }
+    }
+
+    updateWarehouseFilterBulkActions();
+    refreshWarehouseShardGroups();
+  }
+
+  function bindWarehouseShardFilter() {
+    const input = $('warehouse-shard-filter');
+    if (!input || input.dataset.whFilterBound) return;
+    input.dataset.whFilterBound = '1';
+    try {
+      const saved = window.sessionStorage.getItem(WAREHOUSE_SHARD_FILTER_KEY);
+      if (saved != null && saved !== '' && !input.value) {
+        input.value = saved;
+      }
+    } catch (e) { /* ignore */ }
+    const schedule = () => {
+      if (warehouseShardFilterTimer) {
+        clearTimeout(warehouseShardFilterTimer);
+        warehouseShardFilterTimer = null;
+      }
+      warehouseShardFilterTimer = setTimeout(() => {
+        warehouseShardFilterTimer = null;
+        applyWarehouseShardFilter();
+      }, 150);
+    };
+    input.addEventListener('input', schedule);
+    input.addEventListener('search', () => {
+      // native clear (type=search) should apply immediately
+      if (warehouseShardFilterTimer) {
+        clearTimeout(warehouseShardFilterTimer);
+        warehouseShardFilterTimer = null;
+      }
+      applyWarehouseShardFilter();
+    });
+    // Apply once if restored from session
+    if (input.value && input.value.trim()) {
+      applyWarehouseShardFilter();
+    }
+  }
+  bindWarehouseShardFilter();
+  try {
+    // E2E / debug: apply filter immediately without debounce
+    window.__applyWarehouseShardFilter = applyWarehouseShardFilter;
+  } catch (e) { /* ignore */ }
 
   function getSelectedYearsFromUi(listId) {
     return Array.from(document.querySelectorAll(`#${listId} .wh-year-cb:checked`))
@@ -9313,6 +9821,8 @@
   window.addEventListener('health-analyzer-locale', () => {
     syncCgmKeepMonthsUi();
     syncYearKeepYearsUi();
+    // v1.91: recount/relabel filter status with new locale domain keywords
+    if (typeof applyWarehouseShardFilter === 'function') applyWarehouseShardFilter();
   });
   syncCgmKeepMonthsUi();
   $('btn-warehouse-cgm-keep-recent')?.addEventListener('click', async () => {

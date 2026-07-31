@@ -304,6 +304,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - v1.88：全量分片后 **thin core**（`core|full` 不再嵌套年/月域明细）；`migrateLegacyCoreToShards`（legacy/胖 core → sharded）；`exportShardInventory`（chunk 元数据清单，无 raw 时序）；**全域 keep-all 年**一键裁剪；E2E + 可选 `npm run perf:warehouse`；仓设计见 `docs/DATA_CENTER_v1.68.md`。
 - v1.89：仓与导入批次联动（`persistHealthDataWarehouse(data, { batchId })` → `warehouseMeta.lastImportBatchId`）；仓面板导入批次摘要（`#warehouse-import-batches`）；**配额预测** UI（`#warehouse-quota-forecast`，客户端按分片 `approxBytes` 估算，常 &lt;~70% 软配额时 hidden）；E2E 硬 API + 软 UI；仓设计见 `docs/DATA_CENTER_v1.68.md`。
 - v1.90：**批次→分片反向索引**（`listWarehouseChunksByBatchId` / `getImportBatchShardIndex`，chunk 行 `batchId`，返回 meta only、无 payload）；仓面板可点批次查看分片 id；可选 **离线连通横幅** `#connectivity-banner`；E2E 硬 reverse-index + 软 offline；仓设计见 `docs/DATA_CENTER_v1.68.md`，手测见 `docs/MANUAL_QA.md`。
+- v1.91：**客户端分片过滤**（`#warehouse-shard-filter`，年/月列表 DOM 过滤，不改 IDB）+ **来源时间线合成**（`#warehouse-provenance-timeline`，`listImportBatches` + `lastImportBatchId`，meta only）；E2E soft/hard（UI 缺失则 soft log）；仓设计见 `docs/DATA_CENTER_v1.68.md`，手测见 `docs/MANUAL_QA.md`。
 
 ## 许可
 

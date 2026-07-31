@@ -526,6 +526,46 @@ saveImportBatch(record)
 
 E2E：`e2e/warehouse.spec.js` → `v1.90 batch→shard index…`（**硬** API：缺 `listWarehouseChunksByBatchId` / `getImportBatchShardIndex` 即失败；assert chunk ids 含 `core|full` 或域年/月、**无** payload / 临床字段）；`e2e/connectivity.spec.js` → offline banner（**软**：`#connectivity-banner` 不存在则 skip）。
 
+#### 4.2.7 客户端分片过滤 · 来源时间线合成（v1.91）
+
+**动机：** 多域年/月分片列表变长后，用户需要 **本机客户端过滤** 快速定位某年/月，而无需删片或重载。另将 **导入批次 + 仓写入** 合成为可读的 **provenance 时间线**（摘要级，非点级、非诊断），便于「这次导入写了什么」的回顾。
+
+**客户端分片过滤（client shard filter）**
+
+| 项 | 说明 |
+|----|------|
+| 控件 | **`#warehouse-shard-filter`**（文本输入；占位如「过滤年/月…」） |
+| 作用域 | 仅 **UI 显示层**：年分片行（`#warehouse-*-year-list li`，`data-year`）与 CGM 月行（`#warehouse-cgm-month-list li`，`data-cgm-month`） |
+| 匹配 | 子串匹配 shard 键 / 年 / 月标签（如输入 `2025` 保留含 2025 的年片与 `2025-MM` 月片；不区分大小写可选） |
+| 行为 | 不匹配行 `hidden` / `is-filtered-out` / `display:none` 等；控件或面板可加 **`filter-active` / `is-filtering` / `has-shard-filter`** 类 |
+| 清空 | 清空输入 → 恢复全部行、去掉 active 类；**不**改 IDB、不删分片、不触发 persist |
+| 非目标 | 非服务端查询、非云同步、非诊断筛选；不替代 keep-N / 删年 / 配额淘汰 |
+
+**来源时间线合成（provenance timeline composition）**
+
+| 项 | 说明 |
+|----|------|
+| 容器 | **`#warehouse-provenance-timeline`**（列表区域；`ul`/`ol` 或等价 item 容器） |
+| 输入 | `listImportBatches()`（≤50）+ 仓 `meta.lastImportBatchId` + 可选 `getImportBatchShardIndex` / chunk 行 `batchId`（v1.89–v1.90） |
+| 项内容（meta only） | 时间、短 batch id、来源（hae/xml/…）、文件数或字节摘要、可选贡献分片计数；**禁止** systolic/CGM 点值/睡眠日 map 等 raw |
+| 合成规则 | 按 `createdAt` 降序；最近写入批次与 `lastImportBatchId` 可高亮；空仓或无批次 → 空列表或简短「暂无导入批次」 |
+| 与既有 UI | 与 `#warehouse-import-batches` / `#warehouse-batch-shards` **互补**（时间线偏时间序回顾；批次面板偏点选反查分片） |
+
+流水线（相对 v1.90 只增「展示合成」）：
+
+```text
+saveImportBatch(record)
+  → persistHealthDataWarehouse(data, { batchId: record.id })
+  → meta.lastImportBatchId + chunk.batchId
+  → UI: #warehouse-provenance-timeline  ← listImportBatches + lastImportBatchId (+ optional reverse index)
+  → UI: #warehouse-shard-filter        ← 仅过滤年/月列表 DOM（客户端）
+```
+
+E2E（**serial** `e2e/warehouse.spec.js`）：
+
+- `v1.91 shard filter soft/hard…`：grant + 多年 BP/sleep + 多月 CGM → reload hydrate → more 仓面板；**若** `#warehouse-shard-filter` 存在则输入 `2025` 断言部分年/月行隐藏或 filter-active 类，清空后恢复；**缺失则 soft log**。
+- `v1.91 provenance timeline soft/hard…`：`saveImportBatch` + `persist(..., { batchId })` 硬断言 `lastImportBatchId`；**若** `#warehouse-provenance-timeline` 存在则至少一条 `li`/item；**缺失则 soft log**。
+
 **默认不入仓：**
 
 - Apple Health 未映射的未知 HAE metric 时序（与 v1.40「不落库未知序列」一致，除非未来单独授权）  
@@ -1307,6 +1347,7 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 | 实现对照 v1.88 | 2026-07-31 | **Thin core** 全量分片后；`migrateLegacyCoreToShards`；`exportShardInventory`（chunk 元数据、无 raw）；**全域 keep-all 年**；E2E `e2e/warehouse.spec.js`；可选 `npm run perf:warehouse` |
 | 实现对照 v1.89 | 2026-07-31 | 仓 **`lastImportBatchId`** 与 `persist(..., { batchId })` / `importBatches` 联动；仓面板导入批次摘要 `#warehouse-import-batches`；**配额预测** `#warehouse-quota-forecast`（客户端按分片详情估算，常 &lt;70% soft 时 hidden）；E2E 硬 API + 软 UI |
 | 实现对照 v1.90 | 2026-07-31 | **批次→分片反向索引**：`listWarehouseChunksByBatchId` / `getImportBatchShardIndex`（meta only，无 payload）；chunk 行 `batchId`；可选点批次看分片列表；可选 `#connectivity-banner` 离线提示；E2E 硬 reverse-index + 软 offline banner |
+| 实现对照 v1.91 | 2026-07-31 | **客户端分片过滤** `#warehouse-shard-filter`（年/月列表 DOM 过滤，不改 IDB）；**来源时间线** `#warehouse-provenance-timeline`（`listImportBatches` + `lastImportBatchId` 合成，meta only）；E2E soft/hard 过滤 + 时间线 |
 
 ---
 
@@ -1315,9 +1356,9 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 | 路径 | 说明 |
 |------|------|
 | `web-ui/public/history-db.js` | IDB v5、`HealthHistory`、分片 persist / 删片 / 配额 / 备份 / 写串行 / **v1.88 migrate + inventory** / **v1.89 batchId → lastImportBatchId** / **v1.90 batch→shard reverse index** |
-| `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 双域·**全域** keep / 自动裁剪、多选删、wipe、**v1.89 批次面板 + 配额预测** / **v1.90 点批次→分片 + connectivity banner** |
-| `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年 / 双域·全域按钮 / auto-trim / **import-batches / quota-forecast**）/ 可选 `#connectivity-banner` |
-| `e2e/warehouse.spec.js` | 仓 / 年分片 / 双域 keep / auto-trim / **v1.88 migrate·inventory·global keep** / **v1.89 batch linkage + quota forecast** / **v1.90 batch→shard index** / 备份自动化 |
+| `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 双域·**全域** keep / 自动裁剪、多选删、wipe、**v1.89 批次面板 + 配额预测** / **v1.90 点批次→分片 + connectivity banner** / **v1.91 shard filter + provenance timeline** |
+| `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年 / 双域·全域按钮 / auto-trim / **import-batches / quota-forecast**）/ 可选 `#connectivity-banner` / **v1.91 `#warehouse-shard-filter` · `#warehouse-provenance-timeline`** |
+| `e2e/warehouse.spec.js` | 仓 / 年分片 / 双域 keep / auto-trim / **v1.88 migrate·inventory·global keep** / **v1.89 batch linkage + quota forecast** / **v1.90 batch→shard index** / **v1.91 shard filter + provenance timeline** / 备份自动化 |
 | `e2e/connectivity.spec.js` | **v1.90** 离线横幅软断言（`#connectivity-banner`；缺省 skip） |
 | `scripts/perf-warehouse-baseline.mjs` | 可选：Playwright 测 persist/load/status 耗时（`npm run perf:warehouse`） |
 | `lib/src/types.ts` | `HealthData` / `FullAnalysis` |

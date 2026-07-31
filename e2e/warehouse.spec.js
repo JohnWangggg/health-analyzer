@@ -2801,4 +2801,453 @@ test.describe('v1.68 raw warehouse', () => {
       );
     }
   });
+
+  // ─── v1.91: client shard filter + provenance timeline composition ───
+
+  test('v1.91 shard filter soft/hard: multi-year seed → filter 2025 → clear restore', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+
+    // Seed multi-year BP + sleep + multi-month CGM so year/month lists have filter targets
+    const seed = await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.bloodPressure = [
+        { datetime: '2024-03-10T08:00:00', systolic: 118, diastolic: 78 },
+        { datetime: '2025-06-15T08:00:00', systolic: 122, diastolic: 81 },
+        { datetime: '2026-02-20T08:00:00', systolic: 120, diastolic: 80 },
+      ];
+      data.sleep = {
+        '2024-05-11': { total: 7.0, deep: 1.0, rem: 1.4, core: 4.2, awake: 0.4 },
+        '2025-05-11': { total: 7.2, deep: 1.1, rem: 1.5, core: 4.1, awake: 0.5 },
+        '2026-05-11': { total: 7.1, deep: 1.0, rem: 1.4, core: 4.2, awake: 0.5 },
+      };
+      data.cgm = [];
+      for (let m = 1; m <= 4; m++) {
+        const mm = m < 10 ? '0' + m : String(m);
+        data.cgm.push({ datetime: '2025-' + mm + '-10T08:00:00', value: 5.5 });
+        data.cgm.push({ datetime: '2026-' + mm + '-10T08:00:00', value: 5.6 });
+      }
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasSleep = true;
+      data.dataAvailability.hasCgm = true;
+      const res = await HH.persistHealthDataWarehouse(data);
+      if (!res || res.ok === false) {
+        return { error: 'persist_failed', res };
+      }
+      const st = await HH.getWarehouseStatus();
+      return {
+        hasPayload: !!(st && st.hasPayload),
+        bpYears: (st && st.bpYears) || [],
+        sleepYears: (st && st.sleepYears) || [],
+        cgmMonths: (st && st.cgmMonths) || [],
+      };
+    });
+    expect(seed.error, 'v1.91 seed persist: ' + JSON.stringify(seed)).toBeFalsy();
+    expect(seed.hasPayload).toBe(true);
+    expect(seed.bpYears).toEqual(expect.arrayContaining(['2024', '2025', '2026']));
+    expect(seed.sleepYears).toEqual(expect.arrayContaining(['2024', '2025', '2026']));
+
+    // Reload → hydrate, open more → warehouse panel
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+    await setWorkspace(page, 'more');
+    await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+
+    // Expand body/activity groups so year rows are in the DOM
+    for (const id of ['#warehouse-group-body', '#warehouse-group-activity', '#warehouse-group-cgm']) {
+      const g = page.locator(id);
+      if ((await g.count()) > 0) {
+        await g.evaluate((el) => {
+          if (el instanceof HTMLDetailsElement && !el.open) el.open = true;
+        });
+      }
+    }
+
+    // Wait for at least one year row from seed (status refresh after hydrate)
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(() => {
+            const rows = document.querySelectorAll(
+              '#warehouse-bp-year-list li, #warehouse-sleep-year-list li, #warehouse-cgm-month-list li'
+            );
+            return rows.length;
+          }),
+        { timeout: 12_000 }
+      )
+      .toBeGreaterThan(0);
+
+    const filter = page.locator('#warehouse-shard-filter');
+    const filterCount = await filter.count();
+    if (filterCount === 0) {
+      // Soft skip: client filter UI not merged yet — multi-year seed + panel hydrate already hard path
+      // eslint-disable-next-line no-console
+      console.log(
+        'v1.91 soft: #warehouse-shard-filter not in DOM yet — multi-year BP/sleep/CGM seed + warehouse panel hydrate asserted; client filter UI pending merge'
+      );
+      return;
+    }
+
+    // Hard path when filter control is present
+    await expect(filter).toBeAttached();
+    await filter.scrollIntoViewIfNeeded();
+
+    // Baseline: count visible year/month rows that mention non-2025 labels
+    const before = await page.evaluate(() => {
+      const allRows = Array.from(
+        document.querySelectorAll(
+          '#warehouse-bp-year-list li, #warehouse-sleep-year-list li, #warehouse-weight-year-list li, #warehouse-cgm-month-list li'
+        )
+      );
+      const visible = allRows.filter((el) => {
+        if (!(el instanceof HTMLElement)) return false;
+        if (el.classList.contains('hidden') || el.hasAttribute('hidden')) return false;
+        if (el.classList.contains('is-filtered-out') || el.classList.contains('wh-filter-hidden'))
+          return false;
+        const cs = getComputedStyle(el);
+        return cs.display !== 'none' && cs.visibility !== 'hidden';
+      });
+      return {
+        total: allRows.length,
+        visible: visible.length,
+        texts: visible.map((el) => String(el.textContent || '').slice(0, 40)),
+      };
+    });
+    expect(
+      before.total,
+      'v1.91 expected year/month rows after multi-year seed: ' + JSON.stringify(before)
+    ).toBeGreaterThan(1);
+
+    // Type "2025" and apply filter (debounce + direct apply for reliability)
+    await filter.fill('2025');
+    await page.evaluate(() => {
+      const el = document.querySelector('#warehouse-shard-filter');
+      if (el) {
+        el.value = '2025';
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      if (typeof window.__applyWarehouseShardFilter === 'function') {
+        window.__applyWarehouseShardFilter('2025');
+      }
+    });
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(() => {
+            const filterEl = document.querySelector('#warehouse-shard-filter');
+            const allRows = Array.from(
+              document.querySelectorAll(
+                '#warehouse-bp-year-list li, #warehouse-sleep-year-list li, #warehouse-weight-year-list li, #warehouse-cgm-month-list li'
+              )
+            );
+            const hidden = allRows.filter(
+              (el) => el.classList && el.classList.contains('wh-filter-hidden')
+            );
+            const visible = allRows.filter(
+              (el) => !(el.classList && el.classList.contains('wh-filter-hidden'))
+            );
+            const non2025Visible = visible.filter(
+              (el) => !/2025/.test(String((el.querySelector('.wh-month') || el).textContent || ''))
+            );
+            return {
+              filterValue: filterEl ? String(filterEl.value || '') : '',
+              filterActive:
+                !!(filterEl &&
+                  (filterEl.classList.contains('wh-filter-active') ||
+                    filterEl.getAttribute('data-filter-active') === '1')),
+              hiddenCount: hidden.length,
+              visibleCount: visible.length,
+              non2025VisibleCount: non2025Visible.length,
+              total: allRows.length,
+            };
+          }),
+        { timeout: 8_000 }
+      )
+      .toMatchObject({
+        filterValue: '2025',
+        filterActive: true,
+      });
+
+    const afterFilter = await page.evaluate(() => {
+      const allRows = Array.from(
+        document.querySelectorAll(
+          '#warehouse-bp-year-list li, #warehouse-sleep-year-list li, #warehouse-weight-year-list li, #warehouse-cgm-month-list li'
+        )
+      );
+      const hidden = allRows.filter((el) => el.classList.contains('wh-filter-hidden'));
+      const visible = allRows.filter((el) => !el.classList.contains('wh-filter-hidden'));
+      return {
+        hiddenCount: hidden.length,
+        visibleCount: visible.length,
+        total: allRows.length,
+      };
+    });
+    expect(
+      afterFilter.hiddenCount > 0 && afterFilter.visibleCount < afterFilter.total,
+      'v1.91 filter "2025" should hide non-matching shard rows: ' + JSON.stringify(afterFilter)
+    ).toBe(true);
+
+    // Clear filter → restore all rows
+    await filter.fill('');
+    await page.evaluate(() => {
+      if (typeof window.__applyWarehouseShardFilter === 'function') {
+        window.__applyWarehouseShardFilter('');
+      }
+    });
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate((baselineVisible) => {
+            const filterEl = document.querySelector('#warehouse-shard-filter');
+            const allRows = Array.from(
+              document.querySelectorAll(
+                '#warehouse-bp-year-list li, #warehouse-sleep-year-list li, #warehouse-weight-year-list li, #warehouse-cgm-month-list li'
+              )
+            );
+            const visible = allRows.filter((el) => {
+              if (!(el instanceof HTMLElement)) return false;
+              if (el.classList.contains('hidden') || el.hasAttribute('hidden')) return false;
+              if (
+                el.classList.contains('is-filtered-out') ||
+                el.classList.contains('wh-filter-hidden') ||
+                el.classList.contains('wh-shard-filtered-out')
+              )
+                return false;
+              const cs = getComputedStyle(el);
+              return cs.display !== 'none' && cs.visibility !== 'hidden';
+            });
+            const stillActive =
+              !!(filterEl &&
+                (filterEl.classList.contains('is-active') ||
+                  filterEl.classList.contains('filter-active') ||
+                  filterEl.classList.contains('has-filter') ||
+                  filterEl.classList.contains('warehouse-shard-filter-active')));
+            return {
+              value: filterEl && 'value' in filterEl ? String(filterEl.value || '') : '',
+              visibleCount: visible.length,
+              restored: visible.length >= baselineVisible && !stillActive,
+              stillActive,
+            };
+          }, before.visible),
+        { timeout: 8_000 }
+      )
+      .toMatchObject({ value: '' });
+
+    const afterClear = await page.evaluate((baselineVisible) => {
+      const allRows = Array.from(
+        document.querySelectorAll(
+          '#warehouse-bp-year-list li, #warehouse-sleep-year-list li, #warehouse-weight-year-list li, #warehouse-cgm-month-list li'
+        )
+      );
+      const visible = allRows.filter((el) => {
+        if (!(el instanceof HTMLElement)) return false;
+        if (el.classList.contains('hidden') || el.hasAttribute('hidden')) return false;
+        if (
+          el.classList.contains('is-filtered-out') ||
+          el.classList.contains('wh-filter-hidden') ||
+          el.classList.contains('wh-shard-filtered-out')
+        )
+          return false;
+        const cs = getComputedStyle(el);
+        return cs.display !== 'none' && cs.visibility !== 'hidden';
+      });
+      return {
+        visibleCount: visible.length,
+        total: allRows.length,
+        baselineVisible,
+      };
+    }, before.visible);
+    expect(
+      afterClear.visibleCount,
+      'v1.91 clear filter should restore year/month rows: ' + JSON.stringify(afterClear)
+    ).toBeGreaterThanOrEqual(before.visible);
+  });
+
+  test('v1.91 provenance timeline soft/hard: saveImportBatch + persist batchId → timeline items', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+
+    const result = await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+
+      if (typeof HH.saveImportBatch !== 'function' || typeof HH.persistHealthDataWarehouse !== 'function') {
+        return { error: 'missing_api' };
+      }
+
+      const batchId =
+        (typeof HA.createImportBatchId === 'function' && HA.createImportBatchId()) ||
+        'batch_e2e_v191_provenance_timeline';
+
+      if (typeof HH.clearImportBatches === 'function') {
+        await HH.clearImportBatches();
+      }
+
+      let record = {
+        id: batchId,
+        source: 'hae',
+        createdAt: new Date().toISOString(),
+        files: [
+          {
+            name: 'e2e-v191-timeline.json',
+            bytes: 192,
+            sha256: 'ee'.repeat(32),
+            digestScope: 'full',
+            bytesHashed: 192,
+          },
+        ],
+        totalBytes: 192,
+        stats: { totalAdded: 2, totalUpdated: 0, totalSkipped: 0 },
+        notes: ['e2e v1.91 provenance timeline'],
+        cancelled: false,
+      };
+      if (typeof HA.normalizeImportBatch === 'function') {
+        const n = HA.normalizeImportBatch(record);
+        if (n) record = n;
+      }
+
+      const saved = await HH.saveImportBatch(record);
+      const expectedBatchId = (saved && saved.id) || batchId;
+
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      data.bloodPressure = [
+        { datetime: '2025-07-10T08:00:00', systolic: 121, diastolic: 79 },
+        { datetime: '2026-01-12T08:00:00', systolic: 119, diastolic: 77 },
+      ];
+      data.sleep = {
+        '2026-01-13': { total: 7.3, deep: 1.0, rem: 1.5, core: 4.3, awake: 0.5 },
+      };
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasBloodPressure = true;
+      data.dataAvailability.hasSleep = true;
+
+      let persistRes;
+      try {
+        persistRes = await HH.persistHealthDataWarehouse(data, { batchId: expectedBatchId });
+      } catch (e) {
+        return {
+          error: 'persist_threw',
+          message: String((e && e.message) || e),
+        };
+      }
+      if (!persistRes || persistRes.ok === false) {
+        return { error: 'persist_failed', persistRes, expectedBatchId };
+      }
+
+      const st = await HH.getWarehouseStatus();
+      const meta = (st && st.meta) || {};
+      const lastId =
+        (st && st.lastImportBatchId) ||
+        meta.lastImportBatchId ||
+        (persistRes.meta && persistRes.meta.lastImportBatchId) ||
+        null;
+
+      return {
+        savedId: saved && saved.id,
+        expectedBatchId,
+        persistOk: !!(persistRes && persistRes.ok),
+        lastId,
+        hasPayload: !!(st && st.hasPayload),
+      };
+    });
+
+    expect(result.error, 'v1.91 timeline seed: ' + JSON.stringify(result)).toBeFalsy();
+    expect(result.persistOk).toBe(true);
+    expect(result.savedId, 'saveImportBatch must return id').toBeTruthy();
+    expect(
+      result.lastId,
+      'persist with batchId should set lastImportBatchId for timeline composition'
+    ).toBe(result.expectedBatchId);
+
+    await page.reload();
+    await page.waitForFunction(
+      () =>
+        !!(
+          window.HealthAnalyzer &&
+          window.HealthHistory &&
+          window.I18n &&
+          document.body.classList.contains('has-results')
+        )
+    );
+    await expect(page.locator('#step-overview')).toBeVisible({ timeout: 45_000 });
+    await setWorkspace(page, 'more');
+    await page.locator('#warehouse-panel').scrollIntoViewIfNeeded();
+
+    const timeline = page.locator('#warehouse-provenance-timeline');
+    const timelineCount = await timeline.count();
+    if (timelineCount === 0) {
+      // Soft: UI not merged — API batch linkage already hard-asserted
+      // eslint-disable-next-line no-console
+      console.log(
+        'v1.91 soft: #warehouse-provenance-timeline not in DOM yet — saveImportBatch + persist batchId + lastImportBatchId asserted; timeline composition UI pending merge'
+      );
+      return;
+    }
+
+    // Hard when timeline element exists: at least one li / item
+    await expect(timeline).toBeAttached();
+    await timeline.scrollIntoViewIfNeeded();
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(() => {
+            const root = document.querySelector('#warehouse-provenance-timeline');
+            if (!root) return 0;
+            const items = root.querySelectorAll(
+              'li, [data-timeline-item], .wh-timeline-item, .warehouse-timeline-item'
+            );
+            return items.length;
+          }),
+        { timeout: 10_000 }
+      )
+      .toBeGreaterThanOrEqual(1);
+
+    const probe = await page.evaluate(() => {
+      const root = document.querySelector('#warehouse-provenance-timeline');
+      if (!root) return { itemCount: 0, textLen: 0 };
+      const items = root.querySelectorAll(
+        'li, [data-timeline-item], .wh-timeline-item, .warehouse-timeline-item'
+      );
+      const text = String(root.textContent || '');
+      return {
+        itemCount: items.length,
+        textLen: text.trim().length,
+        // Soft privacy: should not embed raw clinical series labels as values
+        hasRawClinical: /systolic\s*[:=]|diastolic\s*[:=]|\b6\.66\b/i.test(text),
+      };
+    });
+
+    expect(
+      probe.itemCount,
+      'v1.91 #warehouse-provenance-timeline should list at least one batch/event item after saveImportBatch+persist: ' +
+        JSON.stringify(probe)
+    ).toBeGreaterThanOrEqual(1);
+    // Meta timeline: prefer no raw clinical point values
+    if (probe.hasRawClinical) {
+      // Soft warn only — do not fail if UI includes domain names without values
+      // eslint-disable-next-line no-console
+      console.log(
+        'v1.91 soft warn: provenance timeline text matched clinical-ish pattern — prefer meta-only composition'
+      );
+    }
+  });
 });
