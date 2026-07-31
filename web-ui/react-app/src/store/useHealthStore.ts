@@ -264,6 +264,8 @@ export const useHealthStore = create<HealthState>((set, get) => ({
         parts.push('旧 BP/体重年');
       if (r.removedSleep || r.removedSteps)
         parts.push('旧睡眠/步数年');
+      if (r.removedHrv) parts.push('旧 HRV 年');
+      if (r.removedWorkouts) parts.push('旧训练/ECG/手表年');
       if (r.removedYears && !parts.length)
         parts.push(`${r.removedYears} 个旧年份`);
       const trimNote = parts.length

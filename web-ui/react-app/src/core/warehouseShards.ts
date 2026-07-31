@@ -4,7 +4,7 @@
  * (layout `sharded-v1`). Used by React dual-track persist so React write is
  * compatible with legacy reassemble (domain shards, not core-only blob).
  *
- * Soft-quota: CGM months → BP/weight years → sleep/steps years (legacy order).
+ * Soft-quota: CGM → BP/weight → sleep/steps → HRV/hr → workouts/ecg/watch (legacy order).
  * Interactive keep-N UI remains legacy; hard 200MB still rejects.
  */
 import type { HealthData } from '@health-analyzer/lib';
@@ -231,6 +231,12 @@ export type SoftEvictionMeta = {
   removedWeight: number;
   removedSleep: number;
   removedSteps: number;
+  removedHrv: number;
+  removedRestingHr: number;
+  removedWalkingHr: number;
+  removedWorkouts: number;
+  removedEcg: number;
+  removedWatchDaily: number;
   removedYears: number;
   beforeBytes: number;
   afterBytes: number;
@@ -245,11 +251,18 @@ function emptyEvictMeta(beforeBytes: number, afterBytes: number): SoftEvictionMe
     removedWeight: 0,
     removedSleep: 0,
     removedSteps: 0,
+    removedHrv: 0,
+    removedRestingHr: 0,
+    removedWalkingHr: 0,
+    removedWorkouts: 0,
+    removedEcg: 0,
+    removedWatchDaily: 0,
     removedYears: 0,
     beforeBytes,
     afterBytes,
   };
 }
+
 
 
 /**
@@ -400,25 +413,180 @@ export function evictOldestSleepStepsYears(split: ShardSplit): SoftEvictionMeta 
   };
 }
 
-/** Soft-quota pass: CGM → BP/weight → sleep/steps (legacy order). */
+/**
+ * Drop oldest hrv / restingHr / walkingHr year shards (keep ≥1 year per domain).
+ */
+export function evictOldestHrvHrYears(split: ShardSplit): SoftEvictionMeta {
+  let removedHrv = 0;
+  let removedRestingHr = 0;
+  let removedWalkingHr = 0;
+  let removedYears = 0;
+  const beforeBytes = split.totalBytes;
+  if (!split.hrvYears) split.hrvYears = [];
+  if (!split.restingHrYears) split.restingHrYears = [];
+  if (!split.walkingHrYears) split.walkingHrYears = [];
+
+  while (split.totalBytes > WH_SOFT_BYTES) {
+    type Cand = { domain: 'hrv' | 'restingHr' | 'walkingHr'; year: string; idx: number };
+    const candidates: Cand[] = [];
+    if (split.hrvYears.length > 1) {
+      split.hrvYears.forEach((y, idx) => {
+        candidates.push({ domain: 'hrv', year: String(y.year || ''), idx });
+      });
+    }
+    if (split.restingHrYears.length > 1) {
+      split.restingHrYears.forEach((y, idx) => {
+        candidates.push({ domain: 'restingHr', year: String(y.year || ''), idx });
+      });
+    }
+    if (split.walkingHrYears.length > 1) {
+      split.walkingHrYears.forEach((y, idx) => {
+        candidates.push({ domain: 'walkingHr', year: String(y.year || ''), idx });
+      });
+    }
+    if (!candidates.length) break;
+
+    candidates.sort((a, b) => {
+      const yc = a.year.localeCompare(b.year);
+      if (yc !== 0) return yc;
+      const order = { hrv: 0, restingHr: 1, walkingHr: 2 };
+      return order[a.domain] - order[b.domain];
+    });
+    const pick = candidates[0]!;
+    if (pick.domain === 'hrv') {
+      const row = split.hrvYears.splice(pick.idx, 1)[0]!;
+      removedHrv += row.recordCount || 0;
+      removedYears += 1;
+    } else if (pick.domain === 'restingHr') {
+      const row = split.restingHrYears.splice(pick.idx, 1)[0]!;
+      removedRestingHr += row.recordCount || 0;
+      removedYears += 1;
+    } else {
+      const row = split.walkingHrYears.splice(pick.idx, 1)[0]!;
+      removedWalkingHr += row.recordCount || 0;
+      removedYears += 1;
+    }
+    recomputeSplitTotalBytes(split);
+  }
+  return {
+    ...emptyEvictMeta(beforeBytes, split.totalBytes),
+    trimmed: removedHrv > 0 || removedRestingHr > 0 || removedWalkingHr > 0,
+    removedHrv,
+    removedRestingHr,
+    removedWalkingHr,
+    removedYears,
+  };
+}
+
+/**
+ * Drop oldest workouts / ecg / watchDaily year shards (keep ≥1 year per domain).
+ */
+export function evictOldestWorkoutsEcgWatchYears(
+  split: ShardSplit,
+): SoftEvictionMeta {
+  let removedWorkouts = 0;
+  let removedEcg = 0;
+  let removedWatchDaily = 0;
+  let removedYears = 0;
+  const beforeBytes = split.totalBytes;
+  if (!split.workoutsYears) split.workoutsYears = [];
+  if (!split.ecgYears) split.ecgYears = [];
+  if (!split.watchDailyYears) split.watchDailyYears = [];
+
+  while (split.totalBytes > WH_SOFT_BYTES) {
+    type Cand = {
+      domain: 'workouts' | 'ecg' | 'watchDaily';
+      year: string;
+      idx: number;
+    };
+    const candidates: Cand[] = [];
+    if (split.workoutsYears.length > 1) {
+      split.workoutsYears.forEach((y, idx) => {
+        candidates.push({ domain: 'workouts', year: String(y.year || ''), idx });
+      });
+    }
+    if (split.ecgYears.length > 1) {
+      split.ecgYears.forEach((y, idx) => {
+        candidates.push({ domain: 'ecg', year: String(y.year || ''), idx });
+      });
+    }
+    if (split.watchDailyYears.length > 1) {
+      split.watchDailyYears.forEach((y, idx) => {
+        candidates.push({
+          domain: 'watchDaily',
+          year: String(y.year || ''),
+          idx,
+        });
+      });
+    }
+    if (!candidates.length) break;
+
+    candidates.sort((a, b) => {
+      const yc = a.year.localeCompare(b.year);
+      if (yc !== 0) return yc;
+      const order = { workouts: 0, ecg: 1, watchDaily: 2 };
+      return order[a.domain] - order[b.domain];
+    });
+    const pick = candidates[0]!;
+    if (pick.domain === 'workouts') {
+      const row = split.workoutsYears.splice(pick.idx, 1)[0]!;
+      removedWorkouts += row.recordCount || 0;
+      removedYears += 1;
+    } else if (pick.domain === 'ecg') {
+      const row = split.ecgYears.splice(pick.idx, 1)[0]!;
+      removedEcg += row.recordCount || 0;
+      removedYears += 1;
+    } else {
+      const row = split.watchDailyYears.splice(pick.idx, 1)[0]!;
+      removedWatchDaily += row.recordCount || 0;
+      removedYears += 1;
+    }
+    recomputeSplitTotalBytes(split);
+  }
+  return {
+    ...emptyEvictMeta(beforeBytes, split.totalBytes),
+    trimmed:
+      removedWorkouts > 0 || removedEcg > 0 || removedWatchDaily > 0,
+    removedWorkouts,
+    removedEcg,
+    removedWatchDaily,
+    removedYears,
+  };
+}
+
+/** Soft-quota pass: full legacy chain order. */
 export function applySoftQuotaEviction(split: ShardSplit): SoftEvictionMeta {
   const beforeBytes = split.totalBytes;
   const cgm = evictOldestCgmMonths(split);
   const yw = evictOldestBpWeightYears(split);
   const ms = evictOldestSleepStepsYears(split);
+  const hh = evictOldestHrvHrYears(split);
+  const wew = evictOldestWorkoutsEcgWatchYears(split);
   return {
-    trimmed: cgm.trimmed || yw.trimmed || ms.trimmed,
+    trimmed:
+      cgm.trimmed || yw.trimmed || ms.trimmed || hh.trimmed || wew.trimmed,
     removedCgm: cgm.removedCgm,
     removedMonths: cgm.removedMonths,
     removedBp: yw.removedBp,
     removedWeight: yw.removedWeight,
     removedSleep: ms.removedSleep,
     removedSteps: ms.removedSteps,
-    removedYears: yw.removedYears + ms.removedYears,
+    removedHrv: hh.removedHrv,
+    removedRestingHr: hh.removedRestingHr,
+    removedWalkingHr: hh.removedWalkingHr,
+    removedWorkouts: wew.removedWorkouts,
+    removedEcg: wew.removedEcg,
+    removedWatchDaily: wew.removedWatchDaily,
+    removedYears:
+      yw.removedYears +
+      ms.removedYears +
+      hh.removedYears +
+      wew.removedYears,
     beforeBytes,
     afterBytes: split.totalBytes,
   };
 }
+
 
 
 

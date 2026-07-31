@@ -44,9 +44,12 @@ export type PersistWarehouseResult =
       removedWeight?: number;
       removedSleep?: number;
       removedSteps?: number;
+      removedHrv?: number;
+      removedWorkouts?: number;
       removedYears?: number;
     }
   | { ok: false; reason: string };
+
 
 
 
@@ -174,11 +177,24 @@ export async function persistHealthDataSharded(
           notes.push('bp_weight_years_evicted_for_quota');
         if (evict.removedSleep || evict.removedSteps)
           notes.push('sleep_steps_years_evicted_for_quota');
+        if (
+          evict.removedHrv ||
+          evict.removedRestingHr ||
+          evict.removedWalkingHr
+        )
+          notes.push('hrv_hr_years_evicted_for_quota');
+        if (
+          evict.removedWorkouts ||
+          evict.removedEcg ||
+          evict.removedWatchDaily
+        )
+          notes.push('workouts_ecg_watch_years_evicted_for_quota');
         if (!notes.length && split.totalBytes > WH_SOFT_BYTES)
           notes.push('soft_quota_exceeded');
         return notes;
       })(),
     };
+
 
 
 
@@ -212,8 +228,11 @@ export async function persistHealthDataSharded(
       removedWeight: evict.removedWeight,
       removedSleep: evict.removedSleep,
       removedSteps: evict.removedSteps,
+      removedHrv: evict.removedHrv,
+      removedWorkouts: evict.removedWorkouts,
       removedYears: evict.removedYears,
     };
+
   } finally {
     db.close();
   }
