@@ -1,0 +1,80 @@
+// @ts-check
+const { test, expect } = require('@playwright/test');
+const path = require('path');
+const fs = require('fs');
+const { zipSync } = require('../web-ui/react-app/node_modules/fflate');
+
+const fixtureXml = fs.readFileSync(
+  path.join(__dirname, '../e2e/fixtures/minimal-export.xml'),
+);
+
+test.describe('React dual-track shell', () => {
+  test('fixture load + routes + sheet', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByTestId('app-shell')).toBeVisible();
+    await expect(page.getByTestId('desktop-sidebar')).toBeVisible();
+    await expect(page.getByTestId('mobile-bottom-nav')).toBeAttached();
+
+    await page.getByTestId('open-about-sheet').click();
+    await expect(page.getByTestId('sheet-panel')).toBeVisible();
+    await page.getByTestId('sheet-close').click();
+    await expect(page.getByTestId('sheet-panel')).toHaveCount(0);
+
+    await page.getByTestId('load-fixture').click();
+    await expect(page.getByTestId('kpi-cgm')).toBeVisible({ timeout: 20_000 });
+    const cgm = await page.getByTestId('kpi-cgm').innerText();
+    expect(Number(cgm)).toBeGreaterThan(0);
+
+    await page.locator('[data-testid="desktop-sidebar"] [data-workspace-nav="trends"]').click();
+    await expect(page.getByTestId('page-trends')).toBeVisible();
+    await expect(page.getByTestId('trend-table-fallback')).toBeVisible();
+
+    await page.locator('[data-testid="desktop-sidebar"] [data-workspace-nav="reports"]').click();
+    await expect(page.getByTestId('report-preview')).toBeVisible();
+    const md = await page.getByTestId('report-preview').innerText();
+    expect(md.length).toBeGreaterThan(40);
+  });
+
+  test('XML and ZIP import via adapter', async ({ page }) => {
+    await page.goto('/');
+    await page.setInputFiles('[data-testid="import-file-input"]', {
+      name: 'minimal-export.xml',
+      mimeType: 'text/xml',
+      buffer: fixtureXml,
+    });
+    await expect(page.getByTestId('kpi-cgm')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('analyze-via')).toBeVisible();
+
+    const zipped = zipSync({
+      'export.xml': new Uint8Array(fixtureXml),
+    });
+    await page.setInputFiles('[data-testid="import-file-input"]', {
+      name: 'export.zip',
+      mimeType: 'application/zip',
+      buffer: Buffer.from(zipped),
+    });
+    await expect(page.getByTestId('analyze-via')).toContainText('ZIP', {
+      timeout: 20_000,
+    });
+    const cgm = await page.getByTestId('kpi-cgm').innerText();
+    expect(Number(cgm)).toBeGreaterThan(0);
+  });
+
+  test('save snapshot then data page lists it', async ({ page }) => {
+    await page.goto('/');
+    await page.getByTestId('load-fixture').click();
+    await expect(page.getByTestId('kpi-range')).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('save-snapshot').click();
+    await expect(page.getByTestId('snapshot-status')).toContainText('快照', {
+      timeout: 10_000,
+    });
+
+    await page.locator('[data-testid="desktop-sidebar"] [data-workspace-nav="data"]').click();
+    await page.getByTestId('probe-idb').click();
+    await expect(page.getByTestId('snapshot-list')).toBeVisible({
+      timeout: 10_000,
+    });
+    const text = await page.getByTestId('snapshot-list').innerText();
+    expect(text.length).toBeGreaterThan(10);
+  });
+});

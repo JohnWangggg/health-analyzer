@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHealthStore } from '../store/useHealthStore';
 import { Button } from '../components/ui/Button';
@@ -10,7 +10,6 @@ import {
   LoadingState,
 } from '../components/ui/EmptyState';
 
-/** In-repo e2e fixture — Vite ?raw embeds locally (no network). */
 import fixtureXml from '../../../../e2e/fixtures/minimal-export.xml?raw';
 
 function freshnessLabel(days: number | null): {
@@ -69,29 +68,44 @@ function priorityFromSummary(summary: NonNullable<
 export function OverviewPage() {
   const navigate = useNavigate();
   const fileRef = useRef<HTMLInputElement>(null);
+  const [snapMsg, setSnapMsg] = useState<string | null>(null);
   const {
     status,
     error,
     summary,
     sourceLabel,
     analyzeVia,
+    lastSnapshotId,
     loadXml,
     loadXmlAsync,
+    loadZipFile,
+    loadWarehouse,
+    saveSnapshot,
     clear,
   } = useHealthStore();
 
   const loadFixture = useCallback(() => {
+    setSnapMsg(null);
     loadXml(fixtureXml, 'e2e/fixtures/minimal-export.xml');
   }, [loadXml]);
 
   const onPickFile = useCallback(
     async (file: File | null) => {
       if (!file) return;
-      const name = file.name || 'export.xml';
+      setSnapMsg(null);
+      const name = file.name || 'export';
+      const isZip =
+        /\.zip$/i.test(name) ||
+        file.type === 'application/zip' ||
+        file.type === 'application/x-zip-compressed';
+      if (isZip) {
+        await loadZipFile(file);
+        return;
+      }
       if (!/\.xml$/i.test(name) && file.type && !file.type.includes('xml')) {
         useHealthStore.setState({
           status: 'error',
-          error: '请选择 Apple Health 导出的 .xml（ZIP 导入仍走 legacy 完整链路）',
+          error: '请选择 export.xml 或 Apple Health 导出 ZIP',
           summary: null,
           analysis: null,
           sourceLabel: name,
@@ -102,11 +116,18 @@ export function OverviewPage() {
       const text = await file.text();
       await loadXmlAsync(text, name);
     },
-    [loadXmlAsync],
+    [loadXmlAsync, loadZipFile],
   );
 
+  const onSaveSnap = useCallback(async () => {
+    const id = await saveSnapshot('React 预览');
+    setSnapMsg(id ? `已保存快照 ${id}` : '保存失败');
+  }, [saveSnapshot]);
+
   if (status === 'loading') {
-    return <LoadingState label="正在通过 HealthCoreAdapter 分析（优先 Worker）…" />;
+    return (
+      <LoadingState label="正在分析（Worker / ZIP / 数据仓）…" />
+    );
   }
 
   return (
@@ -114,8 +135,8 @@ export function OverviewPage() {
       <div>
         <h1 className="page-title">总览</h1>
         <p className="page-lead">
-          数据新鲜度 → 优先事项 → 核心指标。解析/统计经适配器调用 lib；用户文件优先
-          Web Worker，失败回退主线程。
+          夹具 · XML/ZIP 导入 · 可选加载已授权数据仓。统计经 lib；ZIP 用本地
+          fflate。
         </p>
       </div>
 
@@ -130,22 +151,37 @@ export function OverviewPage() {
         <Button
           variant="secondary"
           onClick={() => fileRef.current?.click()}
-          data-testid="import-xml-btn"
+          data-testid="import-file-btn"
         >
-          导入 XML
+          导入 XML / ZIP
         </Button>
         <input
           ref={fileRef}
           type="file"
-          accept=".xml,text/xml,application/xml"
+          accept=".xml,.zip,text/xml,application/xml,application/zip"
           className="sr-only"
-          data-testid="import-xml-input"
+          data-testid="import-file-input"
           onChange={(e) => {
             const f = e.target.files?.[0] ?? null;
             void onPickFile(f);
             e.target.value = '';
           }}
         />
+        <Button
+          variant="secondary"
+          onClick={() => void loadWarehouse()}
+          data-testid="load-warehouse"
+        >
+          加载数据仓
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => void onSaveSnap()}
+          disabled={!summary}
+          data-testid="save-snapshot"
+        >
+          保存摘要快照
+        </Button>
         <Button variant="secondary" onClick={clear} disabled={status === 'idle'}>
           清除
         </Button>
@@ -156,13 +192,31 @@ export function OverviewPage() {
         ) : null}
         {analyzeVia ? (
           <Badge
-            tone={analyzeVia === 'worker' ? 'ok' : 'watch'}
+            tone={
+              analyzeVia === 'worker' || analyzeVia === 'zip'
+                ? 'ok'
+                : analyzeVia === 'warehouse'
+                  ? 'accent'
+                  : 'watch'
+            }
             data-testid="analyze-via"
           >
-            {analyzeVia === 'worker' ? 'Worker 分析' : '主线程分析'}
+            {analyzeVia === 'worker'
+              ? 'Worker 分析'
+              : analyzeVia === 'zip'
+                ? 'ZIP 分析'
+                : analyzeVia === 'warehouse'
+                  ? '数据仓'
+                  : '主线程分析'}
           </Badge>
         ) : null}
       </div>
+
+      {snapMsg || lastSnapshotId ? (
+        <p className="muted" data-testid="snapshot-status">
+          {snapMsg || `最近快照 ${lastSnapshotId}`}
+        </p>
+      ) : null}
 
       {error ? <ErrorState message={error} /> : null}
 
@@ -170,7 +224,7 @@ export function OverviewPage() {
         <EmptyState
           testId="overview-empty"
           title="尚未加载数据"
-          description="可加载演示夹具，或导入本机 export.xml。ZIP/HAE 完整链路仍使用 legacy PWA。"
+          description="演示夹具、本机 XML/ZIP，或 legacy 已授权的数据仓。"
           actionLabel="加载演示夹具"
           onAction={loadFixture}
         />

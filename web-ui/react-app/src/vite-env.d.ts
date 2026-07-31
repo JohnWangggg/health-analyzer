@@ -99,5 +99,20 @@ declare module '@health-analyzer/lib' {
     userContext?: unknown,
     options?: { locale?: AppLocale | string },
   ): string;
+
+  export function parseEcgCsv(text: string): unknown;
+
+  export function buildAnalysisSnapshot(
+    analysis: FullAnalysis,
+    options?: { id?: string; label?: string; savedAt?: string },
+  ): {
+    id: string;
+    savedAt: string;
+    generatedAt: string;
+    dateRange: { start: string; end: string };
+    label?: string;
+    metrics: Record<string, unknown>;
+  };
 }
+
 

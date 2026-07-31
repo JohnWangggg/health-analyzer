@@ -30,7 +30,9 @@ npm run react:privacy
 npm run react:parity
 npm run react:test
 npm run react:export-next   # build base=/next/ → web-ui/public/next/
+npm run test:e2e:react      # Playwright React shell smoke (port 4174)
 ```
+
 
 ### Same-host dual-track (`/next/`)
 
@@ -50,11 +52,14 @@ npm run react:export-next   # build base=/next/ → web-ui/public/next/
 | Area | Behavior |
 |------|----------|
 | Shell | Desktop sidebar + mobile bottom nav (`workspaceStore`), Sheet, theme |
-| Overview | Fixture + **XML file import**; Worker-first analyze (`analyzeXmlAsync`) |
+| Overview | Fixture + **XML/ZIP import** (local `fflate`) + Worker-first XML analyze |
+| Overview | **Load warehouse** (consent + reassemble domainChunks) + **save snapshot** |
 | Trends | Lazy local ECharts + table fallback |
 | Reports | visit / weekly / clinical via lib |
-| Data | IDB contract probe + **read-only** snapshots / warehouseMeta |
+| Data | IDB contract probe + snapshots / warehouseMeta (read-only list) |
 | Privacy | Self-only PWA; privacy-scan; no CDN |
+| Tests | `npm run react:test` · `npm run test:e2e:react` (Playwright on preview :4174) |
+
 
 ### Architecture boundary
 
@@ -69,4 +74,5 @@ Health data stays in browser / Worker / IndexedDB only.
 
 ## Out of scope (still deferred)
 
-Full ZIP/HAE import in React, full warehouse write UI, CommandPalette, Tailwind/shadcn full suite, production default cutover without operator decision.
+HAE merge pipeline in React, warehouse **write**/shard trim UI, CommandPalette, Tailwind/shadcn full suite, production default cutover without operator decision.
+
