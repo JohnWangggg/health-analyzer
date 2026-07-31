@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useHealthStore } from '../store/useHealthStore';
 import {
   buildReportPreview,
@@ -19,6 +20,7 @@ const KINDS: { id: ReportKind; key: MessageKey; fileStem: string }[] = [
 
 export function ReportsPage() {
   const { t, locale } = useLocale();
+  const navigate = useNavigate();
   const analysis = useHealthStore((s) => s.analysis);
   const [kind, setKind] = useState<ReportKind>('visit');
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -64,10 +66,15 @@ export function ReportsPage() {
         <EmptyState
           title={t('reports.emptyTitle')}
           description={t('reports.emptyDesc')}
+          actionLabel={t('reports.emptyAction')}
+          onAction={() => navigate('/')}
         />
       </div>
     );
   }
+
+  const rangeStart = analysis.dateRange?.start || '—';
+  const rangeEnd = analysis.dateRange?.end || '—';
 
   return (
     <div className="stack" data-testid="page-reports">
@@ -105,9 +112,12 @@ export function ReportsPage() {
             <CardTitle>{preview.title}</CardTitle>
             <Badge tone="accent">{preview.kind}</Badge>
           </div>
-          <p className="muted">
-            {t('reports.viaAdapter')} · {t('reports.chars')}{' '}
-            {preview.markdown.length}
+          <p className="report-meta muted" data-testid="report-meta">
+            {rangeStart} → {rangeEnd}
+            {' · '}
+            {t('reports.chars')} {preview.markdown.length}
+            {' · '}
+            {t('reports.viaAdapter')}
           </p>
           <div className="report-actions">
             <Button

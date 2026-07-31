@@ -1043,18 +1043,44 @@
   opacity: 1;
 }
 
-/* Report action row — tighter than generic .row */
+/* Report meta strip + dense/sticky action row */
+.report-meta {
+  font-size: 0.85rem;
+  margin: 0.25rem 0 0;
+  line-height: 1.4;
+}
 .report-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: center;
   margin: 0.5rem 0;
+  position: sticky;
+  top: var(--nav-height, 3.25rem);
+  z-index: 5;
+  padding: 0.35rem 0;
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  backdrop-filter: blur(8px);
 }
 
 
 
 /* Keep-N panel */
+.keep-n-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+}
+.keep-n-presets-label {
+  font-size: 0.85rem;
+}
+.keep-n-presets-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
 .keep-n-panel .keep-n-controls {
   display: flex;
   flex-wrap: wrap;
@@ -1076,7 +1102,8 @@
   min-height: var(--touch-min);
   padding-bottom: 0.35rem;
 }
-.keep-n-forecast {
+.keep-n-forecast,
+.keep-n-need-probe {
   margin: 0 0 var(--space-2);
 }
 .keep-n-actions {

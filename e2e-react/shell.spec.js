@@ -69,6 +69,7 @@ test.describe('React dual-track shell', () => {
 
     await page.locator('[data-testid="desktop-sidebar"] [data-workspace-nav="reports"]').click();
     await expect(page.getByTestId('report-preview')).toBeVisible();
+    await expect(page.getByTestId('report-meta')).toBeVisible();
     const md = await page.getByTestId('report-preview').innerText();
     expect(md.length).toBeGreaterThan(40);
     await page.getByTestId('report-copy').click();
@@ -118,6 +119,13 @@ test.describe('React dual-track shell', () => {
 
     await page.locator('[data-testid="desktop-sidebar"] [data-workspace-nav="data"]').click();
     await expect(page.getByTestId('keep-n-panel')).toBeVisible();
+    await expect(page.getByTestId('keep-n-preset-compact')).toBeVisible();
+    await expect(page.getByTestId('keep-n-preset-tight')).toBeVisible();
+    await page.getByTestId('keep-n-preset-tight').click();
+    await expect(page.getByTestId('keep-n-months')).toHaveValue('3');
+    await expect(page.getByTestId('keep-n-years')).toHaveValue('1');
+    await page.getByTestId('keep-n-preset-compact').click();
+    await expect(page.getByTestId('keep-n-months')).toHaveValue('6');
     await expect(page.getByTestId('soft-quota-panel')).toBeVisible();
     await expect(page.getByTestId('backup-panel')).toBeVisible();
     await expect(page.getByTestId('backup-export')).toBeVisible();

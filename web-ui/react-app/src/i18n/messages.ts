@@ -70,6 +70,7 @@ export type MessageKey =
   | 'reports.lead'
   | 'reports.emptyTitle'
   | 'reports.emptyDesc'
+  | 'reports.emptyAction'
   | 'reports.kind.visit'
   | 'reports.kind.weekly'
   | 'reports.kind.clinical'
@@ -141,6 +142,10 @@ export type MessageKey =
   | 'data.keepN.cgmMonths'
   | 'data.keepN.yearYears'
   | 'data.keepN.autoTrim'
+  | 'data.keepN.presets'
+  | 'data.keepN.preset.compact'
+  | 'data.keepN.preset.year'
+  | 'data.keepN.preset.tight'
   | 'data.keepN.forecast'
   | 'data.keepN.forecastNeedProbe'
   | 'data.keepN.apply'
@@ -239,6 +244,7 @@ const zh: Record<MessageKey, string> = {
   'reports.emptyTitle': '请先在总览加载数据',
   'reports.emptyDesc':
     '报告预览通过 HealthCoreAdapter → lib 报告生成器，不在 UI 重写统计。',
+  'reports.emptyAction': '去总览加载数据',
   'reports.kind.visit': '门诊一页纸',
   'reports.kind.weekly': '周报',
   'reports.kind.clinical': '临床复盘',
@@ -317,6 +323,10 @@ const zh: Record<MessageKey, string> = {
   'data.keepN.cgmMonths': 'CGM 保留月数',
   'data.keepN.yearYears': '年片保留年数',
   'data.keepN.autoTrim': '写入后自动 keep-N（默认关）',
+  'data.keepN.presets': '快捷预设',
+  'data.keepN.preset.compact': '默认 · 6月 / 3年',
+  'data.keepN.preset.year': '一年 CGM · 12月 / 5年',
+  'data.keepN.preset.tight': '紧凑 · 3月 / 1年',
   'data.keepN.forecast': '预估将删除：{months} 个 CGM 月 · {years} 个年片',
   'data.keepN.forecastNeedProbe': '先「读取本地仓库」可预估删除量',
   'data.keepN.apply': '对仓库应用 keep-N',
@@ -418,6 +428,7 @@ const en: Record<MessageKey, string> = {
   'reports.emptyTitle': 'Load data on Overview first',
   'reports.emptyDesc':
     'Report preview goes through HealthCoreAdapter → lib generators; UI does not recompute stats.',
+  'reports.emptyAction': 'Load data on Overview',
   'reports.kind.visit': 'Visit one-pager',
   'reports.kind.weekly': 'Weekly report',
   'reports.kind.clinical': 'Clinical review',
@@ -497,6 +508,10 @@ const en: Record<MessageKey, string> = {
   'data.keepN.cgmMonths': 'CGM keep months',
   'data.keepN.yearYears': 'Year-shard keep years',
   'data.keepN.autoTrim': 'Auto keep-N after write (off by default)',
+  'data.keepN.presets': 'Presets',
+  'data.keepN.preset.compact': 'Default · 6 mo / 3 yr',
+  'data.keepN.preset.year': 'Year CGM · 12 mo / 5 yr',
+  'data.keepN.preset.tight': 'Tight · 3 mo / 1 yr',
   'data.keepN.forecast': 'Would drop: {months} CGM months · {years} year shards',
   'data.keepN.forecastNeedProbe': 'Probe local warehouse first to estimate drops',
   'data.keepN.apply': 'Apply keep-N to warehouse',
