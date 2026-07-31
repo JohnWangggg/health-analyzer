@@ -60,6 +60,11 @@ test.describe('React dual-track shell', () => {
     await expect(page.getByTestId('trend-domain-steps')).toBeVisible();
     await expect(page.getByTestId('trend-domain-sleepTotal')).toBeVisible();
     await expect(page.getByTestId('trend-domain-hrv')).toBeVisible();
+    // Fixture has CGM — tab marked as having data (domain presence UX)
+    await expect(page.getByTestId('trend-domain-cgmDailyMean')).toHaveAttribute(
+      'data-has-data',
+      '1',
+    );
     await expect(page.getByTestId('trend-table-fallback')).toBeVisible();
 
     await page.locator('[data-testid="desktop-sidebar"] [data-workspace-nav="reports"]').click();
@@ -179,6 +184,130 @@ test.describe('React dual-track shell', () => {
     await expect(page.getByTestId('analyze-via')).toContainText('数据仓', {
       timeout: 20_000,
     });
+  });
+
+  test('warehouse plain backup export then import restores load', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.getByTestId('load-fixture').click();
+    await expect(page.getByTestId('kpi-cgm')).toBeVisible({ timeout: 20_000 });
+    const cgm1 = Number(await page.getByTestId('kpi-cgm').innerText());
+    expect(cgm1).toBeGreaterThan(0);
+
+    await page.getByTestId('persist-warehouse').click();
+    await expect(page.getByTestId('warehouse-persist-status')).toContainText(
+      'sharded-v1',
+      { timeout: 15_000 },
+    );
+
+    await page
+      .locator('[data-testid="desktop-sidebar"] [data-workspace-nav="data"]')
+      .click();
+    await expect(page.getByTestId('backup-panel')).toBeVisible();
+
+    // Plain backup (empty passphrase)
+    await page.getByTestId('backup-passphrase').fill('');
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('backup-export').click(),
+    ]);
+    expect(download.suggestedFilename()).toMatch(/\.hae-backup\.json$/i);
+    const backupPath = await download.path();
+    expect(backupPath).toBeTruthy();
+    await expect(page.getByTestId('backup-status')).toContainText(/导出|export|下载|download/i, {
+      timeout: 10_000,
+    });
+
+    // Wipe shared IDB so import is the only restore path
+    await page.evaluate(async () => {
+      await new Promise((resolve, reject) => {
+        const req = indexedDB.deleteDatabase('health-analyzer-history');
+        req.onsuccess = () => resolve(undefined);
+        req.onerror = () => reject(req.error);
+        req.onblocked = () => resolve(undefined);
+      });
+    });
+
+    await page.getByTestId('backup-import-input').setInputFiles(backupPath);
+    await page.getByTestId('backup-import').click();
+    await expect(page.getByTestId('backup-status')).toContainText(/导入|import/i, {
+      timeout: 15_000,
+    });
+
+    await page
+      .locator('[data-testid="desktop-sidebar"] [data-workspace-nav="overview"]')
+      .click();
+    await page.getByTestId('clear-session').click();
+    await expect(page.getByTestId('overview-empty')).toBeVisible();
+    await page.getByTestId('load-warehouse').click();
+    await expect(page.getByTestId('analyze-via')).toContainText('数据仓', {
+      timeout: 20_000,
+    });
+    const cgm2 = Number(await page.getByTestId('kpi-cgm').innerText());
+    expect(cgm2).toBeCloseTo(cgm1, 1);
+  });
+
+  test('warehouse encrypted backup export/import with passphrase', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.getByTestId('load-fixture').click();
+    await expect(page.getByTestId('kpi-cgm')).toBeVisible({ timeout: 20_000 });
+    const cgm1 = Number(await page.getByTestId('kpi-cgm').innerText());
+    expect(cgm1).toBeGreaterThan(0);
+    await page.getByTestId('persist-warehouse').click();
+    await expect(page.getByTestId('warehouse-persist-status')).toContainText(
+      'sharded-v1',
+      { timeout: 15_000 },
+    );
+
+    await page
+      .locator('[data-testid="desktop-sidebar"] [data-workspace-nav="data"]')
+      .click();
+    await page.getByTestId('backup-passphrase').fill('e2e-secret-pass');
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByTestId('backup-export').click(),
+    ]);
+    expect(download.suggestedFilename()).toMatch(/-enc.*\.hae-backup\.json$/i);
+    const backupPath = await download.path();
+    expect(backupPath).toBeTruthy();
+
+    await page.evaluate(async () => {
+      await new Promise((resolve, reject) => {
+        const req = indexedDB.deleteDatabase('health-analyzer-history');
+        req.onsuccess = () => resolve(undefined);
+        req.onerror = () => reject(req.error);
+        req.onblocked = () => resolve(undefined);
+      });
+    });
+
+    // Wrong passphrase should fail
+    await page.getByTestId('backup-passphrase').fill('wrong-pass');
+    await page.getByTestId('backup-import-input').setInputFiles(backupPath);
+    await page.getByTestId('backup-import').click();
+    await expect(page.getByTestId('backup-status')).toContainText(
+      /失败|fail|decrypt/i,
+      { timeout: 10_000 },
+    );
+
+    // Correct passphrase restores
+    await page.getByTestId('backup-passphrase').fill('e2e-secret-pass');
+    await page.getByTestId('backup-import-input').setInputFiles(backupPath);
+    await page.getByTestId('backup-import').click();
+    await expect(page.getByTestId('backup-status')).toContainText(/导入|import/i, {
+      timeout: 15_000,
+    });
+
+    await page
+      .locator('[data-testid="desktop-sidebar"] [data-workspace-nav="overview"]')
+      .click();
+    await page.getByTestId('clear-session').click();
+    await page.getByTestId('load-warehouse').click();
+    await expect(page.getByTestId('kpi-cgm')).toBeVisible({ timeout: 20_000 });
+    const cgm2 = Number(await page.getByTestId('kpi-cgm').innerText());
+    expect(cgm2).toBeCloseTo(cgm1, 1);
   });
 
   test('HAE import and sharded warehouse persist/load roundtrip', async ({

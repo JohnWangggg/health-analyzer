@@ -57,6 +57,9 @@ export type MessageKey =
   | 'trends.table'
   | 'trends.tableHint'
   | 'trends.emptyDomain'
+  | 'trends.switchAvailable'
+  | 'trends.colDate'
+  | 'trends.colValue'
   | 'trends.domain.steps'
   | 'trends.domain.weight'
   | 'trends.domain.restingHr'
@@ -221,6 +224,9 @@ const zh: Record<MessageKey, string> = {
   'trends.table': '数据表回退',
   'trends.tableHint': '与图表同一序列（extractTrendSeries）。',
   'trends.emptyDomain': '该域暂无点，可切换其他指标或重新导入。',
+  'trends.switchAvailable': '切换到有数据的指标',
+  'trends.colDate': '日期',
+  'trends.colValue': '值',
   'trends.domain.steps': '步数',
   'trends.domain.weight': '体重',
   'trends.domain.restingHr': '静息心率',
@@ -397,6 +403,9 @@ const en: Record<MessageKey, string> = {
   'trends.tableHint': 'Same series as the chart (extractTrendSeries).',
   'trends.emptyDomain':
     'No points for this domain — switch metric or re-import.',
+  'trends.switchAvailable': 'Switch to a domain with data',
+  'trends.colDate': 'Date',
+  'trends.colValue': 'Value',
   'trends.domain.steps': 'Steps',
   'trends.domain.weight': 'Weight',
   'trends.domain.restingHr': 'Resting HR',

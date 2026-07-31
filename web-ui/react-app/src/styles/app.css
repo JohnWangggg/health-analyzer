@@ -1036,6 +1036,12 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
+.domain-switcher .domain-tab-empty {
+  opacity: 0.55;
+}
+.domain-switcher .domain-tab-has-data {
+  opacity: 1;
+}
 
 /* Report action row — tighter than generic .row */
 .report-actions {
