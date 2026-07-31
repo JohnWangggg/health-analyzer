@@ -26,6 +26,8 @@ describe('i18n messages', () => {
     'data.softQuota.step.cgm',
     'data.keepN.title',
     'data.keepN.apply',
+    'data.shards.title',
+    'data.shards.delete',
     'data.backup.title',
     'data.backup.export',
     'data.backup.import',

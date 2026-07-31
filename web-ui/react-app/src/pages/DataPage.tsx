@@ -13,6 +13,7 @@ import {
 import { BackupPanel } from '../features/data/BackupPanel';
 import { SoftQuotaPanel } from '../features/data/SoftQuotaPanel';
 import { KeepNPanel } from '../features/data/KeepNPanel';
+import { ShardCleanupPanel } from '../features/data/ShardCleanupPanel';
 import { useHealthStore } from '../store/useHealthStore';
 import { Button } from '../components/ui/Button';
 import { Card, CardDesc, CardTitle } from '../components/ui/Card';
@@ -117,6 +118,8 @@ export function DataPage() {
       />
 
       <KeepNPanel meta={whMeta} onApplied={() => void refreshLegacy()} />
+
+      <ShardCleanupPanel onChanged={() => void refreshLegacy()} />
 
       <Card>
         <CardTitle>{t('data.probe')}</CardTitle>

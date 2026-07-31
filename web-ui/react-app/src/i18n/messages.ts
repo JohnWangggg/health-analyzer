@@ -144,7 +144,18 @@ export type MessageKey =
   | 'data.keepN.noop'
   | 'data.keepN.empty'
   | 'data.keepN.fail'
-  | 'data.keepN.sharedPrefs';
+  | 'data.keepN.sharedPrefs'
+  | 'data.shards.title'
+  | 'data.shards.lead'
+  | 'data.shards.refresh'
+  | 'data.shards.delete'
+  | 'data.shards.deleting'
+  | 'data.shards.empty'
+  | 'data.shards.confirm'
+  | 'data.shards.deleted'
+  | 'data.shards.fail'
+  | 'data.shards.selected'
+  | 'data.shards.bytes';
 
 const zh: Record<MessageKey, string> = {
   brand: '健康 OS',
@@ -303,6 +314,18 @@ const zh: Record<MessageKey, string> = {
   'data.keepN.empty': '仓库为空或未授权，无法应用',
   'data.keepN.fail': '应用失败',
   'data.keepN.sharedPrefs': 'prefs 与 legacy 共享',
+  'data.shards.title': '分片清理（多选）',
+  'data.shards.lead':
+    '按域列出非 core 分片，勾选后删除。仅允许 cgm|月 与已知年域|年。需已授权。非诊断。',
+  'data.shards.refresh': '刷新分片列表',
+  'data.shards.delete': '删除所选',
+  'data.shards.deleting': '删除中…',
+  'data.shards.empty': '无域分片或未授权/空仓',
+  'data.shards.confirm': '确认删除 {n} 个分片？此操作不可撤销。',
+  'data.shards.deleted': '已删除 {n} 个分片',
+  'data.shards.fail': '分片操作失败',
+  'data.shards.selected': '已选 {n}',
+  'data.shards.bytes': '约 {kb} KB',
 };
 
 const en: Record<MessageKey, string> = {
@@ -464,6 +487,18 @@ const en: Record<MessageKey, string> = {
   'data.keepN.empty': 'Warehouse empty or no consent',
   'data.keepN.fail': 'Apply failed',
   'data.keepN.sharedPrefs': 'prefs shared with legacy',
+  'data.shards.title': 'Shard cleanup (multi-select)',
+  'data.shards.lead':
+    'List non-core domain shards; select and delete. Only cgm|month and known year-domain|year ids. Requires consent. Not a diagnosis.',
+  'data.shards.refresh': 'Refresh shard list',
+  'data.shards.delete': 'Delete selected',
+  'data.shards.deleting': 'Deleting…',
+  'data.shards.empty': 'No domain shards, or unauthorized / empty warehouse',
+  'data.shards.confirm': 'Delete {n} shard(s)? This cannot be undone.',
+  'data.shards.deleted': 'Deleted {n} shard(s)',
+  'data.shards.fail': 'Shard operation failed',
+  'data.shards.selected': '{n} selected',
+  'data.shards.bytes': '~{kb} KB',
 };
 
 const TABLES: Record<AppLocaleUi, Record<MessageKey, string>> = {

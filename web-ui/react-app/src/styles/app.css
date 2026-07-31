@@ -1024,6 +1024,100 @@
   margin-top: var(--space-2);
 }
 
+/* —— Shard cleanup multi-select (Data page) —— */
+.shard-cleanup-panel .ui-card-desc {
+  margin-bottom: var(--space-3);
+}
+.shard-cleanup-actions {
+  margin-bottom: var(--space-3);
+}
+.shard-cleanup-selected {
+  font-size: 0.85rem;
+}
+.shard-cleanup-empty {
+  margin: 0;
+  font-size: 0.9rem;
+}
+.shard-cleanup-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.shard-cleanup-group {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 0.5rem);
+  padding: 0.5rem 0.65rem;
+  background: color-mix(in srgb, var(--bg-muted) 55%, transparent);
+}
+.shard-cleanup-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  margin-bottom: 0.35rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px dashed var(--border);
+}
+.shard-cleanup-domain-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: var(--touch-min, 2.5rem);
+  cursor: pointer;
+  font-weight: 600;
+}
+.shard-cleanup-domain-name {
+  font-size: 0.92rem;
+}
+.shard-cleanup-kind {
+  font-size: 0.78rem;
+}
+.shard-cleanup-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-height: 12rem;
+  overflow: auto;
+}
+.shard-cleanup-item {
+  margin: 0;
+}
+.shard-cleanup-item-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.55rem;
+  min-height: 2rem;
+  padding: 0.15rem 0.2rem;
+  border-radius: 0.35rem;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.shard-cleanup-item-label:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.shard-cleanup-shard {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  min-width: 4.5rem;
+}
+.shard-cleanup-bytes,
+.shard-cleanup-records {
+  font-size: 0.78rem;
+}
+.shard-cleanup-total {
+  margin: 0;
+  font-size: 0.8rem;
+}
+.shard-cleanup-status {
+  margin: var(--space-2) 0 0;
+  font-size: 0.85rem;
+}
+
 /* Backup panel */
 .backup-panel .ui-card-desc {
   margin-bottom: var(--space-3);
