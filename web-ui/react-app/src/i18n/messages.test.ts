@@ -8,6 +8,8 @@ describe('i18n messages', () => {
     'overview.title',
     'overview.loadFixture',
     'overview.kpiSection',
+    'overview.kpi.cgm',
+    'overview.kpi.openTrends',
     'shell.sessionReady',
     'shell.kbdHint',
     'trends.title',

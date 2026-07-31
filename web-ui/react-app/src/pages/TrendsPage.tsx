@@ -1,4 +1,5 @@
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useHealthStore } from '../store/useHealthStore';
 import {
   extractTrendSeries,
@@ -27,11 +28,24 @@ const DOMAIN_KEYS: { id: TrendDomain; key: MessageKey }[] = [
   { id: 'hrv', key: 'trends.domain.hrv' },
 ];
 
+const VALID_DOMAINS = new Set<string>(DOMAIN_KEYS.map((d) => d.id));
+
+function parseTrendDomain(raw: string | null): TrendDomain | null {
+  if (!raw || !VALID_DOMAINS.has(raw)) return null;
+  return raw as TrendDomain;
+}
+
 export function TrendsPage() {
   const { t } = useLocale();
   const analysis = useHealthStore((s) => s.analysis);
   const summary = useHealthStore((s) => s.summary);
-  const [domain, setDomain] = useState<TrendDomain>('steps');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const domain =
+    parseTrendDomain(searchParams.get('domain')) ?? ('steps' as TrendDomain);
+
+  const setDomain = (id: TrendDomain) => {
+    setSearchParams({ domain: id }, { replace: true });
+  };
 
   const series = useMemo(() => {
     if (!analysis) return null;

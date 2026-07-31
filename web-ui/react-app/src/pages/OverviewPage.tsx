@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHealthStore } from '../store/useHealthStore';
 import { Button } from '../components/ui/Button';
@@ -13,6 +13,13 @@ import {
 import { useLocale } from '../i18n/LocaleProvider';
 import { StatusBand } from '../features/overview/StatusBand';
 import { SignalList } from '../features/overview/SignalList';
+import { KpiVisibilityBar } from '../features/overview/KpiVisibilityBar';
+import {
+  getKpiVisibility,
+  setKpiVisibility,
+  type KpiId,
+  type KpiVisibility,
+} from '../features/overview/kpiVisibility';
 import fixtureXml from '../../../../e2e/fixtures/minimal-export.xml?raw';
 
 const KPI_OPEN_KEY = 'ha-react-overview-kpi-open';
@@ -120,6 +127,12 @@ export function OverviewPage() {
   const [domainsOpen, setDomainsOpen] = useState(() =>
     readSectionOpen(DOMAINS_OPEN_KEY),
   );
+  /** KPI card visibility — localStorage; default all on (cgm visible for e2e). */
+  const [kpiVis, setKpiVis] = useState<KpiVisibility>(() => getKpiVisibility());
+
+  const onKpiVisibilityChange = useCallback((id: KpiId, visible: boolean) => {
+    setKpiVis(setKpiVisibility({ [id]: visible }));
+  }, []);
   const {
     status,
     error,
@@ -189,6 +202,32 @@ export function OverviewPage() {
     const id = await saveSnapshot('React 预览');
     setSnapMsg(id ? `已保存快照 ${id}` : '保存失败');
   }, [saveSnapshot]);
+
+  /** Navigate to Trends; optional domain query (recovery has no TrendDomain). */
+  const openTrends = useCallback(
+    (domain?: string) => {
+      navigate(domain ? `/trends?domain=${domain}` : '/trends');
+    },
+    [navigate],
+  );
+
+  const kpiCardNavProps = useCallback(
+    (testId: string, domain?: string) => ({
+      className: 'kpi-card-link',
+      role: 'button' as const,
+      tabIndex: 0,
+      'data-testid': testId,
+      title: t('overview.kpi.openTrends'),
+      onClick: () => openTrends(domain),
+      onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openTrends(domain);
+        }
+      },
+    }),
+    [openTrends, t],
+  );
 
   if (status === 'loading') {
     return (
@@ -432,48 +471,73 @@ export function OverviewPage() {
             >
               <summary>{t('overview.kpiSection')}</summary>
               <div className="overview-collapsible-body">
+                <KpiVisibilityBar
+                  visibility={kpiVis}
+                  onChange={onKpiVisibilityChange}
+                />
                 <div className="kpi-matrix" data-testid="kpi-matrix">
-                  <Card data-testid="freshness-card">
-                    <CardTitle>CGM 均值</CardTitle>
-                    <p className="kpi" data-testid="kpi-cgm">
-                      {summary.kpis.cgmMean != null
-                        ? summary.kpis.cgmMean.toFixed(2)
-                        : '—'}
-                    </p>
-                    <CardDesc>{summary.counts.cgm} 点</CardDesc>
-                  </Card>
-                  <Card>
-                    <CardTitle>最近体重</CardTitle>
-                    <p className="kpi" data-testid="kpi-weight">
-                      {summary.kpis.weightLatest != null
-                        ? summary.kpis.weightLatest.toFixed(2)
-                        : '—'}
-                    </p>
-                    <CardDesc>{summary.counts.weight} 条</CardDesc>
-                  </Card>
-                  <Card>
-                    <CardTitle>最近步数</CardTitle>
-                    <p className="kpi" data-testid="kpi-steps">
-                      {summary.kpis.stepsLatest != null
-                        ? String(summary.kpis.stepsLatest)
-                        : '—'}
-                    </p>
-                    <CardDesc>{summary.counts.stepsDays} 天</CardDesc>
-                  </Card>
-                  <Card>
-                    <CardTitle>恢复分</CardTitle>
-                    <p className="kpi" data-testid="kpi-recovery">
-                      {summary.kpis.recoveryScore != null
-                        ? String(summary.kpis.recoveryScore)
-                        : '—'}
-                    </p>
-                    <CardDesc>非诊断 · 个人启发式</CardDesc>
-                  </Card>
-                  {summary.kpis.restingHrLatest != null ? (
-                    <Card>
-                      <CardTitle>静息心率</CardTitle>
-                      <p className="kpi">{summary.kpis.restingHrLatest}</p>
-                      <CardDesc>最近一日</CardDesc>
+                  {kpiVis.cgm !== false ? (
+                    <Card {...kpiCardNavProps('kpi-card-cgm', 'cgmDailyMean')}>
+                      <CardTitle>{t('overview.kpi.cgm')}</CardTitle>
+                      <p className="kpi" data-testid="kpi-cgm">
+                        {summary.kpis.cgmMean != null
+                          ? summary.kpis.cgmMean.toFixed(2)
+                          : '—'}
+                      </p>
+                      <CardDesc>
+                        {summary.counts.cgm} {t('overview.kpi.points')}
+                      </CardDesc>
+                    </Card>
+                  ) : null}
+                  {kpiVis.weight !== false ? (
+                    <Card {...kpiCardNavProps('kpi-card-weight', 'weight')}>
+                      <CardTitle>{t('overview.kpi.weight')}</CardTitle>
+                      <p className="kpi" data-testid="kpi-weight">
+                        {summary.kpis.weightLatest != null
+                          ? summary.kpis.weightLatest.toFixed(2)
+                          : '—'}
+                      </p>
+                      <CardDesc>
+                        {summary.counts.weight} {t('overview.kpi.points')}
+                      </CardDesc>
+                    </Card>
+                  ) : null}
+                  {kpiVis.steps !== false ? (
+                    <Card {...kpiCardNavProps('kpi-card-steps', 'steps')}>
+                      <CardTitle>{t('overview.kpi.steps')}</CardTitle>
+                      <p className="kpi" data-testid="kpi-steps">
+                        {summary.kpis.stepsLatest != null
+                          ? String(summary.kpis.stepsLatest)
+                          : '—'}
+                      </p>
+                      <CardDesc>
+                        {summary.counts.stepsDays} {t('overview.kpi.days')}
+                      </CardDesc>
+                    </Card>
+                  ) : null}
+                  {kpiVis.recovery !== false ? (
+                    <Card {...kpiCardNavProps('kpi-card-recovery')}>
+                      <CardTitle>{t('overview.kpi.recovery')}</CardTitle>
+                      <p className="kpi" data-testid="kpi-recovery">
+                        {summary.kpis.recoveryScore != null
+                          ? String(summary.kpis.recoveryScore)
+                          : '—'}
+                      </p>
+                      <CardDesc>{t('overview.kpi.nonDiag')}</CardDesc>
+                    </Card>
+                  ) : null}
+                  {kpiVis.restingHr !== false &&
+                  summary.kpis.restingHrLatest != null ? (
+                    <Card
+                      {...kpiCardNavProps('kpi-card-restingHr', 'restingHr')}
+                    >
+                      <CardTitle>{t('overview.kpi.restingHr')}</CardTitle>
+                      <p className="kpi" data-testid="kpi-restingHr">
+                        {summary.kpis.restingHrLatest}
+                      </p>
+                      <CardDesc>
+                        1 {t('overview.kpi.days')}
+                      </CardDesc>
                     </Card>
                   ) : null}
                 </div>

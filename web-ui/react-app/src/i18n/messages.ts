@@ -29,6 +29,16 @@ export type MessageKey =
   | 'overview.ctaReports'
   | 'overview.domains'
   | 'overview.kpiSection'
+  | 'overview.kpiVisibility'
+  | 'overview.kpi.cgm'
+  | 'overview.kpi.weight'
+  | 'overview.kpi.steps'
+  | 'overview.kpi.recovery'
+  | 'overview.kpi.restingHr'
+  | 'overview.kpi.points'
+  | 'overview.kpi.days'
+  | 'overview.kpi.nonDiag'
+  | 'overview.kpi.openTrends'
   | 'overview.domainsPresentCount'
   | 'dualTrack'
   | 'shell.sessionReady'
@@ -149,6 +159,16 @@ const zh: Record<MessageKey, string> = {
   'overview.ctaReports': '打开报告',
   'overview.domains': '域存在性',
   'overview.kpiSection': '关键指标',
+  'overview.kpiVisibility': '显示指标',
+  'overview.kpi.cgm': 'CGM 均值',
+  'overview.kpi.weight': '最近体重',
+  'overview.kpi.steps': '最近步数',
+  'overview.kpi.recovery': '恢复分',
+  'overview.kpi.restingHr': '静息心率',
+  'overview.kpi.points': '点',
+  'overview.kpi.days': '天',
+  'overview.kpi.nonDiag': '非诊断 · 个人启发式',
+  'overview.kpi.openTrends': '在趋势中查看',
   'overview.domainsPresentCount': '{n} 域有数据',
   dualTrack: '双轨',
   'shell.sessionReady': '已加载',
@@ -279,6 +299,16 @@ const en: Record<MessageKey, string> = {
   'overview.ctaReports': 'Open reports',
   'overview.domains': 'Domains present',
   'overview.kpiSection': 'Key metrics',
+  'overview.kpiVisibility': 'Show metrics',
+  'overview.kpi.cgm': 'CGM mean',
+  'overview.kpi.weight': 'Latest weight',
+  'overview.kpi.steps': 'Latest steps',
+  'overview.kpi.recovery': 'Recovery score',
+  'overview.kpi.restingHr': 'Resting HR',
+  'overview.kpi.points': 'pts',
+  'overview.kpi.days': 'days',
+  'overview.kpi.nonDiag': 'Non-diagnostic · personal heuristic',
+  'overview.kpi.openTrends': 'Open in Trends',
   'overview.domainsPresentCount': '{n} domains present',
   dualTrack: 'Dual-track',
   'shell.sessionReady': 'Ready',

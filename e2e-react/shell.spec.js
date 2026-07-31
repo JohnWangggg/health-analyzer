@@ -37,12 +37,22 @@ test.describe('React dual-track shell', () => {
     await expect(page.getByTestId('kpi-freshness')).toBeVisible();
     await expect(page.getByTestId('signal-list')).toBeVisible();
     await expect(page.getByTestId('primary-actions')).toBeVisible();
+    await expect(page.getByTestId('kpi-visibility-bar')).toBeVisible();
+    await expect(page.getByTestId('kpi-card-cgm')).toBeVisible();
 
     // Workspace keyboard shortcuts: Alt+1..4
     await page.keyboard.press('Alt+Digit2');
     await expect(page.getByTestId('page-trends')).toBeVisible();
     await page.keyboard.press('Alt+Digit1');
     await expect(page.getByTestId('page-overview')).toBeVisible();
+
+    // KPI card deep-link → Trends domain
+    await page.getByTestId('kpi-card-cgm').click();
+    await expect(page.getByTestId('page-trends')).toBeVisible();
+    await expect(page.getByTestId('trend-domain-cgmDailyMean')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
 
     await page.locator('[data-testid="desktop-sidebar"] [data-workspace-nav="trends"]').click();
     await expect(page.getByTestId('page-trends')).toBeVisible();
