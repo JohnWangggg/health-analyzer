@@ -34,6 +34,9 @@ test.describe('v1.73 text zoom 200%', () => {
     await expect(trendsBtn).toBeVisible();
     await trendsBtn.click();
     await expect(page.locator('#step-charts')).toBeVisible();
+    await page.evaluate(() => {
+      if (typeof window.__openTrendsFilterSheet === 'function') window.__openTrendsFilterSheet();
+    });
     await expect(page.locator('#chart-primary-metric')).toBeVisible();
 
     // KPI / priority text not fully clipped (scrollHeight roughly usable)

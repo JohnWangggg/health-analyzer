@@ -38,6 +38,10 @@
             <option value="en">English</option>
           </select>
         </label>
+        <button type="button" id="btn-dashboard-mode" class="btn-dashboard-mode" data-i18n-aria="tv.enterAria" data-i18n-title="tv.enter" aria-label="健康大屏" title="健康大屏" aria-pressed="false">
+          <span class="btn-dashboard-mode-icon" aria-hidden="true">▣</span>
+          <span class="btn-dashboard-mode-label" data-i18n="tv.enter">健康大屏</span>
+        </button>
         <button type="button" id="theme-toggle" class="theme-toggle" data-i18n-aria="theme.aria" data-i18n-title="theme.aria" aria-label="切换浅色或深色外观" title="外观">
           <span id="theme-toggle-icon" aria-hidden="true">◐</span>
           <span id="theme-toggle-label" data-i18n="theme.toggle">外观</span>
@@ -475,7 +479,7 @@
     </section>
     <!-- 工作区：今日（概览 + 提示） -->
     <div id="ws-today" class="workspace is-active" data-workspace="today" hidden>
-    <section id="step-overview" class="card hidden result-hero">
+    <section id="step-overview" class="card hidden result-hero" data-dashboard-focus="metrics">
       <div class="result-hero-top">
         <div>
           <p class="eyebrow" data-i18n="overview.eyebrow">分析完成</p>
@@ -541,7 +545,7 @@
       </details>
     </section>
 
-    <section id="step-signals" class="card hidden result-section">
+    <section id="step-signals" class="card hidden result-section" data-dashboard-focus="signals">
       <h2 data-i18n="signals.title">跨维度提示</h2>
       <p class="hint compact-hint" data-i18n="signals.hint">规则线索，非诊断；已写入完整提示词。</p>
       <div id="signals-content"></div>
@@ -550,48 +554,69 @@
 
     <!-- 工作区：趋势（图表 + 事件 + 明细） -->
     <div id="ws-trends" class="workspace" data-workspace="trends" hidden>
-    <section id="step-charts" class="card hidden result-section">
+    <section id="step-charts" class="card hidden result-section" data-dashboard-focus="charts">
       <h2 data-i18n="charts.title">趋势图</h2>
       <p class="hint compact-hint" data-i18n="charts.hint">本地绘制。在图上滑动可读数；体重为晨起趋势。</p>
-      <div class="chart-range-chips" id="chart-range-chips" role="group" aria-label="chart range">
-        <button type="button" class="chip is-active" data-days="7" data-i18n="charts.range7">近 7 天</button>
-        <button type="button" class="chip" data-days="30" data-i18n="charts.range30">近 30 天</button>
-        <button type="button" class="chip" data-days="90" data-i18n="charts.range90">近 90 天</button>
-        <button type="button" class="chip" data-days="0" data-i18n="charts.rangeAll">全部</button>
+      <!-- v2.1: mobile opens filter sheet; desktop (≥1100) shows controls inline via CSS -->
+      <div class="trends-filter-bar" id="trends-filter-bar">
+        <button type="button" id="btn-trends-filter-open" class="btn-trends-filter-open" data-i18n-aria="charts.filter.openAria" aria-haspopup="dialog" aria-controls="trends-filter-sheet" aria-expanded="false" aria-label="筛选趋势范围与指标">
+          <span class="btn-trends-filter-open-label" data-i18n="charts.filter.open">筛选与指标</span>
+          <span id="trends-filter-summary" class="trends-filter-summary" aria-hidden="true"></span>
+        </button>
       </div>
-      <!-- v1.67 趋势工作台：主/对比指标、基线、事件标记 -->
-      <div id="charts-workbench" class="charts-workbench" role="group" data-i18n-aria="charts.workbench.aria" aria-label="趋势工作台">
-        <label class="charts-wb-field">
-          <span class="charts-wb-label" data-i18n="charts.workbench.primary">主指标</span>
-          <select id="chart-primary-metric" class="charts-wb-select" aria-label="primary metric"></select>
-        </label>
-        <label class="charts-wb-field">
-          <span class="charts-wb-label" data-i18n="charts.workbench.compare">对比</span>
-          <select id="chart-compare-metric" class="charts-wb-select" aria-label="compare metric">
-            <option value="" data-i18n="charts.workbench.compareNone">无</option>
-          </select>
-        </label>
-        <label class="charts-wb-toggle">
-          <input type="checkbox" id="chart-baseline-toggle" />
-          <span data-i18n="charts.workbench.baseline">个人基线</span>
-        </label>
-        <label class="charts-wb-toggle">
-          <input type="checkbox" id="chart-events-toggle" />
-          <span data-i18n="charts.workbench.events">事件标记</span>
-        </label>
-        <div class="charts-wb-presets" role="group" data-i18n-aria="charts.preset.aria" aria-label="趋势视图预设">
-          <label class="charts-wb-field charts-wb-preset-select-field">
-            <span class="charts-wb-label" data-i18n="charts.preset.label">视图预设</span>
-            <select id="chart-preset-select" class="charts-wb-select" aria-label="chart preset">
-              <option value="" data-i18n="charts.preset.none">（选择预设）</option>
-            </select>
-          </label>
-          <label class="charts-wb-field charts-wb-preset-name-field">
-            <span class="charts-wb-label" data-i18n="charts.preset.name">名称</span>
-            <input type="text" id="chart-preset-name" class="charts-wb-input" maxlength="40" placeholder="例如 睡眠+HRV" data-i18n-placeholder="charts.preset.namePh" autocomplete="off" />
-          </label>
-          <button type="button" id="btn-chart-preset-save" class="btn-ghost btn-sm" data-i18n="charts.preset.save">保存当前</button>
-          <button type="button" id="btn-chart-preset-delete" class="btn-danger-text btn-sm" data-i18n="charts.preset.delete">删除</button>
+      <div id="trends-filter-sheet" class="trends-filter-sheet" aria-hidden="true">
+        <div class="trends-filter-sheet-backdrop" id="trends-filter-sheet-backdrop" data-trends-filter-dismiss tabindex="-1" aria-hidden="true"></div>
+        <div class="trends-filter-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="trends-filter-sheet-title" id="trends-filter-sheet-panel">
+          <div class="trends-filter-sheet-header">
+            <h3 id="trends-filter-sheet-title" class="trends-filter-sheet-title" data-i18n="charts.filter.title">趋势筛选</h3>
+            <button type="button" id="btn-trends-filter-close" class="trends-filter-sheet-close" data-i18n-aria="charts.filter.closeAria" aria-label="关闭筛选">×</button>
+          </div>
+          <div class="trends-filter-sheet-body">
+            <div class="chart-range-chips" id="chart-range-chips" role="group" data-i18n-aria="charts.filter.rangeAria" aria-label="chart range">
+              <button type="button" class="chip is-active" data-days="7" data-i18n="charts.range7">近 7 天</button>
+              <button type="button" class="chip" data-days="30" data-i18n="charts.range30">近 30 天</button>
+              <button type="button" class="chip" data-days="90" data-i18n="charts.range90">近 90 天</button>
+              <button type="button" class="chip" data-days="0" data-i18n="charts.rangeAll">全部</button>
+            </div>
+            <!-- v1.67 趋势工作台：主/对比指标、基线、事件标记（IDs 保留供 app.js 监听） -->
+            <div id="charts-workbench" class="charts-workbench" role="group" data-i18n-aria="charts.workbench.aria" aria-label="趋势工作台">
+              <label class="charts-wb-field">
+                <span class="charts-wb-label" data-i18n="charts.workbench.primary">主指标</span>
+                <select id="chart-primary-metric" class="charts-wb-select" aria-label="primary metric"></select>
+              </label>
+              <label class="charts-wb-field">
+                <span class="charts-wb-label" data-i18n="charts.workbench.compare">对比</span>
+                <select id="chart-compare-metric" class="charts-wb-select" aria-label="compare metric">
+                  <option value="" data-i18n="charts.workbench.compareNone">无</option>
+                </select>
+              </label>
+              <label class="charts-wb-toggle">
+                <input type="checkbox" id="chart-baseline-toggle" />
+                <span data-i18n="charts.workbench.baseline">个人基线</span>
+              </label>
+              <label class="charts-wb-toggle">
+                <input type="checkbox" id="chart-events-toggle" />
+                <span data-i18n="charts.workbench.events">事件标记</span>
+              </label>
+              <div class="charts-wb-presets" role="group" data-i18n-aria="charts.preset.aria" aria-label="趋势视图预设">
+                <label class="charts-wb-field charts-wb-preset-select-field">
+                  <span class="charts-wb-label" data-i18n="charts.preset.label">视图预设</span>
+                  <select id="chart-preset-select" class="charts-wb-select" aria-label="chart preset">
+                    <option value="" data-i18n="charts.preset.none">（选择预设）</option>
+                  </select>
+                </label>
+                <label class="charts-wb-field charts-wb-preset-name-field">
+                  <span class="charts-wb-label" data-i18n="charts.preset.name">名称</span>
+                  <input type="text" id="chart-preset-name" class="charts-wb-input" maxlength="40" placeholder="例如 睡眠+HRV" data-i18n-placeholder="charts.preset.namePh" autocomplete="off" />
+                </label>
+                <button type="button" id="btn-chart-preset-save" class="btn-ghost btn-sm" data-i18n="charts.preset.save">保存当前</button>
+                <button type="button" id="btn-chart-preset-delete" class="btn-danger-text btn-sm" data-i18n="charts.preset.delete">删除</button>
+              </div>
+            </div>
+          </div>
+          <div class="trends-filter-sheet-footer">
+            <button type="button" id="btn-trends-filter-done" class="btn-primary btn-block" data-i18n="charts.filter.done">完成</button>
+          </div>
         </div>
       </div>
       <!-- v1.92: warehouse data-range hint in trends (meta only; hidden without payload) -->
@@ -717,19 +742,39 @@
     </section>
     </div><!-- /#ws-reports -->
 
-    <!-- 工作区：更多（数据导出 / FHIR / 历史 / 隐私） -->
+    <!-- 工作区：更多（v2.1 五子页：来源 / 存储 / 隐私 / 历史 / 高级导出） -->
     <div id="ws-more" class="workspace" data-workspace="more" hidden>
     <section id="step-export" class="card hidden result-section">
       <h2 data-i18n="export.title">数据管理</h2>
       <p class="hint compact-hint" data-i18n="export.hint">均在本机。历史只存摘要指标（最多 30 条）。FHIR 为试验性高级导出。</p>
 
-      <div class="export-actions">
-        <button type="button" id="btn-export-json" class="btn-secondary" data-i18n="export.json">导出 JSON</button>
-        <button type="button" id="btn-export-csv" class="btn-secondary" data-i18n="export.csv">导出 CSV 包</button>
-        <button type="button" id="btn-export-snapshot" class="btn-secondary" data-i18n="export.snapshot">导出摘要快照</button>
-        <span id="export-status" class="copy-status" aria-live="polite"></span>
+      <nav id="more-subnav" class="more-subnav" role="tablist" data-i18n-aria="more.subnavAria" aria-label="数据管理子页">
+        <button type="button" class="more-subnav-btn" role="tab" data-more-page="data-source" id="more-tab-source" aria-controls="more-page-source" aria-selected="false" data-i18n="more.page.source">数据来源</button>
+        <button type="button" class="more-subnav-btn is-active" role="tab" data-more-page="storage-backup" id="more-tab-storage" aria-controls="more-page-storage-backup" aria-selected="true" data-i18n="more.page.storage">存储备份</button>
+        <button type="button" class="more-subnav-btn" role="tab" data-more-page="privacy" id="more-tab-privacy" aria-controls="more-page-privacy" aria-selected="false" data-i18n="more.page.privacy">隐私</button>
+        <button type="button" class="more-subnav-btn" role="tab" data-more-page="history" id="more-tab-history" aria-controls="more-page-history" aria-selected="false" data-i18n="more.page.history">历史</button>
+        <button type="button" class="more-subnav-btn" role="tab" data-more-page="advanced-export" id="more-tab-advanced" aria-controls="more-page-advanced-export" aria-selected="false" data-i18n="more.page.advanced">高级导出</button>
+      </nav>
+
+      <!-- 1) 数据来源 -->
+      <div id="more-page-source" class="more-page" data-more-page="data-source" role="tabpanel" aria-labelledby="more-tab-source" hidden>
+        <h3 class="panel-subhead" data-i18n="more.source.title">导入与数据来源</h3>
+        <p class="hint compact-hint" data-i18n="more.source.hint">苹果健康 ZIP/XML、CSV 合并与 Health Auto Export 均在本机解析，不上传。可返回上传区更换数据。</p>
+        <div class="export-actions more-source-actions">
+          <button type="button" id="btn-more-open-upload" class="btn-secondary" data-i18n="more.source.openUpload">打开上传区</button>
+          <button type="button" id="btn-more-open-hae" class="btn-ghost" data-i18n="more.source.openHae">HAE 增量导入</button>
+          <button type="button" id="btn-more-open-csv" class="btn-ghost" data-i18n="more.source.openCsv">CSV 合并</button>
+        </div>
+        <ul class="more-source-tips">
+          <li data-i18n="more.source.tipZip">推荐：iPhone 健康 App → 头像 → 导出健康数据（ZIP）</li>
+          <li data-i18n="more.source.tipHae">Health Auto Export：JSON/CSV 多选或文件夹，本机增量去重合并</li>
+          <li data-i18n="more.source.tipCsv">可选合并体脂秤 / 血压计 CSV，不覆盖苹果健康已有记录</li>
+          <li data-i18n="more.source.tipWarehouse">长期明细请到「存储备份」开启本机原始数据仓</li>
+        </ul>
       </div>
 
+      <!-- 2) 存储备份（#warehouse-panel 保留供 e2e / 深链） -->
+      <div id="more-page-storage-backup" class="more-page is-active" data-more-page="storage-backup" role="tabpanel" aria-labelledby="more-tab-storage">
       <div class="warehouse-panel" id="warehouse-panel" role="region" aria-labelledby="warehouse-title">
         <h3 class="panel-subhead" id="warehouse-title" data-i18n="warehouse.title">本机原始数据仓</h3>
         <p class="hint compact-hint" data-i18n="warehouse.hint">默认关闭。开启后，解析后的健康明细（含 CGM 等）可保存在本机 IndexedDB，刷新后无需重传大文件。不上传、非云同步、非诊断。</p>
@@ -1097,6 +1142,69 @@
         </div>
         <span id="warehouse-action-status" class="copy-status" aria-live="polite"></span>
       </div>
+      <!-- Primary wipe control kept findable with warehouse (e2e / deep-link default page) -->
+      <div class="privacy-wipe-panel more-storage-wipe" role="region" aria-labelledby="privacy-wipe-title">
+        <h3 class="panel-subhead" id="privacy-wipe-title" data-i18n="privacy.wipeTitle">隐私与本机数据</h3>
+        <p class="hint compact-hint" data-i18n="privacy.wipeHint">清除个人背景、恢复权重、信号偏好、图表范围及 IndexedDB 摘要/周报历史、事件时间线、导入批次；若曾开启原始数据仓，将同时删除本机 CGM 等明细。主题与界面语言会保留。</p>
+        <button type="button" id="btn-clear-all-local" class="btn-danger-text" data-i18n="privacy.wipeBtn">清除所有本机健康数据</button>
+      </div>
+      </div><!-- /#more-page-storage-backup -->
+
+      <!-- 3) 隐私 -->
+      <div id="more-page-privacy" class="more-page" data-more-page="privacy" role="tabpanel" aria-labelledby="more-tab-privacy" hidden>
+        <div class="privacy-wipe-panel" role="region" aria-labelledby="privacy-wipe-title-page">
+          <h3 class="panel-subhead" id="privacy-wipe-title-page" data-i18n="privacy.wipeTitle">隐私与本机数据</h3>
+          <p class="hint compact-hint" data-i18n="privacy.wipeHint">清除个人背景、恢复权重、信号偏好、图表范围及 IndexedDB 摘要/周报历史、事件时间线、导入批次；若曾开启原始数据仓，将同时删除本机 CGM 等明细。主题与界面语言会保留。</p>
+          <button type="button" id="btn-clear-all-local-privacy" class="btn-danger-text" data-i18n="privacy.wipeBtn">清除所有本机健康数据</button>
+        </div>
+        <div class="more-privacy-notes" role="region" aria-labelledby="more-privacy-notes-title">
+          <h3 class="panel-subhead" id="more-privacy-notes-title" data-i18n="more.privacy.notesTitle">敏感信息与就诊导出</h3>
+          <p class="hint compact-hint" data-i18n="more.privacy.notesHint">用药/病史等敏感自述默认仅本机；复制提示词与就诊报告可单独勾选是否包含。临床复盘默认脱敏。</p>
+          <ul class="more-source-tips">
+            <li data-i18n="more.privacy.tipSensitive">上传区「个人背景」可开关：复制提示词时是否包含用药与病史</li>
+            <li data-i18n="more.privacy.tipClinical">报告工作区「规范化就诊复盘」默认不含敏感背景、事件时间线与原始样本</li>
+            <li data-i18n="more.privacy.tipLocal">ZIP/XML 与仓明细不会上传到本站服务器；主题与语言可保留</li>
+          </ul>
+          <div class="export-actions">
+            <button type="button" id="btn-more-open-ctx" class="btn-ghost" data-i18n="more.privacy.openCtx">打开个人背景</button>
+            <button type="button" id="btn-more-open-clinical" class="btn-ghost" data-i18n="more.privacy.openClinical">打开就诊导出选项</button>
+          </div>
+        </div>
+      </div><!-- /#more-page-privacy -->
+
+
+      <!-- 4) 历史 -->
+      <div id="more-page-history" class="more-page" data-more-page="history" role="tabpanel" aria-labelledby="more-tab-history" hidden>
+      <div class="history-panel">
+        <h3 class="panel-subhead" data-i18n="history.title">摘要快照历史</h3>
+        <div class="history-save-row">
+          <label class="date-field history-name-field">
+            <span data-i18n="history.label">摘要名称（可选）</span>
+            <input type="text" id="history-label" maxlength="80" placeholder="例如 07-14 导出" autocomplete="off">
+          </label>
+          <button type="button" id="btn-history-save" class="btn-secondary" data-i18n="history.save">保存到本机历史</button>
+        </div>
+        <div class="history-toolbar">
+          <button type="button" id="btn-history-refresh" class="btn-ghost" data-i18n="history.refresh">刷新列表</button>
+          <button type="button" id="btn-history-clear" class="btn-danger-text" data-i18n="history.clear">清空历史</button>
+        </div>
+        <label class="history-label" for="history-select" data-i18n="history.compare">与历史快照对比（当前分析）</label>
+        <select id="history-select" data-i18n-aria="history.compare" aria-label="选择历史快照">
+          <option value="" data-i18n="history.empty">（暂无历史）</option>
+        </select>
+        <div id="history-compare" class="history-compare"></div>
+      </div>
+      <p class="hint compact-hint" data-i18n="more.history.weeklyHint">本周报告历史在「报告」工作区；此处为摘要快照环比。</p>
+      </div><!-- /#more-page-history -->
+
+      <!-- 5) 高级导出 -->
+      <div id="more-page-advanced-export" class="more-page" data-more-page="advanced-export" role="tabpanel" aria-labelledby="more-tab-advanced" hidden>
+      <div class="export-actions">
+        <button type="button" id="btn-export-json" class="btn-secondary" data-i18n="export.json">导出 JSON</button>
+        <button type="button" id="btn-export-csv" class="btn-secondary" data-i18n="export.csv">导出 CSV 包</button>
+        <button type="button" id="btn-export-snapshot" class="btn-secondary" data-i18n="export.snapshot">导出摘要快照</button>
+        <span id="export-status" class="copy-status" aria-live="polite"></span>
+      </div>
 
       <details class="fhir-export-fold" id="fhir-export-fold">
         <summary data-i18n="export.fhir.fold">高级：试验性 FHIR 导出</summary>
@@ -1162,32 +1270,7 @@
       </details>
 
       <p class="hint compact-hint export-shortcut-hint" data-i18n="export.shortcutHint">有结果时可用 ⌘/Ctrl+Shift+C 复制完整提示词。</p>
-
-      <div class="privacy-wipe-panel" role="region" aria-labelledby="privacy-wipe-title">
-        <h3 class="panel-subhead" id="privacy-wipe-title" data-i18n="privacy.wipeTitle">隐私与本机数据</h3>
-        <p class="hint compact-hint" data-i18n="privacy.wipeHint">清除个人背景、恢复权重、信号偏好、图表范围及 IndexedDB 摘要/周报历史、事件时间线、导入批次；若曾开启原始数据仓，将同时删除本机 CGM 等明细。主题与界面语言会保留。</p>
-        <button type="button" id="btn-clear-all-local" class="btn-danger-text" data-i18n="privacy.wipeBtn">清除所有本机健康数据</button>
-      </div>
-
-      <div class="history-panel">
-        <h3 class="panel-subhead" data-i18n="history.title">摘要快照历史</h3>
-        <div class="history-save-row">
-          <label class="date-field history-name-field">
-            <span data-i18n="history.label">摘要名称（可选）</span>
-            <input type="text" id="history-label" maxlength="80" placeholder="例如 07-14 导出" autocomplete="off">
-          </label>
-          <button type="button" id="btn-history-save" class="btn-secondary" data-i18n="history.save">保存到本机历史</button>
-        </div>
-        <div class="history-toolbar">
-          <button type="button" id="btn-history-refresh" class="btn-ghost" data-i18n="history.refresh">刷新列表</button>
-          <button type="button" id="btn-history-clear" class="btn-danger-text" data-i18n="history.clear">清空历史</button>
-        </div>
-        <label class="history-label" for="history-select" data-i18n="history.compare">与历史快照对比（当前分析）</label>
-        <select id="history-select" data-i18n-aria="history.compare" aria-label="选择历史快照">
-          <option value="" data-i18n="history.empty">（暂无历史）</option>
-        </select>
-        <div id="history-compare" class="history-compare"></div>
-      </div>
+      </div><!-- /#more-page-advanced-export -->
     </section>
     </div><!-- /#ws-more -->
     </div><!-- /.results-layout -->
@@ -1242,7 +1325,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v2.0</p>
+    <p data-i18n="footer">开源 · 本地优先 · v2.1</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">
@@ -1256,9 +1339,27 @@
     <button type="button" id="btn-sticky-top" class="btn-ghost sticky-cta-side" data-i18n-title="sticky.top" data-i18n-aria="sticky.top" title="回到概览" aria-label="回到概览">↑</button>
   </div>
 
+  <!-- v2.1 健康大屏 / TV 模式：时钟 + 退出（始终可关；内容高亮由 body.health-dashboard-mode 控制） -->
+  <div id="dashboard-mode-chrome" class="dashboard-mode-chrome hidden" hidden role="region" data-i18n-aria="tv.chromeAria" aria-label="健康大屏" aria-hidden="true">
+    <div class="dashboard-mode-bar">
+      <div class="dashboard-mode-clock-block">
+        <time id="dashboard-clock" class="dashboard-clock" datetime="">--:--:--</time>
+        <p id="dashboard-data-updated" class="dashboard-data-updated" data-i18n="tv.dataWaiting">等待本机分析数据</p>
+      </div>
+      <div class="dashboard-mode-focus" aria-live="polite">
+        <span class="dashboard-mode-focus-kicker" data-i18n="tv.focusKicker">焦点轮播</span>
+        <strong id="dashboard-focus-label" class="dashboard-mode-focus-label" data-i18n="tv.focus.metrics">今日指标</strong>
+      </div>
+      <p class="dashboard-mode-note" data-i18n="tv.nondx">监测展示 · 非诊断</p>
+      <button type="button" id="btn-dashboard-exit" class="btn-dashboard-exit" data-i18n="tv.exit" data-i18n-aria="tv.exitAria" aria-label="退出大屏">退出大屏</button>
+    </div>
+  </div>
+
   <script src="./i18n.js"></script>
   <script src="./fflate.min.js"></script>
   <script src="./lib.js"></script>
+  <!-- Local Apache ECharts (~1MB); deferred. charts.js feature-detects window.echarts — no CDN. -->
+  <script defer src="./vendor/echarts.min.js"></script>
   <script src="./charts.js"></script>
   <script src="./history-db.js"></script>
   <script src="./app.js"></script>

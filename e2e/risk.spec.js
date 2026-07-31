@@ -5,7 +5,7 @@
  */
 const { test, expect } = require('@playwright/test');
 const path = require('path');
-const { setWorkspace } = require('./helpers');
+const { setWorkspace, setMorePage } = require('./helpers');
 
 const FIXTURE = path.join(__dirname, 'fixtures/minimal-export.xml');
 const EMPTY_XML = path.join(__dirname, 'fixtures/empty-export.xml');
@@ -159,6 +159,8 @@ test.describe('risk: history clear UI', () => {
     } else {
       await setWorkspace(page, 'more');
     }
+    // v2.1: history controls live on more → history sub-page
+    await setMorePage(page, 'history');
 
     test.skip(!(await clearBtn.count()), 'btn-history-clear not in DOM on this branch');
 

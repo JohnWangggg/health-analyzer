@@ -26,6 +26,51 @@
   const CHART_PRESETS_KEY = 'health-analyzer-chart-presets';
   const MAX_CHART_PRESETS = 12;
   const SIDE_NAV_COLLAPSED_KEY = 'health-analyzer-side-nav-collapsed';
+  /** v2.1 健康大屏 / TV 模式（sessionStorage 可选记忆） */
+  const DASHBOARD_MODE_KEY = 'health-analyzer-dashboard-mode';
+  const DASHBOARD_ROTATE_MS = 12000;
+  const DASHBOARD_FOCUS_STEPS = ['metrics', 'signals', 'charts'];
+  let dashboardModeActive = false;
+  let dashboardFocusIdx = 0;
+  let dashboardRotateTimer = null;
+  let dashboardClockTimer = null;
+  let dashboardPausedUntil = 0;
+  let dashboardPauseWired = false;
+
+  /** v2.1 More workspace sub-pages */
+  const MORE_PAGE_KEY = 'health-analyzer-more-page';
+  const MORE_PAGE_IDS = ['data-source', 'storage-backup', 'privacy', 'history', 'advanced-export'];
+  const MORE_PAGE_DEFAULT = 'storage-backup';
+  /** focusSectionId / element id → more sub-page */
+  const MORE_FOCUS_TO_PAGE = {
+    'warehouse-panel': 'storage-backup',
+    'warehouse-title': 'storage-backup',
+    'warehouse-consent': 'storage-backup',
+    'privacy-wipe-title': 'storage-backup',
+    'btn-clear-all-local': 'storage-backup',
+    'btn-clear-all-local-privacy': 'privacy',
+    'privacy-wipe-title-page': 'privacy',
+    'history-select': 'history',
+    'history-label': 'history',
+    'btn-history-save': 'history',
+    'fhir-export-fold': 'advanced-export',
+    'btn-export-fhir': 'advanced-export',
+    'btn-export-json': 'advanced-export',
+    'btn-export-csv': 'advanced-export',
+    'btn-export-snapshot': 'advanced-export',
+    'more-page-source': 'data-source',
+    'more-page-storage-backup': 'storage-backup',
+    'more-page-privacy': 'privacy',
+    'more-page-history': 'history',
+    'more-page-advanced-export': 'advanced-export',
+  };
+  let activeMorePage = MORE_PAGE_DEFAULT;
+
+  /** v2.1 Trends filter bottom sheet (mobile <1100) */
+  const TRENDS_FILTER_DESKTOP_MQ = '(min-width: 1100px)';
+  let trendsFilterSheetOpen = false;
+  let trendsFilterLastFocus = null;
+  let trendsFilterFocusTrapHandler = null;
   let chartRangeDays = (() => {
     try {
       const v = Number(window.localStorage.getItem(CHART_RANGE_KEY));
@@ -2469,6 +2514,313 @@
     });
   }
 
+  function loadMorePage() {
+    try {
+      const v = String(window.localStorage.getItem(MORE_PAGE_KEY) || '');
+      if (MORE_PAGE_IDS.includes(v)) return v;
+    } catch (e) { /* ignore */ }
+    return MORE_PAGE_DEFAULT;
+  }
+
+  function saveMorePage(pageId) {
+    try {
+      window.localStorage.setItem(MORE_PAGE_KEY, pageId);
+    } catch (e) { /* ignore */ }
+  }
+
+  /**
+   * Switch More workspace sub-page. Only one panel visible.
+   * @param {string} pageId
+   * @param {{ persist?: boolean }} [opts]
+   */
+  function setMorePage(pageId, opts) {
+    const page = MORE_PAGE_IDS.includes(pageId) ? pageId : MORE_PAGE_DEFAULT;
+    activeMorePage = page;
+    if (!opts || opts.persist !== false) saveMorePage(page);
+
+    MORE_PAGE_IDS.forEach((id) => {
+      let panel = document.querySelector('#ws-more .more-page[data-more-page="' + id + '"]');
+      if (!panel) {
+        const elId =
+          id === 'data-source' ? 'more-page-source'
+            : id === 'storage-backup' ? 'more-page-storage-backup'
+              : id === 'privacy' ? 'more-page-privacy'
+                : id === 'history' ? 'more-page-history'
+                  : 'more-page-advanced-export';
+        panel = document.getElementById(elId);
+      }
+      if (!panel) return;
+      const on = id === page;
+      panel.classList.toggle('is-active', on);
+      panel.hidden = !on;
+    });
+
+    document.querySelectorAll('#more-subnav [data-more-page]').forEach((btn) => {
+      const on = btn.getAttribute('data-more-page') === page;
+      btn.classList.toggle('is-active', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+      if (btn.getAttribute('role') === 'tab') {
+        btn.setAttribute('tabindex', on ? '0' : '-1');
+      }
+    });
+  }
+
+  function resolveMorePageForFocus(focusId) {
+    if (!focusId) return null;
+    if (MORE_FOCUS_TO_PAGE[focusId]) return MORE_FOCUS_TO_PAGE[focusId];
+    if (/^warehouse/i.test(focusId)) return 'storage-backup';
+    if (/^history/i.test(focusId)) return 'history';
+    if (/^fhir/i.test(focusId) || /^btn-export/i.test(focusId)) return 'advanced-export';
+    if (/privacy|clear-all-local/i.test(focusId)) return 'privacy';
+    return null;
+  }
+
+  function initMoreSubnav() {
+    activeMorePage = loadMorePage();
+    setMorePage(activeMorePage, { persist: false });
+
+    const nav = $('more-subnav');
+    if (nav) {
+      nav.addEventListener('click', (e) => {
+        const btn = e.target && e.target.closest && e.target.closest('[data-more-page]');
+        if (!btn || !nav.contains(btn)) return;
+        e.preventDefault();
+        const page = btn.getAttribute('data-more-page');
+        if (page) setMorePage(page);
+      });
+
+      nav.addEventListener('keydown', (e) => {
+        const tabs = Array.from(nav.querySelectorAll('[data-more-page]'));
+        const idx = tabs.indexOf(document.activeElement);
+        if (idx < 0) return;
+        let next = -1;
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') next = (idx + 1) % tabs.length;
+        else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') next = (idx - 1 + tabs.length) % tabs.length;
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = tabs.length - 1;
+        if (next < 0) return;
+        e.preventDefault();
+        tabs[next].focus();
+        const page = tabs[next].getAttribute('data-more-page');
+        if (page) setMorePage(page);
+      });
+    }
+
+    const scrollToSourcePart = (selector) => {
+      const source = $('step-source');
+      if (!source) return;
+      source.classList.remove('source-collapsed');
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const target = selector ? document.querySelector(selector) : source;
+      (target || source).scrollIntoView({
+        behavior: reduceMotion ? 'auto' : 'smooth',
+        block: 'start',
+      });
+      if (target instanceof HTMLDetailsElement && !target.open) {
+        target.open = true;
+      }
+    };
+    $('btn-more-open-upload')?.addEventListener('click', () => {
+      scrollToSourcePart('#step-source');
+    });
+    $('btn-more-open-hae')?.addEventListener('click', () => {
+      scrollToSourcePart('#hae-import-box');
+    });
+    $('btn-more-open-csv')?.addEventListener('click', () => {
+      scrollToSourcePart('#csv-merge-box');
+    });
+    $('btn-more-open-ctx')?.addEventListener('click', () => {
+      scrollToSourcePart('#user-context-box');
+    });
+    $('btn-more-open-clinical')?.addEventListener('click', () => {
+      setActiveWorkspace('reports', { focusSectionId: 'step-reports' });
+      requestAnimationFrame(() => {
+        const el = document.querySelector('.clinical-export-opts') || $('step-reports');
+        if (el) {
+          const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+          el.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+        }
+      });
+    });
+
+    try {
+      window.__setMorePage = setMorePage;
+      window.__getMorePage = () => activeMorePage;
+    } catch (e) { /* ignore */ }
+  }
+
+  function isTrendsFilterDesktop() {
+    try {
+      return window.matchMedia(TRENDS_FILTER_DESKTOP_MQ).matches;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  function trendsFilterFocusables() {
+    const panel = $('trends-filter-sheet-panel');
+    if (!panel) return [];
+    return Array.from(
+      panel.querySelectorAll(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((el) => {
+      if (el.closest('[hidden]')) return false;
+      const style = window.getComputedStyle(el);
+      return style.display !== 'none' && style.visibility !== 'hidden';
+    });
+  }
+
+  function updateTrendsFilterSummary() {
+    const el = $('trends-filter-summary');
+    if (!el) return;
+    const rangeKey =
+      chartRangeDays === 7 ? 'charts.range7'
+        : chartRangeDays === 30 ? 'charts.range30'
+          : chartRangeDays === 90 ? 'charts.range90'
+            : 'charts.rangeAll';
+    const rangeLabel = t(rangeKey);
+    let primaryLabel = chartPrimaryKey || '—';
+    const sel = $('chart-primary-metric');
+    if (sel && sel.selectedOptions && sel.selectedOptions[0]) {
+      primaryLabel = sel.selectedOptions[0].textContent || primaryLabel;
+    }
+    el.textContent = rangeLabel + (primaryLabel ? ' · ' + primaryLabel : '');
+  }
+
+  function openTrendsFilterSheet() {
+    if (isTrendsFilterDesktop()) return;
+    const sheet = $('trends-filter-sheet');
+    const openBtn = $('btn-trends-filter-open');
+    if (!sheet || trendsFilterSheetOpen) return;
+    trendsFilterSheetOpen = true;
+    trendsFilterLastFocus = document.activeElement;
+    sheet.classList.add('is-open');
+    sheet.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('trends-filter-sheet-open');
+    if (openBtn) openBtn.setAttribute('aria-expanded', 'true');
+    updateTrendsFilterSummary();
+
+    const panel = $('trends-filter-sheet-panel');
+    if (panel) {
+      if (trendsFilterFocusTrapHandler) {
+        document.removeEventListener('keydown', trendsFilterFocusTrapHandler, true);
+      }
+      trendsFilterFocusTrapHandler = (e) => {
+        if (!trendsFilterSheetOpen || isTrendsFilterDesktop()) return;
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          closeTrendsFilterSheet();
+          return;
+        }
+        if (e.key !== 'Tab') return;
+        const list = trendsFilterFocusables();
+        if (!list.length) return;
+        const first = list[0];
+        const last = list[list.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first || !panel.contains(document.activeElement)) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      };
+      document.addEventListener('keydown', trendsFilterFocusTrapHandler, true);
+      requestAnimationFrame(() => {
+        const closeBtn = $('btn-trends-filter-close');
+        (closeBtn || trendsFilterFocusables()[0])?.focus();
+      });
+    }
+  }
+
+  function closeTrendsFilterSheet() {
+    const sheet = $('trends-filter-sheet');
+    const openBtn = $('btn-trends-filter-open');
+    if (!sheet) return;
+    trendsFilterSheetOpen = false;
+    sheet.classList.remove('is-open');
+    sheet.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('trends-filter-sheet-open');
+    if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
+    if (trendsFilterFocusTrapHandler) {
+      document.removeEventListener('keydown', trendsFilterFocusTrapHandler, true);
+      trendsFilterFocusTrapHandler = null;
+    }
+    updateTrendsFilterSummary();
+    const restore = trendsFilterLastFocus;
+    trendsFilterLastFocus = null;
+    if (restore && typeof restore.focus === 'function') {
+      try { restore.focus({ preventScroll: true }); } catch (e) {
+        try { restore.focus(); } catch (e2) { /* ignore */ }
+      }
+    } else {
+      openBtn?.focus?.();
+    }
+  }
+
+  function syncTrendsFilterMode() {
+    const sheet = $('trends-filter-sheet');
+    const panel = $('trends-filter-sheet-panel');
+    const desktop = isTrendsFilterDesktop();
+    if (desktop) {
+      if (trendsFilterSheetOpen) closeTrendsFilterSheet();
+      if (sheet) {
+        sheet.classList.add('is-inline');
+        sheet.classList.remove('is-open');
+        sheet.setAttribute('aria-hidden', 'false');
+      }
+      if (panel) {
+        panel.removeAttribute('aria-modal');
+        panel.setAttribute('role', 'region');
+      }
+      document.body.classList.remove('trends-filter-sheet-open');
+    } else {
+      if (sheet) {
+        sheet.classList.remove('is-inline');
+        if (!trendsFilterSheetOpen) sheet.setAttribute('aria-hidden', 'true');
+      }
+      if (panel) {
+        panel.setAttribute('aria-modal', 'true');
+        panel.setAttribute('role', 'dialog');
+      }
+    }
+    updateTrendsFilterSummary();
+  }
+
+  function initTrendsFilterSheet() {
+    $('btn-trends-filter-open')?.addEventListener('click', () => openTrendsFilterSheet());
+    $('btn-trends-filter-close')?.addEventListener('click', () => closeTrendsFilterSheet());
+    $('btn-trends-filter-done')?.addEventListener('click', () => closeTrendsFilterSheet());
+    $('trends-filter-sheet-backdrop')?.addEventListener('click', () => closeTrendsFilterSheet());
+    document.querySelectorAll('[data-trends-filter-dismiss]').forEach((el) => {
+      el.addEventListener('click', () => closeTrendsFilterSheet());
+    });
+
+    document.querySelectorAll('#chart-range-chips .chip').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        requestAnimationFrame(updateTrendsFilterSummary);
+      });
+    });
+    $('chart-primary-metric')?.addEventListener('change', () => updateTrendsFilterSummary());
+
+    syncTrendsFilterMode();
+    try {
+      const mq = window.matchMedia(TRENDS_FILTER_DESKTOP_MQ);
+      const onChange = () => syncTrendsFilterMode();
+      if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange);
+      else if (typeof mq.addListener === 'function') mq.addListener(onChange);
+    } catch (e) { /* ignore */ }
+
+    try {
+      window.__openTrendsFilterSheet = openTrendsFilterSheet;
+      window.__closeTrendsFilterSheet = closeTrendsFilterSheet;
+    } catch (e) { /* ignore */ }
+  }
+
   /**
    * Switch result workspace. Sections stay in DOM; inactive workspaces are hidden.
    * @param {string} workspaceId
@@ -2479,6 +2831,10 @@
     activeWorkspace = ws;
     setWorkspaceNavActive(ws);
     updateWorkspaceCommandCenter(ws);
+
+    if (ws !== 'trends' && trendsFilterSheetOpen) {
+      closeTrendsFilterSheet();
+    }
 
     WORKSPACE_IDS.forEach((id) => {
       const panel = document.getElementById('ws-' + id);
@@ -2500,6 +2856,14 @@
     const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const focusId = opts && opts.focusSectionId;
     const scroll = !opts || opts.scroll !== false;
+
+    // v2.1: More sub-page — restore last or map from focus target
+    if (ws === 'more') {
+      const mapped = resolveMorePageForFocus(focusId);
+      if (mapped) setMorePage(mapped);
+      else setMorePage(loadMorePage(), { persist: false });
+    }
+
     if (scroll) {
       const target = (focusId && document.getElementById(focusId))
         || document.getElementById('ws-' + ws)
@@ -2520,6 +2884,7 @@
     if (ws === 'trends' && currentAnalysis) {
       requestAnimationFrame(() => {
         try { renderCharts(currentAnalysis); } catch (e) { /* ignore */ }
+        updateTrendsFilterSummary();
       });
       // v1.92: refresh warehouse data-range hint when opening trends
       refreshWarehouseTrendsHint().catch(() => { /* ignore */ });
@@ -2543,7 +2908,13 @@
       else source.classList.remove('source-collapsed');
     }
     if (visible) {
-      setActiveWorkspace(activeWorkspace || 'today', { scroll: false });
+      // 大屏模式：沿用当前焦点轮播目标，否则默认今日
+      if (dashboardModeActive) {
+        applyDashboardFocus(DASHBOARD_FOCUS_STEPS[dashboardFocusIdx] || 'metrics');
+        updateDashboardDataUpdated();
+      } else {
+        setActiveWorkspace(activeWorkspace || 'today', { scroll: false });
+      }
     } else {
       WORKSPACE_IDS.forEach((id) => {
         const panel = document.getElementById('ws-' + id);
@@ -2644,6 +3015,8 @@
   initResultNavKeyboard();
   initWorkspaceNavClicks();
   initWorkspaceCommandClicks();
+  initMoreSubnav();
+  initTrendsFilterSheet();
   // Expose for e2e / debugging
   try { window.__setWorkspace = setActiveWorkspace; } catch (e) { /* ignore */ }
 
@@ -7256,6 +7629,18 @@
 
   // 有结果时 ⌘/Ctrl+Shift+C 复制完整提示词
   window.addEventListener('keydown', (e) => {
+    // v2.1 Trends filter sheet: Esc closes (before TV dashboard)
+    if (e.key === 'Escape' && trendsFilterSheetOpen && !isTrendsFilterDesktop()) {
+      e.preventDefault();
+      closeTrendsFilterSheet();
+      return;
+    }
+    // v2.1 TV / 健康大屏：Esc 退出（优先于其它快捷键）
+    if (e.key === 'Escape' && dashboardModeActive) {
+      e.preventDefault();
+      setDashboardMode(false);
+      return;
+    }
     if (!currentAnalysis) return;
     const mod = e.metaKey || e.ctrlKey;
     if (!mod || !e.shiftKey) return;
@@ -7266,6 +7651,266 @@
     e.preventDefault();
     copyFullPrompt($('copy-status'));
   });
+
+  // ============================================================
+  // v2.1 健康大屏 / TV dashboard mode
+  // body.health-dashboard-mode；隐藏上传/仓批量/吸底复制/FHIR 等；
+  // 保留 KPI / 优先关注 / 信号 / 图表与新鲜度；12s 焦点轮播（reduced-motion 关闭）。
+  // ============================================================
+
+  function prefersReducedMotion() {
+    try {
+      return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function loadDashboardModePref() {
+    try {
+      return window.sessionStorage.getItem(DASHBOARD_MODE_KEY) === '1';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function saveDashboardModePref(on) {
+    try {
+      if (on) window.sessionStorage.setItem(DASHBOARD_MODE_KEY, '1');
+      else window.sessionStorage.removeItem(DASHBOARD_MODE_KEY);
+    } catch (_) { /* ignore */ }
+  }
+
+  function formatDashboardClock(d) {
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).format(d);
+    } catch (_) {
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+  }
+
+  function updateDashboardClock() {
+    const el = $('dashboard-clock');
+    if (!el) return;
+    const now = new Date();
+    el.textContent = formatDashboardClock(now);
+    try {
+      el.setAttribute('datetime', now.toISOString());
+    } catch (_) { /* ignore */ }
+  }
+
+  function updateDashboardDataUpdated() {
+    const el = $('dashboard-data-updated');
+    if (!el) return;
+    const end =
+      currentAnalysis &&
+      currentAnalysis.dateRange &&
+      currentAnalysis.dateRange.end
+        ? String(currentAnalysis.dateRange.end)
+        : '';
+    if (!end) {
+      el.textContent = t('tv.dataWaiting');
+      return;
+    }
+    el.textContent = t('tv.dataUpdated', { end });
+  }
+
+  function stopDashboardClock() {
+    if (dashboardClockTimer) {
+      clearInterval(dashboardClockTimer);
+      dashboardClockTimer = null;
+    }
+  }
+
+  function startDashboardClock() {
+    stopDashboardClock();
+    updateDashboardClock();
+    updateDashboardDataUpdated();
+    dashboardClockTimer = setInterval(() => {
+      if (!dashboardModeActive) return;
+      updateDashboardClock();
+    }, 1000);
+  }
+
+  function stopDashboardRotate() {
+    if (dashboardRotateTimer) {
+      clearInterval(dashboardRotateTimer);
+      dashboardRotateTimer = null;
+    }
+  }
+
+  function applyDashboardFocus(step) {
+    const focus = DASHBOARD_FOCUS_STEPS.includes(step) ? step : 'metrics';
+    document.body.setAttribute('data-dashboard-focus', focus);
+
+    const labelEl = $('dashboard-focus-label');
+    if (labelEl) {
+      const key =
+        focus === 'signals'
+          ? 'tv.focus.signals'
+          : focus === 'charts'
+            ? 'tv.focus.charts'
+            : 'tv.focus.metrics';
+      labelEl.textContent = t(key);
+      labelEl.setAttribute('data-i18n', key);
+    }
+
+    // 轮播时切换工作区，保证目标区块在视口内可见
+    if (document.body.classList.contains('has-results')) {
+      if (focus === 'charts') {
+        setActiveWorkspace('trends', { scroll: false, focusSectionId: 'step-charts' });
+      } else if (focus === 'signals') {
+        setActiveWorkspace('today', { scroll: false, focusSectionId: 'step-signals' });
+      } else {
+        setActiveWorkspace('today', { scroll: false, focusSectionId: 'step-overview' });
+      }
+    }
+
+    // 轻度滚动到高亮区块（reduced-motion 时即时）
+    const targetId =
+      focus === 'charts'
+        ? 'step-charts'
+        : focus === 'signals'
+          ? 'step-signals'
+          : 'step-overview';
+    const target = document.getElementById(targetId);
+    if (target && dashboardModeActive) {
+      const reduce = prefersReducedMotion();
+      requestAnimationFrame(() => {
+        try {
+          target.scrollIntoView({
+            behavior: reduce ? 'auto' : 'smooth',
+            block: 'start',
+          });
+        } catch (_) { /* ignore */ }
+      });
+    }
+  }
+
+  function advanceDashboardFocus() {
+    if (!dashboardModeActive) return;
+    if (Date.now() < dashboardPausedUntil) return;
+    dashboardFocusIdx = (dashboardFocusIdx + 1) % DASHBOARD_FOCUS_STEPS.length;
+    applyDashboardFocus(DASHBOARD_FOCUS_STEPS[dashboardFocusIdx]);
+  }
+
+  function startDashboardRotate() {
+    stopDashboardRotate();
+    if (prefersReducedMotion()) return;
+    dashboardRotateTimer = setInterval(advanceDashboardFocus, DASHBOARD_ROTATE_MS);
+  }
+
+  function pauseDashboardRotate(ms) {
+    const hold = typeof ms === 'number' && ms > 0 ? ms : DASHBOARD_ROTATE_MS;
+    dashboardPausedUntil = Date.now() + hold;
+  }
+
+  function wireDashboardPauseListeners() {
+    if (dashboardPauseWired) return;
+    dashboardPauseWired = true;
+    const pause = () => {
+      if (!dashboardModeActive) return;
+      pauseDashboardRotate(DASHBOARD_ROTATE_MS);
+    };
+    // pointer / key 暂停一轮；不阻止默认行为
+    window.addEventListener('pointerdown', pause, { passive: true });
+    window.addEventListener('keydown', pause, { passive: true });
+    window.addEventListener('wheel', pause, { passive: true });
+  }
+
+  function syncDashboardChrome(on) {
+    const chrome = $('dashboard-mode-chrome');
+    if (chrome) {
+      chrome.classList.toggle('hidden', !on);
+      chrome.hidden = !on;
+      chrome.setAttribute('aria-hidden', on ? 'false' : 'true');
+    }
+    const enterBtn = $('btn-dashboard-mode');
+    if (enterBtn) {
+      enterBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      enterBtn.classList.toggle('is-active', !!on);
+      const label = enterBtn.querySelector('.btn-dashboard-mode-label');
+      if (label) {
+        label.textContent = t(on ? 'tv.exit' : 'tv.enter');
+        label.setAttribute('data-i18n', on ? 'tv.exit' : 'tv.enter');
+      }
+      enterBtn.setAttribute('title', t(on ? 'tv.exit' : 'tv.enter'));
+      enterBtn.setAttribute(
+        'aria-label',
+        t(on ? 'tv.exitAria' : 'tv.enterAria')
+      );
+    }
+  }
+
+  function setDashboardMode(on) {
+    const next = !!on;
+    dashboardModeActive = next;
+    document.body.classList.toggle('health-dashboard-mode', next);
+    // 兼容别名（样式可选用）
+    document.body.classList.toggle('dashboard-mode', next);
+    document.body.classList.toggle('health-tv-mode', next);
+    saveDashboardModePref(next);
+    syncDashboardChrome(next);
+
+    if (next) {
+      dashboardFocusIdx = 0;
+      dashboardPausedUntil = 0;
+      applyDashboardFocus(DASHBOARD_FOCUS_STEPS[0]);
+      startDashboardClock();
+      startDashboardRotate();
+      wireDashboardPauseListeners();
+      // 焦点落到退出按钮，键盘用户可立即 Esc / 回车退出
+      const exitBtn = $('btn-dashboard-exit');
+      if (exitBtn && typeof exitBtn.focus === 'function') {
+        try {
+          exitBtn.focus({ preventScroll: true });
+        } catch (_) {
+          try { exitBtn.focus(); } catch (__) { /* ignore */ }
+        }
+      }
+    } else {
+      stopDashboardRotate();
+      stopDashboardClock();
+      document.body.removeAttribute('data-dashboard-focus');
+      // 退出后回到今日工作区（若已有结果）
+      if (document.body.classList.contains('has-results')) {
+        setActiveWorkspace('today', { scroll: false });
+      }
+    }
+  }
+
+  function toggleDashboardMode() {
+    setDashboardMode(!dashboardModeActive);
+  }
+
+  function initDashboardMode() {
+    $('btn-dashboard-mode')?.addEventListener('click', () => {
+      toggleDashboardMode();
+    });
+    $('btn-dashboard-exit')?.addEventListener('click', () => {
+      setDashboardMode(false);
+    });
+    // session 内可选恢复（有结果时再进更有意义；无结果也可看时钟）
+    if (loadDashboardModePref()) {
+      setDashboardMode(true);
+    } else {
+      syncDashboardChrome(false);
+    }
+  }
+
+  initDashboardMode();
+
+  // 暴露给 E2E / 调试
+  try {
+    window.__setDashboardMode = setDashboardMode;
+    window.__getDashboardMode = () => dashboardModeActive;
+  } catch (_) { /* ignore */ }
   $('btn-weekly-save')?.addEventListener('click', () => { saveWeeklyReportToHistory(); });
   $('btn-weekly-refresh')?.addEventListener('click', () => { refreshWeeklyReportList(); });
   $('weekly-report-list')?.addEventListener('click', (e) => {
@@ -10130,6 +10775,7 @@
     if (typeof refreshWarehouseTrendsHint === 'function') {
       refreshWarehouseTrendsHint().catch(() => { /* ignore */ });
     }
+    if (typeof updateTrendsFilterSummary === 'function') updateTrendsFilterSummary();
   });
   syncCgmKeepMonthsUi();
   $('btn-warehouse-cgm-keep-recent')?.addEventListener('click', async () => {
@@ -10748,6 +11394,7 @@
   // v1.92: open more workspace + #warehouse-panel (Today chip / Trends hint)
   function openWarehousePanelFromHint() {
     try {
+      setMorePage('storage-backup');
       if (typeof setActiveWorkspace === 'function') {
         setActiveWorkspace('more', { focusSectionId: 'warehouse-panel' });
       } else if (typeof window.__setWorkspace === 'function') {
@@ -10821,6 +11468,10 @@
   $('btn-clear-all-local')?.addEventListener('click', () => {
     clearAllLocalHealthData();
   });
+  // Privacy sub-page mirror of wipe (same action; primary id remains on storage page for e2e)
+  $('btn-clear-all-local-privacy')?.addEventListener('click', () => {
+    clearAllLocalHealthData();
+  });
   $('btn-clear-all-local-fold')?.addEventListener('click', () => {
     clearAllLocalHealthData();
   });
@@ -10852,6 +11503,14 @@
     // 同步侧栏折叠按钮文案（applyDom 可能覆盖为默认展开文案）
     applySideNavCollapsed(loadSideNavCollapsed());
     updateWorkspaceCommandCenter(activeWorkspace);
+    // v2.1 大屏：语言切换后刷新时钟旁文案与按钮
+    if (typeof syncDashboardChrome === 'function') {
+      syncDashboardChrome(dashboardModeActive);
+      if (dashboardModeActive) {
+        updateDashboardDataUpdated();
+        applyDashboardFocus(DASHBOARD_FOCUS_STEPS[dashboardFocusIdx] || 'metrics');
+      }
+    }
     // 上传区 / 进度卡 / 安装引导 / 主题
     try {
       updateUploadLabels();

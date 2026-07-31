@@ -4,6 +4,7 @@
   "description": "Apple Health analyzer PWA — root scripts for smoke & E2E",
   "scripts": {
     "smoke": "node scripts/smoke.mjs",
+    "vendor:echarts": "node scripts/fetch-echarts.mjs",
     "perf:parse": "node scripts/perf-parse-baseline.mjs",
     "perf:parse:json": "node scripts/perf-parse-baseline.mjs --json",
     "perf:warehouse": "node scripts/perf-warehouse-baseline.mjs",

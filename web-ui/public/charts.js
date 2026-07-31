@@ -1,7 +1,11 @@
 /**
- * 轻量 Canvas 折线图（无第三方依赖）
+ * 健康趋势图：默认轻量 Canvas；若本地 vendored ECharts 可用则走增强路径。
  * 暴露 window.HealthCharts；颜色跟随 CSS 变量（支持暗色模式）
  * 文案：options.locale 或 window.I18n.getLocale()；zh* → 中文，否则 en
+ *
+ * ECharts：web-ui/public/vendor/echarts.min.js（~1MB，本地 PWA，无运行时 CDN）
+ * 特性探测：typeof echarts !== 'undefined' && echarts.init
+ * 缺失时 Canvas 路径不变，保证 e2e / 离线不破。
  */
 (function (global) {
   'use strict';
@@ -81,6 +85,11 @@
       metricWorkout: 'Workout',
       metricRecovery: '周恢复分',
       metricLoad: '周负荷分',
+      toggleDataTable: '显示数据表',
+      hideDataTable: '隐藏数据表',
+      colTime: '时间',
+      colValue: '数值',
+      colHour: '小时',
     },
     en: {
       emptyNoData: 'No chart data',
@@ -155,6 +164,11 @@
       metricWorkout: 'Workout',
       metricRecovery: 'Weekly recovery',
       metricLoad: 'Weekly load',
+      toggleDataTable: 'Show data table',
+      hideDataTable: 'Hide data table',
+      colTime: 'Time',
+      colValue: 'Value',
+      colHour: 'Hour',
     },
   };
 
@@ -1579,6 +1593,586 @@
     return { blocks, cgmDays, seriesDays, localeKey, S };
   }
 
+  /* ─── Optional Apache ECharts path (local vendor only; Canvas is default fallback) ─── */
+
+  function hasEcharts() {
+    try {
+      return (
+        typeof global.echarts !== 'undefined' &&
+        global.echarts != null &&
+        typeof global.echarts.init === 'function'
+      );
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function disposeEchartsIn(container) {
+    if (!container || !hasEcharts()) return;
+    try {
+      const nodes = container.querySelectorAll('[data-echarts="1"]');
+      for (let i = 0; i < nodes.length; i++) {
+        const inst = global.echarts.getInstanceByDom(nodes[i]);
+        if (inst) inst.dispose();
+      }
+    } catch (e) {
+      /* ignore dispose errors */
+    }
+  }
+
+  function fmtNumChart(v) {
+    if (v == null || !Number.isFinite(v)) return '—';
+    return Number(v).toFixed(v >= 100 ? 0 : 2);
+  }
+
+  /**
+   * Accessible data table toggle (shown with ECharts path; works offline).
+   * @param {HTMLElement} wrap
+   * @param {{ headers: string[], rows: (string|number)[][] }} tableData
+   * @param {object} S
+   */
+  function appendDataTableToggle(wrap, tableData, S) {
+    if (!wrap || !tableData || !tableData.rows || !tableData.rows.length) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-ghost chart-table-toggle';
+    btn.textContent = S.toggleDataTable || 'Data table';
+    btn.setAttribute('aria-expanded', 'false');
+    const tableWrap = document.createElement('div');
+    tableWrap.className = 'chart-data-table-wrap hidden';
+    tableWrap.setAttribute('hidden', '');
+    const table = document.createElement('table');
+    table.className = 'chart-data-table';
+    table.setAttribute('role', 'table');
+    const thead = document.createElement('thead');
+    const hr = document.createElement('tr');
+    (tableData.headers || []).forEach((h) => {
+      const th = document.createElement('th');
+      th.scope = 'col';
+      th.textContent = h;
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    // Cap rows for very large series (still useful for a11y spot-check)
+    const maxRows = 400;
+    const rows = tableData.rows.length > maxRows
+      ? tableData.rows.filter((_, i) => {
+          if (i === 0 || i === tableData.rows.length - 1) return true;
+          const step = Math.ceil(tableData.rows.length / maxRows);
+          return i % step === 0;
+        })
+      : tableData.rows;
+    rows.forEach((r) => {
+      const tr = document.createElement('tr');
+      r.forEach((cell) => {
+        const td = document.createElement('td');
+        td.textContent = cell == null ? '—' : String(cell);
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    tableWrap.appendChild(table);
+    btn.addEventListener('click', () => {
+      const open = tableWrap.hasAttribute('hidden');
+      if (open) {
+        tableWrap.removeAttribute('hidden');
+        tableWrap.classList.remove('hidden');
+        btn.textContent = S.hideDataTable || 'Hide table';
+        btn.setAttribute('aria-expanded', 'true');
+      } else {
+        tableWrap.setAttribute('hidden', '');
+        tableWrap.classList.add('hidden');
+        btn.textContent = S.toggleDataTable || 'Data table';
+        btn.setAttribute('aria-expanded', 'false');
+      }
+    });
+    wrap.appendChild(btn);
+    wrap.appendChild(tableWrap);
+  }
+
+  function echartsBaseTheme(theme) {
+    return {
+      backgroundColor: 'transparent',
+      textStyle: {
+        fontFamily:
+          'ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif',
+        color: theme.text,
+      },
+      aria: {
+        enabled: true,
+        decal: { show: false },
+      },
+      animationDuration: 280,
+      grid: { left: 48, right: 16, top: 36, bottom: 56, containLabel: false },
+    };
+  }
+
+  /**
+   * Build ECharts option for a line series (+ optional secondary overlay, baseline, events).
+   */
+  function buildEchartsLineOption(points, drawOpts) {
+    drawOpts = drawOpts || {};
+    const theme = themeColors();
+    const S = drawOpts.strings || getStrings(resolveLocale(drawOpts));
+    const color = drawOpts.color || theme.primary;
+    const sec = drawOpts.secondary && drawOpts.secondary.points && drawOpts.secondary.points.length
+      ? drawOpts.secondary
+      : null;
+    const dualY = !!(sec && String(sec.unit || '') !== String(drawOpts.unit || ''));
+
+    let categories = points.map((p) => String(p.x));
+    let primaryData = points.map((p) => (Number.isFinite(p.y) ? p.y : null));
+    let secondaryData = null;
+
+    if (sec) {
+      const aligned = alignSeriesByDate(points, sec.points);
+      if (aligned.dates.length >= 2) {
+        categories = aligned.dates;
+        primaryData = aligned.a.map((v) => (v != null && Number.isFinite(v) ? v : null));
+        secondaryData = aligned.b.map((v) => (v != null && Number.isFinite(v) ? v : null));
+      } else {
+        secondaryData = sec.points.map((p) => (Number.isFinite(p.y) ? p.y : null));
+      }
+    }
+
+    const primaryName =
+      (drawOpts.legendLabel) ||
+      drawOpts.yLabel ||
+      S.legendCompare ||
+      'Series';
+    const secName =
+      (sec && sec.label) || S.legendCompare || 'B';
+    const secColor = (sec && sec.color) || '#e67e22';
+
+    const markLineData = [];
+    if (drawOpts.thresholds) {
+      for (const t of drawOpts.thresholds) {
+        if (!Number.isFinite(t.y)) continue;
+        markLineData.push({
+          yAxis: t.y,
+          name: t.label || String(t.y),
+          lineStyle: { color: t.color || '#95a5a6', type: 'dashed', width: 1 },
+          label: {
+            formatter: t.label || String(t.y),
+            color: t.color || theme.label,
+            fontSize: 10,
+          },
+        });
+      }
+    }
+    if (drawOpts.baseline && Number.isFinite(drawOpts.baseline.y)) {
+      markLineData.push({
+        yAxis: drawOpts.baseline.y,
+        name: drawOpts.baseline.label || S.legendBaseline,
+        lineStyle: {
+          color: drawOpts.baseline.color || '#7f8c8d',
+          type: 'dashed',
+          width: 1.5,
+        },
+        label: {
+          formatter: drawOpts.baseline.label || S.legendBaseline,
+          color: drawOpts.baseline.color || '#7f8c8d',
+          fontSize: 10,
+        },
+      });
+    }
+    // Event markers as vertical lines on category axis
+    if (drawOpts.events && drawOpts.events.length) {
+      const catSet = {};
+      categories.forEach((c) => {
+        catSet[String(c).slice(0, 10)] = true;
+      });
+      let labeled = 0;
+      for (const ev of drawOpts.events) {
+        const d = String(ev.date || '').slice(0, 10);
+        if (!d || !catSet[d]) {
+          // Also try matching any category that starts with date
+          const hit = categories.find((c) => String(c).slice(0, 10) === d);
+          if (!hit) continue;
+          markLineData.push({
+            xAxis: hit,
+            name: ev.title || S.legendEvents,
+            lineStyle: { color: '#95a5a6', type: 'dashed', width: 1 },
+            label: {
+              formatter: labeled < 3 ? (ev.title || '').slice(0, 12) : '',
+              color: '#95a5a6',
+              fontSize: 9,
+            },
+          });
+          labeled++;
+          continue;
+        }
+        // Prefer exact category if present
+        const exact = categories.find((c) => String(c).slice(0, 10) === d) || d;
+        markLineData.push({
+          xAxis: exact,
+          name: ev.title || S.legendEvents,
+          lineStyle: { color: '#95a5a6', type: 'dashed', width: 1 },
+          label: {
+            formatter: labeled < 3 ? (ev.title || '').slice(0, 12) : '',
+            color: '#95a5a6',
+            fontSize: 9,
+          },
+        });
+        labeled++;
+      }
+    }
+
+    const series = [
+      {
+        name: primaryName,
+        type: 'line',
+        data: primaryData,
+        showSymbol: categories.length <= 48,
+        symbolSize: 6,
+        connectNulls: false,
+        lineStyle: { width: 2, color: color },
+        itemStyle: { color: color },
+        areaStyle: {
+          color: hexToRgba(color, 0.08),
+        },
+        markLine:
+          markLineData.length
+            ? {
+                symbol: 'none',
+                silent: true,
+                precision: 2,
+                data: markLineData,
+              }
+            : undefined,
+        yAxisIndex: 0,
+      },
+    ];
+
+    if (sec && secondaryData) {
+      series.push({
+        name: secName,
+        type: 'line',
+        data: secondaryData,
+        showSymbol: categories.length <= 48,
+        symbolSize: 5,
+        connectNulls: false,
+        lineStyle: { width: 2, color: secColor, type: 'dashed' },
+        itemStyle: { color: secColor },
+        yAxisIndex: dualY ? 1 : 0,
+      });
+    }
+
+    const yAxes = [
+      {
+        type: 'value',
+        name: drawOpts.yLabel || drawOpts.unit || '',
+        nameTextStyle: { color: theme.label, fontSize: 11 },
+        axisLabel: { color: theme.label, fontSize: 11 },
+        splitLine: { lineStyle: { color: theme.grid, width: 0.5 } },
+        axisLine: { show: false },
+        scale: true,
+      },
+    ];
+    if (dualY) {
+      yAxes.push({
+        type: 'value',
+        name: (sec && (sec.yLabel || sec.unit)) || '',
+        nameTextStyle: { color: secColor, fontSize: 11 },
+        axisLabel: { color: secColor, fontSize: 11 },
+        splitLine: { show: false },
+        axisLine: { show: false },
+        scale: true,
+      });
+    }
+
+    const base = echartsBaseTheme(theme);
+    if (dualY) base.grid.right = 52;
+
+    return Object.assign({}, base, {
+      color: [color, secColor],
+      tooltip: {
+        trigger: 'axis',
+        confine: true,
+        axisPointer: { type: 'cross', label: { backgroundColor: theme.primary } },
+        formatter: function (params) {
+          if (!params || !params.length) return '';
+          const axisVal = params[0].axisValueLabel || params[0].name || '';
+          let html = formatXFull(axisVal);
+          for (let i = 0; i < params.length; i++) {
+            const p = params[i];
+            if (p == null || p.value == null || p.value === '') continue;
+            const v = Array.isArray(p.value) ? p.value[1] : p.value;
+            if (v == null || !Number.isFinite(Number(v))) continue;
+            const u =
+              i === 0
+                ? drawOpts.unit
+                  ? ' ' + drawOpts.unit
+                  : ''
+                : sec && sec.unit
+                  ? ' ' + sec.unit
+                  : '';
+            html +=
+              '<br/>' +
+              (p.marker || '') +
+              (p.seriesName || '') +
+              ': ' +
+              fmtNumChart(Number(v)) +
+              u;
+          }
+          return html;
+        },
+      },
+      // Interactive series legend when overlaying; HTML legend covers thresholds/baseline
+      legend: {
+        show: series.length > 1,
+        top: 0,
+        left: 'center',
+        textStyle: { color: theme.text, fontSize: 12 },
+        data: series.map((s) => s.name),
+      },
+      toolbox: {
+        show: true,
+        right: 4,
+        top: 0,
+        itemSize: 14,
+        feature: {
+          dataZoom: { yAxisIndex: 'none', title: { zoom: 'Zoom', back: 'Reset' } },
+          brush: { type: ['lineX', 'clear'], title: { lineX: 'Brush', clear: 'Clear' } },
+          restore: { title: 'Restore' },
+        },
+      },
+      brush: {
+        xAxisIndex: 0,
+        brushLink: 'all',
+        outOfBrush: { colorAlpha: 0.25 },
+        throttleType: 'debounce',
+        throttleDelay: 200,
+      },
+      dataZoom: [
+        {
+          type: 'inside',
+          xAxisIndex: 0,
+          filterMode: 'none',
+          zoomOnMouseWheel: true,
+          moveOnMouseMove: true,
+        },
+        {
+          type: 'slider',
+          xAxisIndex: 0,
+          height: 18,
+          bottom: 6,
+          borderColor: theme.grid,
+          fillerColor: hexToRgba(theme.primary, 0.12),
+          handleStyle: { color: theme.primary },
+          textStyle: { color: theme.label, fontSize: 10 },
+          filterMode: 'none',
+        },
+      ],
+      xAxis: {
+        type: 'category',
+        data: categories,
+        boundaryGap: false,
+        axisLabel: {
+          color: theme.label,
+          fontSize: 11,
+          hideOverlap: true,
+          formatter: function (v) {
+            return formatX(v);
+          },
+        },
+        axisLine: { lineStyle: { color: theme.grid } },
+        axisTick: { show: false },
+      },
+      yAxis: yAxes,
+      series: series,
+    });
+  }
+
+  /**
+   * AGP hourly percentile bands as multi-line + light areas.
+   */
+  function buildEchartsAgpOption(bins, drawOpts) {
+    drawOpts = drawOpts || {};
+    const theme = themeColors();
+    const S = drawOpts.strings || getStrings(resolveLocale(drawOpts));
+    const color = drawOpts.color || theme.primary;
+    const byHour = new Array(24).fill(null);
+    for (const b of bins || []) {
+      const hour = Number.isFinite(b.hour) ? Math.round(b.hour) : -1;
+      if (hour >= 0 && hour <= 23) byHour[hour] = b;
+    }
+    const hours = [];
+    const p5 = [];
+    const p25 = [];
+    const p50 = [];
+    const p75 = [];
+    const p95 = [];
+    for (let h = 0; h < 24; h++) {
+      hours.push(fmt(S.hourLabel, { h: h }));
+      const b = byHour[h];
+      p5.push(b && Number.isFinite(b.p5) ? b.p5 : null);
+      p25.push(b && Number.isFinite(b.p25) ? b.p25 : null);
+      p50.push(b && Number.isFinite(b.p50) ? b.p50 : null);
+      p75.push(b && Number.isFinite(b.p75) ? b.p75 : null);
+      p95.push(b && Number.isFinite(b.p95) ? b.p95 : null);
+    }
+
+    const markLineData = [];
+    if (drawOpts.thresholds) {
+      for (const t of drawOpts.thresholds) {
+        if (!Number.isFinite(t.y)) continue;
+        markLineData.push({
+          yAxis: t.y,
+          name: t.label || String(t.y),
+          lineStyle: { color: t.color || '#95a5a6', type: 'dashed', width: 1 },
+          label: { formatter: t.label || String(t.y), fontSize: 10, color: t.color || theme.label },
+        });
+      }
+    }
+
+    const base = echartsBaseTheme(theme);
+    return Object.assign({}, base, {
+      color: [color],
+      tooltip: {
+        trigger: 'axis',
+        confine: true,
+        formatter: function (params) {
+          if (!params || !params.length) return '';
+          let html = params[0].axisValueLabel || params[0].name || '';
+          for (let i = 0; i < params.length; i++) {
+            const p = params[i];
+            if (p.value == null || !Number.isFinite(Number(p.value))) continue;
+            html +=
+              '<br/>' +
+              (p.marker || '') +
+              (p.seriesName || '') +
+              ': ' +
+              fmtNumChart(Number(p.value)) +
+              (drawOpts.unit ? ' ' + drawOpts.unit : '');
+          }
+          return html;
+        },
+      },
+      legend: {
+        show: true,
+        top: 0,
+        left: 'center',
+        textStyle: { color: theme.text, fontSize: 11 },
+      },
+      toolbox: {
+        show: true,
+        right: 4,
+        top: 0,
+        itemSize: 14,
+        feature: {
+          dataZoom: { yAxisIndex: 'none' },
+          restore: {},
+        },
+      },
+      dataZoom: [
+        { type: 'inside', xAxisIndex: 0, filterMode: 'none' },
+        {
+          type: 'slider',
+          xAxisIndex: 0,
+          height: 16,
+          bottom: 6,
+          borderColor: theme.grid,
+          fillerColor: hexToRgba(color, 0.12),
+          handleStyle: { color: color },
+          textStyle: { fontSize: 10, color: theme.label },
+        },
+      ],
+      xAxis: {
+        type: 'category',
+        data: hours,
+        boundaryGap: false,
+        axisLabel: { color: theme.label, fontSize: 10, interval: 2 },
+        axisLine: { lineStyle: { color: theme.grid } },
+        axisTick: { show: false },
+      },
+      yAxis: {
+        type: 'value',
+        name: drawOpts.yLabel || drawOpts.unit || '',
+        nameTextStyle: { color: theme.label, fontSize: 11 },
+        axisLabel: { color: theme.label, fontSize: 11 },
+        splitLine: { lineStyle: { color: theme.grid, width: 0.5 } },
+        scale: true,
+      },
+      series: [
+        {
+          name: S.legendP5P95,
+          type: 'line',
+          data: p5,
+          symbol: 'none',
+          lineStyle: { width: 1, color: hexToRgba(color, 0.35), type: 'dotted' },
+          itemStyle: { color: hexToRgba(color, 0.35) },
+          z: 2,
+        },
+        {
+          name: S.legendP5P95,
+          type: 'line',
+          data: p95,
+          symbol: 'none',
+          lineStyle: { width: 1, color: hexToRgba(color, 0.35), type: 'dotted' },
+          itemStyle: { color: hexToRgba(color, 0.35) },
+          z: 1,
+        },
+        {
+          name: S.legendP25P75,
+          type: 'line',
+          data: p25,
+          symbol: 'none',
+          lineStyle: { width: 1.25, color: hexToRgba(color, 0.55) },
+          itemStyle: { color: hexToRgba(color, 0.55) },
+          z: 3,
+        },
+        {
+          name: S.legendP25P75,
+          type: 'line',
+          data: p75,
+          symbol: 'none',
+          lineStyle: { width: 1.25, color: hexToRgba(color, 0.55) },
+          itemStyle: { color: hexToRgba(color, 0.55) },
+          z: 3,
+        },
+        {
+          name: S.legendP50,
+          type: 'line',
+          data: p50,
+          symbol: 'none',
+          lineStyle: { width: 2.5, color: color },
+          itemStyle: { color: color },
+          markLine: markLineData.length
+            ? { symbol: 'none', silent: true, data: markLineData }
+            : undefined,
+          z: 10,
+        },
+      ],
+    });
+  }
+
+  function mountEcharts(host, option) {
+    if (!hasEcharts() || !host) return null;
+    try {
+      let inst = global.echarts.getInstanceByDom(host);
+      if (!inst) {
+        inst = global.echarts.init(host, null, {
+          renderer: 'canvas',
+          locale: 'EN',
+        });
+      }
+      inst.setOption(option, { notMerge: true, lazyUpdate: false });
+      // Ensure layout after host has size
+      requestAnimationFrame(function () {
+        try {
+          if (inst && !inst.isDisposed()) inst.resize();
+        } catch (e) { /* ignore */ }
+      });
+      return inst;
+    } catch (e) {
+      return null;
+    }
+  }
+
   /**
    * List selectable metric keys (excludes AGP — shown with CGM).
    * @returns {{ key: string, label: string }[]}
@@ -1640,12 +2234,16 @@
   function renderAnalysisCharts(container, analysis, options) {
     options = options || {};
     if (!container) return;
+    // Dispose prior ECharts instances before wiping DOM (prevents leaks / ghost canvases)
+    disposeEchartsIn(container);
     container.innerHTML = '';
 
     const built = buildChartBlocks(analysis, options);
     const S = built.S;
     let blocks = built.blocks;
     const daysOpt = options.days;
+    // Feature-detect once per paint: missing/failed vendor → Canvas path unchanged
+    const useEcharts = hasEcharts();
 
     if (!analysis || !analysis.data) {
       container.innerHTML = `<div class="chart-empty">${S.emptyNoData}</div>`;
@@ -1673,6 +2271,7 @@
     container.classList.remove('charts-content--compare');
     if (hasCompare) container.classList.add('charts-content--overlay');
     else container.classList.remove('charts-content--overlay');
+    container.setAttribute('data-chart-engine', useEcharts ? 'echarts' : 'canvas');
 
     const events = Array.isArray(options.events) ? options.events : [];
     const showBaseline = !!options.showBaseline;
@@ -1736,14 +2335,54 @@
         wrap.appendChild(sub);
       }
 
-      const canvas = document.createElement('canvas');
-      canvas.className = 'chart-canvas';
-      canvas.setAttribute('role', 'img');
-      canvas.setAttribute('aria-label', title.textContent + S.ariaInteractive);
-      canvas.tabIndex = 0;
-      wrap.appendChild(canvas);
+      // Baseline: median of series in view
+      let baselineOpt = null;
+      if (!isAgp && showBaseline && b.points) {
+        const med = medianOf(b.points.map((p) => p.y));
+        if (med != null) {
+          baselineOpt = {
+            y: med,
+            color: '#7f8c8d',
+            label: S.legendBaseline,
+          };
+        }
+      }
+      const eventsOpt = !isAgp && events.length ? events : null;
+      const secondaryOpt =
+        isPrimaryOverlay && compareBlock
+          ? {
+              points: compareBlock.points,
+              color: compareBlock.color || '#e67e22',
+              unit: compareBlock.unit,
+              yLabel: compareBlock.yLabel || compareBlock.unit,
+              label:
+                (compareBlock.legend && compareBlock.legend[0] && compareBlock.legend[0].label) ||
+                S.legendCompare,
+            }
+          : null;
 
-      // Legend (+ baseline / events / compare when enabled)
+      const primaryLegendLabel =
+        (b.legend && b.legend[0] && b.legend[0].label) || b.yLabel || b.key;
+
+      // Host: ECharts div or Canvas — same .chart-canvas sizing from CSS
+      let chartHost;
+      if (useEcharts) {
+        chartHost = document.createElement('div');
+        chartHost.className = 'chart-canvas chart-echarts';
+        chartHost.setAttribute('data-echarts', '1');
+        chartHost.setAttribute('role', 'img');
+        chartHost.setAttribute('aria-label', title.textContent + S.ariaInteractive);
+        chartHost.tabIndex = 0;
+      } else {
+        chartHost = document.createElement('canvas');
+        chartHost.className = 'chart-canvas';
+        chartHost.setAttribute('role', 'img');
+        chartHost.setAttribute('aria-label', title.textContent + S.ariaInteractive);
+        chartHost.tabIndex = 0;
+      }
+      wrap.appendChild(chartHost);
+
+      // HTML legend: keep for Canvas; ECharts has interactive legend (still show HTML for parity)
       const legendItems = (b.legend && b.legend.slice()) || [];
       if (isPrimaryOverlay && compareBlock) {
         legendItems.push({
@@ -1790,43 +2429,148 @@
       readout.id = `chart-readout-${currentChartOrdinal}`;
       readout.setAttribute('aria-live', 'polite');
       readout.setAttribute('aria-atomic', 'true');
-      canvas.setAttribute('aria-describedby', readout.id);
+      chartHost.setAttribute('aria-describedby', readout.id);
       if (!isAgp) {
         readout.textContent = statsLine(b.points, b.unit, S);
       }
       wrap.appendChild(readout);
 
-      container.appendChild(wrap);
-
-      // Baseline: median of series in view
-      let baselineOpt = null;
-      if (!isAgp && showBaseline && b.points) {
-        const med = medianOf(b.points.map((p) => p.y));
-        if (med != null) {
-          baselineOpt = {
-            y: med,
-            color: '#7f8c8d',
-            label: S.legendBaseline,
-          };
+      // ECharts path: data table toggle for accessibility (Canvas keeps keyboard hover)
+      if (useEcharts) {
+        if (isAgp && b.bins) {
+          const rows = [];
+          for (const bin of b.bins) {
+            if (!bin) continue;
+            const h = Number.isFinite(bin.hour) ? bin.hour : '';
+            rows.push([
+              fmt(S.hourLabel, { h: h }),
+              fmtNumChart(bin.p5),
+              fmtNumChart(bin.p25),
+              fmtNumChart(bin.p50),
+              fmtNumChart(bin.p75),
+              fmtNumChart(bin.p95),
+            ]);
+          }
+          appendDataTableToggle(
+            wrap,
+            {
+              headers: [S.colHour || 'Hour', 'p5', 'p25', 'p50', 'p75', 'p95'],
+              rows: rows,
+            },
+            S
+          );
+        } else if (b.points) {
+          appendDataTableToggle(
+            wrap,
+            {
+              headers: [
+                S.colTime || 'Time',
+                (S.colValue || 'Value') + (b.unit ? ' (' + b.unit + ')' : ''),
+              ],
+              rows: b.points.map((p) => [formatXFull(p.x), fmtNumChart(p.y)]),
+            },
+            S
+          );
         }
       }
-      const eventsOpt = !isAgp && events.length ? events : null;
-      const secondaryOpt =
-        isPrimaryOverlay && compareBlock
-          ? {
-              points: compareBlock.points,
-              color: compareBlock.color || '#e67e22',
-              unit: compareBlock.unit,
-              yLabel: compareBlock.yLabel || compareBlock.unit,
-              label:
-                (compareBlock.legend && compareBlock.legend[0] && compareBlock.legend[0].label) ||
-                S.legendCompare,
-            }
-          : null;
+
+      container.appendChild(wrap);
 
       requestAnimationFrame(() => {
+        if (useEcharts) {
+          let option = null;
+          if (isAgp) {
+            option = buildEchartsAgpOption(b.bins, {
+              color: b.color,
+              yLabel: b.yLabel,
+              thresholds: b.thresholds,
+              unit: b.unit,
+              strings: S,
+              locale: options.locale,
+            });
+          } else {
+            option = buildEchartsLineOption(b.points, {
+              color: b.color,
+              yLabel: b.yLabel,
+              thresholds: b.thresholds,
+              unit: b.unit,
+              strings: S,
+              locale: options.locale,
+              baseline: baselineOpt,
+              events: eventsOpt,
+              secondary: secondaryOpt,
+              legendLabel: primaryLegendLabel,
+            });
+          }
+          const inst = mountEcharts(chartHost, option);
+          if (inst && readout && !isAgp) {
+            // Keep stats line; update live region on axis hover for SR users
+            inst.on('updateAxisPointer', function (event) {
+              try {
+                const info = event && event.axesInfo && event.axesInfo[0];
+                if (!info || info.value == null) return;
+                const idx = typeof info.value === 'number' ? info.value : null;
+                // Prefer dataIndex from series payload if present
+              } catch (e) { /* ignore */ }
+            });
+            inst.on('showTip', function (params) {
+              try {
+                if (params && params.dataIndex != null && b.points && b.points[params.dataIndex]) {
+                  const p = b.points[params.dataIndex];
+                  readout.classList.add('is-hover');
+                  readout.textContent =
+                    formatXFull(p.x) +
+                    '  ·  ' +
+                    fmtNumChart(p.y) +
+                    (b.unit ? ' ' + b.unit : '');
+                }
+              } catch (e) { /* ignore */ }
+            });
+            inst.on('hideTip', function () {
+              readout.classList.remove('is-hover');
+              readout.textContent = statsLine(b.points, b.unit, S);
+            });
+          }
+          // If ECharts init failed, fall back to Canvas for this block only
+          if (!inst) {
+            const canvas = document.createElement('canvas');
+            canvas.className = 'chart-canvas';
+            canvas.setAttribute('role', 'img');
+            canvas.setAttribute('aria-label', title.textContent + S.ariaInteractive);
+            canvas.tabIndex = 0;
+            canvas.setAttribute('aria-describedby', readout.id);
+            chartHost.replaceWith(canvas);
+            if (isAgp) {
+              const api = drawAgpBandChart(canvas, b.bins, {
+                color: b.color,
+                yLabel: b.yLabel,
+                thresholds: b.thresholds,
+                unit: b.unit,
+                strings: S,
+                locale: options.locale,
+              });
+              if (api && api.bindHover) api.bindHover(readout);
+            } else {
+              const api = drawLineChart(canvas, b.points, {
+                color: b.color,
+                yLabel: b.yLabel,
+                thresholds: b.thresholds,
+                unit: b.unit,
+                strings: S,
+                locale: options.locale,
+                baseline: baselineOpt,
+                events: eventsOpt,
+                secondary: secondaryOpt,
+              });
+              if (api && api.bindHover) api.bindHover(readout);
+            }
+          }
+          return;
+        }
+
+        // ── Default Canvas path (unchanged behavior) ──
         if (isAgp) {
-          const api = drawAgpBandChart(canvas, b.bins, {
+          const api = drawAgpBandChart(chartHost, b.bins, {
             color: b.color,
             yLabel: b.yLabel,
             thresholds: b.thresholds,
@@ -1836,7 +2580,7 @@
           });
           if (api && api.bindHover) api.bindHover(readout);
         } else {
-          const api = drawLineChart(canvas, b.points, {
+          const api = drawLineChart(chartHost, b.points, {
             color: b.color,
             yLabel: b.yLabel,
             thresholds: b.thresholds,
@@ -1861,5 +2605,7 @@
     listAvailableChartKeys,
     chartConclusion,
     medianOf,
+    /** true when local window.echarts is loaded (enhanced trends path) */
+    hasEcharts: hasEcharts,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

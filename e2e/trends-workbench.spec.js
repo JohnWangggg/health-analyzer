@@ -4,7 +4,7 @@
  */
 const { test, expect } = require('@playwright/test');
 const path = require('path');
-const { setWorkspace } = require('./helpers');
+const { setWorkspace, openTrendsFilterIfNeeded } = require('./helpers');
 
 const FIXTURE = path.join(__dirname, 'fixtures/minimal-export.xml');
 
@@ -27,6 +27,7 @@ test.describe('v1.67 trends workbench', () => {
 
     await setWorkspace(page, 'trends');
     await expect(page.locator('#step-charts')).toBeVisible();
+    await openTrendsFilterIfNeeded(page);
     await expect(page.locator('#charts-workbench')).toBeVisible();
     await expect(page.locator('#chart-primary-metric')).toBeVisible();
     await expect(page.locator('#chart-compare-metric')).toBeVisible();
