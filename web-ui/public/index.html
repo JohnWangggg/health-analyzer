@@ -693,6 +693,50 @@
           </div>
           <ul id="warehouse-weight-year-list" class="warehouse-cgm-month-list" aria-label="Weight years"></ul>
         </div>
+        <div id="warehouse-sleep-years" class="warehouse-year-shards hidden" role="region" aria-labelledby="warehouse-sleep-years-title">
+          <h4 class="warehouse-cgm-months-title" id="warehouse-sleep-years-title" data-i18n="warehouse.sleepYearsTitle">睡眠年分片</h4>
+          <p class="hint compact-hint" data-i18n="warehouse.sleepYearsHint">按自然年存储；可多选删除以释放空间。非诊断。</p>
+          <div class="warehouse-cgm-bulk-actions export-actions">
+            <label class="check-inline" for="warehouse-sleep-select-all">
+              <input type="checkbox" id="warehouse-sleep-select-all" />
+              <span data-i18n="warehouse.cgmSelectAll">全选</span>
+            </label>
+            <button type="button" id="btn-warehouse-sleep-delete-selected" class="btn-danger-text btn-sm" data-i18n="warehouse.yearDeleteSelected">删除所选年</button>
+            <label class="warehouse-cgm-keep-label" for="warehouse-sleep-keep-years">
+              <span data-i18n="warehouse.yearKeepYearsLabel">保留年数</span>
+              <select id="warehouse-sleep-keep-years" data-i18n-aria="warehouse.yearKeepYearsLabel" aria-label="保留年数">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+              </select>
+            </label>
+            <button type="button" id="btn-warehouse-sleep-keep-recent" class="btn-ghost btn-sm">仅保留近 3 年</button>
+          </div>
+          <ul id="warehouse-sleep-year-list" class="warehouse-cgm-month-list" aria-label="Sleep years"></ul>
+        </div>
+        <div id="warehouse-steps-years" class="warehouse-year-shards hidden" role="region" aria-labelledby="warehouse-steps-years-title">
+          <h4 class="warehouse-cgm-months-title" id="warehouse-steps-years-title" data-i18n="warehouse.stepsYearsTitle">步数年分片</h4>
+          <p class="hint compact-hint" data-i18n="warehouse.stepsYearsHint">按自然年存储；可多选删除以释放空间。非诊断。</p>
+          <div class="warehouse-cgm-bulk-actions export-actions">
+            <label class="check-inline" for="warehouse-steps-select-all">
+              <input type="checkbox" id="warehouse-steps-select-all" />
+              <span data-i18n="warehouse.cgmSelectAll">全选</span>
+            </label>
+            <button type="button" id="btn-warehouse-steps-delete-selected" class="btn-danger-text btn-sm" data-i18n="warehouse.yearDeleteSelected">删除所选年</button>
+            <label class="warehouse-cgm-keep-label" for="warehouse-steps-keep-years">
+              <span data-i18n="warehouse.yearKeepYearsLabel">保留年数</span>
+              <select id="warehouse-steps-keep-years" data-i18n-aria="warehouse.yearKeepYearsLabel" aria-label="保留年数">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+              </select>
+            </label>
+            <button type="button" id="btn-warehouse-steps-keep-recent" class="btn-ghost btn-sm">仅保留近 3 年</button>
+          </div>
+          <ul id="warehouse-steps-year-list" class="warehouse-cgm-month-list" aria-label="Steps years"></ul>
+        </div>
         <label class="check-inline warehouse-auto-trim-row" for="warehouse-auto-trim">
           <input type="checkbox" id="warehouse-auto-trim" />
           <span data-i18n="warehouse.autoTrim">保存后自动按保留窗口裁剪</span>
@@ -708,6 +752,7 @@
           <button type="button" id="btn-warehouse-export" class="btn-ghost" data-i18n="warehouse.exportBackup">导出备份</button>
           <button type="button" id="btn-warehouse-import" class="btn-ghost" data-i18n="warehouse.importBackup">导入备份</button>
           <button type="button" id="btn-warehouse-copy-status" class="btn-ghost" data-i18n="warehouse.copyStatus">复制仓状态摘要</button>
+          <button type="button" id="btn-warehouse-download-status" class="btn-ghost" data-i18n="warehouse.downloadStatus">下载仓状态摘要</button>
           <button type="button" id="btn-warehouse-clear-payload" class="btn-danger-text" data-i18n="warehouse.clearPayload">仅清空仓内明细</button>
           <input type="file" id="warehouse-backup-input" class="hidden" accept=".json,application/json,.hae-backup.json" />
         </div>
@@ -847,7 +892,7 @@
   </main>
 
   <footer class="app-footer">
-    <p data-i18n="footer">开源 · 本地优先 · v1.84</p>
+    <p data-i18n="footer">开源 · 本地优先 · v1.85</p>
   </footer>
 
   <div id="sticky-cta" class="sticky-cta hidden" role="region" data-i18n-aria="sticky.aria" aria-label="快捷操作">

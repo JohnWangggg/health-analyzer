@@ -3,6 +3,7 @@
  * + v1.68 可选原始 HealthData 仓（须用户授权；默认不落盘明细）
  * + v1.75 CGM 按月分片 domainChunks（core|full + cgm|YYYY-MM；兼容 healthData|full）
  * + v1.79 BP/体重按年分片（bloodPressure|YYYY、weight|YYYY；bodyFat 并入 weight 年片）
+ * + v1.85 sleep/steps 按年分片（sleep|YYYY、steps|YYYY；date-keyed map 切片）
  * 不上传；摘要仓不含完整 CGM；原始仓仅在 consent 开启后写入
  */
 (function (global) {
@@ -24,7 +25,7 @@
   /** Soft / hard byte caps for raw warehouse (approx JSON size) */
   const WAREHOUSE_SOFT_BYTES = 150 * 1024 * 1024;
   const WAREHOUSE_HARD_BYTES = 200 * 1024 * 1024;
-  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.81.0';
+  const WAREHOUSE_POLICY_VERSION = 'data-center-v1.85.0';
   /** @deprecated legacy single-blob id; still read for migrate */
   const WH_CHUNK_HEALTH = 'healthData|full';
   const WH_CHUNK_CORE = 'core|full';
@@ -32,6 +33,8 @@
   const WH_DOMAIN_CGM = 'cgm';
   const WH_DOMAIN_BP = 'bloodPressure';
   const WH_DOMAIN_WEIGHT = 'weight';
+  const WH_DOMAIN_SLEEP = 'sleep';
+  const WH_DOMAIN_STEPS = 'steps';
 
   /**
    * Serialize warehouse mutations (persist / delete / clear / import).
@@ -387,11 +390,47 @@
     return /^\d{4}$/.test(s) ? s : 'unknown';
   }
 
+  /** Year key for date-keyed maps (sleep/steps): YYYY-MM-DD → YYYY, else yearKeyFromDatetime. */
+  function yearKeyFromDateMapKey(key) {
+    const s = String(key || '');
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 4);
+    return yearKeyFromDatetime(s);
+  }
+
+  /**
+   * Bucket a date-keyed map into yearly shards.
+   * @param {Record<string, unknown>} map
+   * @returns {{ year: string, payload: object, approxBytes: number, recordCount: number }[]}
+   */
+  function bucketDateMapByYear(map) {
+    /** @type {Record<string, Record<string, unknown>>} */
+    const byYear = {};
+    Object.keys(map || {}).forEach((k) => {
+      const y = yearKeyFromDateMapKey(k);
+      if (!byYear[y]) byYear[y] = {};
+      byYear[y][k] = map[k];
+    });
+    return Object.keys(byYear)
+      .sort()
+      .map((year) => {
+        const payload = byYear[year];
+        return {
+          year,
+          payload,
+          approxBytes: approxJsonBytes(payload),
+          recordCount: Object.keys(payload).length,
+        };
+      });
+  }
+
   function recomputeSplitTotalBytes(split) {
     const monthBytes = (split.months || []).reduce((s, m) => s + (m.approxBytes || 0), 0);
     const bpBytes = (split.bpYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
     const weightBytes = (split.weightYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
-    split.totalBytes = (split.coreBytes || 0) + monthBytes + bpBytes + weightBytes;
+    const sleepBytes = (split.sleepYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
+    const stepsBytes = (split.stepsYears || []).reduce((s, y) => s + (y.approxBytes || 0), 0);
+    split.totalBytes =
+      (split.coreBytes || 0) + monthBytes + bpBytes + weightBytes + sleepBytes + stepsBytes;
     return split.totalBytes;
   }
 
@@ -414,6 +453,24 @@
       payload.weight = payload.weight.concat(y.weight || []);
       payload.bodyFat = payload.bodyFat.concat(y.bodyFat || []);
     });
+    payload.sleep = {};
+    (split.sleepYears || [])
+      .slice()
+      .sort((a, b) => String(a.year || '').localeCompare(String(b.year || '')))
+      .forEach((y) => {
+        if (y && y.payload && typeof y.payload === 'object') {
+          Object.assign(payload.sleep, y.payload);
+        }
+      });
+    payload.steps = {};
+    (split.stepsYears || [])
+      .slice()
+      .sort((a, b) => String(a.year || '').localeCompare(String(b.year || '')))
+      .forEach((y) => {
+        if (y && y.payload && typeof y.payload === 'object') {
+          Object.assign(payload.steps, y.payload);
+        }
+      });
     if (payload.dataAvailability) {
       payload.dataAvailability.hasCgm = payload.cgm.length > 0;
       payload.dataAvailability.hasBloodPressure = payload.bloodPressure.length > 0;
@@ -424,9 +481,10 @@
   }
 
   /**
-   * Split HealthData into core (no cgm / BP / weight) + monthly CGM + yearly BP/weight shards.
+   * Split HealthData into core (no cgm / BP / weight / sleep / steps)
+   * + monthly CGM + yearly BP/weight/sleep/steps shards.
    * bodyFat rides with weight year shards.
-   * @returns {{ core: object, months: object[], bpYears: object[], weightYears: object[], coreBytes: number, totalBytes: number }}
+   * @returns {{ core: object, months: object[], bpYears: object[], weightYears: object[], sleepYears: object[], stepsYears: object[], coreBytes: number, totalBytes: number }}
    */
   function splitHealthDataShards(healthData) {
     const full = clonePlain(healthData);
@@ -434,10 +492,16 @@
     const bloodPressure = Array.isArray(full.bloodPressure) ? full.bloodPressure : [];
     const weight = Array.isArray(full.weight) ? full.weight : [];
     const bodyFat = Array.isArray(full.bodyFat) ? full.bodyFat : [];
+    const sleepMap =
+      full.sleep && typeof full.sleep === 'object' && !Array.isArray(full.sleep) ? full.sleep : {};
+    const stepsMap =
+      full.steps && typeof full.steps === 'object' && !Array.isArray(full.steps) ? full.steps : {};
     full.cgm = [];
     full.bloodPressure = [];
     full.weight = [];
     full.bodyFat = [];
+    full.sleep = {};
+    full.steps = {};
 
     /** @type {Record<string, object[]>} */
     const byMonth = {};
@@ -499,8 +563,20 @@
         };
       });
 
+    const sleepYears = bucketDateMapByYear(sleepMap);
+    const stepsYears = bucketDateMapByYear(stepsMap);
+
     const coreBytes = approxJsonBytes(full);
-    const split = { core: full, months, bpYears, weightYears, coreBytes, totalBytes: 0 };
+    const split = {
+      core: full,
+      months,
+      bpYears,
+      weightYears,
+      sleepYears,
+      stepsYears,
+      coreBytes,
+      totalBytes: 0,
+    };
     recomputeSplitTotalBytes(split);
     return split;
   }
@@ -602,18 +678,74 @@
   }
 
   /**
-   * Run CGM month eviction then optional BP/weight year eviction.
+   * After BP/weight year eviction: drop oldest sleep/steps year shards until under soft quota.
+   * Keeps at least one year across sleep+steps so the domain is not fully orphaned.
+   * Mutates split.sleepYears / split.stepsYears.
+   */
+  function evictOldestSleepStepsYears(split) {
+    let removedSleep = 0;
+    let removedSteps = 0;
+    let removedYears = 0;
+    const beforeBytes = split.totalBytes;
+    if (!split.sleepYears) split.sleepYears = [];
+    if (!split.stepsYears) split.stepsYears = [];
+
+    while (
+      split.totalBytes > WAREHOUSE_SOFT_BYTES &&
+      (split.sleepYears.length > 0 || split.stepsYears.length > 0)
+    ) {
+      const years = {};
+      split.sleepYears.forEach((y) => {
+        years[y.year] = true;
+      });
+      split.stepsYears.forEach((y) => {
+        years[y.year] = true;
+      });
+      const yearKeys = Object.keys(years).sort();
+      if (yearKeys.length <= 1) break;
+
+      const oldestYear = yearKeys[0];
+      const sleepIdx = split.sleepYears.findIndex((y) => y.year === oldestYear);
+      const stepsIdx = split.stepsYears.findIndex((y) => y.year === oldestYear);
+      if (sleepIdx >= 0) {
+        const row = split.sleepYears.splice(sleepIdx, 1)[0];
+        removedSleep += row.recordCount || 0;
+        removedYears += 1;
+      } else if (stepsIdx >= 0) {
+        const row = split.stepsYears.splice(stepsIdx, 1)[0];
+        removedSteps += row.recordCount || 0;
+        removedYears += 1;
+      } else {
+        break;
+      }
+      recomputeSplitTotalBytes(split);
+    }
+    return {
+      trimmed: removedSleep > 0 || removedSteps > 0,
+      removedSleep,
+      removedSteps,
+      removedYears,
+      beforeBytes,
+      afterBytes: split.totalBytes,
+    };
+  }
+
+  /**
+   * Run CGM month eviction then optional BP/weight then sleep/steps year eviction.
    */
   function applyShardQuotaEviction(split) {
     const cgmEv = evictOldestCgmMonths(split);
     const yearEv = evictOldestBpWeightYears(split);
+    const mapYearEv = evictOldestSleepStepsYears(split);
     return {
-      trimmed: !!(cgmEv.trimmed || yearEv.trimmed),
+      trimmed: !!(cgmEv.trimmed || yearEv.trimmed || mapYearEv.trimmed),
       removedCgm: cgmEv.removedCgm || 0,
       removedMonths: cgmEv.removedMonths || 0,
       removedBp: yearEv.removedBp || 0,
       removedWeight: yearEv.removedWeight || 0,
-      removedYears: yearEv.removedYears || 0,
+      removedSleep: mapYearEv.removedSleep || 0,
+      removedSteps: mapYearEv.removedSteps || 0,
+      removedYears: (yearEv.removedYears || 0) + (mapYearEv.removedYears || 0),
       beforeBytes: cgmEv.beforeBytes,
       afterBytes: split.totalBytes,
     };
@@ -635,6 +767,8 @@
         removedMonths: ev.removedMonths,
         removedBp: ev.removedBp,
         removedWeight: ev.removedWeight,
+        removedSleep: ev.removedSleep,
+        removedSteps: ev.removedSteps,
         removedYears: ev.removedYears,
         beforeBytes: ev.beforeBytes,
         afterBytes: approxJsonBytes(payload),
@@ -709,6 +843,36 @@
       if (!Array.isArray(data.bodyFat)) data.bodyFat = [];
     }
 
+    // Sleep year shards (v1.85+): payload is date-keyed map. Merge by year order.
+    const sleepChunks = allChunks
+      .filter((c) => c && c.domain === WH_DOMAIN_SLEEP && c.payload != null && typeof c.payload === 'object')
+      .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+    if (sleepChunks.length) {
+      data.sleep = {};
+      sleepChunks.forEach((c) => {
+        if (c.payload && typeof c.payload === 'object' && !Array.isArray(c.payload)) {
+          Object.assign(data.sleep, c.payload);
+        }
+      });
+    } else if (!data.sleep || typeof data.sleep !== 'object' || Array.isArray(data.sleep)) {
+      data.sleep = {};
+    }
+
+    // Steps year shards (v1.85+): payload is date-keyed map. Merge by year order.
+    const stepsChunks = allChunks
+      .filter((c) => c && c.domain === WH_DOMAIN_STEPS && c.payload != null && typeof c.payload === 'object')
+      .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')));
+    if (stepsChunks.length) {
+      data.steps = {};
+      stepsChunks.forEach((c) => {
+        if (c.payload && typeof c.payload === 'object' && !Array.isArray(c.payload)) {
+          Object.assign(data.steps, c.payload);
+        }
+      });
+    } else if (!data.steps || typeof data.steps !== 'object' || Array.isArray(data.steps)) {
+      data.steps = {};
+    }
+
     if (data.dataAvailability) {
       data.dataAvailability.hasCgm = (data.cgm && data.cgm.length) > 0;
       data.dataAvailability.hasBloodPressure = (data.bloodPressure && data.bloodPressure.length) > 0;
@@ -723,6 +887,8 @@
       cgmChunks,
       bpChunks,
       weightChunks,
+      sleepChunks,
+      stepsChunks,
     };
   }
 
@@ -740,7 +906,7 @@
   }
 
   /**
-   * Persist merged HealthData into warehouse (CGM by month; BP/weight by year).
+   * Persist merged HealthData into warehouse (CGM by month; BP/weight/sleep/steps by year).
    * @param {object} healthData
    * @param {{ batchId?: string|null }} [opts]
    * @returns {Promise<{ ok: boolean, reason?: string, meta?: object, approxBytes?: number }>}
@@ -840,6 +1006,32 @@
         updatedAt: now,
         codec: 'json',
       }));
+      const sleepChunks = (split.sleepYears || []).map((y) => ({
+        id: 'sleep|' + y.year,
+        domain: WH_DOMAIN_SLEEP,
+        shard: y.year,
+        dateStart: y.year + '-01-01',
+        dateEnd: y.year + '-12-31',
+        payload: y.payload || {},
+        approxBytes: y.approxBytes,
+        recordCount: y.recordCount,
+        batchId,
+        updatedAt: now,
+        codec: 'json',
+      }));
+      const stepsChunks = (split.stepsYears || []).map((y) => ({
+        id: 'steps|' + y.year,
+        domain: WH_DOMAIN_STEPS,
+        shard: y.year,
+        dateStart: y.year + '-01-01',
+        dateEnd: y.year + '-12-31',
+        payload: y.payload || {},
+        approxBytes: y.approxBytes,
+        recordCount: y.recordCount,
+        batchId,
+        updatedAt: now,
+        codec: 'json',
+      }));
 
       meta.dateRange = dateRange;
       meta.domainStats = buildDomainStats(payload);
@@ -856,6 +1048,12 @@
       if (meta.domainStats.bodyFat && weightChunks.length) {
         meta.domainStats.bodyFat.chunkCount = weightChunks.length;
       }
+      if (meta.domainStats.sleep && sleepChunks.length) {
+        meta.domainStats.sleep.chunkCount = sleepChunks.length;
+      }
+      if (meta.domainStats.steps && stepsChunks.length) {
+        meta.domainStats.steps.chunkCount = stepsChunks.length;
+      }
       meta.totalApproxBytes = approxBytes;
       meta.totalRecordCount = recordCount;
       meta.lastImportBatchId = batchId || meta.lastImportBatchId || null;
@@ -865,12 +1063,17 @@
       meta.cgmMonths = cgmChunks.map((c) => c.shard);
       meta.bpYears = bpChunks.map((c) => c.shard);
       meta.weightYears = weightChunks.map((c) => c.shard);
+      meta.sleepYears = sleepChunks.map((c) => c.shard);
+      meta.stepsYears = stepsChunks.map((c) => c.shard);
       if (approxBytes > WAREHOUSE_SOFT_BYTES) {
         meta.notes = ['soft_quota_exceeded'];
       } else if (trimMeta.trimmed) {
         const notes = [];
         if (trimMeta.removedMonths) notes.push('cgm_months_evicted_for_quota');
-        if (trimMeta.removedYears) notes.push('bp_weight_years_evicted_for_quota');
+        if (trimMeta.removedBp || trimMeta.removedWeight) notes.push('bp_weight_years_evicted_for_quota');
+        if (trimMeta.removedSleep || trimMeta.removedSteps) {
+          notes.push('sleep_steps_years_evicted_for_quota');
+        }
         meta.notes = notes.length ? notes : ['shards_evicted_for_quota'];
       } else {
         meta.notes = [];
@@ -895,6 +1098,8 @@
             cgmChunks.forEach((c) => store.put(c));
             bpChunks.forEach((c) => store.put(c));
             weightChunks.forEach((c) => store.put(c));
+            sleepChunks.forEach((c) => store.put(c));
+            stepsChunks.forEach((c) => store.put(c));
             tx.objectStore(STORE_WH_META).put(Object.assign(defaultWarehouseMeta(), meta, { id: WH_META_ID }));
             tx.oncomplete = () => {
               db.close();
@@ -908,11 +1113,15 @@
                 removedMonths: trimMeta.removedMonths || 0,
                 removedBp: trimMeta.removedBp || 0,
                 removedWeight: trimMeta.removedWeight || 0,
+                removedSleep: trimMeta.removedSleep || 0,
+                removedSteps: trimMeta.removedSteps || 0,
                 removedYears: trimMeta.removedYears || 0,
                 layout: 'sharded-v1',
                 cgmMonthCount: cgmChunks.length,
                 bpYearCount: bpChunks.length,
                 weightYearCount: weightChunks.length,
+                sleepYearCount: sleepChunks.length,
+                stepsYearCount: stepsChunks.length,
               });
             };
             tx.onerror = () => {
@@ -976,6 +1185,8 @@
         cgmMonths: meta.cgmMonths || [],
         bpYears: meta.bpYears || [],
         weightYears: meta.weightYears || [],
+        sleepYears: meta.sleepYears || [],
+        stepsYears: meta.stepsYears || [],
       };
     }).then((status) => {
       if (!status.granted) return status;
@@ -1037,9 +1248,33 @@
                   approxBytes: c.approxBytes || 0,
                 };
               });
+              const mapYearDetails = (domain) =>
+                (all || [])
+                  .filter((c) => c && c.domain === domain)
+                  .slice()
+                  .sort((a, b) => String(a.shard || '').localeCompare(String(b.shard || '')))
+                  .map((c) => {
+                    let recordCount = c.recordCount;
+                    if (recordCount == null) {
+                      const p = c.payload;
+                      recordCount =
+                        p && typeof p === 'object' && !Array.isArray(p) ? Object.keys(p).length : 0;
+                    }
+                    return {
+                      year: c.shard || '',
+                      recordCount,
+                      approxBytes: c.approxBytes || 0,
+                    };
+                  });
+              status.sleepYearDetails = mapYearDetails(WH_DOMAIN_SLEEP);
+              status.stepsYearDetails = mapYearDetails(WH_DOMAIN_STEPS);
+              status.sleepYears = status.sleepYearDetails.map((d) => d.year).filter(Boolean);
+              status.stepsYears = status.stepsYearDetails.map((d) => d.year).filter(Boolean);
               status.yearDetails = {
                 bloodPressure: status.bpYearDetails,
                 weight: status.weightYearDetails,
+                sleep: status.sleepYearDetails,
+                steps: status.stepsYearDetails,
               };
               status.chunkCount = (all || []).length;
               status.coreBytes = ((all || []).find((c) => c && (c.id === WH_CHUNK_CORE || c.domain === 'core')) || {}).approxBytes || 0;
@@ -1047,7 +1282,9 @@
               status.cgmMonthDetails = [];
               status.bpYearDetails = [];
               status.weightYearDetails = [];
-              status.yearDetails = { bloodPressure: [], weight: [] };
+              status.sleepYearDetails = [];
+              status.stepsYearDetails = [];
+              status.yearDetails = { bloodPressure: [], weight: [], sleep: [], steps: [] };
               status.chunkCount = 1;
             }
             status.softWarn = status.approxBytes > WAREHOUSE_SOFT_BYTES;
@@ -1268,6 +1505,16 @@
             .sort();
           meta.weightYears = toWrite
             .filter((c) => c && c.domain === WH_DOMAIN_WEIGHT)
+            .map((c) => c.shard)
+            .filter(Boolean)
+            .sort();
+          meta.sleepYears = toWrite
+            .filter((c) => c && c.domain === WH_DOMAIN_SLEEP)
+            .map((c) => c.shard)
+            .filter(Boolean)
+            .sort();
+          meta.stepsYears = toWrite
+            .filter((c) => c && c.domain === WH_DOMAIN_STEPS)
             .map((c) => c.shard)
             .filter(Boolean)
             .sort();
@@ -2094,6 +2341,16 @@
       .map((c) => c.shard)
       .filter(Boolean)
       .sort();
+    next.sleepYears = remaining
+      .filter((c) => c && c.domain === WH_DOMAIN_SLEEP)
+      .map((c) => c.shard)
+      .filter(Boolean)
+      .sort();
+    next.stepsYears = remaining
+      .filter((c) => c && c.domain === WH_DOMAIN_STEPS)
+      .map((c) => c.shard)
+      .filter(Boolean)
+      .sort();
   }
 
   function recomputeMetaAfterShardDeletes(meta, remaining, note) {
@@ -2116,6 +2373,8 @@
         if (!Array.isArray(data.bloodPressure)) data.bloodPressure = [];
         if (!Array.isArray(data.weight)) data.weight = [];
         if (!Array.isArray(data.bodyFat)) data.bodyFat = [];
+        if (!data.sleep || typeof data.sleep !== 'object' || Array.isArray(data.sleep)) data.sleep = {};
+        if (!data.steps || typeof data.steps !== 'object' || Array.isArray(data.steps)) data.steps = {};
         next.totalApproxBytes =
           remaining.reduce((s, c) => s + (c.approxBytes || 0), 0) ||
           core.approxBytes ||
@@ -2133,6 +2392,8 @@
         next.cgmMonths = [];
         next.bpYears = [];
         next.weightYears = [];
+        next.sleepYears = [];
+        next.stepsYears = [];
       }
     }
     next.lastWrittenAt = now;
@@ -2282,13 +2543,18 @@
   }
 
   /**
-   * Delete one or more yearly shards for bloodPressure or weight.
-   * @param {'bloodPressure'|'weight'} domain
+   * Delete one or more yearly shards for bloodPressure, weight, sleep, or steps.
+   * @param {'bloodPressure'|'weight'|'sleep'|'steps'} domain
    * @param {string|string[]} years e.g. '2025' or ['2024','2025']
    */
   function deleteDomainYearShards(domain, years) {
     const dom = String(domain || '');
-    if (dom !== WH_DOMAIN_BP && dom !== WH_DOMAIN_WEIGHT) {
+    if (
+      dom !== WH_DOMAIN_BP &&
+      dom !== WH_DOMAIN_WEIGHT &&
+      dom !== WH_DOMAIN_SLEEP &&
+      dom !== WH_DOMAIN_STEPS
+    ) {
       return Promise.resolve({ ok: false, reason: 'invalid_domain' });
     }
     const list = normalizeYears(years);
@@ -2329,6 +2595,14 @@
 
   function deleteWeightYearShards(years) {
     return deleteDomainYearShards(WH_DOMAIN_WEIGHT, years);
+  }
+
+  function deleteSleepYearShards(years) {
+    return deleteDomainYearShards(WH_DOMAIN_SLEEP, years);
+  }
+
+  function deleteStepsYearShards(years) {
+    return deleteDomainYearShards(WH_DOMAIN_STEPS, years);
   }
 
   global.HealthHistory = {
@@ -2376,6 +2650,8 @@
     deleteDomainYearShards,
     deleteBloodPressureYearShards,
     deleteWeightYearShards,
+    deleteSleepYearShards,
+    deleteStepsYearShards,
     buildDomainStats,
     trimCgmForSoftQuota,
     splitHealthDataShards,

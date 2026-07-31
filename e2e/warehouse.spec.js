@@ -870,6 +870,175 @@ test.describe('v1.68 raw warehouse', () => {
     await expect(page.locator('#warehouse-auto-trim')).toBeChecked();
   });
 
+  test('sleep/steps yearly shards: multi-year persist, load, domain-independent delete', async ({
+    page,
+  }) => {
+    await waitAppReady(page);
+
+    // v1.85 APIs must exist (history-db sleep/steps year shards). Fail clearly if not merged yet.
+    const apiSurface = await page.evaluate(() => {
+      const HH = window.HealthHistory || {};
+      return {
+        deleteDomainYearShards: typeof HH.deleteDomainYearShards === 'function',
+        deleteSleepYearShards: typeof HH.deleteSleepYearShards === 'function',
+        deleteStepsYearShards: typeof HH.deleteStepsYearShards === 'function',
+      };
+    });
+    expect(
+      apiSurface.deleteDomainYearShards || apiSurface.deleteSleepYearShards,
+      'v1.85: expected HealthHistory.deleteDomainYearShards("sleep") and/or deleteSleepYearShards'
+    ).toBe(true);
+
+    await page.evaluate(async () => {
+      const HA = window.HealthAnalyzer;
+      const HH = window.HealthHistory;
+      await HH.grantWarehouseConsent();
+      const data = HA.createEmptyData();
+      // Maps keyed by YYYY-MM-DD (createEmptyData / parser style — not arrays)
+      data.sleep = {
+        '2025-03-10': { total: 7.2, deep: 1.1, rem: 1.5, core: 4.2, awake: 0.4 },
+        '2025-08-12': { total: 6.8, deep: 1.0, rem: 1.4, core: 4.0, awake: 0.4 },
+        '2026-01-05': { total: 7.5, deep: 1.2, rem: 1.6, core: 4.3, awake: 0.4 },
+        '2026-06-20': { total: 7.0, deep: 1.1, rem: 1.5, core: 4.0, awake: 0.4 },
+      };
+      data.steps = {
+        '2025-02-01': { watch: 8000, iphone: 2000, max: 8000 },
+        '2025-11-01': { watch: 9500, iphone: 1000, max: 9500 },
+        '2026-04-01': { watch: 10200, iphone: 500, max: 10200 },
+        '2026-07-15': { watch: 7000, iphone: 3000, max: 7000 },
+      };
+      data.dataAvailability = data.dataAvailability || {};
+      data.dataAvailability.hasSleep = true;
+      data.dataAvailability.hasSteps = true;
+      const res = await HH.persistHealthDataWarehouse(data);
+      if (!res || res.ok === false) {
+        throw new Error('persistHealthDataWarehouse failed: ' + JSON.stringify(res));
+      }
+    });
+
+    const afterPersist = await page.evaluate(async () => {
+      const st = await window.HealthHistory.getWarehouseStatus();
+      const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+      const data = (loaded && loaded.data) || {};
+      const chunkIds = ((loaded && loaded.chunks) || []).map((c) => c.id).sort();
+      const sleepKeys = Object.keys(data.sleep || {}).sort();
+      const stepKeys = Object.keys(data.steps || {}).sort();
+      return {
+        layout: st.layout,
+        sleepYears: st.sleepYears || (st.meta && st.meta.sleepYears) || [],
+        stepsYears: st.stepsYears || (st.meta && st.meta.stepsYears) || [],
+        sleepDayCount: sleepKeys.length,
+        stepDayCount: stepKeys.length,
+        hasSleep2025: chunkIds.indexOf('sleep|2025') >= 0,
+        hasSleep2026: chunkIds.indexOf('sleep|2026') >= 0,
+        hasSteps2025: chunkIds.indexOf('steps|2025') >= 0,
+        hasSteps2026: chunkIds.indexOf('steps|2026') >= 0,
+        hasCore: chunkIds.indexOf('core|full') >= 0,
+        chunkIds,
+        // core must not still hold full multi-year maps if year-sharded
+        coreSleepKeys:
+          loaded && loaded.chunks
+            ? (() => {
+                const core = (loaded.chunks || []).find(
+                  (c) => c && (c.id === 'core|full' || c.domain === 'core')
+                );
+                const p = core && core.payload;
+                return p && p.sleep ? Object.keys(p.sleep).length : null;
+              })()
+            : null,
+      };
+    });
+
+    expect(afterPersist.layout).toBe('sharded-v1');
+    expect(afterPersist.hasCore).toBe(true);
+    expect(
+      afterPersist.sleepYears,
+      'v1.85 getWarehouseStatus().sleepYears should list years with sleep shards'
+    ).toEqual(expect.arrayContaining(['2025', '2026']));
+    expect(
+      afterPersist.stepsYears,
+      'v1.85 getWarehouseStatus().stepsYears should list years with steps shards'
+    ).toEqual(expect.arrayContaining(['2025', '2026']));
+    expect(afterPersist.sleepDayCount).toBe(4);
+    expect(afterPersist.stepDayCount).toBe(4);
+    expect(afterPersist.hasSleep2025).toBe(true);
+    expect(afterPersist.hasSleep2026).toBe(true);
+    expect(afterPersist.hasSteps2025).toBe(true);
+    expect(afterPersist.hasSteps2026).toBe(true);
+
+    // Domain-independent delete: remove sleep 2025 only; steps 2025 must remain
+    const delOk = await page.evaluate(async () => {
+      const HH = window.HealthHistory;
+      let sleepRes;
+      if (typeof HH.deleteSleepYearShards === 'function') {
+        sleepRes = await HH.deleteSleepYearShards(['2025']);
+      } else if (typeof HH.deleteDomainYearShards === 'function') {
+        sleepRes = await HH.deleteDomainYearShards('sleep', ['2025']);
+      } else {
+        return { ok: false, reason: 'no_delete_api' };
+      }
+      return {
+        ok: !!(sleepRes && sleepRes.ok),
+        reason: sleepRes && sleepRes.reason,
+        res: sleepRes,
+      };
+    });
+    expect(delOk.ok, 'delete sleep year 2025 should succeed: ' + JSON.stringify(delOk)).toBe(
+      true
+    );
+
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(async () => {
+            const st = await window.HealthHistory.getWarehouseStatus();
+            return {
+              sleepYears: (st.sleepYears || (st.meta && st.meta.sleepYears) || [])
+                .slice()
+                .sort(),
+              stepsYears: (st.stepsYears || (st.meta && st.meta.stepsYears) || [])
+                .slice()
+                .sort(),
+            };
+          }),
+        { timeout: 8_000 }
+      )
+      .toEqual({
+        sleepYears: ['2026'],
+        stepsYears: ['2025', '2026'],
+      });
+
+    const afterDel = await page.evaluate(async () => {
+      const loaded = await window.HealthHistory.loadHealthDataWarehouse();
+      const data = (loaded && loaded.data) || {};
+      const chunkIds = ((loaded && loaded.chunks) || []).map((c) => c.id).sort();
+      const sleepKeys = Object.keys(data.sleep || {});
+      const stepKeys = Object.keys(data.steps || {});
+      return {
+        sleepKeys: sleepKeys.slice().sort(),
+        stepKeys: stepKeys.slice().sort(),
+        hasSleep2025Day: sleepKeys.some((k) => String(k).startsWith('2025')),
+        hasSleep2026Day: sleepKeys.some((k) => String(k).startsWith('2026')),
+        hasSteps2025Day: stepKeys.some((k) => String(k).startsWith('2025')),
+        hasSteps2026Day: stepKeys.some((k) => String(k).startsWith('2026')),
+        hasChunkSleep2025: chunkIds.indexOf('sleep|2025') >= 0,
+        hasChunkSteps2025: chunkIds.indexOf('steps|2025') >= 0,
+        hasChunkSleep2026: chunkIds.indexOf('sleep|2026') >= 0,
+        hasChunkSteps2026: chunkIds.indexOf('steps|2026') >= 0,
+      };
+    });
+    expect(afterDel.hasSleep2025Day).toBe(false);
+    expect(afterDel.hasSleep2026Day).toBe(true);
+    expect(afterDel.hasSteps2025Day).toBe(true);
+    expect(afterDel.hasSteps2026Day).toBe(true);
+    expect(afterDel.hasChunkSleep2025).toBe(false);
+    expect(afterDel.hasChunkSteps2025).toBe(true);
+    expect(afterDel.hasChunkSleep2026).toBe(true);
+    expect(afterDel.hasChunkSteps2026).toBe(true);
+    expect(afterDel.sleepKeys.length).toBe(2);
+    expect(afterDel.stepKeys.length).toBe(4);
+  });
+
   test('copy warehouse status summary is meta-only (no raw samples)', async ({ page }) => {
     await waitAppReady(page);
     await page.evaluate(async () => {
@@ -882,10 +1051,19 @@ test.describe('v1.68 raw warehouse', () => {
       ];
       data.weight = [{ datetime: '2026-04-01T07:00:00', value: 71.11 }];
       data.cgm = [{ datetime: '2026-05-10T08:00:00', value: 6.66 }];
+      // v1.85: distinctive sleep/steps so copy summary must not leak day values
+      data.sleep = {
+        '2026-05-11': { total: 7.77, deep: 1.11, rem: 1.22, core: 4.33, awake: 0.11 },
+      };
+      data.steps = {
+        '2026-05-11': { watch: 12345, iphone: 6789, max: 12345 },
+      };
       data.dataAvailability = data.dataAvailability || {};
       data.dataAvailability.hasBloodPressure = true;
       data.dataAvailability.hasWeight = true;
       data.dataAvailability.hasCgm = true;
+      data.dataAvailability.hasSleep = true;
+      data.dataAvailability.hasSteps = true;
       await HH.persistHealthDataWarehouse(data);
     });
 
@@ -931,10 +1109,11 @@ test.describe('v1.68 raw warehouse', () => {
       return window.__whCopyCapture || '';
     });
     expect(text.length).toBeGreaterThan(40);
-    // Meta markers
+    // Meta markers (BP/weight/CGM always; sleep/steps years if v1.85 UI copy includes them)
     expect(text).toMatch(/2026-05|cgm|CGM|血压|BP|体重|weight|sharded|分片/i);
     // Must not leak raw sample values (use distinctive numbers that won't appear in byte counts)
     expect(text).not.toMatch(/133|88|71\.11|6\.66|systolic|diastolic/);
+    expect(text).not.toMatch(/7\.77|1\.11|4\.33|12345|6789/);
   });
 
   test('encrypted backup roundtrip with passphrase', async ({ page }) => {

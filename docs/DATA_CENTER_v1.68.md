@@ -1,9 +1,9 @@
 # v1.68 本地个人健康数据中心（Local Personal Health Data Center）
 
-**状态：** 设计 + **已实现**（v1.68 MVP → **v1.75** `core|full` + `cgm|YYYY-MM` → **v1.79–v1.81** `bloodPressure|YYYY` / `weight|YYYY` 年分片、面板删片、保留近 N 月/年 → **v1.82** 双域一键 keep-N 年 → **v1.83** 保存后可选自动 keep-N 裁剪；兼容 legacy `healthData|full`）  
+**状态：** 设计 + **已实现**（v1.68 MVP → **v1.75** `core|full` + `cgm|YYYY-MM` → **v1.79–v1.81** `bloodPressure|YYYY` / `weight|YYYY` 年分片、面板删片、保留近 N 月/年 → **v1.82** 双域一键 keep-N 年 → **v1.83** 保存后可选自动 keep-N 裁剪 → **v1.85** `sleep|YYYY` / `steps|YYYY` 年分片（与 BP/体重**域独立**删片）；兼容 legacy `healthData|full`）  
 **范围：** 浏览器本机 IndexedDB 持久化「解析后的 typed 健康仓」+ 授权、配额、备份/清除、分片淘汰与手动/可选自动裁剪  
 **语言 / Language：** 中文（关键术语中英对照）  
-**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.81.0`+）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）；UI 偏好与自动裁剪见 `web-ui/public/app.js`
+**对照实现基线：** `web-ui/public/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.85.0`+）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）；UI 偏好与自动裁剪见 `web-ui/public/app.js`
 
 > 本地隐私优先 · 零服务器 · 非诊断 · 默认不上传  
 > 产品默认：自动 hydrate、关授权即删仓、软/硬字节配额、备份默认明文（可选口令 AES-GCM）、恢复整库替换。分片与口令加密**已落地**（见 §4.2 / §6 / §8）。
@@ -211,7 +211,7 @@ type WarehouseDomain =
 interface DomainChunk {
   id: string;              // `${domain}|${shardKey}`
   domain: WarehouseDomain;
-  /** 分片键：CGM 月 'YYYY-MM'；BP/体重年 'YYYY'；core 为 'full'；legacy 可读 'full' 单片 */
+  /** 分片键：CGM 月 'YYYY-MM'；BP/体重/睡眠/步数年 'YYYY'；core 为 'full'；legacy 可读 'full' 单片 */
   shardKey: string; // 实现字段名亦作 `shard`
   dateStart: string;       // 分片内最小日期
   dateEnd: string;
@@ -288,21 +288,50 @@ sessions: currentAnalysis ────────┘  （内存工作集，可�
 
 | Chunk id | 域 | 分片键 | payload |
 |----------|-----|--------|---------|
-| `core\|full` | core | `full` | 除 CGM / 血压 / 体重 / 体脂外的 `HealthData` 字段 |
+| `core\|full` | core | `full` | 除 CGM / 血压 / 体重 / 体脂 / **睡眠 / 步数**（v1.85+ 年分片后）外的 `HealthData` 字段 |
 | `cgm\|YYYY-MM` | `cgm` | 自然月 | `CgmPoint[]` |
 | `bloodPressure\|YYYY` | `bloodPressure` | 自然年 | `BloodPressureRecord[]` |
 | `weight\|YYYY` | `weight` | 自然年 | `{ weight, bodyFat }`（**体脂并入体重年片**，无独立 `bodyFat|…` 片） |
+| `sleep\|YYYY` | `sleep` | 自然年 | **日 map 切片**（见下；v1.85+） |
+| `steps\|YYYY` | `steps` | 自然年 | **日 map 切片**（见下；v1.85+） |
 
-兼容：仍可读 legacy 单片 `healthData|full`；无 BP/体重年片时回退 core 内嵌数组（v1.75 仅 CGM 分片时代数据）。
+兼容：仍可读 legacy 单片 `healthData|full`；无 BP/体重年片时回退 core 内嵌数组（v1.75 仅 CGM 分片时代数据）；**无 sleep/steps 年片时**回退 core 内 `sleep` / `steps` 全日 map（v1.84 及更早）。
 
 | 域 | 形态（对齐 `types.ts`） | 分片粒度 | 说明 |
 |----|-------------------------|----------|------|
 | `cgm` | `CgmPoint[]` | **按月** `YYYY-MM` | 体量最大；月片利于淘汰、多选删除、保留近 N 月 |
 | `bloodPressure` | `BloodPressureRecord[]` | **按年** `YYYY`（v1.79+） | 条数通常远小于 CGM；面板可单年/多选删、保留近 N 年 |
 | `weight` / `bodyFat` | 数组 | **按年** `weight\|YYYY`（v1.79+） | 体脂 rides with 体重年片；删年则两者同删 |
+| `sleep` | `Record<YYYY-MM-DD, { total, deep, rem, core, awake }>` | **按年** `sleep\|YYYY`（v1.85+） | 按日期键前缀 `YYYY` 分桶；payload 为**该年日 map**（非整数组） |
+| `steps` | `Record<YYYY-MM-DD, { watch, iphone, max }>` | **按年** `steps\|YYYY`（v1.85+） | 同上；与 sleep **域独立**（删 sleep 年不影响 steps 同年） |
 | `hrv` / `hrvOvernight` 等日汇总 | map / 数组 | 写入 **`core\|full`** | 随 core 整片持久化（非独立年/月片） |
 | `watchDaily` / `workouts` / `ecg` 等 | 日汇总或会话 | 写入 **`core\|full`** | Watch 已是日汇总，**禁止**再拆逐条 HR；ECG **不存**波形 CSV |
 | `availability` | `{ dataAvailability, dataQuality }` | 写入 core | 小对象 |
+
+#### 4.2.1 睡眠 / 步数年分片（v1.85）
+
+**为何独立于 core：** 多年日 map 随导入变大；按自然年拆片后可按年删除、与 BP/体重一致的 keep-N 扩展，并避免删某一域误伤另一域。
+
+**payload 形态（map，非点数组）：**
+
+```ts
+// sleep|2025  — keys 均为该自然年内的 YYYY-MM-DD
+{
+  '2025-03-10': { total: 7.2, deep: 1.1, rem: 1.5, core: 4.2, awake: 0.4 },
+  '2025-08-12': { total: 6.8, deep: 1.0, rem: 1.4, core: 4.0, awake: 0.4 }
+}
+
+// steps|2025
+{
+  '2025-02-01': { watch: 8000, iphone: 2000, max: 8000 },
+  '2025-11-01': { watch: 9500, iphone: 1000, max: 9500 }
+}
+```
+
+- **Hydrate：** 合并各 `sleep|YYYY` / `steps|YYYY` 的 map 键值到 `HealthData.sleep` / `.steps`；若无年片则沿用 core 内 map。  
+- **Persist：** 从全日 map 按日期键 `slice(0,4)` 分年写片；写入后 **core 内 `sleep` / `steps` 应为空 map**（与 BP 从 core 剥离一致）。  
+- **域独立删除：** `deleteDomainYearShards('sleep', ['2025'])`（或 `deleteSleepYearShards`）只删 `sleep|2025`，**同年** `steps|2025` / `bloodPressure|2025` / `weight|2025` **保留**。  
+- **状态字段：** `getWarehouseStatus()` 暴露 `sleepYears` / `stepsYears`（`string[]`，有数据的自然年），及可选 `yearDetails.sleep` / `.steps`。
 
 **默认不入仓：**
 
@@ -465,8 +494,8 @@ interface ImportBatchRecordV168 extends ImportBatchRecord {
 
 1. 当估算占用超过 **软配额**（`WAREHOUSE_SOFT_BYTES` = 150 MB）：  
 2. **先**按月淘汰最旧 **CGM 月片**（尽量至少保留最新一个月；单月仍超则点级裁剪兜底）；  
-3. **再**淘汰最旧 **血压 / 体重年片**（跨域按最旧自然年推进；尽量至少保留一个有数据年）；  
-4. 更新 `warehouseMeta`（`cgmMonths` / `bpYears` / `weightYears`、`notes` 如 `cgm_months_evicted_for_quota`）；写 UI toast 提示。  
+3. **再**淘汰最旧 **血压 / 体重 / 睡眠 / 步数年片**（跨域按最旧自然年推进；尽量至少保留一个有数据年；v1.85 起含 `sleep|YYYY` / `steps|YYYY`）；  
+4. 更新 `warehouseMeta`（`cgmMonths` / `bpYears` / `weightYears` / `sleepYears` / `stepsYears`、`notes` 如 `cgm_months_evicted_for_quota`）；写 UI toast 提示。  
 5. **硬配额**（200 MB）：拒绝 persist（`reason: 'quota_hard'`），不半写。  
 6. **不自动删** `healthEvents` / 用户周报 / 摘要 snapshots。
 
@@ -477,13 +506,15 @@ interface ImportBatchRecordV168 extends ImportBatchRecord {
 | CGM | 近 **3 / 6 / 12 / 24** 个月 | 删除早于「最新 N 个月」的 `cgm|YYYY-MM` |
 | 血压 | 近 **1 / 2 / 3 / 5** 年 | 删除早于「最新 N 个有数据年」的 `bloodPressure|YYYY` |
 | 体重（含体脂） | 近 **1 / 2 / 3 / 5** 年 | 同上，`weight|YYYY` |
+| 睡眠（v1.85+） | 近 **1 / 2 / 3 / 5** 年（若 UI 暴露） | 删除更旧 `sleep|YYYY`；**不**删 steps/BP/weight 同年片 |
+| 步数（v1.85+） | 同上 | 删除更旧 `steps|YYYY`；与 sleep **域独立** |
 | **双域一键（v1.82）** | 同上 N | 「双域仅保留近 N 年」**一次**对血压 + 体重各裁 keep-N（两域共用同一 N / 同一偏好键） |
 
 - 偏好记在 **localStorage**（**非云、不上传**）。键示例：
   - `health-analyzer-cgm-keep-months`（CGM 保留月数）
   - `health-analyzer-year-keep-years`（血压 / 体重共用保留年数；面板上 BP / 体重各有 select，值同步）
 - 手动 keep-N（含双域按钮）有确认对话框；删除不可撤销（可先备份）。
-- 另支持：**多选删除** CGM 月 / BP 年 / weight 年（`deleteCgmMonthShards` / `deleteDomainYearShards` 等）。
+- 另支持：**多选删除** CGM 月 / BP 年 / weight 年 / **sleep 年 / steps 年**（`deleteCgmMonthShards` / `deleteDomainYearShards(domain, years)`；v1.85 域含 `'sleep' | 'steps'`，亦可有 `deleteSleepYearShards` / `deleteStepsYearShards` 薄封装）。
 
 **策略 C：滚动天数（设计可选）**
 
@@ -516,6 +547,7 @@ interface ImportBatchRecordV168 extends ImportBatchRecord {
 | 布局行 | `sharded-v1` 等 |
 | **CGM 月列表** | 多选删除、保留近 N 月 |
 | **血压 / 体重年列表** | 多选删除、分域保留近 N 年；体重提示含体脂 |
+| **睡眠 / 步数年列表（v1.85）** | 有数据时展示 `sleepYears` / `stepsYears`；多选删年；**两域互不连带** |
 | **双域 keep（v1.82）** | 「双域仅保留近 N 年」一键裁血压 + 体重 |
 | **自动裁剪（v1.83）** | 勾选「保存后自动按保留窗口裁剪」（默认关；localStorage） |
 | 日历覆盖 | 2024-03-01 → 2026-07-28 |
@@ -1061,6 +1093,7 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 | 草案 v1 | 2026-07-30 | 首版设计，对齐 history-db v4 与 v1.66 IA |
 | 实现对照 v1.75–v1.81 | 2026-07-30 | 对齐 `core\|full` + `cgm\|YYYY-MM` + `bloodPressure\|YYYY` / `weight\|YYYY`；软硬配额；写入串行；面板删片与 keep-N；clear payload 保留 consent |
 | 实现对照 v1.82–v1.83 | 2026-07-30 | v1.82 双域一键 keep-N 年；v1.83 保存成功后 opt-in 自动 keep-N（localStorage，默认关，无确认，写队列串行）；非云、非诊断 |
+| 实现对照 v1.85 | 2026-07-31 | `sleep\|YYYY` / `steps\|YYYY` 日 map 年分片；status `sleepYears`/`stepsYears`；`deleteDomainYearShards('sleep'\|'steps')` 域独立；E2E `e2e/warehouse.spec.js` |
 
 ---
 
@@ -1071,7 +1104,7 @@ async function afterSuccessfulAnalysisPersistIfConsented(data, batchId): Promise
 | `web-ui/public/history-db.js` | IDB v5、`HealthHistory`、分片 persist / 删片 / 配额 / 备份 / 写串行 |
 | `web-ui/public/app.js` | 授权 UI、hydrate、仓面板 keep-N / 双域 keep / 自动裁剪、多选删、wipe |
 | `web-ui/public/index.html` | `#warehouse-panel`（CGM 月 / BP·体重年 / 双域按钮 / auto-trim） |
-| `e2e/warehouse.spec.js` | 仓 / 年分片 / 双域 keep / auto-trim / 备份自动化 |
+| `e2e/warehouse.spec.js` | 仓 / 年分片（BP·体重·**sleep·steps**）/ 双域 keep / auto-trim / 备份自动化 |
 | `lib/src/types.ts` | `HealthData` / `FullAnalysis` |
 | `lib/src/snapshot.ts` | 摘要快照（非明细） |
 | `lib/src/provenance.ts` | `ImportBatchRecord` |

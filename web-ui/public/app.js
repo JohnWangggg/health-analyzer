@@ -7400,6 +7400,29 @@
       list: weightYears.length ? weightYears.join(', ') : '—',
     }));
 
+    // Sleep / steps year lists (present only when storage reports them)
+    const sleepYears = (st.sleepYears || (st.sleepYearDetails || []).map((d) => d && d.year) || [])
+      .map((y) => String(y || '').slice(0, 4))
+      .filter((y) => /^\d{4}$/.test(y))
+      .sort();
+    if (st.sleepYears || (st.sleepYearDetails && st.sleepYearDetails.length) || sleepYears.length) {
+      lines.push(t('warehouse.statusSummary.sleepYears', {
+        n: String(sleepYears.length),
+        list: sleepYears.length ? sleepYears.join(', ') : '—',
+      }));
+    }
+
+    const stepsYears = (st.stepsYears || (st.stepsYearDetails || []).map((d) => d && d.year) || [])
+      .map((y) => String(y || '').slice(0, 4))
+      .filter((y) => /^\d{4}$/.test(y))
+      .sort();
+    if (st.stepsYears || (st.stepsYearDetails && st.stepsYearDetails.length) || stepsYears.length) {
+      lines.push(t('warehouse.statusSummary.stepsYears', {
+        n: String(stepsYears.length),
+        list: stepsYears.length ? stepsYears.join(', ') : '—',
+      }));
+    }
+
     lines.push(t('warehouse.statusSummary.softWarn', { v: st.softWarn ? yes : no }));
     lines.push(t('warehouse.statusSummary.autoTrim', {
       v: isWarehouseAutoTrimEnabled() ? on : off,
@@ -7456,6 +7479,26 @@
     return true;
   }
 
+  async function downloadWarehouseStatusSummary() {
+    const HH = window.HealthHistory;
+    if (!HH || typeof HH.getWarehouseStatus !== 'function') {
+      showToast(t('warehouse.unavailable'), { ms: 2200 });
+      return false;
+    }
+    try {
+      const st = await HH.getWarehouseStatus();
+      const text = buildWarehouseStatusSummary(st);
+      const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      downloadText(`warehouse-status-${day}.txt`, text, 'text/plain');
+      showToast(t('warehouse.downloadStatusOk'), { ok: true, ms: 2400 });
+      showWarehouseStatusMsg(t('warehouse.downloadStatusOk'));
+      return true;
+    } catch (e) {
+      showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
+      return false;
+    }
+  }
+
   function setWarehouseRestoredUi(on) {
     lastHydratedFromWarehouse = !!on;
     document.body.classList.toggle('from-warehouse', !!on);
@@ -7498,6 +7541,10 @@
     const bpList = $('warehouse-bp-year-list');
     const weightWrap = $('warehouse-weight-years');
     const weightList = $('warehouse-weight-year-list');
+    const sleepWrap = $('warehouse-sleep-years');
+    const sleepList = $('warehouse-sleep-year-list');
+    const stepsWrap = $('warehouse-steps-years');
+    const stepsList = $('warehouse-steps-year-list');
     const HH = window.HealthHistory;
     if (!HH || typeof HH.getWarehouseStatus !== 'function') {
       if (statusEl) statusEl.textContent = t('warehouse.unavailable');
@@ -7530,12 +7577,20 @@
       if (bpList) bpList.innerHTML = '';
       if (weightWrap) weightWrap.classList.add('hidden');
       if (weightList) weightList.innerHTML = '';
+      if (sleepWrap) sleepWrap.classList.add('hidden');
+      if (sleepList) sleepList.innerHTML = '';
+      if (stepsWrap) stepsWrap.classList.add('hidden');
+      if (stepsList) stepsList.innerHTML = '';
       const bothActions = $('warehouse-years-both-actions');
       if (bothActions) bothActions.classList.add('hidden');
       const bpSelectAll = $('warehouse-bp-select-all');
       const weightSelectAll = $('warehouse-weight-select-all');
+      const sleepSelectAll = $('warehouse-sleep-select-all');
+      const stepsSelectAll = $('warehouse-steps-select-all');
       if (bpSelectAll) bpSelectAll.checked = false;
       if (weightSelectAll) weightSelectAll.checked = false;
+      if (sleepSelectAll) sleepSelectAll.checked = false;
+      if (stepsSelectAll) stepsSelectAll.checked = false;
       syncWarehouseAutoTrimUi();
 
       if (!statusEl) {
@@ -7576,6 +7631,10 @@
             months: String((st.cgmMonths && st.cgmMonths.length) || 0),
             bpYears: String((st.bpYears && st.bpYears.length) || 0),
             weightYears: String((st.weightYears && st.weightYears.length) || 0),
+            sleepYears: String((st.sleepYears && st.sleepYears.length)
+              || ((st.sleepYearDetails && st.sleepYearDetails.length) || 0)),
+            stepsYears: String((st.stepsYears && st.stepsYears.length)
+              || ((st.stepsYearDetails && st.stepsYearDetails.length) || 0)),
             chunks: String(st.chunkCount || 0),
           });
           layoutEl.classList.remove('hidden');
@@ -7645,9 +7704,35 @@
         });
       }
 
-      // BP / weight yearly shards (newest first)
-      renderYearShardList(bpWrap, bpList, st.bpYearDetails || [], 'bp', 'bloodPressure');
-      renderYearShardList(weightWrap, weightList, st.weightYearDetails || [], 'weight', 'weight');
+      // BP / weight / sleep / steps yearly shards (newest first)
+      renderYearShardList(
+        bpWrap,
+        bpList,
+        yearShardDetailsOrFallback(st.bpYearDetails, st.bpYears),
+        'bp',
+        'bloodPressure'
+      );
+      renderYearShardList(
+        weightWrap,
+        weightList,
+        yearShardDetailsOrFallback(st.weightYearDetails, st.weightYears),
+        'weight',
+        'weight'
+      );
+      renderYearShardList(
+        sleepWrap,
+        sleepList,
+        yearShardDetailsOrFallback(st.sleepYearDetails, st.sleepYears),
+        'sleep',
+        'sleep'
+      );
+      renderYearShardList(
+        stepsWrap,
+        stepsList,
+        yearShardDetailsOrFallback(st.stepsYearDetails, st.stepsYears),
+        'steps',
+        'steps'
+      );
       if (bothActions) {
         const hasYears =
           (bpWrap && !bpWrap.classList.contains('hidden')) ||
@@ -7720,15 +7805,68 @@
         );
       }
     }
+    // Sleep / steps are date-keyed maps (YYYY-MM-DD → row)
+    if (domain === 'sleep' && currentAnalysis.data.sleep && typeof currentAnalysis.data.sleep === 'object') {
+      const next = {};
+      Object.keys(currentAnalysis.data.sleep).forEach((k) => {
+        if (!dropYear(k)) next[k] = currentAnalysis.data.sleep[k];
+      });
+      currentAnalysis.data.sleep = next;
+    }
+    if (domain === 'steps' && currentAnalysis.data.steps && typeof currentAnalysis.data.steps === 'object') {
+      const next = {};
+      Object.keys(currentAnalysis.data.steps).forEach((k) => {
+        if (!dropYear(k)) next[k] = currentAnalysis.data.steps[k];
+      });
+      currentAnalysis.data.steps = next;
+    }
     reanalyzeAfterWarehouseTrim();
+  }
+
+  /**
+   * Prefer detailed year rows; fall back to year string list when storage only reports years.
+   * @param {Array<{year?: string, recordCount?: number, approxBytes?: number}>|null|undefined} details
+   * @param {string[]|null|undefined} years
+   */
+  function yearShardDetailsOrFallback(details, years) {
+    if (Array.isArray(details) && details.length) return details;
+    return (years || [])
+      .map((y) => String(y || '').slice(0, 4))
+      .filter((y) => /^\d{4}$/.test(y))
+      .map((y) => ({ year: y, recordCount: 0, approxBytes: 0 }));
+  }
+
+  /**
+   * Resolve year-shard delete API defensively.
+   * Prefer domain-specific helpers; else deleteDomainYearShards(domain, years); else null.
+   * @returns {((years: string[]) => Promise<any>)|null}
+   */
+  function resolveYearShardDeleteApi(HH, domain) {
+    if (!HH) return null;
+    if (domain === 'bloodPressure' && typeof HH.deleteBloodPressureYearShards === 'function') {
+      return (years) => HH.deleteBloodPressureYearShards(years);
+    }
+    if (domain === 'weight' && typeof HH.deleteWeightYearShards === 'function') {
+      return (years) => HH.deleteWeightYearShards(years);
+    }
+    if (domain === 'sleep' && typeof HH.deleteSleepYearShards === 'function') {
+      return (years) => HH.deleteSleepYearShards(years);
+    }
+    if (domain === 'steps' && typeof HH.deleteStepsYearShards === 'function') {
+      return (years) => HH.deleteStepsYearShards(years);
+    }
+    if (typeof HH.deleteDomainYearShards === 'function') {
+      return (years) => HH.deleteDomainYearShards(domain, years);
+    }
+    return null;
   }
 
   /**
    * @param {HTMLElement|null} wrap
    * @param {HTMLElement|null} listEl
    * @param {Array<{year?: string, recordCount?: number, approxBytes?: number}>} details
-   * @param {'bp'|'weight'} kind
-   * @param {'bloodPressure'|'weight'} domain
+   * @param {'bp'|'weight'|'sleep'|'steps'} kind
+   * @param {'bloodPressure'|'weight'|'sleep'|'steps'} domain
    */
   function renderYearShardList(wrap, listEl, details, kind, domain) {
     if (!wrap || !listEl) return;
@@ -7767,7 +7905,10 @@
   function domainLabel(domain) {
     if (domain === 'bloodPressure') return t('warehouse.domain.bp');
     if (domain === 'weight') return t('warehouse.domain.weight');
-    return domain;
+    if (domain === 'sleep') return t('warehouse.domain.sleep');
+    if (domain === 'steps') return t('warehouse.domain.steps');
+    const key = WAREHOUSE_DOMAIN_I18N[domain];
+    return key ? t(key) : domain;
   }
 
   function getSelectedYearsFromUi(listId) {
@@ -7779,13 +7920,11 @@
   async function deleteDomainYearShardsUi(domain, years, confirmMsg) {
     const HH = window.HealthHistory;
     if (!HH) return;
-    const api =
-      domain === 'bloodPressure'
-        ? HH.deleteBloodPressureYearShards
-        : domain === 'weight'
-          ? HH.deleteWeightYearShards
-          : null;
-    if (typeof api !== 'function') return;
+    const api = resolveYearShardDeleteApi(HH, domain);
+    if (typeof api !== 'function') {
+      showToast(t('warehouse.yearDeleteUnavailable'), { ms: 2400 });
+      return;
+    }
     const list = (years || []).map((y) => String(y).slice(0, 4)).filter((y) => /^\d{4}$/.test(y));
     if (!list.length) {
       showToast(t('warehouse.yearNoneSelected'), { ms: 2200 });
@@ -7798,7 +7937,7 @@
       return;
     }
     try {
-      const res = await api.call(HH, list);
+      const res = await api(list);
       if (!res || !res.ok) {
         showToast(t('warehouse.err', { msg: (res && res.reason) || 'fail' }), { ms: 2800 });
         return;
@@ -7816,23 +7955,29 @@
     }
   }
 
-  $('warehouse-bp-select-all')?.addEventListener('change', (e) => {
-    const on = !!(e.target && e.target.checked);
-    document.querySelectorAll('#warehouse-bp-year-list .wh-year-cb').forEach((cb) => {
-      cb.checked = on;
+  function bindYearSelectAll(selectAllId, listId) {
+    $(selectAllId)?.addEventListener('change', (e) => {
+      const on = !!(e.target && e.target.checked);
+      document.querySelectorAll(`#${listId} .wh-year-cb`).forEach((cb) => {
+        cb.checked = on;
+      });
     });
-  });
-  $('warehouse-weight-select-all')?.addEventListener('change', (e) => {
-    const on = !!(e.target && e.target.checked);
-    document.querySelectorAll('#warehouse-weight-year-list .wh-year-cb').forEach((cb) => {
-      cb.checked = on;
-    });
-  });
+  }
+  bindYearSelectAll('warehouse-bp-select-all', 'warehouse-bp-year-list');
+  bindYearSelectAll('warehouse-weight-select-all', 'warehouse-weight-year-list');
+  bindYearSelectAll('warehouse-sleep-select-all', 'warehouse-sleep-year-list');
+  bindYearSelectAll('warehouse-steps-select-all', 'warehouse-steps-year-list');
   $('btn-warehouse-bp-delete-selected')?.addEventListener('click', () => {
     deleteDomainYearShardsUi('bloodPressure', getSelectedYearsFromUi('warehouse-bp-year-list'));
   });
   $('btn-warehouse-weight-delete-selected')?.addEventListener('click', () => {
     deleteDomainYearShardsUi('weight', getSelectedYearsFromUi('warehouse-weight-year-list'));
+  });
+  $('btn-warehouse-sleep-delete-selected')?.addEventListener('click', () => {
+    deleteDomainYearShardsUi('sleep', getSelectedYearsFromUi('warehouse-sleep-year-list'));
+  });
+  $('btn-warehouse-steps-delete-selected')?.addEventListener('click', () => {
+    deleteDomainYearShardsUi('steps', getSelectedYearsFromUi('warehouse-steps-year-list'));
   });
 
   function getYearKeepYears() {
@@ -7854,15 +7999,25 @@
 
   function syncYearKeepYearsUi() {
     const n = getYearKeepYears();
-    ['warehouse-bp-keep-years', 'warehouse-weight-keep-years'].forEach((id) => {
+    [
+      'warehouse-bp-keep-years',
+      'warehouse-weight-keep-years',
+      'warehouse-sleep-keep-years',
+      'warehouse-steps-keep-years',
+    ].forEach((id) => {
       const sel = $(id);
       if (sel && sel.value !== String(n)) sel.value = String(n);
     });
     const label = t('warehouse.yearKeepRecent', { n: String(n) });
-    const bpBtn = $('btn-warehouse-bp-keep-recent');
-    const wtBtn = $('btn-warehouse-weight-keep-recent');
-    if (bpBtn) bpBtn.textContent = label;
-    if (wtBtn) wtBtn.textContent = label;
+    [
+      'btn-warehouse-bp-keep-recent',
+      'btn-warehouse-weight-keep-recent',
+      'btn-warehouse-sleep-keep-recent',
+      'btn-warehouse-steps-keep-recent',
+    ].forEach((id) => {
+      const btn = $(id);
+      if (btn) btn.textContent = label;
+    });
     const bothBtn = $('btn-warehouse-years-keep-both');
     if (bothBtn) bothBtn.textContent = t('warehouse.yearKeepBothRecent', { n: String(n) });
   }
@@ -7875,16 +8030,30 @@
     return { sorted, drop };
   }
 
+  function yearsFromWarehouseStatus(st, domain) {
+    st = st || {};
+    if (domain === 'bloodPressure') {
+      return st.bpYears || (st.bpYearDetails || []).map((d) => d && d.year) || [];
+    }
+    if (domain === 'weight') {
+      return st.weightYears || (st.weightYearDetails || []).map((d) => d && d.year) || [];
+    }
+    if (domain === 'sleep') {
+      return st.sleepYears || (st.sleepYearDetails || []).map((d) => d && d.year) || [];
+    }
+    if (domain === 'steps') {
+      return st.stepsYears || (st.stepsYearDetails || []).map((d) => d && d.year) || [];
+    }
+    return [];
+  }
+
   async function keepRecentDomainYearsUi(domain) {
     const HH = window.HealthHistory;
     if (!HH || typeof HH.getWarehouseStatus !== 'function') return;
     const keepN = getYearKeepYears();
     try {
       const st = await HH.getWarehouseStatus();
-      const years =
-        domain === 'bloodPressure'
-          ? (st.bpYears || (st.bpYearDetails || []).map((d) => d.year) || [])
-          : (st.weightYears || (st.weightYearDetails || []).map((d) => d.year) || []);
+      const years = yearsFromWarehouseStatus(st, domain);
       const { drop } = yearsToDropForKeepN(years, keepN);
       if (!drop.length) {
         showToast(t('warehouse.yearKeepRecentNone', {
@@ -7965,19 +8134,27 @@
     }
   }
 
-  $('warehouse-bp-keep-years')?.addEventListener('change', (e) => {
-    setYearKeepYears(e.target && e.target.value);
-    syncYearKeepYearsUi();
-  });
-  $('warehouse-weight-keep-years')?.addEventListener('change', (e) => {
-    setYearKeepYears(e.target && e.target.value);
-    syncYearKeepYearsUi();
-  });
+  function bindYearKeepYearsSelect(selectId) {
+    $(selectId)?.addEventListener('change', (e) => {
+      setYearKeepYears(e.target && e.target.value);
+      syncYearKeepYearsUi();
+    });
+  }
+  bindYearKeepYearsSelect('warehouse-bp-keep-years');
+  bindYearKeepYearsSelect('warehouse-weight-keep-years');
+  bindYearKeepYearsSelect('warehouse-sleep-keep-years');
+  bindYearKeepYearsSelect('warehouse-steps-keep-years');
   $('btn-warehouse-bp-keep-recent')?.addEventListener('click', () => {
     keepRecentDomainYearsUi('bloodPressure');
   });
   $('btn-warehouse-weight-keep-recent')?.addEventListener('click', () => {
     keepRecentDomainYearsUi('weight');
+  });
+  $('btn-warehouse-sleep-keep-recent')?.addEventListener('click', () => {
+    keepRecentDomainYearsUi('sleep');
+  });
+  $('btn-warehouse-steps-keep-recent')?.addEventListener('click', () => {
+    keepRecentDomainYearsUi('steps');
   });
   $('btn-warehouse-years-keep-both')?.addEventListener('click', () => {
     keepRecentBothDomainYearsUi();
@@ -8145,36 +8322,71 @@
       const months = (st.cgmMonths || []).slice().filter(Boolean).map(String).sort();
       const bpYears = (st.bpYears || []).slice().filter(Boolean).map(String).sort();
       const wtYears = (st.weightYears || []).slice().filter(Boolean).map(String).sort();
+      const sleepYears = (st.sleepYears || []).slice().filter(Boolean).map(String).sort();
+      const stepsYears = (st.stepsYears || []).slice().filter(Boolean).map(String).sort();
 
       const monthDrop =
         months.length > keepM ? months.slice(0, months.length - keepM) : [];
       const bpDrop = yearsToDropForKeepN(bpYears, keepY).drop;
       const wtDrop = yearsToDropForKeepN(wtYears, keepY).drop;
+      const sleepDrop = yearsToDropForKeepN(sleepYears, keepY).drop;
+      const stepsDrop = yearsToDropForKeepN(stepsYears, keepY).drop;
 
-      if (!monthDrop.length && !bpDrop.length && !wtDrop.length) {
-        return { monthDrop, bpDrop, wtDrop, changed: false };
+      if (
+        !monthDrop.length &&
+        !bpDrop.length &&
+        !wtDrop.length &&
+        !sleepDrop.length &&
+        !stepsDrop.length
+      ) {
+        return {
+          monthDrop,
+          bpDrop,
+          wtDrop,
+          sleepDrop,
+          stepsDrop,
+          changed: false,
+        };
+      }
+
+      async function deleteYearDomain(drop, apiName, fallbackDomain, errTag) {
+        if (!drop.length) return true;
+        if (typeof HH[apiName] === 'function') {
+          const r = await HH[apiName](drop);
+          if (!r || !r.ok) {
+            showToast(t('warehouse.err', { msg: (r && r.reason) || errTag }), { ms: 2800 });
+            return false;
+          }
+          return true;
+        }
+        if (typeof HH.deleteDomainYearShards === 'function') {
+          const r = await HH.deleteDomainYearShards(fallbackDomain, drop);
+          if (!r || !r.ok) {
+            showToast(t('warehouse.err', { msg: (r && r.reason) || errTag }), { ms: 2800 });
+            return false;
+          }
+        }
+        return true;
       }
 
       if (monthDrop.length && typeof HH.deleteCgmMonthShards === 'function') {
         const r = await HH.deleteCgmMonthShards(monthDrop);
         if (!r || !r.ok) {
           showToast(t('warehouse.err', { msg: (r && r.reason) || 'cgm_auto_trim' }), { ms: 2800 });
-          return { monthDrop, bpDrop, wtDrop, changed: false, error: true };
+          return { monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop, changed: false, error: true };
         }
       }
-      if (bpDrop.length && typeof HH.deleteBloodPressureYearShards === 'function') {
-        const r = await HH.deleteBloodPressureYearShards(bpDrop);
-        if (!r || !r.ok) {
-          showToast(t('warehouse.err', { msg: (r && r.reason) || 'bp_auto_trim' }), { ms: 2800 });
-          return { monthDrop, bpDrop, wtDrop, changed: false, error: true };
-        }
+      if (!(await deleteYearDomain(bpDrop, 'deleteBloodPressureYearShards', 'bloodPressure', 'bp_auto_trim'))) {
+        return { monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop, changed: false, error: true };
       }
-      if (wtDrop.length && typeof HH.deleteWeightYearShards === 'function') {
-        const r = await HH.deleteWeightYearShards(wtDrop);
-        if (!r || !r.ok) {
-          showToast(t('warehouse.err', { msg: (r && r.reason) || 'weight_auto_trim' }), { ms: 2800 });
-          return { monthDrop, bpDrop, wtDrop, changed: false, error: true };
-        }
+      if (!(await deleteYearDomain(wtDrop, 'deleteWeightYearShards', 'weight', 'weight_auto_trim'))) {
+        return { monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop, changed: false, error: true };
+      }
+      if (!(await deleteYearDomain(sleepDrop, 'deleteSleepYearShards', 'sleep', 'sleep_auto_trim'))) {
+        return { monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop, changed: false, error: true };
+      }
+      if (!(await deleteYearDomain(stepsDrop, 'deleteStepsYearShards', 'steps', 'steps_auto_trim'))) {
+        return { monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop, changed: false, error: true };
       }
 
       // Filter in-memory analysis once, then reanalyze without a second auto-persist.
@@ -8204,6 +8416,20 @@
             );
           }
         }
+        if (sleepDrop.length && data.sleep && typeof data.sleep === 'object') {
+          const next = {};
+          Object.keys(data.sleep).forEach((k) => {
+            if (!sleepDrop.some((y) => String(k).startsWith(y))) next[k] = data.sleep[k];
+          });
+          data.sleep = next;
+        }
+        if (stepsDrop.length && data.steps && typeof data.steps === 'object') {
+          const next = {};
+          Object.keys(data.steps).forEach((k) => {
+            if (!stepsDrop.some((y) => String(k).startsWith(y))) next[k] = data.steps[k];
+          });
+          data.steps = next;
+        }
         skipNextWarehouseAutoPersist = true;
         reanalyzeAfterWarehouseTrim();
         // Persist trimmed working set once (skip nested auto-trim via warehouseAutoTrimRunning).
@@ -8223,7 +8449,7 @@
           { ok: true, ms: 3200 }
         );
       }
-      return { monthDrop, bpDrop, wtDrop, changed: true };
+      return { monthDrop, bpDrop, wtDrop, sleepDrop, stepsDrop, changed: true };
     } catch (e) {
       console.warn('warehouse auto-trim', e);
       showToast(t('warehouse.err', { msg: (e && e.message) || String(e) }), { ms: 3200 });
@@ -8454,6 +8680,9 @@
   });
   $('btn-warehouse-copy-status')?.addEventListener('click', () => {
     copyWarehouseStatusSummary();
+  });
+  $('btn-warehouse-download-status')?.addEventListener('click', () => {
+    downloadWarehouseStatusSummary();
   });
   $('btn-warehouse-home-restore')?.addEventListener('click', () => {
     hydrateFromWarehouse({ manual: true, toast: true });

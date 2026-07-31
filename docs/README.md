@@ -296,6 +296,7 @@ npm run build     # tsc + 生成 web-ui/public/lib.js
 - v1.82：血压与体重「双域一并保留近 N 年」；`npm run perf:parse:json`；手测清单覆盖年分片 keep-N。
 - v1.83：保存到本机仓后可选自动按 keep-N 裁剪 CGM 月与血压/体重年（默认关闭；localStorage 偏好，无二次确认；写队列串行）。仓设计见 `docs/DATA_CENTER_v1.68.md`。
 - v1.84：复制仓状态摘要（仅元数据，无明细序列）；年分片 auto-trim E2E。
+- v1.85：睡眠 / 步数按年分片（`sleep|YYYY`、`steps|YYYY` 日 map 载荷）；status `sleepYears`/`stepsYears`；域独立删年；E2E 与仓设计见 `docs/DATA_CENTER_v1.68.md`。
 
 ## 许可
 
