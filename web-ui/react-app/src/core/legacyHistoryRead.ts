@@ -21,6 +21,8 @@ export type WarehouseMetaView = {
   lastImportBatchId: string | null;
   lastWrittenAt: string | null;
   policyVersion: string | null;
+  /** e.g. sharded-v1 | react-core-full-v1 */
+  layout: string | null;
 };
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -87,6 +89,7 @@ export async function readWarehouseMetaView(): Promise<WarehouseMetaView> {
         lastImportBatchId: null,
         lastWrittenAt: null,
         policyVersion: null,
+        layout: null,
       };
     }
     const row = await new Promise<Record<string, unknown> | null>(
@@ -123,6 +126,7 @@ export async function readWarehouseMetaView(): Promise<WarehouseMetaView> {
         typeof asRecord(consent)?.policyVersion === 'string'
           ? String(asRecord(consent)!.policyVersion)
           : IDB_CONTRACT.warehousePolicyVersion,
+      layout: typeof row?.layout === 'string' ? row.layout : null,
     };
   } finally {
     db.close();

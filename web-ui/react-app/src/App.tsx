@@ -5,6 +5,7 @@ import { OverviewPage } from './pages/OverviewPage';
 import { TrendsPage } from './pages/TrendsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { DataPage } from './pages/DataPage';
+import { PwaUpdateBanner } from './components/PwaUpdateBanner';
 import './styles/theme.css';
 import './styles/app.css';
 
@@ -14,6 +15,7 @@ const basename = (import.meta.env.BASE_URL || '/').replace(/\/$/, '') || '/';
 export default function App() {
   return (
     <ThemeProvider>
+      <PwaUpdateBanner />
       <BrowserRouter basename={basename === '/' ? undefined : basename}>
         <Routes>
           <Route element={<AppShell />}>
@@ -28,4 +30,5 @@ export default function App() {
     </ThemeProvider>
   );
 }
+
 

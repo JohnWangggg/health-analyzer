@@ -49,6 +49,27 @@ describe('warehouseLoad', () => {
     expect(assembled!.layout).toBe('sharded-v1');
   });
 
+  it('coreOnly / react-core-full-v1 ignores domain shards (P0 mix safety)', () => {
+    const xml = readFileSync(FIXTURE, 'utf8');
+    const { data } = analyzeHealthXml(xml);
+    const corePayload = { ...data, cgm: data.cgm.slice(0, 1) };
+    const ghost = data.cgm; // larger set in old shard
+    const assembled = reassembleFromChunks(
+      [
+        {
+          id: 'core|full',
+          domain: 'core',
+          layout: 'react-core-full-v1',
+          payload: corePayload,
+        },
+        { id: 'cgm|2026-07', domain: 'cgm', shard: '2026-07', payload: ghost },
+      ],
+      { metaLayout: 'react-core-full-v1' },
+    );
+    expect(assembled!.data.cgm.length).toBe(1);
+    expect(assembled!.layout).toMatch(/react-core-full/);
+  });
+
   it('loadAndAnalyzeWarehouse returns null without consent', async () => {
     const db = await openEmptyLegacySchemaDb(
       IDB_CONTRACT.name,

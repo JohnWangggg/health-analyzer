@@ -242,31 +242,15 @@ export const useHealthStore = create<HealthState>((set, get) => ({
     }
   },
   persistWarehouse: async () => {
-    const data = get().data;
-    if (!data) {
-      set({ warehousePersistMsg: '无会话数据可写入' });
-      return;
-    }
-    set({ progressLabel: '写入数据仓…', warehousePersistMsg: null });
-    try {
-      const r = await persistHealthDataSimple(data, { grantIfNeeded: true });
-      if (!r.ok) {
-        set({
-          warehousePersistMsg: `写入失败: ${r.reason}`,
-          progressLabel: null,
-        });
-        return;
-      }
-      set({
-        warehousePersistMsg: `已写入 core|full · ~${(r.approxBytes / 1024).toFixed(1)} KB · ${r.recordCount} 条`,
-        progressLabel: null,
-      });
-    } catch (e) {
-      set({
-        warehousePersistMsg: e instanceof Error ? e.message : String(e),
-        progressLabel: null,
-      });
-    }
+    // P0: product gate — do not write simplified core|full into shared IDB
+    set({
+      warehousePersistMsg:
+        '已禁用：共享数据仓写入需与 legacy 完整分片格式统一后才能开放。' +
+        '请用 legacy「更多 → 数据管理」写仓，或仅在会话内分析。',
+      progressLabel: null,
+    });
+    void get().data;
+    void persistHealthDataSimple;
   },
   saveSnapshot: async (label) => {
     const analysis = get().analysis;

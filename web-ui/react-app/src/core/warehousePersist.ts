@@ -1,17 +1,23 @@
 /**
- * Opt-in dual-track warehouse write (simplified layout).
+ * Dual-track warehouse write (simplified layout) — **gated off by default**.
  *
- * Writes `core|full` with full HealthData payload + warehouseMeta consent/stats.
- * Compatible with reassembleFromChunks / loadAndAnalyzeWarehouse.
+ * P0: Writing only `core|full` while legacy domain shards remain causes
+ * load path to prefer shards over core fields. Product UI must not call
+ * this until a shared full-shard writer exists (see warehouseSafety.ts).
  *
- * Full multi-domain year/month sharding + quota eviction remains owned by
- * legacy history-db.js — use legacy for large production warehouses.
+ * Unit tests may pass `{ force: true }` to exercise the serializer path.
  */
 import type { HealthData } from '@health-analyzer/lib';
 import { IDB_CONTRACT, openLegacyHistoryDb } from './idbContract';
+import {
+  REACT_CORE_FULL_LAYOUT,
+  WAREHOUSE_SHARED_WRITE_ENABLED,
+  warehouseWriteBlockedReason,
+} from './warehouseSafety';
 
 const WH_CHUNK_CORE = 'core|full';
 const WAREHOUSE_POLICY = IDB_CONTRACT.warehousePolicyVersion;
+
 
 export type PersistWarehouseResult =
   | {
@@ -104,11 +110,16 @@ export async function grantWarehouseConsent(): Promise<void> {
 /**
  * Persist HealthData as core|full after ensuring consent.
  * Soft cap warn only — hard reject above 200MB JSON approx.
+ *
+ * @param opts.force — test-only / experimental bypass of product gate
  */
 export async function persistHealthDataSimple(
   healthData: HealthData,
-  opts?: { grantIfNeeded?: boolean },
+  opts?: { grantIfNeeded?: boolean; force?: boolean },
 ): Promise<PersistWarehouseResult> {
+  if (!WAREHOUSE_SHARED_WRITE_ENABLED && !opts?.force) {
+    return { ok: false, reason: warehouseWriteBlockedReason() };
+  }
   if (!healthData || typeof healthData !== 'object') {
     return { ok: false, reason: 'no_data' };
   }
@@ -161,7 +172,7 @@ export async function persistHealthDataSimple(
         recordCount,
         updatedAt: now,
         codec: 'json',
-        layout: 'react-core-full-v1',
+        layout: REACT_CORE_FULL_LAYOUT,
       });
       tx.objectStore('warehouseMeta').put({
         ...(metaRow || {}),
@@ -171,14 +182,16 @@ export async function persistHealthDataSimple(
         totalApproxBytes: bytes,
         totalRecordCount: recordCount,
         lastWrittenAt: now,
-        layout: 'react-core-full-v1',
+        layout: REACT_CORE_FULL_LAYOUT,
         notes: [
           ...(((metaRow?.notes as string[]) || []).filter(
-            (n) => n !== 'react-core-full-v1',
+            (n) => n !== REACT_CORE_FULL_LAYOUT,
           ) || []),
-          'react-core-full-v1',
+          REACT_CORE_FULL_LAYOUT,
+          'experimental_force_only',
         ],
       });
+
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });

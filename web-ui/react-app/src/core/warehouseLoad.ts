@@ -6,6 +6,7 @@ import { analyzeAll, type FullAnalysis, type HealthData } from '@health-analyzer
 import { openLegacyHistoryDb, IDB_CONTRACT } from './idbContract';
 import { readWarehouseMetaView } from './legacyHistoryRead';
 import { summarizeAnalysis, type AnalysisSummary } from './HealthCoreAdapter';
+import { REACT_CORE_FULL_LAYOUT } from './warehouseSafety';
 
 const WH_CHUNK_HEALTH = 'healthData|full';
 const WH_CHUNK_CORE = 'core|full';
@@ -16,15 +17,27 @@ type ChunkRow = {
   shard?: string;
   payload?: unknown;
   approxBytes?: number;
+  layout?: string;
 };
 
 function clonePlain<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
+export type ReassembleOptions = {
+  /**
+   * When true, return core payload only and do not overlay domain shards.
+   * Used for react-core-full-v1 and to avoid mixed-state ghost data.
+   */
+  coreOnly?: boolean;
+  /** meta.layout hint from warehouseMeta */
+  metaLayout?: string | null;
+};
+
 /** Port of history-db.js reassembleFromChunks (read path only). */
 export function reassembleFromChunks(
   allChunks: ChunkRow[],
+  options?: ReassembleOptions,
 ): { data: HealthData; legacy: boolean; layout: string } | null {
   if (!allChunks?.length) return null;
 
@@ -44,6 +57,19 @@ export function reassembleFromChunks(
   );
   if (!core || !core.payload) return null;
   const data = clonePlain(core.payload) as HealthData;
+
+  const coreOnly =
+    options?.coreOnly === true ||
+    options?.metaLayout === REACT_CORE_FULL_LAYOUT ||
+    core.layout === REACT_CORE_FULL_LAYOUT;
+
+  if (coreOnly) {
+    return {
+      data,
+      legacy: false,
+      layout: options?.metaLayout || core.layout || REACT_CORE_FULL_LAYOUT,
+    };
+  }
 
   const byDomain = (domain: string) =>
     allChunks
@@ -187,7 +213,17 @@ export async function loadAndAnalyzeWarehouse(options?: {
     db.close();
   }
 
-  const assembled = reassembleFromChunks(chunks);
+  // Prefer meta.layout; also core-only if only core chunk exists (no domain shards)
+  const domainShardCount = chunks.filter(
+    (c) => c.domain && c.domain !== 'core' && c.id !== WH_CHUNK_CORE,
+  ).length;
+  const assembled = reassembleFromChunks(chunks, {
+    metaLayout: meta.layout,
+    coreOnly:
+      meta.layout === REACT_CORE_FULL_LAYOUT ||
+      // pure core-only warehouse (no domain shards) — use core as-is
+      (domainShardCount === 0 && !!chunks.find((c) => c.id === WH_CHUNK_CORE)),
+  });
   if (!assembled?.data) return null;
 
   const analysis = analyzeAll(assembled.data, {

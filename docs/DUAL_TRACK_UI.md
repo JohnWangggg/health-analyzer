@@ -8,7 +8,8 @@
 | **生产默认入口** | `web-ui/public/`（legacy PWA） |
 | **React 预览包** | `web-ui/react-app/` |
 | **同域可选挂载** | `web-ui/public/next/`（`npm run react:export-next`，**gitignore**） |
-| **文档版本** | 覆盖至 `dd55e05` 及本轮文档固化 |
+| **文档版本** | 双轨 **MVP 预览**（非可切主 v3）；P0 共享仓写入已禁用 |
+| **定位** | 高完成度 React **预览版**，不是可安全替代 legacy 的生产架构 |
 
 ---
 
@@ -100,10 +101,10 @@ npm run test:e2e:react     # Playwright React 壳（build + preview :4174）
 
 | 页 | 行为 |
 |----|------|
-| **总览** | 新鲜度 / 优先事项 / KPI；夹具；**XML / ZIP / HAE**；Worker 优先；加载/写入数据仓；保存摘要快照 |
-| **趋势** | 本地 **ECharts 懒加载** chunk + 数据表回退；`extractTrendSeries` |
-| **报告** | 门诊一页纸 / 周报 / 临床复盘 → lib 生成器（adapter） |
-| **数据** | IDB 契约探测（store+index）；快照列表；warehouseMeta 只读 |
+| **总览** | 新鲜度 / 优先 / KPI；夹具；**XML / ZIP / HAE**；Worker；**加载仓**；**写入仓已禁用（P0）**；快照 |
+| **趋势** | 本地 **ECharts 懒加载** + 表回退（ECharts **不**进 SW 首装 precache） |
+| **报告** | 门诊一页纸 / 周报 / 临床复盘 + 复制/下载 .md |
+| **数据** | IDB 契约探测；快照列表；warehouseMeta 只读 |
 
 ### 4.3 导入与 I/O
 
@@ -112,15 +113,15 @@ npm run test:e2e:react     # Playwright React 壳（build + preview :4174）
 | XML | `HealthCoreAdapter.analyzeXml(Async)` | Worker：`analyze.worker.ts`，失败回退主线程 |
 | ZIP | `zipImport.ts` + npm **fflate** | 选 `export.xml` / `导出.xml`；可选 ECG CSV |
 | HAE | `haeImport.ts` → `mergeHaeIntoData` | JSON/CSV，可叠在当前 `HealthData` |
-| 仓加载 | `warehouseLoad.ts` | 需 consent；reassemble domainChunks |
-| 仓写入 | `warehousePersist.ts` | **简化** `core\|full` + 授权（`react-core-full-v1`） |
+| 仓加载 | `warehouseLoad.ts` | consent；reassemble；`react-core-full-v1` **core-only** |
+| 仓写入 | `warehousePersist.ts` | **产品禁用**（`WAREHOUSE_SHARED_WRITE_ENABLED=false`） |
 | 快照 | `snapshotWrite.ts` | `buildAnalysisSnapshot` → `snapshots` keep-30 |
 
 ### 4.4 隐私 / PWA（阶段 5）
 
-- `vite-plugin-pwa`：同域 precache only，`runtimeCaching: []`
-- `scripts/privacy-scan.mjs`：扫描 dist 禁 unpkg/jsdelivr/fonts.googleapis/analytics/sentry 等
-- ECharts / Worker **分 chunk**，Overview 首屏不强制拉满 ECharts
+- `vite-plugin-pwa`：壳层 precache only；**排除** echarts/TrendChart；无 source map；`registerType: 'prompt'`
+- `scripts/privacy-scan.mjs`：禁 CDN/analytics 等
+- ECharts 路由懒加载 + 非首装预缓存
 
 ### 4.5 内核边界与 IDB
 
@@ -196,19 +197,36 @@ flowchart LR
 
 ---
 
-## 8. 明确非目标 / 差异
+## 8. 定位、P0/P1 与非目标
+
+**可宣布：** 现代双轨架构 **MVP / 预览** 完成。  
+**不可宣布：** 架构升级项目完成、新版可替代旧版、可切默认生产入口。
 
 | 项 | 状态 |
 |----|------|
-| Tailwind v4 / 全量 shadcn | **未上**；CSS 变量 + 自有 primitives（Safari 矩阵风险更低） |
-| 生产默认 cutover 到 React | **未做**；需运维改部署根目录 |
-| 仓按月/年分片 + keep-N | **仅 legacy**；React 为 `core\|full` 简化写 |
+| Tailwind v4 / 全量 shadcn | **未上**；CSS 变量 + 自有 primitives |
+| 生产默认 cutover 到 React | **未做** |
+| 仓按月/年分片 + keep-N | **仅 legacy** |
+| 高品质健康大屏 UI | **未做**（仍为功能壳） |
 | HAE 未知指标落库 / CommandPalette | 未做 |
-| 与 legacy 像素级全页对等 | 非目标 |
 
-### 仓写入说明
+### P0 — 共享数据仓互通（阻断切主）
 
-`persistHealthDataSimple`：授权后写入 **一个** `core|full`（layout `react-core-full-v1`），React 加载路径可读。生产级 CGM 分月与配额策略请用 legacy。
+| 问题 | 仅写 `core\|full` 时，若 DB 仍有 legacy 分片，读取会用分片覆盖 core 字段 → 混态。 |
+|------|------|
+| **当前处置** | `WAREHOUSE_SHARED_WRITE_ENABLED=false`；UI「写入数据仓」**禁用**；无 `force` 拒绝写入。 |
+| **读取安全** | `meta.layout === react-core-full-v1` 时 **core-only**，不叠 domain 分片。 |
+| **长期修复** | 共享完整分片序列化 + 配额模块；双向兼容 E2E。**勿**默认清空旧分片。 |
+| **生产建议** | 真实旧仓用户用 **legacy 数据管理** 写仓。 |
+
+### P1 工程
+
+| 项 | 状态 |
+|----|------|
+| ECharts 不进 SW 首装 precache | `globPatterns` 白名单壳层 JS + ignore echarts/TrendChart |
+| 生产关闭 source map | `build.sourcemap: false` |
+| SW 更新用户确认 | `registerType: 'prompt'` + `PwaUpdateBanner` |
+| echarts/core 按需构建 | **未做** |
 
 ---
 

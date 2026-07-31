@@ -45,8 +45,10 @@ describe('warehousePersist', () => {
     const { data, summary } = analyzeHealthXml(xml, { locale: 'zh-CN' });
     expect(summary.counts.cgm).toBeGreaterThan(0);
 
+    // force: product write is gated; tests exercise serializer only
     const written = await persistHealthDataSimple(data, {
       grantIfNeeded: true,
+      force: true,
     });
     expect(written.ok).toBe(true);
     if (written.ok) {
@@ -68,12 +70,28 @@ describe('warehousePersist', () => {
     db.close();
     const xml = readFileSync(FIXTURE, 'utf8');
     const { data } = analyzeHealthXml(xml);
-    const r = await persistHealthDataSimple(data, { grantIfNeeded: false });
+    const r = await persistHealthDataSimple(data, {
+      grantIfNeeded: false,
+      force: true,
+    });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.reason).toBe('no_consent');
   });
 
-  it('grantWarehouseConsent enables subsequent persist', async () => {
+  it('product path blocks write without force', async () => {
+    const db = await openEmptyLegacySchemaDb(
+      IDB_CONTRACT.name,
+      IDB_CONTRACT.version,
+    );
+    db.close();
+    const xml = readFileSync(FIXTURE, 'utf8');
+    const { data } = analyzeHealthXml(xml);
+    const r = await persistHealthDataSimple(data, { grantIfNeeded: true });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/disabled_until_shared_shard_writer/);
+  });
+
+  it('grantWarehouseConsent enables subsequent forced persist', async () => {
     const db = await openEmptyLegacySchemaDb(
       IDB_CONTRACT.name,
       IDB_CONTRACT.version,
@@ -82,7 +100,10 @@ describe('warehousePersist', () => {
     await grantWarehouseConsent();
     const xml = readFileSync(FIXTURE, 'utf8');
     const { data } = analyzeHealthXml(xml);
-    const r = await persistHealthDataSimple(data, { grantIfNeeded: false });
+    const r = await persistHealthDataSimple(data, {
+      grantIfNeeded: false,
+      force: true,
+    });
     expect(r.ok).toBe(true);
   });
 });

@@ -17,8 +17,9 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      // P1: user confirms refresh — avoid mid-import SW takeover
+      registerType: 'prompt',
+      injectRegister: false,
       includeAssets: ['favicon.svg'],
       manifest: {
         name: '健康分析 · React 预览',
@@ -40,19 +41,29 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest,json}'],
+        // Shell assets only — large chart chunks load on demand (not first-install precache)
+        globPatterns: [
+          '**/*.{css,html,ico,png,svg,woff2,webmanifest,json}',
+          '**/index-*.js',
+          '**/rolldown-runtime-*.js',
+          '**/workbox-window*.js',
+          '**/parseWorkerClient-*.js',
+          '**/analyze.worker-*.js',
+        ],
+        globIgnores: ['**/*.map', '**/echarts-*.js', '**/TrendChart-*.js'],
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [],
         cleanupOutdatedCaches: true,
-        clientsClaim: true,
-        skipWaiting: true,
+        clientsClaim: false,
+        skipWaiting: false,
       },
       devOptions: {
         enabled: false,
       },
     }),
   ],
+
   resolve: {
     alias: {
       '@health-analyzer/lib': libSrc,
@@ -70,7 +81,8 @@ export default defineConfig({
     strictPort: false,
   },
   build: {
-    sourcemap: true,
+    // P1: no public source maps in shippable dist
+    sourcemap: false,
     target: 'es2022',
   },
   test: {

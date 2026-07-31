@@ -194,8 +194,22 @@
   }
 }
 
+/* —— PWA update prompt —— */
+.pwa-update-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-muted);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.875rem;
+  z-index: 30;
+}
+
 /* —— App shell: desktop sidebar + mobile bottom nav —— */
 .app-shell {
+
   min-height: 100vh;
   display: grid;
   grid-template-columns: 1fr;
