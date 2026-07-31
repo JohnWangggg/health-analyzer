@@ -135,7 +135,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | `b2e7363` | Shard-delete e2e hard path; overview session UX |
 | `2e99eec` | Plain + **encrypted backup e2e**; trends domain presence |
 | `f58d6fc` | Reports empty CTA/meta; Keep-N one-tap presets |
-| **This release** | Pages **base=/\\<repo\\>/** + `404.html`; Overview **LLM prompt copy**; README zh/en sync |
+| **v2.3.1** `bb9a6d4` | Pages **base=/\\<repo\\>/** + `404.html`; Overview **LLM prompt copy**; README zh/en living changelog |
 
 ### Release checklist
 
