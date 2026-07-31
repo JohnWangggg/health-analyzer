@@ -6,11 +6,13 @@ import { analyzeHealthXml } from './HealthCoreAdapter';
 import {
   WH_SOFT_BYTES,
   buildDomainChunkRows,
+  evictOldestBpWeightYears,
   evictOldestCgmMonths,
   reassembleFromSplit,
   splitHealthDataShards,
   type ShardSplit,
 } from './warehouseShards';
+
 import { reassembleFromChunks } from './warehouseLoad';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -96,7 +98,48 @@ describe('warehouseShards (legacy-compatible split)', () => {
     expect(split.months[split.months.length - 1]!.month).toBe('2020-06');
   });
 
+  it('evictOldestBpWeightYears drops oldest year when over soft quota', () => {
+    const yearSize = Math.floor(WH_SOFT_BYTES / 2.5);
+    const mkYear = (year: string) => ({
+      year,
+      points: [{ datetime: `${year}-06-01`, value: 1 }],
+      approxBytes: yearSize,
+      recordCount: 1,
+    });
+    const mkW = (year: string) => ({
+      year,
+      weight: [{ datetime: `${year}-06-01`, value: 70 }],
+      bodyFat: [] as unknown[],
+      payload: { weight: [{ datetime: `${year}-06-01`, value: 70 }], bodyFat: [] },
+      approxBytes: yearSize,
+      recordCount: 1,
+    });
+    const split = {
+      core: {} as ShardSplit['core'],
+      months: [],
+      bpYears: [mkYear('2018'), mkYear('2019'), mkYear('2020')],
+      weightYears: [mkW('2018'), mkW('2020')],
+      sleepYears: [],
+      stepsYears: [],
+      hrvYears: [],
+      restingHrYears: [],
+      walkingHrYears: [],
+      workoutsYears: [],
+      ecgYears: [],
+      watchDailyYears: [],
+      coreBytes: 10,
+      totalBytes: 10 + yearSize * 5,
+    } as ShardSplit;
+    expect(split.totalBytes).toBeGreaterThan(WH_SOFT_BYTES);
+    const ev = evictOldestBpWeightYears(split);
+    expect(ev.trimmed).toBe(true);
+    expect(ev.removedYears).toBeGreaterThan(0);
+    // oldest 2018 should be gone or reduced
+    expect(split.bpYears.some((y) => y.year === '2020')).toBe(true);
+  });
+
   it('legacy-shaped chunks load same CGM count as React sharded write shape', () => {
+
     // Simulate: build sharded rows (as React/legacy would write), reassemble
     const xml = readFileSync(FIXTURE, 'utf8');
     const { data } = analyzeHealthXml(xml);

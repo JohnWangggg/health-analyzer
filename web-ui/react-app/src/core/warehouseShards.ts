@@ -227,6 +227,9 @@ export type SoftEvictionMeta = {
   trimmed: boolean;
   removedCgm: number;
   removedMonths: number;
+  removedBp: number;
+  removedWeight: number;
+  removedYears: number;
   beforeBytes: number;
   afterBytes: number;
 };
@@ -274,15 +277,85 @@ export function evictOldestCgmMonths(split: ShardSplit): SoftEvictionMeta {
     trimmed: removedCgm > 0,
     removedCgm,
     removedMonths,
+    removedBp: 0,
+    removedWeight: 0,
+    removedYears: 0,
     beforeBytes,
     afterBytes: split.totalBytes,
   };
 }
 
-/** Soft-quota pass used by React sharded persist (CGM months first). */
-export function applySoftQuotaEviction(split: ShardSplit): SoftEvictionMeta {
-  return evictOldestCgmMonths(split);
+/**
+ * Drop oldest BP/weight year shards until under soft quota
+ * (history-db evictOldestBpWeightYears). Mutates split.
+ */
+export function evictOldestBpWeightYears(split: ShardSplit): SoftEvictionMeta {
+  let removedBp = 0;
+  let removedWeight = 0;
+  let removedYears = 0;
+  const beforeBytes = split.totalBytes;
+  if (!split.bpYears) split.bpYears = [];
+  if (!split.weightYears) split.weightYears = [];
+
+  while (
+    split.totalBytes > WH_SOFT_BYTES &&
+    (split.bpYears.length > 0 || split.weightYears.length > 0)
+  ) {
+    const years: Record<string, true> = {};
+    split.bpYears.forEach((y) => {
+      years[y.year] = true;
+    });
+    split.weightYears.forEach((y) => {
+      years[y.year] = true;
+    });
+    const yearKeys = Object.keys(years).sort();
+    if (yearKeys.length <= 1) break;
+
+    const oldestYear = yearKeys[0]!;
+    const bpIdx = split.bpYears.findIndex((y) => y.year === oldestYear);
+    const wIdx = split.weightYears.findIndex((y) => y.year === oldestYear);
+    if (bpIdx >= 0) {
+      const row = split.bpYears.splice(bpIdx, 1)[0]!;
+      removedBp += row.recordCount || 0;
+      removedYears += 1;
+    } else if (wIdx >= 0) {
+      const row = split.weightYears.splice(wIdx, 1)[0]!;
+      removedWeight += (row.weight?.length || 0) + (row.bodyFat?.length || 0);
+      removedYears += 1;
+    } else {
+      break;
+    }
+    recomputeSplitTotalBytes(split);
+  }
+  return {
+    trimmed: removedBp > 0 || removedWeight > 0,
+    removedCgm: 0,
+    removedMonths: 0,
+    removedBp,
+    removedWeight,
+    removedYears,
+    beforeBytes,
+    afterBytes: split.totalBytes,
+  };
 }
+
+/** Soft-quota pass: CGM months then BP/weight years (legacy order). */
+export function applySoftQuotaEviction(split: ShardSplit): SoftEvictionMeta {
+  const beforeBytes = split.totalBytes;
+  const cgm = evictOldestCgmMonths(split);
+  const yw = evictOldestBpWeightYears(split);
+  return {
+    trimmed: cgm.trimmed || yw.trimmed,
+    removedCgm: cgm.removedCgm,
+    removedMonths: cgm.removedMonths,
+    removedBp: yw.removedBp,
+    removedWeight: yw.removedWeight,
+    removedYears: yw.removedYears,
+    beforeBytes,
+    afterBytes: split.totalBytes,
+  };
+}
+
 
 
 /** Split HealthData into thin core + domain shards (legacy-compatible). */

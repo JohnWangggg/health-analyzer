@@ -9,9 +9,20 @@ import {
 import { Sheet } from '../components/ui/Sheet';
 import { Button } from '../components/ui/Button';
 import { Badge } from '../components/ui/Badge';
+import { useLocale } from '../i18n/LocaleProvider';
+import type { AppLocaleUi } from '../i18n/messages';
+import type { MessageKey } from '../i18n/messages';
+
+const NAV_KEYS: Record<WorkspaceId, MessageKey> = {
+  overview: 'nav.overview',
+  trends: 'nav.trends',
+  reports: 'nav.reports',
+  data: 'nav.data',
+};
 
 export function AppShell() {
   const { mode, setMode } = useTheme();
+  const { locale, setLocale, t } = useLocale();
   const location = useLocation();
   const navigate = useNavigate();
   const { active, setFromPath, setActive } = useWorkspaceStore();
@@ -30,21 +41,34 @@ export function AppShell() {
     <div className="app-shell" data-testid="app-shell" data-workspace={active}>
       <header className="app-topbar">
         <div className="brand">
-          <strong>健康 OS · React</strong>
-          <span>本地优先预览 · 非默认生产入口</span>
+          <strong>{t('brand')}</strong>
+          <span>{t('brandSub')}</span>
         </div>
         <div className="header-actions">
-          <Badge tone="accent">双轨</Badge>
+          <Badge tone="accent">{t('dualTrack')}</Badge>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setAboutOpen(true)}
             data-testid="open-about-sheet"
           >
-            关于
+            {t('about')}
           </Button>
+          <label className="sr-only" htmlFor="locale-select">
+            Language
+          </label>
+          <select
+            id="locale-select"
+            className="theme-select"
+            value={locale}
+            onChange={(e) => setLocale(e.target.value as AppLocaleUi)}
+            data-testid="locale-select"
+          >
+            <option value="zh-CN">中文</option>
+            <option value="en">EN</option>
+          </select>
           <label className="sr-only" htmlFor="theme-select">
-            主题
+            {t('theme')}
           </label>
           <select
             id="theme-select"
@@ -53,9 +77,9 @@ export function AppShell() {
             onChange={(e) => setMode(e.target.value as ThemeMode)}
             data-testid="theme-select"
           >
-            <option value="system">系统</option>
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
+            <option value="system">{t('theme.system')}</option>
+            <option value="light">{t('theme.light')}</option>
+            <option value="dark">{t('theme.dark')}</option>
           </select>
         </div>
       </header>
@@ -63,7 +87,7 @@ export function AppShell() {
       <div className="app-body">
         <aside
           className="app-sidebar"
-          aria-label="桌面工作区导航"
+          aria-label="desktop nav"
           data-testid="desktop-sidebar"
         >
           {WORKSPACES.map((w) => (
@@ -76,7 +100,7 @@ export function AppShell() {
               data-nav-surface="sidebar"
               onClick={() => setActive(w.id)}
             >
-              <span>{w.label}</span>
+              <span>{t(NAV_KEYS[w.id])}</span>
               <small>{w.description}</small>
             </NavLink>
           ))}
@@ -89,7 +113,7 @@ export function AppShell() {
 
       <nav
         className="bottom-nav"
-        aria-label="手机工作区导航"
+        aria-label="mobile nav"
         data-testid="mobile-bottom-nav"
       >
         {WORKSPACES.map((w) => (
@@ -102,33 +126,28 @@ export function AppShell() {
             aria-current={active === w.id ? 'page' : undefined}
             onClick={() => go(w.id, w.path)}
           >
-            {w.shortLabel}
+            {t(NAV_KEYS[w.id])}
           </button>
         ))}
       </nav>
 
       <footer className="app-footer">
-        本地优先 · 无 CDN · 生产默认仍为 web-ui/public · 当前工作区：
-        {WORKSPACES.find((w) => w.id === active)?.label}
+        {t('footer')} · {WORKSPACES.find((w) => w.id === active)?.label}
       </footer>
 
       <Sheet
         open={aboutOpen}
         onClose={() => setAboutOpen(false)}
-        title="关于双轨预览"
+        title={t('about')}
       >
         <p className="muted">
-          本壳通过 HealthCoreAdapter 调用 @health-analyzer/lib，不重写解析与统计。
-          IndexedDB 契约与 legacy history-db.js 对齐。健康原始数据不离开本机。
-        </p>
-        <p className="muted" style={{ marginTop: '0.75rem' }}>
-          切换生产入口见 docs/DUAL_TRACK_UI.md；legacy 始终可回退。
+          HealthCoreAdapter → @health-analyzer/lib. IndexedDB v5 sharded-v1
+          compatible with history-db.js. No CDN / analytics.
         </p>
         <p className="muted" style={{ marginTop: '0.75rem' }}>
           <a href="../" data-testid="link-legacy-home">
-            返回 legacy 稳定版
+            ← legacy
           </a>
-          （同域部署在 <code>/next/</code> 时生效）
         </p>
         <div className="row" style={{ marginTop: '0.75rem' }}>
           <Button
@@ -143,7 +162,7 @@ export function AppShell() {
               }
             }}
           >
-            记住偏好：React
+            ui-shell=react
           </Button>
           <Button
             size="sm"
@@ -157,11 +176,10 @@ export function AppShell() {
               }
             }}
           >
-            记住偏好：legacy
+            ui-shell=legacy
           </Button>
         </div>
       </Sheet>
-
     </div>
   );
 }

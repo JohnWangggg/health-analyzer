@@ -20,6 +20,11 @@ test.describe('React dual-track shell', () => {
     await page.getByTestId('sheet-close').click();
     await expect(page.getByTestId('sheet-panel')).toHaveCount(0);
 
+    // shell i18n: switch to EN and back
+    await page.getByTestId('locale-select').selectOption('en');
+    await expect(page.getByTestId('load-fixture')).toContainText(/fixture|demo/i);
+    await page.getByTestId('locale-select').selectOption('zh-CN');
+
     await page.getByTestId('load-fixture').click();
     await expect(page.getByTestId('kpi-cgm')).toBeVisible({ timeout: 20_000 });
     const cgm = await page.getByTestId('kpi-cgm').innerText();

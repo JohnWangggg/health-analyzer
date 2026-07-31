@@ -10,7 +10,9 @@ import {
   LoadingState,
 } from '../components/ui/EmptyState';
 
+import { useLocale } from '../i18n/LocaleProvider';
 import fixtureXml from '../../../../e2e/fixtures/minimal-export.xml?raw';
+
 
 function freshnessLabel(days: number | null): {
   text: string;
@@ -84,6 +86,7 @@ function viaLabel(via: string | null): string {
 
 export function OverviewPage() {
   const navigate = useNavigate();
+  const { t } = useLocale();
   const fileRef = useRef<HTMLInputElement>(null);
   const haeRef = useRef<HTMLInputElement>(null);
   const [snapMsg, setSnapMsg] = useState<string | null>(null);
@@ -168,11 +171,8 @@ export function OverviewPage() {
   return (
     <div className="stack" data-testid="page-overview">
       <div>
-        <h1 className="page-title">今日健康状态</h1>
-        <p className="page-lead">
-          本地优先预览：XML/ZIP/HAE · sharded-v1 数据仓 · 报告与趋势。内核经
-          adapter/lib，非诊断。
-        </p>
+        <h1 className="page-title">{t('overview.title')}</h1>
+        <p className="page-lead">{t('overview.lead')}</p>
       </div>
 
       <div className="overview-toolbar" data-testid="overview-toolbar">
@@ -181,14 +181,14 @@ export function OverviewPage() {
           onClick={loadFixture}
           data-testid="load-fixture"
         >
-          加载演示夹具
+          {t('overview.loadFixture')}
         </Button>
         <Button
           variant="secondary"
           onClick={() => fileRef.current?.click()}
           data-testid="import-file-btn"
         >
-          导入 XML / ZIP
+          {t('overview.importFile')}
         </Button>
         <input
           ref={fileRef}
@@ -206,7 +206,7 @@ export function OverviewPage() {
           onClick={() => haeRef.current?.click()}
           data-testid="import-hae-btn"
         >
-          导入 HAE
+          {t('overview.importHae')}
         </Button>
         <input
           ref={haeRef}
@@ -225,16 +225,16 @@ export function OverviewPage() {
           onClick={() => void loadWarehouse()}
           data-testid="load-warehouse"
         >
-          加载数据仓
+          {t('overview.loadWh')}
         </Button>
         <Button
           variant="secondary"
           onClick={() => void persistWarehouse()}
           disabled={!summary}
-          title="以 legacy 兼容 sharded-v1 全量替换 domainChunks"
+          title="sharded-v1 full replace domainChunks"
           data-testid="persist-warehouse"
         >
-          写入数据仓
+          {t('overview.persistWh')}
         </Button>
         <Button
           variant="secondary"
@@ -242,7 +242,7 @@ export function OverviewPage() {
           disabled={!summary}
           data-testid="save-snapshot"
         >
-          保存摘要快照
+          {t('overview.saveSnap')}
         </Button>
         <Button
           variant="secondary"
@@ -250,7 +250,7 @@ export function OverviewPage() {
           disabled={status === 'idle'}
           data-testid="clear-session"
         >
-          清除
+          {t('overview.clear')}
         </Button>
       </div>
 
@@ -305,9 +305,9 @@ export function OverviewPage() {
       {!summary ? (
         <EmptyState
           testId="overview-empty"
-          title="尚未加载数据"
-          description="演示夹具、XML/ZIP、HAE JSON/CSV，或本地数据仓。"
-          actionLabel="加载演示夹具"
+          title={t('overview.empty')}
+          description="Fixture · XML/ZIP · HAE · warehouse"
+          actionLabel={t('overview.loadFixture')}
           onAction={loadFixture}
         />
       ) : (
@@ -319,7 +319,7 @@ export function OverviewPage() {
               return (
                 <>
                   <div className="overview-hero-main" data-testid="priority-card">
-                    <h2>优先关注</h2>
+                    <h2>{t('overview.priority')}</h2>
                     <p className="overview-hero-title" data-testid="priority-title">
                       {p.title}
                     </p>
@@ -327,32 +327,59 @@ export function OverviewPage() {
                       {p.detail}
                     </p>
                     <div className="status-strip" style={{ marginTop: '0.75rem' }}>
-                      <Badge tone={p.tone}>本机启发式 · 非诊断</Badge>
+                      <Badge tone={p.tone}>heuristic · not diagnosis</Badge>
                       <Badge tone={f.tone} data-testid="kpi-freshness">
-                        数据 {f.text}
+                        {f.text}
                       </Badge>
                     </div>
                   </div>
                   <Card data-testid="freshness-card">
-                    <CardTitle>数据区间</CardTitle>
+                    <CardTitle>{t('overview.range')}</CardTitle>
                     <p className="kpi" data-testid="kpi-range" style={{ fontSize: '1.1rem' }}>
                       {summary.dateRange.start || '—'} →{' '}
                       {summary.dateRange.end || '—'}
                     </p>
                     <CardDesc>
-                      恢复分{' '}
+                      recovery{' '}
                       {summary.kpis.recoveryScore != null
                         ? summary.kpis.recoveryScore
                         : '—'}
                       {summary.kpis.loadScore != null
-                        ? ` · 负荷 ${summary.kpis.loadScore}`
+                        ? ` · load ${summary.kpis.loadScore}`
                         : ''}
                     </CardDesc>
+                    <div className="row" style={{ marginTop: '0.75rem' }}>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => navigate('/trends')}
+                      >
+                        {t('overview.ctaTrends')}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => navigate('/reports')}
+                      >
+                        {t('overview.ctaReports')}
+                      </Button>
+                    </div>
                   </Card>
                 </>
               );
             })()}
           </div>
+
+          <div className="insight-strip" data-testid="insight-strip">
+            {Object.entries(summary.domainPresence)
+              .filter(([, v]) => v)
+              .map(([k]) => (
+                <span key={k} className="insight-chip" data-domain={k}>
+                  {k}
+                </span>
+              ))}
+          </div>
+
 
           <div className="kpi-matrix" data-testid="kpi-matrix">
             <Card>
@@ -394,17 +421,8 @@ export function OverviewPage() {
           </div>
 
 
-          <div className="row">
-            <Button variant="secondary" onClick={() => navigate('/trends')}>
-              打开趋势
-            </Button>
-            <Button variant="secondary" onClick={() => navigate('/reports')}>
-              打开报告
-            </Button>
-          </div>
-
           <Card>
-            <CardTitle>域存在性</CardTitle>
+            <CardTitle>{t('overview.domains')}</CardTitle>
             <div className="row" style={{ marginTop: '0.75rem' }}>
               {Object.entries(summary.domainPresence).map(([k, v]) => (
                 <Badge
@@ -413,7 +431,7 @@ export function OverviewPage() {
                   data-domain={k}
                   data-present={v ? '1' : '0'}
                 >
-                  {k}: {v ? '有' : '无'}
+                  {k}: {v ? '✓' : '—'}
                 </Badge>
               ))}
             </div>
@@ -423,3 +441,4 @@ export function OverviewPage() {
     </div>
   );
 }
+

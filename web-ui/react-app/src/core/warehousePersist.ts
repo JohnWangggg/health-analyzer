@@ -40,8 +40,12 @@ export type PersistWarehouseResult =
       trimmed?: boolean;
       removedCgm?: number;
       removedMonths?: number;
+      removedBp?: number;
+      removedWeight?: number;
+      removedYears?: number;
     }
   | { ok: false; reason: string };
+
 
 
 /** Grant warehouse consent (idempotent). */
@@ -160,12 +164,17 @@ export async function persistHealthDataSharded(
       workoutsYears: split.workoutsYears.map((y) => y.year),
       ecgYears: split.ecgYears.map((y) => y.year),
       watchDailyYears: split.watchDailyYears.map((y) => y.year),
-      notes: evict.trimmed
-        ? ['cgm_months_evicted_for_quota']
-        : split.totalBytes > WH_SOFT_BYTES
-          ? ['soft_quota_exceeded']
-          : [],
+      notes: (() => {
+        const notes: string[] = [];
+        if (evict.removedMonths) notes.push('cgm_months_evicted_for_quota');
+        if (evict.removedBp || evict.removedWeight)
+          notes.push('bp_weight_years_evicted_for_quota');
+        if (!notes.length && split.totalBytes > WH_SOFT_BYTES)
+          notes.push('soft_quota_exceeded');
+        return notes;
+      })(),
     };
+
 
 
     await new Promise<void>((resolve, reject) => {
@@ -193,6 +202,9 @@ export async function persistHealthDataSharded(
       trimmed: evict.trimmed,
       removedCgm: evict.removedCgm,
       removedMonths: evict.removedMonths,
+      removedBp: evict.removedBp,
+      removedWeight: evict.removedWeight,
+      removedYears: evict.removedYears,
     };
   } finally {
     db.close();
