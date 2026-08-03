@@ -116,9 +116,16 @@ test.describe('React dual-track shell', () => {
     await expect(page.getByTestId('fhir-export-panel')).toBeVisible();
     await expect(page.getByTestId('fhir-export-tier')).toBeVisible();
     await expect(page.getByTestId('privacy-wipe-panel')).toBeVisible();
+    await expect(page.getByTestId('snapshot-compare-panel')).toBeVisible();
     await expect(page.getByTestId('export-json')).toBeEnabled();
+    // Trends: range chips + compare select
+    await page.keyboard.press('Alt+Digit2');
+    await expect(page.getByTestId('page-trends')).toBeVisible();
+    await expect(page.getByTestId('trend-range-chips')).toBeVisible();
+    await expect(page.getByTestId('trend-compare-select')).toBeVisible();
     await page.keyboard.press('Alt+Digit1');
     await expect(page.getByTestId('page-overview')).toBeVisible();
+    await expect(page.getByTestId('import-folder-btn')).toBeAttached();
 
     // Workspace keyboard shortcuts: Alt+1..4
     await page.keyboard.press('Alt+Digit2');

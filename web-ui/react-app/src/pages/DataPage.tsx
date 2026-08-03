@@ -14,6 +14,7 @@ import { BackupPanel } from '../features/data/BackupPanel';
 import { ExportPanel } from '../features/data/ExportPanel';
 import { FhirExportPanel } from '../features/data/FhirExportPanel';
 import { PrivacyWipePanel } from '../features/data/PrivacyWipePanel';
+import { SnapshotComparePanel } from '../features/data/SnapshotComparePanel';
 import { SoftQuotaPanel } from '../features/data/SoftQuotaPanel';
 import { KeepNPanel } from '../features/data/KeepNPanel';
 import { ShardCleanupPanel } from '../features/data/ShardCleanupPanel';
@@ -117,6 +118,8 @@ export function DataPage() {
       <FhirExportPanel />
 
       <PrivacyWipePanel />
+
+      <SnapshotComparePanel />
 
       <BackupPanel onImported={() => void refreshLegacy()} />
 

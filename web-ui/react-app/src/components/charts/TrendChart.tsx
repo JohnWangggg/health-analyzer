@@ -5,23 +5,38 @@ export type TrendChartProps = {
   title: string;
   unit: string;
   points: SeriesPoint[];
+  /** Optional secondary series (compare metric; own unit in legend). */
+  compareTitle?: string;
+  compareUnit?: string;
+  comparePoints?: SeriesPoint[];
 };
 
 /**
  * Lazy-loads a **tree-shaken** ECharts build (line + grid + tooltip + dataZoom only).
  * Overview must not import this module so first paint stays free of ECharts.
  */
-export function TrendChart({ title, unit, points }: TrendChartProps) {
+export function TrendChart({
+  title,
+  unit,
+  points,
+  compareTitle,
+  compareUnit,
+  comparePoints,
+}: TrendChartProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [engine, setEngine] = useState<'echarts' | 'fallback' | 'loading'>(
     'loading',
   );
   const [error, setError] = useState<string | null>(null);
+  const hasCompare = !!(comparePoints && comparePoints.length > 0 && compareTitle);
 
   useEffect(() => {
     let disposed = false;
-    let chart: { dispose: () => void; setOption: (o: unknown) => void; resize?: () => void } | null =
-      null;
+    let chart: {
+      dispose: () => void;
+      setOption: (o: unknown) => void;
+      resize?: () => void;
+    } | null = null;
 
     async function mount() {
       if (!hostRef.current) return;
@@ -37,6 +52,7 @@ export function TrendChart({ title, unit, points }: TrendChartProps) {
           TooltipComponent,
           TitleComponent,
           DataZoomComponent,
+          LegendComponent,
         } = await import('echarts/components');
         const { CanvasRenderer } = await import('echarts/renderers');
 
@@ -46,38 +62,93 @@ export function TrendChart({ title, unit, points }: TrendChartProps) {
           TooltipComponent,
           TitleComponent,
           DataZoomComponent,
+          LegendComponent,
           CanvasRenderer,
         ]);
 
         if (disposed || !hostRef.current) return;
+
+        // Align dates: union of primary + compare for dual axis
+        const dateSet = new Set(points.map((p) => p.date));
+        if (hasCompare) {
+          for (const p of comparePoints!) dateSet.add(p.date);
+        }
+        const dates = [...dateSet].sort();
+        const primaryMap = new Map(points.map((p) => [p.date, p.value]));
+        const compareMap = hasCompare
+          ? new Map(comparePoints!.map((p) => [p.date, p.value]))
+          : null;
+
         chart = echarts.init(hostRef.current, undefined, {
           renderer: 'canvas',
         });
         chart.setOption({
           animation: true,
           title: { text: title, left: 0, textStyle: { fontSize: 13 } },
+          legend: hasCompare
+            ? {
+                top: 0,
+                right: 8,
+                data: [title, compareTitle],
+              }
+            : undefined,
           tooltip: { trigger: 'axis' },
-          grid: { left: 48, right: 16, top: 40, bottom: 32 },
+          grid: {
+            left: 48,
+            right: hasCompare ? 48 : 16,
+            top: hasCompare ? 48 : 40,
+            bottom: 32,
+          },
           xAxis: {
             type: 'category',
-            data: points.map((p) => p.date),
+            data: dates,
             boundaryGap: false,
           },
-          yAxis: {
-            type: 'value',
-            name: unit,
-            scale: true,
-          },
+          yAxis: hasCompare
+            ? [
+                { type: 'value', name: unit, scale: true },
+                {
+                  type: 'value',
+                  name: compareUnit || '',
+                  scale: true,
+                  splitLine: { show: false },
+                },
+              ]
+            : {
+                type: 'value',
+                name: unit,
+                scale: true,
+              },
           dataZoom: [{ type: 'inside' }, { type: 'slider', height: 18 }],
           series: [
             {
               name: title,
               type: 'line',
               smooth: true,
-              showSymbol: points.length < 40,
-              data: points.map((p) => p.value),
+              yAxisIndex: 0,
+              showSymbol: dates.length < 40,
+              data: dates.map((d) =>
+                primaryMap.has(d) ? primaryMap.get(d)! : null,
+              ),
               areaStyle: { opacity: 0.08 },
+              connectNulls: false,
             },
+            ...(hasCompare
+              ? [
+                  {
+                    name: compareTitle,
+                    type: 'line',
+                    smooth: true,
+                    yAxisIndex: 1,
+                    showSymbol: dates.length < 40,
+                    data: dates.map((d) =>
+                      compareMap!.has(d) ? compareMap!.get(d)! : null,
+                    ),
+                    connectNulls: false,
+                    lineStyle: { type: 'dashed' as const },
+                  },
+                ]
+              : []),
           ],
         });
         setEngine('echarts');
@@ -99,7 +170,7 @@ export function TrendChart({ title, unit, points }: TrendChartProps) {
       void cleanupPromise;
       chart?.dispose();
     };
-  }, [points, title, unit]);
+  }, [points, title, unit, compareTitle, compareUnit, comparePoints, hasCompare]);
 
   return (
     <div data-testid="trend-chart" data-engine={engine}>
@@ -121,6 +192,7 @@ export function TrendChart({ title, unit, points }: TrendChartProps) {
       {engine === 'echarts' ? (
         <p className="muted" data-testid="echarts-active">
           主趋势：ECharts core 按需构建（非 CDN、非全量包）
+          {hasCompare ? ' · 双轴对比' : ''}
         </p>
       ) : null}
     </div>

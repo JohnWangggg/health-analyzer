@@ -18,6 +18,9 @@ export type MessageKey =
   | 'overview.loadFixture'
   | 'overview.importFile'
   | 'overview.importHae'
+  | 'overview.importFolder'
+  | 'overview.folder.none'
+  | 'overview.haeCancel'
   | 'overview.loadWh'
   | 'overview.persistWh'
   | 'overview.saveSnap'
@@ -149,6 +152,8 @@ export type MessageKey =
   | 'trends.range'
   | 'trends.range.days'
   | 'trends.range.all'
+  | 'trends.compare'
+  | 'trends.compare.none'
   | 'reports.title'
   | 'reports.lead'
   | 'reports.emptyTitle'
@@ -284,7 +289,18 @@ export type MessageKey =
   | 'data.privacy.busy'
   | 'data.privacy.confirm'
   | 'data.privacy.ok'
-  | 'data.privacy.fail';
+  | 'data.privacy.fail'
+  | 'data.compare.title'
+  | 'data.compare.lead'
+  | 'data.compare.needSnaps'
+  | 'data.compare.needTwo'
+  | 'data.compare.missing'
+  | 'data.compare.ok'
+  | 'data.compare.a'
+  | 'data.compare.b'
+  | 'data.compare.run'
+  | 'data.compare.refresh'
+  | 'data.compare.metric';
 
 const zh: Record<MessageKey, string> = {
   brand: '健康 OS',
@@ -310,6 +326,9 @@ const zh: Record<MessageKey, string> = {
   'overview.loadFixture': '加载演示夹具',
   'overview.importFile': '导入 XML / ZIP',
   'overview.importHae': '导入 HAE',
+  'overview.importFolder': '导入文件夹',
+  'overview.folder.none': '文件夹中未找到 export.xml / 导出.xml / ZIP',
+  'overview.haeCancel': '取消 HAE',
   'overview.loadWh': '加载数据仓',
   'overview.persistWh': '写入数据仓',
   'overview.saveSnap': '保存摘要快照',
@@ -444,6 +463,8 @@ const zh: Record<MessageKey, string> = {
   'trends.range': '时间范围',
   'trends.range.days': '近 {n} 日',
   'trends.range.all': '全部',
+  'trends.compare': '对比指标（可选）',
+  'trends.compare.none': '不对比',
   'reports.title': '报告',
   'reports.lead':
     '选择类型 → 预览 Markdown → 复制或下载。内核：visit / weekly / clinical 生成器。',
@@ -592,6 +613,17 @@ const zh: Record<MessageKey, string> = {
   'data.privacy.confirm': '确认清除本机全部健康数据？会话与数据仓将清空，此操作不可撤销。',
   'data.privacy.ok': '已清除 {keys} 个键 · {stores} 个 store',
   'data.privacy.fail': '清除失败',
+  'data.compare.title': '快照环比',
+  'data.compare.lead': '选择两个本机摘要快照，比较数值指标（B−A）。非诊断。',
+  'data.compare.needSnaps': '至少需要 2 条快照（总览「保存摘要快照」）。',
+  'data.compare.needTwo': '请选择两个快照',
+  'data.compare.missing': '无法读取快照详情',
+  'data.compare.ok': '已比较（参考 {n} 个指标字段）',
+  'data.compare.a': '快照 A（较早）',
+  'data.compare.b': '快照 B（较新）',
+  'data.compare.run': '比较',
+  'data.compare.refresh': '刷新列表',
+  'data.compare.metric': '指标',
 };
 
 const en: Record<MessageKey, string> = {
@@ -618,6 +650,9 @@ const en: Record<MessageKey, string> = {
   'overview.loadFixture': 'Load demo fixture',
   'overview.importFile': 'Import XML / ZIP',
   'overview.importHae': 'Import HAE',
+  'overview.importFolder': 'Import folder',
+  'overview.folder.none': 'No export.xml / 导出.xml / ZIP found in folder',
+  'overview.haeCancel': 'Cancel HAE',
   'overview.loadWh': 'Load warehouse',
   'overview.persistWh': 'Save warehouse',
   'overview.saveSnap': 'Save snapshot',
@@ -753,6 +788,8 @@ const en: Record<MessageKey, string> = {
   'trends.range': 'Time range',
   'trends.range.days': 'Last {n} days',
   'trends.range.all': 'All',
+  'trends.compare': 'Compare metric (optional)',
+  'trends.compare.none': 'None',
   'reports.title': 'Reports',
   'reports.lead':
     'Pick a type → preview Markdown → copy or download. Core: visit / weekly / clinical generators.',
@@ -902,6 +939,17 @@ const en: Record<MessageKey, string> = {
   'data.privacy.confirm': 'Wipe all local health data? Session and warehouse will be empty. This cannot be undone.',
   'data.privacy.ok': 'Cleared {keys} keys · {stores} stores',
   'data.privacy.fail': 'Wipe failed',
+  'data.compare.title': 'Snapshot compare',
+  'data.compare.lead': 'Pick two local summary snapshots and compare numeric metrics (B−A). Non-diagnostic.',
+  'data.compare.needSnaps': 'Need at least 2 snapshots (Overview “Save snapshot”).',
+  'data.compare.needTwo': 'Select two snapshots',
+  'data.compare.missing': 'Could not load snapshot detail',
+  'data.compare.ok': 'Compared (ref {n} metric fields)',
+  'data.compare.a': 'Snapshot A (earlier)',
+  'data.compare.b': 'Snapshot B (newer)',
+  'data.compare.run': 'Compare',
+  'data.compare.refresh': 'Refresh list',
+  'data.compare.metric': 'Metric',
 };
 
 const TABLES: Record<AppLocaleUi, Record<MessageKey, string>> = {

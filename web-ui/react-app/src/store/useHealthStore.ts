@@ -7,7 +7,11 @@ import type { FullAnalysis, HealthData } from '@health-analyzer/lib';
 import { analyzeHealthZipFile } from '../core/zipImport';
 import { loadAndAnalyzeWarehouse } from '../core/warehouseLoad';
 import { saveAnalysisSnapshot } from '../core/snapshotWrite';
-import { analyzeHaeBrowserFiles, type HaeImportResult } from '../core/haeImport';
+import {
+  analyzeHaeBrowserFiles,
+  HaeImportCancelledError,
+  type HaeImportResult,
+} from '../core/haeImport';
 import { persistHealthDataSharded } from '../core/warehousePersist';
 import { reanalyzeHealthData } from '../core/reanalyze';
 import { mergeCsvFilesAndAnalyze } from '../core/csvMerge';
@@ -23,6 +27,9 @@ export type AnalyzeVia =
   | 'csv'
   | 'reanalyze'
   | null;
+
+/** Module-level abort for in-flight HAE (not serializable in state). */
+let haeAbort: AbortController | null = null;
 
 type HealthState = {
   status: 'idle' | 'loading' | 'ready' | 'error';
@@ -42,10 +49,13 @@ type HealthState = {
   lastHaeNotes: string[];
   warehousePersistMsg: string | null;
   progressLabel: string | null;
+  /** True while HAE multi-file import can be cancelled. */
+  haeCancellable: boolean;
   loadXml: (xml: string, sourceLabel: string) => void;
   loadXmlAsync: (xml: string, sourceLabel: string) => Promise<void>;
   loadZipFile: (file: File) => Promise<void>;
   loadHaeFiles: (files: File[]) => Promise<void>;
+  cancelHaeImport: () => void;
   loadWarehouse: () => Promise<void>;
   persistWarehouse: () => Promise<void>;
   saveSnapshot: (label?: string) => Promise<string | null>;
@@ -108,6 +118,7 @@ export const useHealthStore = create<HealthState>((set, get) => ({
   lastHaeNotes: [],
   warehousePersistMsg: null,
   progressLabel: null,
+  haeCancellable: false,
   loadXml: (xml, sourceLabel) => {
     set({ status: 'loading', error: null, progressLabel: '解析 XML…' });
     try {
@@ -194,16 +205,32 @@ export const useHealthStore = create<HealthState>((set, get) => ({
     }
   },
   loadHaeFiles: async (files) => {
+    if (haeAbort) {
+      haeAbort.abort();
+      haeAbort = null;
+    }
+    const ac = new AbortController();
+    haeAbort = ac;
     set({
       status: 'loading',
       error: null,
-      progressLabel: `合并 HAE（${files.length} 个文件）…`,
+      progressLabel: `合并 HAE（0/${files.length}）…`,
+      haeCancellable: true,
     });
     try {
-      const base = get().data;
+      const base = get().sourceData || get().data;
       const result: HaeImportResult = await analyzeHaeBrowserFiles(files, {
         locale: 'zh-CN',
         baseData: base,
+        signal: ac.signal,
+        onProgress: (done, total, name) => {
+          set({
+            progressLabel:
+              done >= total
+                ? `分析 HAE（${total} 个文件）…`
+                : `读取 HAE ${done + 1}/${total}${name ? ` · ${name}` : ''}…`,
+          });
+        },
       });
       const names = files.map((f) => f.name).join(', ');
       setFromAnalysis(
@@ -218,16 +245,37 @@ export const useHealthStore = create<HealthState>((set, get) => ({
             `+${result.stats.totalAdded} / ~${result.stats.totalUpdated} / skip ${result.stats.totalSkipped}`,
             ...result.stats.notes.slice(0, 5),
           ],
+          haeCancellable: false,
         },
       );
     } catch (e) {
+      if (e instanceof HaeImportCancelledError || ac.signal.aborted) {
+        set({
+          status: get().analysis ? 'ready' : 'idle',
+          error: null,
+          progressLabel: null,
+          haeCancellable: false,
+          lastHaeNotes: ['HAE 导入已取消'],
+        });
+        return;
+      }
       set({
         status: 'error',
         error: e instanceof Error ? e.message : String(e),
         analyzeVia: null,
         progressLabel: null,
+        haeCancellable: false,
       });
+    } finally {
+      if (haeAbort === ac) haeAbort = null;
     }
+  },
+  cancelHaeImport: () => {
+    if (haeAbort) {
+      haeAbort.abort();
+      haeAbort = null;
+    }
+    set({ haeCancellable: false, progressLabel: '正在取消 HAE…' });
   },
   loadWarehouse: async () => {
     set({
@@ -420,5 +468,6 @@ export const useHealthStore = create<HealthState>((set, get) => ({
       lastHaeNotes: [],
       warehousePersistMsg: null,
       progressLabel: null,
+      haeCancellable: false,
     }),
 }));

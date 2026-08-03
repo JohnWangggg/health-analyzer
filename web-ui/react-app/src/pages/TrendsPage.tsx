@@ -146,9 +146,11 @@ export function TrendsPage() {
     (summary ? firstPresentDomain(summary) : ('steps' as TrendDomain));
 
   const [rangeDays, setRangeDays] = useState(() => loadTrendRangeDays());
+  const [compareDomain, setCompareDomain] = useState<TrendDomain | ''>('');
 
   const setDomain = (id: TrendDomain) => {
     setSearchParams({ domain: id }, { replace: true });
+    if (compareDomain === id) setCompareDomain('');
   };
 
   const setRange = (days: number) => {
@@ -164,6 +166,14 @@ export function TrendsPage() {
       points: slicePointsByRange(full.points, rangeDays),
     };
   }, [analysis, domain, rangeDays]);
+
+  const compareSeries = useMemo(() => {
+    if (!analysis || !compareDomain || compareDomain === domain) return null;
+    const full = extractTrendSeries(analysis, compareDomain);
+    const points = slicePointsByRange(full.points, rangeDays);
+    if (!points.length) return null;
+    return { ...full, points };
+  }, [analysis, compareDomain, domain, rangeDays]);
 
   /** Another domain with points — used when current domain is empty. */
   const switchTarget = useMemo(() => {
@@ -263,10 +273,31 @@ export function TrendsPage() {
         ))}
       </div>
 
+      <label className="user-ctx-field" style={{ maxWidth: '16rem' }}>
+        <span>{t('trends.compare')}</span>
+        <select
+          value={compareDomain}
+          onChange={(e) =>
+            setCompareDomain((e.target.value || '') as TrendDomain | '')
+          }
+          data-testid="trend-compare-select"
+        >
+          <option value="">{t('trends.compare.none')}</option>
+          {DOMAIN_KEYS.filter((d) => d.id !== domain).map((d) => (
+            <option key={d.id} value={d.id}>
+              {t(d.key)}
+            </option>
+          ))}
+        </select>
+      </label>
+
       <Card>
         <CardTitle>
           {domainLabel}
           {series?.unit ? `（${series.unit}）` : ''}
+          {compareSeries
+            ? ` · vs ${t(DOMAIN_KEYS.find((d) => d.id === compareDomain)?.key || 'trends.domain.steps')}`
+            : ''}
         </CardTitle>
         {points.length === 0 ? (
           <div data-testid="trend-empty-domain">
@@ -289,6 +320,16 @@ export function TrendsPage() {
               title={domainLabel}
               unit={series?.unit ?? ''}
               points={points}
+              compareTitle={
+                compareSeries
+                  ? t(
+                      DOMAIN_KEYS.find((d) => d.id === compareDomain)?.key ||
+                        'trends.domain.steps',
+                    )
+                  : undefined
+              }
+              compareUnit={compareSeries?.unit}
+              comparePoints={compareSeries?.points}
             />
           </Suspense>
         )}

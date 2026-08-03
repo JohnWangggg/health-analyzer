@@ -1,4 +1,10 @@
-import { useCallback, useRef, useState, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useRef,
+  useState,
+  type InputHTMLAttributes,
+  type KeyboardEvent,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHealthStore } from '../store/useHealthStore';
 import { Button } from '../components/ui/Button';
@@ -33,6 +39,7 @@ import {
 import { getUserContextForPrompt } from '../core/userContext';
 import { isIncludeEventsCtx } from '../core/includeEvents';
 import { listLocalHealthEvents } from '../core/localEvents';
+import { pickHealthExportFromFolder } from '../core/folderImport';
 import fixtureXml from '../../../../e2e/fixtures/minimal-export.xml?raw';
 
 const KPI_OPEN_KEY = 'ha-react-overview-kpi-open';
@@ -131,6 +138,7 @@ export function OverviewPage() {
   const navigate = useNavigate();
   const { t, locale } = useLocale();
   const fileRef = useRef<HTMLInputElement>(null);
+  const folderRef = useRef<HTMLInputElement>(null);
   const haeRef = useRef<HTMLInputElement>(null);
   const [snapMsg, setSnapMsg] = useState<string | null>(null);
   /** Mobile: collapse advanced toolbar actions; desktop CSS always shows them. */
@@ -163,6 +171,8 @@ export function OverviewPage() {
     loadXmlAsync,
     loadZipFile,
     loadHaeFiles,
+    cancelHaeImport,
+    haeCancellable,
     loadWarehouse,
     persistWarehouse,
     saveSnapshot,
@@ -237,6 +247,29 @@ export function OverviewPage() {
     [loadHaeFiles],
   );
 
+  const onPickFolder = useCallback(
+    async (list: FileList | null) => {
+      if (!list?.length) return;
+      setSnapMsg(null);
+      const picked = pickHealthExportFromFolder(Array.from(list));
+      if (picked.kind === 'none') {
+        useHealthStore.setState({
+          status: 'error',
+          error: t('overview.folder.none'),
+          analyzeVia: null,
+        });
+        return;
+      }
+      if (picked.kind === 'zip') {
+        await loadZipFile(picked.file);
+        return;
+      }
+      const text = await picked.file.text();
+      await loadXmlAsync(text, picked.label);
+    },
+    [loadXmlAsync, loadZipFile, t],
+  );
+
   const onSaveSnap = useCallback(async () => {
     const id = await saveSnapshot('React 预览');
     setSnapMsg(id ? `已保存快照 ${id}` : '保存失败');
@@ -280,6 +313,17 @@ export function OverviewPage() {
         >
           <span className="import-progress-dot" aria-hidden />
           <span className="import-progress-label">{label}</span>
+          {haeCancellable ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              data-testid="hae-cancel"
+              onClick={() => cancelHaeImport()}
+            >
+              {t('overview.haeCancel')}
+            </Button>
+          ) : null}
         </div>
         <LoadingState label={label} />
       </div>
@@ -368,6 +412,28 @@ export function OverviewPage() {
             data-testid="import-hae-input"
             onChange={(e) => {
               void onPickHae(e.target.files);
+              e.target.value = '';
+            }}
+          />
+          <Button
+            variant="secondary"
+            onClick={() => folderRef.current?.click()}
+            data-testid="import-folder-btn"
+          >
+            {t('overview.importFolder')}
+          </Button>
+          <input
+            ref={folderRef}
+            type="file"
+            multiple
+            className="sr-only"
+            data-testid="import-folder-input"
+            {...({
+              webkitdirectory: '',
+              directory: '',
+            } as InputHTMLAttributes<HTMLInputElement>)}
+            onChange={(e) => {
+              void onPickFolder(e.target.files);
               e.target.value = '';
             }}
           />

@@ -73,17 +73,39 @@ export function analyzeHaeFiles(
   };
 }
 
+export class HaeImportCancelledError extends Error {
+  constructor(message = 'hae_import_cancelled') {
+    super(message);
+    this.name = 'HaeImportCancelledError';
+  }
+}
+
 export async function analyzeHaeBrowserFiles(
   fileList: File[],
-  options?: { locale?: string | null; baseData?: HealthData | null },
+  options?: {
+    locale?: string | null;
+    baseData?: HealthData | null;
+    signal?: AbortSignal;
+    onProgress?: (done: number, total: number, name: string) => void;
+  },
 ): Promise<HaeImportResult> {
   const files: HaeFileText[] = [];
-  for (const f of fileList) {
+  const total = fileList.length;
+  for (let i = 0; i < fileList.length; i++) {
+    if (options?.signal?.aborted) {
+      throw new HaeImportCancelledError();
+    }
+    const f = fileList[i]!;
     const name = f.name || 'hae.json';
     if (!/\.(json|csv)$/i.test(name)) {
       throw new Error(`不支持的 HAE 文件类型: ${name}（需要 .json / .csv）`);
     }
+    options?.onProgress?.(i, total, name);
     files.push({ name, text: await f.text() });
   }
+  if (options?.signal?.aborted) {
+    throw new HaeImportCancelledError();
+  }
+  options?.onProgress?.(total, total, '');
   return analyzeHaeFiles(files, options);
 }
