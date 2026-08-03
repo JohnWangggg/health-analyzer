@@ -295,6 +295,16 @@ declare module '@health-analyzer/lib' {
     input: Partial<HealthEvent> & { kind: string; date: string; title?: string },
   ): HealthEvent | null;
   export function sortHealthEvents(events: HealthEvent[]): HealthEvent[];
+  export function extractMedicationEventsFromHaeJson(
+    text: string,
+    options?: { includeTaken?: boolean },
+  ): HealthEvent[];
+
+  export function parseHaeMedicationsToEvents(
+    meds: unknown[],
+    options?: { includeTaken?: boolean },
+  ): HealthEvent[];
+
   export function formatEventKindLabel(
     kind: HealthEventKind,
     locale?: string,

@@ -12,6 +12,12 @@ import { EmptyState, LoadingState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
 import { useLocale } from '../i18n/LocaleProvider';
 import type { MessageKey } from '../i18n/messages';
+import {
+  addChartPreset,
+  deleteChartPreset,
+  loadChartPresets,
+  type ChartPreset,
+} from '../core/chartPresets';
 
 const TREND_RANGE_KEY = 'ha-react-trend-range-days';
 const RANGE_OPTIONS = [7, 30, 90, 0] as const; // 0 = all
@@ -147,6 +153,10 @@ export function TrendsPage() {
 
   const [rangeDays, setRangeDays] = useState(() => loadTrendRangeDays());
   const [compareDomain, setCompareDomain] = useState<TrendDomain | ''>('');
+  const [presets, setPresets] = useState<ChartPreset[]>(() =>
+    loadChartPresets(),
+  );
+  const [presetName, setPresetName] = useState('');
 
   const setDomain = (id: TrendDomain) => {
     setSearchParams({ domain: id }, { replace: true });
@@ -156,6 +166,32 @@ export function TrendsPage() {
   const setRange = (days: number) => {
     setRangeDays(days);
     saveTrendRangeDays(days);
+  };
+
+  const applyPreset = (p: ChartPreset) => {
+    setDomain(p.domain);
+    setCompareDomain(
+      p.compareDomain && p.compareDomain !== p.domain ? p.compareDomain : '',
+    );
+    setRange(p.rangeDays);
+  };
+
+  const onSavePreset = () => {
+    const name =
+      presetName.trim() ||
+      `${domain}${compareDomain ? `+${compareDomain}` : ''}-${rangeDays || 'all'}`;
+    const next = addChartPreset({
+      name,
+      domain,
+      compareDomain: compareDomain || '',
+      rangeDays,
+    });
+    setPresets(next);
+    setPresetName('');
+  };
+
+  const onDeletePreset = (id: string) => {
+    setPresets(deleteChartPreset(id));
   };
 
   const series = useMemo(() => {
@@ -290,6 +326,55 @@ export function TrendsPage() {
           ))}
         </select>
       </label>
+
+      <div
+        className="chart-presets-bar"
+        data-testid="chart-presets-bar"
+      >
+        <span className="muted" style={{ fontSize: '0.85rem' }}>
+          {t('trends.presets')}
+        </span>
+        <input
+          type="text"
+          maxLength={40}
+          placeholder={t('trends.presets.namePh')}
+          value={presetName}
+          onChange={(e) => setPresetName(e.target.value)}
+          data-testid="chart-preset-name"
+          style={{ maxWidth: '10rem' }}
+        />
+        <Button
+          size="sm"
+          variant="secondary"
+          type="button"
+          data-testid="chart-preset-save"
+          onClick={onSavePreset}
+        >
+          {t('trends.presets.save')}
+        </Button>
+        {presets.map((p) => (
+          <span key={p.id} className="chart-preset-chip">
+            <Button
+              size="sm"
+              variant="ghost"
+              type="button"
+              data-testid={`chart-preset-apply-${p.id}`}
+              onClick={() => applyPreset(p)}
+            >
+              {p.name}
+            </Button>
+            <button
+              type="button"
+              className="chart-preset-del"
+              data-testid={`chart-preset-del-${p.id}`}
+              aria-label={t('trends.presets.delete')}
+              onClick={() => onDeletePreset(p.id)}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
 
       <Card>
         <CardTitle>

@@ -101,6 +101,9 @@ export type MessageKey =
   | 'overview.events.added'
   | 'overview.events.deleted'
   | 'overview.events.needDate'
+  | 'overview.events.importMeds'
+  | 'overview.events.includeTaken'
+  | 'overview.events.medsOk'
   | 'overview.csv.summary'
   | 'overview.csv.hint'
   | 'overview.csv.weight'
@@ -124,6 +127,7 @@ export type MessageKey =
   | 'shell.legacyRollback'
   | 'shell.legacyRollbackHint'
   | 'shell.kbdHint'
+  | 'shell.offline'
   | 'tv.enter'
   | 'tv.exit'
   | 'tv.dataUpdated'
@@ -154,6 +158,10 @@ export type MessageKey =
   | 'trends.range.all'
   | 'trends.compare'
   | 'trends.compare.none'
+  | 'trends.presets'
+  | 'trends.presets.namePh'
+  | 'trends.presets.save'
+  | 'trends.presets.delete'
   | 'reports.title'
   | 'reports.lead'
   | 'reports.emptyTitle'
@@ -412,6 +420,9 @@ const zh: Record<MessageKey, string> = {
   'overview.events.added': '已添加',
   'overview.events.deleted': '已删除',
   'overview.events.needDate': '请填写日期',
+  'overview.events.importMeds': '导入 HAE 用药 JSON',
+  'overview.events.includeTaken': '包含 Taken 记录',
+  'overview.events.medsOk': '已导入 {n}/{parsed} 条用药事件',
   'overview.csv.summary': '外部体重 / 血压 CSV 合并',
   'overview.csv.hint':
     '欧姆龙类中文表头 CSV 合并进当前会话后重算；仅本机，不上传。',
@@ -433,6 +444,7 @@ const zh: Record<MessageKey, string> = {
   'shell.sessionReady': '已加载',
   'shell.sessionIdle': '未加载',
   'shell.kbdHint': 'Alt+1–4 切换工作区',
+  'shell.offline': '当前离线：本地优先仍可用，数据仓与分析不上传。',
   'tv.enter': '健康大屏',
   'tv.exit': '退出大屏',
   'tv.dataUpdated': '数据截止 {end}',
@@ -465,6 +477,10 @@ const zh: Record<MessageKey, string> = {
   'trends.range.all': '全部',
   'trends.compare': '对比指标（可选）',
   'trends.compare.none': '不对比',
+  'trends.presets': '图表预设',
+  'trends.presets.namePh': '预设名称',
+  'trends.presets.save': '保存预设',
+  'trends.presets.delete': '删除预设',
   'reports.title': '报告',
   'reports.lead':
     '选择类型 → 预览 Markdown → 复制或下载。内核：visit / weekly / clinical 生成器。',
@@ -736,6 +752,9 @@ const en: Record<MessageKey, string> = {
   'overview.events.added': 'Added',
   'overview.events.deleted': 'Deleted',
   'overview.events.needDate': 'Date required',
+  'overview.events.importMeds': 'Import HAE meds JSON',
+  'overview.events.includeTaken': 'Include Taken logs',
+  'overview.events.medsOk': 'Imported {n}/{parsed} medication events',
   'overview.csv.summary': 'External weight / BP CSV merge',
   'overview.csv.hint':
     'Merge scale/BP CSV into the current session and reanalyze. Local only.',
@@ -757,6 +776,7 @@ const en: Record<MessageKey, string> = {
   'shell.sessionReady': 'Ready',
   'shell.sessionIdle': 'Idle',
   'shell.kbdHint': 'Alt+1–4 switch workspace',
+  'shell.offline': 'Offline: local-first still works; warehouse & analysis stay on-device.',
   'tv.enter': 'TV mode',
   'tv.exit': 'Exit TV',
   'tv.dataUpdated': 'Data through {end}',
@@ -790,6 +810,10 @@ const en: Record<MessageKey, string> = {
   'trends.range.all': 'All',
   'trends.compare': 'Compare metric (optional)',
   'trends.compare.none': 'None',
+  'trends.presets': 'Chart presets',
+  'trends.presets.namePh': 'Preset name',
+  'trends.presets.save': 'Save preset',
+  'trends.presets.delete': 'Delete preset',
   'reports.title': 'Reports',
   'reports.lead':
     'Pick a type → preview Markdown → copy or download. Core: visit / weekly / clinical generators.',

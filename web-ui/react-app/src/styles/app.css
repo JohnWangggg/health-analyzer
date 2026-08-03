@@ -1486,6 +1486,56 @@ body.health-dashboard-mode[data-dashboard-focus='metrics'] .kpi-matrix {
   font-size: 1.35rem;
   letter-spacing: 0.04em;
 }
+
+/* Offline banner */
+.connectivity-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.55rem 1rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  background: color-mix(in srgb, #b54708 14%, var(--bg-elevated, #fff));
+  border-bottom: 1px solid color-mix(in srgb, #b54708 35%, var(--border, #ddd));
+  color: var(--text, #111);
+}
+
+/* Chart presets */
+.chart-presets-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.5rem;
+}
+.chart-presets-bar input[type='text'] {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  min-height: 36px;
+}
+.chart-preset-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.chart-preset-del {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0 0.4rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+.chart-preset-del:hover {
+  color: var(--danger, #b42318);
+}
 .user-ctx-field select {
   border: 1px solid var(--border);
   background: var(--bg-elevated);

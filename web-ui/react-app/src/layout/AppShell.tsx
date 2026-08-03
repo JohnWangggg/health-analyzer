@@ -17,6 +17,7 @@ import {
   DashboardModeChrome,
   useDashboardMode,
 } from '../features/dashboard/DashboardMode';
+import { ConnectivityBanner } from '../components/ConnectivityBanner';
 
 const NAV_KEYS: Record<WorkspaceId, MessageKey> = {
   overview: 'nav.overview',
@@ -117,6 +118,7 @@ export function AppShell() {
         active={dashboardOn}
         onExit={() => setDashboard(false)}
       />
+      <ConnectivityBanner />
       <header className="app-topbar">
         <div className="brand">
           <strong>{t('brand')}</strong>

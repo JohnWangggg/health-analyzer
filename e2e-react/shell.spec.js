@@ -123,9 +123,14 @@ test.describe('React dual-track shell', () => {
     await expect(page.getByTestId('page-trends')).toBeVisible();
     await expect(page.getByTestId('trend-range-chips')).toBeVisible();
     await expect(page.getByTestId('trend-compare-select')).toBeVisible();
+    await expect(page.getByTestId('chart-presets-bar')).toBeVisible();
+    await page.getByTestId('chart-preset-name').fill('e2e-preset');
+    await page.getByTestId('chart-preset-save').click();
+    await expect(page.getByTestId('chart-presets-bar')).toContainText('e2e-preset');
     await page.keyboard.press('Alt+Digit1');
     await expect(page.getByTestId('page-overview')).toBeVisible();
     await expect(page.getByTestId('import-folder-btn')).toBeAttached();
+    await expect(page.getByTestId('event-import-meds')).toBeAttached();
 
     // Workspace keyboard shortcuts: Alt+1..4
     await page.keyboard.press('Alt+Digit2');

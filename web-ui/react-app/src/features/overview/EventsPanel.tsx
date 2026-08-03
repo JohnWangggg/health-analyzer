@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Button } from '../../components/ui/Button';
 import {
   deleteLocalHealthEvent,
@@ -7,6 +7,7 @@ import {
   type HealthEvent,
   type HealthEventKind,
 } from '../../core/localEvents';
+import { importHaeMedicationsFile } from '../../core/haeMedsImport';
 import { useLocale } from '../../i18n/LocaleProvider';
 
 const KIND_OPTIONS: HealthEventKind[] = [
@@ -35,6 +36,8 @@ export function EventsPanel() {
   const [note, setNote] = useState('');
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [includeTaken, setIncludeTaken] = useState(false);
+  const medsRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async (opts?: { keepStatus?: boolean }) => {
     setBusy(true);
@@ -90,6 +93,27 @@ export function EventsPanel() {
       }
     },
     [refresh, t],
+  );
+
+  const onImportMeds = useCallback(
+    async (file: File | null) => {
+      if (!file) return;
+      setBusy(true);
+      try {
+        const r = await importHaeMedicationsFile(file, { includeTaken });
+        setStatus(
+          t('overview.events.medsOk')
+            .replace('{n}', String(r.saved))
+            .replace('{parsed}', String(r.parsed)),
+        );
+        await refresh({ keepStatus: true });
+      } catch (e) {
+        setStatus(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [includeTaken, refresh, t],
   );
 
   return (
@@ -168,6 +192,36 @@ export function EventsPanel() {
           >
             {t('overview.events.refresh')}
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            type="button"
+            disabled={busy}
+            data-testid="event-import-meds"
+            onClick={() => medsRef.current?.click()}
+          >
+            {t('overview.events.importMeds')}
+          </Button>
+          <input
+            ref={medsRef}
+            type="file"
+            accept=".json,application/json"
+            className="sr-only"
+            data-testid="event-meds-input"
+            onChange={(e) => {
+              void onImportMeds(e.target.files?.[0] ?? null);
+              e.target.value = '';
+            }}
+          />
+          <label className="user-ctx-check" style={{ marginTop: 0 }}>
+            <input
+              type="checkbox"
+              checked={includeTaken}
+              onChange={(e) => setIncludeTaken(e.target.checked)}
+              data-testid="event-meds-include-taken"
+            />
+            <span>{t('overview.events.includeTaken')}</span>
+          </label>
           {status ? (
             <span className="muted" data-testid="events-status" aria-live="polite">
               {status}
