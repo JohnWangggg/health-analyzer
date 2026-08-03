@@ -161,6 +161,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.5.9** | **TV atmosphere + mobile Today**: aurora/grid backdrop, focus progress bar + soft stage lighting; phone first screen hides prompt/KPI config/domain chips, max 3 signals |
 | **v2.5.10** | **Desktop command center**: overview 3 layers (status → 7/30d sparkline strip → KPI+signals); no ECharts on first paint |
 | **v2.5.11** | **Trends/Reports/Data product copy**: restrained stagger enter; user-facing leads; report stage + trends controls visual alignment |
+| **v2.5.12** | **Data page narrative sections + domain color tokens**: status/export/backup/space/privacy; recovery·sleep·metabolic·activity accents |
 
 ### Release checklist
 

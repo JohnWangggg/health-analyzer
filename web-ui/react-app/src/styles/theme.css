@@ -40,6 +40,13 @@
   --danger: #b42318;
   --ok: #067647;
   --watch: #b54708;
+  /* Domain / physiology accents (low saturation, product not marketing) */
+  --domain-recovery: #0d6e6e;
+  --domain-load: #b54708;
+  --domain-sleep: #5b6abf;
+  --domain-metabolic: #0f7a5a;
+  --domain-activity: #2a7ab5;
+  --domain-heart: #b4234a;
   --shadow: 0 1px 2px rgb(15 23 42 / 6%), 0 8px 24px rgb(15 23 42 / 6%);
   --overlay: rgb(15 23 42 / 45%);
 }
@@ -58,6 +65,12 @@
   --danger: #f97066;
   --ok: #32d583;
   --watch: #fdb022;
+  --domain-recovery: #2dd4bf;
+  --domain-load: #fdb022;
+  --domain-sleep: #8b9cf7;
+  --domain-metabolic: #34d399;
+  --domain-activity: #38bdf8;
+  --domain-heart: #fb7185;
   --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 35%);
   --overlay: rgb(0 0 0 / 55%);
 }
@@ -77,6 +90,12 @@
     --danger: #f97066;
     --ok: #32d583;
     --watch: #fdb022;
+    --domain-recovery: #2dd4bf;
+    --domain-load: #fdb022;
+    --domain-sleep: #8b9cf7;
+    --domain-metabolic: #34d399;
+    --domain-activity: #38bdf8;
+    --domain-heart: #fb7185;
     --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 35%);
     --overlay: rgb(0 0 0 / 55%);
   }

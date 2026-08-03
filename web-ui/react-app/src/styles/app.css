@@ -827,9 +827,67 @@
 }
 .overview-trend-spark {
   margin-top: auto;
-  color: var(--accent);
+  color: var(--domain-activity);
   width: 100%;
   max-width: 100%;
+}
+.overview-trend-card[data-testid='overview-trend-steps'] .overview-trend-spark {
+  color: var(--domain-activity);
+}
+.overview-trend-card[data-testid='overview-trend-weight'] .overview-trend-spark,
+.overview-trend-card[data-testid='overview-trend-cgmDailyMean'] .overview-trend-spark {
+  color: var(--domain-metabolic);
+}
+.overview-trend-card[data-testid='overview-trend-sleepTotal'] .overview-trend-spark {
+  color: var(--domain-sleep);
+}
+
+/* Data workspace sections */
+.data-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow);
+}
+.data-section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+}
+.data-section-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.data-section-lead {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  max-width: 40rem;
+}
+.data-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.data-section-export {
+  border-color: color-mix(in srgb, var(--domain-activity) 28%, var(--border));
+}
+.data-section-space {
+  border-color: color-mix(in srgb, var(--domain-load) 25%, var(--border));
+}
+.data-section-privacy {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  background: color-mix(in srgb, var(--danger) 4%, var(--bg-elevated));
+}
+.data-tech-detail {
+  font-size: 0.8rem;
 }
 .sparkline-line {
   vector-effect: non-scaling-stroke;
@@ -1167,7 +1225,7 @@
   stroke: color-mix(in srgb, var(--accent) 18%, var(--border));
 }
 .recovery-ring-progress {
-  stroke: var(--accent);
+  stroke: var(--domain-recovery);
 }
 .recovery-ring-center {
   position: absolute;
@@ -1189,6 +1247,7 @@
 .recovery-ring-value {
   font-size: 2.1rem !important;
   margin: 0.05rem 0;
+  color: var(--domain-recovery) !important;
 }
 .recovery-ring-sub {
   font-size: 0.72rem;
@@ -1335,8 +1394,21 @@
 .signal-item-icon {
   flex-shrink: 0;
   margin-top: 0.15rem;
-  color: var(--accent);
+  color: var(--domain-recovery);
   opacity: 0.9;
+}
+.signal-item[data-signal='sleep'] .signal-item-icon {
+  color: var(--domain-sleep);
+}
+.signal-item[data-signal='steps'] .signal-item-icon,
+.signal-item[data-signal='workouts'] .signal-item-icon {
+  color: var(--domain-activity);
+}
+.signal-item[data-signal='cgm'] .signal-item-icon {
+  color: var(--domain-metabolic);
+}
+.signal-item[data-signal='recovery-low'] .signal-item-icon {
+  color: var(--domain-load);
 }
 .signal-item-body {
   display: flex;

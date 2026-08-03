@@ -201,8 +201,24 @@ export type MessageKey =
   | 'reports.includeEvents'
   | 'reports.useUserContext'
   | 'data.title'
+  | 'data.lead'
   | 'data.leadPrefix'
   | 'data.leadSuffix'
+  | 'data.section.status'
+  | 'data.section.statusLead'
+  | 'data.section.export'
+  | 'data.section.exportLead'
+  | 'data.section.backup'
+  | 'data.section.backupLead'
+  | 'data.section.space'
+  | 'data.section.spaceLead'
+  | 'data.section.privacy'
+  | 'data.section.privacyLead'
+  | 'data.layout.sharded'
+  | 'data.layout.legacy'
+  | 'data.layout.unknown'
+  | 'data.meta.title'
+  | 'data.storageDetail'
   | 'data.source'
   | 'data.sourceEmpty'
   | 'data.sourceDesc'
@@ -537,9 +553,26 @@ const zh: Record<MessageKey, string> = {
   'reports.includeEvents': '报告含本机事件（时间共现）',
   'reports.useUserContext': '注入个人背景',
   'data.title': '数据',
+  'data.lead':
+    '管理本机健康数据：查看状态、导出与备份、控制占用，以及清除隐私数据。全部留在此设备。',
   'data.leadPrefix': '管理本机健康数据与备份。存储位置：',
   'data.leadSuffix':
     '。保存时会完整更新本机数据；可选用口令加密备份。',
+  'data.section.status': '当前状态',
+  'data.section.statusLead': '会话来源、区间与本机存储概况。',
+  'data.section.export': '导出与交换',
+  'data.section.exportLead': '把分析导出为文件，或生成本机 FHIR 归档。',
+  'data.section.backup': '备份与恢复',
+  'data.section.backupLead': '加密或明文备份文件，仅保存在你的设备。',
+  'data.section.space': '空间与清理',
+  'data.section.spaceLead': '限制保留时长、清理旧分段，避免本机空间吃紧。',
+  'data.section.privacy': '隐私清除',
+  'data.section.privacyLead': '一键移除本机健康数据；不可撤销。',
+  'data.layout.sharded': '分段存储',
+  'data.layout.legacy': '旧布局',
+  'data.layout.unknown': '未知',
+  'data.meta.title': '本机仓概况',
+  'data.storageDetail': '存储 {name} · 版本 {version}',
   'data.source': '当前来源',
   'data.sourceEmpty': '尚未加载数据',
   'data.sourceDesc': '本次会话中的导入或本机读取结果。',
@@ -886,9 +919,26 @@ const en: Record<MessageKey, string> = {
   'reports.includeEvents': 'Include local events (co-occurrence)',
   'reports.useUserContext': 'Include personal context',
   'data.title': 'Data',
+  'data.lead':
+    'Manage on-device health data: status, export & backup, space controls, and privacy wipe. Everything stays on this device.',
   'data.leadPrefix': 'Manage on-device health data and backups. Storage: ',
   'data.leadSuffix':
     '. Saving fully updates local data; optional passphrase encryption for backups.',
+  'data.section.status': 'Current status',
+  'data.section.statusLead': 'Session source, range, and local storage overview.',
+  'data.section.export': 'Export & exchange',
+  'data.section.exportLead': 'Export analysis files or a local FHIR archive.',
+  'data.section.backup': 'Backup & restore',
+  'data.section.backupLead': 'Encrypted or plain backup files — on your device only.',
+  'data.section.space': 'Space & cleanup',
+  'data.section.spaceLead': 'Limit retention and remove old segments when space is tight.',
+  'data.section.privacy': 'Privacy wipe',
+  'data.section.privacyLead': 'Remove local health data in one step. Irreversible.',
+  'data.layout.sharded': 'Segmented storage',
+  'data.layout.legacy': 'Legacy layout',
+  'data.layout.unknown': 'Unknown',
+  'data.meta.title': 'Local store overview',
+  'data.storageDetail': 'Store {name} · v{version}',
   'data.source': 'Current source',
   'data.sourceEmpty': 'No data loaded yet',
   'data.sourceDesc': 'Import or local read for this session.',
