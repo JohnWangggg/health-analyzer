@@ -340,7 +340,7 @@ English:
 | `f58d6fc` | 报告空态 CTA + meta；Keep-N **一键预设** |
 | **v2.3.1** `bb9a6d4` | GitHub Pages **base=/<repo>/** + `404.html` SPA；总览 **复制大模型提示词**；中英文 README 版本要点表 |
 | **v2.3.2** `9fd9f57` | React **个人背景**（legacy 同 localStorage 键）+ **今日快照**条；提示词注入上下文 |
-| **v2.3.3** _(pending push)_ | React **敏感上下文开关**：复制提示词时可选剥离用药/病史（键 `health-analyzer-include-sensitive-ctx`，与 legacy 一致；默认包含） |
+| **v2.3.3** `68901ec` | React **敏感上下文开关**：复制提示词时可选剥离用药/病史（键 `health-analyzer-include-sensitive-ctx`，与 legacy 一致；默认包含） |
 
 ### 发版检查清单（每次 push 前）
 

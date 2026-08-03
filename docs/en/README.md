@@ -137,7 +137,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | `f58d6fc` | Reports empty CTA/meta; Keep-N one-tap presets |
 | **v2.3.1** `bb9a6d4` | Pages **base=/\\<repo\\>/** + `404.html`; Overview **LLM prompt copy**; README zh/en living changelog |
 | **v2.3.2** `9fd9f57` | React **personal context** (same localStorage key as legacy) + **today snapshot** strip; inject into LLM prompt |
-| **v2.3.3** _(pending push)_ | React **include-sensitive toggle**: strip meds/conditions from LLM prompt when off (key `health-analyzer-include-sensitive-ctx`, same as legacy; default on) |
+| **v2.3.3** `68901ec` | React **include-sensitive toggle**: strip meds/conditions from LLM prompt when off (key `health-analyzer-include-sensitive-ctx`, same as legacy; default on) |
 
 ### Release checklist
 
