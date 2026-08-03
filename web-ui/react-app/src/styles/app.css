@@ -1651,28 +1651,113 @@
 /* Health TV / dashboard mode */
 .dashboard-mode-bar {
   display: none;
+  position: relative;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
   flex-wrap: wrap;
-  padding: 0.65rem 1rem;
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
+  padding: 0.65rem 1rem 0.85rem;
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   font-size: 0.95rem;
+  z-index: 40;
 }
 body.health-dashboard-mode .dashboard-mode-bar {
   display: flex;
   position: sticky;
   top: 0;
-  z-index: 40;
 }
+
+/* Slow aurora + grid — TV only, no thrash */
+.dashboard-atmosphere {
+  display: none;
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+body.health-dashboard-mode .dashboard-atmosphere {
+  display: block;
+}
+.dashboard-atmosphere-aurora {
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(
+      ellipse 55% 40% at 20% 30%,
+      color-mix(in srgb, var(--accent) 22%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      ellipse 50% 45% at 80% 20%,
+      color-mix(in srgb, var(--ok) 14%, transparent),
+      transparent 65%
+    ),
+    radial-gradient(
+      ellipse 60% 50% at 50% 90%,
+      color-mix(in srgb, var(--focus) 10%, transparent),
+      transparent 70%
+    );
+  animation: dashboard-aurora-breathe 28s ease-in-out infinite alternate;
+}
+.dashboard-atmosphere-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.22;
+  background-image:
+    linear-gradient(
+      color-mix(in srgb, var(--border) 55%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--border) 55%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 40%, #000 20%, transparent 75%);
+}
+.dashboard-atmosphere-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 90% 80% at 50% 40%,
+    transparent 40%,
+    color-mix(in srgb, var(--bg) 55%, transparent) 100%
+  );
+}
+@keyframes dashboard-aurora-breathe {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.85;
+  }
+  to {
+    transform: translate3d(2%, -1.5%, 0) scale(1.04);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-atmosphere-aurora {
+    animation: none;
+  }
+}
+
 /*
  * P0: desktop .app-body is `sidebar-width 1fr`. Hiding the sidebar does NOT
  * collapse the first track — main stayed ~248px. Force single full-width column.
  */
+body.health-dashboard-mode .app-shell {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
 body.health-dashboard-mode .app-body {
   grid-template-columns: 1fr !important;
   width: 100%;
+  position: relative;
+  z-index: 1;
 }
 body.health-dashboard-mode .app-main {
   grid-column: 1 / -1;
@@ -1682,12 +1767,15 @@ body.health-dashboard-mode .app-main {
   font-size: 1.15rem;
   padding: 1rem 1.75rem 2rem;
   min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 body.health-dashboard-mode .app-sidebar,
 body.health-dashboard-mode .bottom-nav,
 body.health-dashboard-mode .app-footer,
 body.health-dashboard-mode .overview-toolbar,
 body.health-dashboard-mode .overview-tools-drawer,
+body.health-dashboard-mode .overview-tools-mobile,
 body.health-dashboard-mode .overview-collapsible,
 body.health-dashboard-mode .prompt-actions,
 body.health-dashboard-mode .page-lead,
@@ -1695,7 +1783,8 @@ body.health-dashboard-mode .badge-dual-track,
 body.health-dashboard-mode .shell-session-chip,
 body.health-dashboard-mode .theme-select,
 body.health-dashboard-mode [data-testid='open-about-sheet'],
-body.health-dashboard-mode [data-testid='locale-select'] {
+body.health-dashboard-mode [data-testid='locale-select'],
+body.health-dashboard-mode [data-testid='overview-tools-mobile-open'] {
   display: none !important;
 }
 body.health-dashboard-mode .app-topbar {
@@ -1708,8 +1797,9 @@ body.health-dashboard-mode .status-band {
   grid-template-columns: minmax(10rem, 14rem) 1fr;
   gap: 1.25rem;
 }
-body.health-dashboard-mode .status-band-value {
-  font-size: 3.5rem;
+body.health-dashboard-mode .status-band-value,
+body.health-dashboard-mode .recovery-ring-value {
+  font-size: 3.25rem !important;
 }
 body.health-dashboard-mode .status-band-title {
   font-size: 1.75rem;
@@ -1735,8 +1825,27 @@ body.health-dashboard-mode .dashboard-focus-btns {
   gap: 0.35rem;
 }
 body.health-dashboard-mode .dashboard-mode-bar {
-  padding: 0.85rem 1.25rem;
+  padding: 0.85rem 1.25rem 1rem;
   font-size: 1.05rem;
+}
+.dashboard-focus-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+  overflow: hidden;
+}
+.dashboard-focus-progress-bar {
+  height: 100%;
+  width: 100%;
+  transform-origin: left center;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--accent) 40%, transparent),
+    var(--accent)
+  );
 }
 @media (max-width: 900px) {
   body.health-dashboard-mode .status-band,
@@ -1744,27 +1853,132 @@ body.health-dashboard-mode .dashboard-mode-bar {
     grid-template-columns: 1fr;
   }
 }
+
+/* Focus carousel: soft stage lighting, dim non-focus (not harsh outlines) */
+body.health-dashboard-mode[data-dashboard-focus] .status-band,
+body.health-dashboard-mode[data-dashboard-focus] .today-strip,
+body.health-dashboard-mode[data-dashboard-focus] .signal-list,
+body.health-dashboard-mode[data-dashboard-focus] .overview-split,
+body.health-dashboard-mode[data-dashboard-focus] .primary-actions,
+body.health-dashboard-mode[data-dashboard-focus] .insight-strip,
+body.health-dashboard-mode[data-dashboard-focus] .data-quality-banner {
+  transition:
+    opacity var(--motion-value) var(--motion-ease-out),
+    filter var(--motion-value) var(--motion-ease-out),
+    box-shadow var(--motion-value) var(--motion-ease-out);
+}
+body.health-dashboard-mode[data-dashboard-focus='signals'] .status-band,
+body.health-dashboard-mode[data-dashboard-focus='signals'] .overview-split,
+body.health-dashboard-mode[data-dashboard-focus='signals'] .primary-actions {
+  opacity: 0.42;
+  filter: saturate(0.85);
+}
 body.health-dashboard-mode[data-dashboard-focus='signals'] [data-testid='signal-list'] {
-  outline: 2px solid var(--accent, #3b82f6);
-  outline-offset: 4px;
-  border-radius: 12px;
+  opacity: 1;
+  filter: none;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 12px 40px color-mix(in srgb, var(--accent) 18%, transparent);
+  border-radius: 14px;
+  padding: 0.5rem;
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
 }
-body.health-dashboard-mode[data-dashboard-focus='priority'] [data-testid='priority-title'] {
-  outline: 2px solid var(--accent, #3b82f6);
-  outline-offset: 6px;
-  border-radius: 8px;
+body.health-dashboard-mode[data-dashboard-focus='priority'] .overview-split,
+body.health-dashboard-mode[data-dashboard-focus='priority'] .signal-list,
+body.health-dashboard-mode[data-dashboard-focus='priority'] .primary-actions {
+  opacity: 0.42;
+  filter: saturate(0.85);
 }
-body.health-dashboard-mode[data-dashboard-focus='metrics'] [data-testid='kpi-card-cgm'],
+body.health-dashboard-mode[data-dashboard-focus='priority'] .status-band {
+  opacity: 1;
+  filter: none;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 16px 48px color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 16px;
+}
+body.health-dashboard-mode[data-dashboard-focus='metrics'] .status-band,
+body.health-dashboard-mode[data-dashboard-focus='metrics'] .signal-list,
+body.health-dashboard-mode[data-dashboard-focus='metrics'] .primary-actions {
+  opacity: 0.42;
+  filter: saturate(0.85);
+}
+body.health-dashboard-mode[data-dashboard-focus='metrics'] .overview-split {
+  opacity: 1;
+  filter: none;
+}
 body.health-dashboard-mode[data-dashboard-focus='metrics'] .kpi-matrix {
-  outline: 2px solid var(--accent, #3b82f6);
-  outline-offset: 4px;
-  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 12px 40px color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 14px;
+  padding: 0.35rem;
+  background: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
 }
 .dashboard-clock {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   font-size: 1.35rem;
   letter-spacing: 0.04em;
+}
+
+/* —— Mobile Today: one primary story —— */
+@media (max-width: 720px) {
+  [data-testid='page-overview'] .page-lead {
+    font-size: 0.9rem;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  /* After data loads: hide secondary chrome on first screen */
+  [data-testid='page-overview']:has([data-testid='status-band']) .page-lead {
+    display: none;
+  }
+  [data-testid='page-overview'] [data-testid='llm-prompt-bar'] {
+    display: none;
+  }
+  [data-testid='page-overview'] [data-testid='kpi-visibility-bar'] {
+    display: none;
+  }
+  [data-testid='page-overview'] [data-testid='insight-strip'] {
+    display: none;
+  }
+  [data-testid='page-overview'] [data-testid='overview-domains-section'] {
+    display: none;
+  }
+  [data-testid='page-overview'] [data-testid='data-quality-banner'] {
+    font-size: 0.82rem;
+  }
+  [data-testid='page-overview'] .status-band-detail {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  [data-testid='page-overview'] [data-testid='today-strip'] {
+    font-size: 0.85rem;
+  }
+  [data-testid='page-overview'] .primary-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  [data-testid='page-overview'] .primary-actions .ui-btn-primary {
+    width: 100%;
+  }
+  /* KPI section open by default but fewer visual layers */
+  [data-testid='page-overview'] .overview-split {
+    gap: var(--space-3);
+  }
+  [data-testid='page-overview'] .signal-list {
+    margin-top: var(--space-2);
+  }
+  [data-testid='page-overview'] .signal-list-ul {
+    gap: 0.5rem;
+  }
+  [data-testid='page-overview'] .signal-item:nth-child(n + 4) {
+    display: none;
+  }
 }
 
 /* Data quality */

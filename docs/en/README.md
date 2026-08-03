@@ -158,6 +158,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.5.6** | **First-load code-split**: route-level `React.lazy` for four workspaces + `vendor-react` / `health-lib` chunks; entry ~19KB (~7KB gzip); no single &gt;500KB main-chunk warning |
 | **v2.5.7** | **Overview secondary lazy**: date filter / personal context / events / CSV / recovery weights idle-deferred into separate chunk |
 | **v2.5.8** | **UI foundation + dashboard P0**: fix 248px TV-mode grid collapse (1440 E2E); Motion / Lucide / AutoAnimate / Vaul; recovery ring, nav icons, demoted tools + mobile drawer |
+| **v2.5.9** | **TV atmosphere + mobile Today**: aurora/grid backdrop, focus progress bar + soft stage lighting; phone first screen hides prompt/KPI config/domain chips, max 3 signals |
 
 ### Release checklist
 

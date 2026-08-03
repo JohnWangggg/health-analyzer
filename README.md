@@ -356,3 +356,4 @@ English:
 | **v2.5.6** | **首屏 code-split**：四工作区 `React.lazy` 路由拆分 + `vendor-react` / `health-lib` 稳定 chunk；入口主包约 19KB（gzip ~7KB），消除 &gt;500KB 单包告警 |
 | **v2.5.7** | **总览二级懒加载**：日期过滤/个人背景/事件/CSV/恢复权重 idle 后挂载独立 chunk，Overview 关键路径更短 |
 | **v2.5.8** | **UI 基础设施 + 大屏 P0**：修大屏 248px 栅格塌陷（1440 E2E）；接入 Motion / Lucide / AutoAnimate / Vaul；恢复环、导航图标、总览工具降级与手机抽屉 |
+| **v2.5.9** | **大屏氛围 + 手机 Today**：TV Aurora/网格背景、焦点轮播进度条与柔光舞台；手机首屏隐藏提示词/KPI 配置/域标签，信号最多 3 条 |

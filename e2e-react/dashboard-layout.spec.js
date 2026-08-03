@@ -19,6 +19,8 @@ test.describe('dashboard layout (1440 desktop)', () => {
     await page.getByTestId('btn-dashboard-mode').click();
     await expect(page.getByTestId('dashboard-mode-bar')).toBeVisible();
     await expect(page.locator('body')).toHaveClass(/health-dashboard-mode/);
+    await expect(page.getByTestId('dashboard-atmosphere')).toBeAttached();
+    await expect(page.getByTestId('dashboard-focus-progress')).toBeAttached();
 
     const main = page.locator('.app-main');
     await expect(main).toBeVisible();
@@ -33,7 +35,7 @@ test.describe('dashboard layout (1440 desktop)', () => {
     expect(ovBox.width).toBeGreaterThan(800);
 
     // Status score should not be squeezed into a single narrow column
-    const score = page.locator('.status-band-value').first();
+    const score = page.locator('.status-band-value, .recovery-ring-value').first();
     if (await score.count()) {
       const scoreBox = await score.boundingBox();
       if (scoreBox) {
@@ -41,7 +43,21 @@ test.describe('dashboard layout (1440 desktop)', () => {
       }
     }
 
+    // Manual focus switch updates body attribute (carousel polish)
+    await page.getByTestId('dashboard-focus-signals').click();
+    await expect(page.locator('body')).toHaveAttribute(
+      'data-dashboard-focus',
+      'signals',
+    );
+    await page.getByTestId('dashboard-focus-priority').click();
+    await expect(page.locator('body')).toHaveAttribute(
+      'data-dashboard-focus',
+      'priority',
+    );
+
     await page.getByTestId('dashboard-exit').click();
     await expect(page.getByTestId('dashboard-mode-bar')).toHaveCount(0);
+    await expect(page.getByTestId('dashboard-atmosphere')).toHaveCount(0);
   });
 });
+
