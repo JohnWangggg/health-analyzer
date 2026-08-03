@@ -345,7 +345,7 @@ English:
 | **v2.4** `6229d49` | **产品路径完整迁入 React**：事件时间线 · CSV 合并 · 恢复权重 · 大屏 TV · JSON/CSV/快照导出 · FHIR 本机归档 · 报告 HTML/敏感选项 |
 | **v2.4.1** `39a4a08` | Pages **白屏防护**：启动占位 + 8s 恢复按钮；SW/chunk 失效自动清缓存；navigateFallback 兼容 project base |
 | **v2.4.2** `349d7a3` | **Legacy 软弃用**：`docs/LEGACY_PARITY.md`；`/legacy/` 顶栏弃用条；About 折叠回滚入口 |
-| **v2.5** _(pending push)_ | **删除完整 legacy UI**：仅留 `/legacy/` 跳转；P0 日期过滤/事件/清除/FHIR exchange；schema 迁 `idb-schema/`；CI 只跑 e2e-react |
+| **v2.5**  | **删除完整 legacy UI**：仅留 `/legacy/` 跳转；P0 日期过滤/事件/清除/FHIR exchange；schema 迁 `idb-schema/`；CI 只跑 e2e-react |
 
 ### 发版检查清单（每次 push 前）
 

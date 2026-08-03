@@ -141,7 +141,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.4** `6229d49` | **Full product path on React**: events · CSV merge · recovery weights · TV mode · JSON/CSV/snapshot export · FHIR local archive · clinical HTML/sensitive options |
 | **v2.4.1** `39a4a08` | Pages **white-screen guard**: boot placeholder + recovery; auto clear SW on chunk miss; base-safe navigateFallback |
 | **v2.4.2** `349d7a3` | **Legacy soft-deprecation**: `docs/LEGACY_PARITY.md`; banner on `/legacy/`; About fold for rollback |
-| **v2.5** _(pending push)_ | **Full legacy UI removed**: `/legacy/` redirect only; P0 date filter/events/wipe/FHIR exchange; schema in `idb-schema/`; CI e2e-react only |
+| **v2.5**  | **Full legacy UI removed**: `/legacy/` redirect only; P0 date filter/events/wipe/FHIR exchange; schema in `idb-schema/`; CI e2e-react only |
 
 ### Release checklist
 
