@@ -342,7 +342,7 @@ English:
 | **v2.3.2** `9fd9f57` | React **个人背景**（legacy 同 localStorage 键）+ **今日快照**条；提示词注入上下文 |
 | **v2.3.3** `68901ec` | React **敏感上下文开关**：复制提示词时可选剥离用药/病史（键 `health-analyzer-include-sensitive-ctx`，与 legacy 一致；默认包含） |
 | **v2.4** `6229d49` | **产品路径完整迁入 React**：事件时间线 · CSV 合并 · 恢复权重 · 大屏 TV · JSON/CSV/快照导出 · FHIR 本机归档 · 报告 HTML/敏感选项 |
-| **v2.4.1** _(pending push)_ | Pages **白屏防护**：启动占位 + 8s 恢复按钮；SW/chunk 失效自动清缓存；navigateFallback 兼容 project base |
+| **v2.4.1**  | Pages **白屏防护**：启动占位 + 8s 恢复按钮；SW/chunk 失效自动清缓存；navigateFallback 兼容 project base |
 
 ### 发版检查清单（每次 push 前）
 
