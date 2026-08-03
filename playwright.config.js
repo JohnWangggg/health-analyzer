@@ -5,7 +5,8 @@ const path = require('path');
 const publicDir = path.join(__dirname, 'web-ui/public');
 
 module.exports = defineConfig({
-  testDir: './e2e',
+  // Default e2e is React (legacy UI removed). Archive suite remains under ./e2e.
+  testDir: './e2e-react',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
@@ -13,23 +14,22 @@ module.exports = defineConfig({
   reporter: process.env.CI ? 'github' : 'list',
   timeout: 60_000,
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: 'http://127.0.0.1:4174',
     trace: 'on-first-retry',
     locale: 'zh-CN',
-    // Avoid SW caching flaky history-db/app during parallel e2e against live public/
     serviceWorkers: 'block',
   },
   projects: [
     {
-      name: 'chromium',
+      name: 'chromium-react',
       use: { ...devices['Desktop Chrome'] },
     },
   ],
   webServer: {
-    // Static serve of PWA assets (no SPA rewrite needed)
-    command: `npx --yes serve "${publicDir}" -l 4173 --no-port-switching --cors`,
-    url: 'http://127.0.0.1:4173',
+    command:
+      'npm --prefix web-ui/react-app run build && npm --prefix web-ui/react-app run preview -- --host 127.0.0.1 --port 4174',
+    url: 'http://127.0.0.1:4174',
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 180_000,
   },
 });

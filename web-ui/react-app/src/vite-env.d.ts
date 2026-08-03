@@ -91,7 +91,11 @@ declare module '@health-analyzer/lib' {
   export function generateWeeklyReportMarkdown(
     analysis: FullAnalysis,
     userContext?: unknown,
-    options?: { locale?: AppLocale | string; includeEvents?: boolean },
+    options?: {
+      locale?: AppLocale | string;
+      includeEvents?: boolean;
+      events?: unknown[];
+    },
   ): string;
 
   export function generateClinicalReviewMarkdown(
@@ -203,12 +207,20 @@ declare module '@health-analyzer/lib' {
       [key: string]: number;
     };
     validation?: { ok: boolean; issues: string[] };
+    exchangeValidation?: { ok: boolean; issues?: string[] };
+    exportTier?: string;
   }
 
   export function buildFhirExportBundle(
     analysis: FullAnalysis,
     options?: Record<string, unknown>,
   ): FhirExportResult;
+
+  export function filterEventsInRange(
+    events: HealthEvent[],
+    start?: string | null,
+    end?: string | null,
+  ): HealthEvent[];
 
   export interface CsvMergeResult {
     weightAdded: number;

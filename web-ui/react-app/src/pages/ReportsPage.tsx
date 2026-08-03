@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHealthStore } from '../store/useHealthStore';
 import {
@@ -7,6 +7,8 @@ import {
   type ReportKind,
 } from '../core/HealthCoreAdapter';
 import { getUserContextForPrompt } from '../core/userContext';
+import { isIncludeEventsCtx } from '../core/includeEvents';
+import { listLocalHealthEvents } from '../core/localEvents';
 import { downloadText } from '../core/download';
 import { Button } from '../components/ui/Button';
 import { Card, CardTitle } from '../components/ui/Card';
@@ -29,14 +31,34 @@ export function ReportsPage() {
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [useCtx, setUseCtx] = useState(true);
   const [includeSensitive, setIncludeSensitive] = useState(false);
+  const [includeEvents, setIncludeEvents] = useState(() =>
+    isIncludeEventsCtx(),
+  );
+  const [events, setEvents] = useState<unknown[]>([]);
+
+  useEffect(() => {
+    if (!includeEvents) {
+      setEvents([]);
+      return;
+    }
+    let cancelled = false;
+    void listLocalHealthEvents().then((rows) => {
+      if (!cancelled) setEvents(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [includeEvents, analysis?.dateRange?.end]);
 
   const reportOpts = useMemo(
     () => ({
       locale: (locale === 'en' ? 'en' : 'zh-CN') as 'en' | 'zh-CN',
       userContext: useCtx ? getUserContextForPrompt() : null,
       includeSensitiveContext: includeSensitive,
+      includeEvents,
+      events,
     }),
-    [locale, useCtx, includeSensitive],
+    [locale, useCtx, includeSensitive, includeEvents, events],
   );
 
   const preview = useMemo(() => {
@@ -129,6 +151,17 @@ export function ReportsPage() {
           />
           <span>{t('reports.useUserContext')}</span>
         </label>
+        {(kind === 'clinical' || kind === 'weekly') && (
+          <label className="user-ctx-check">
+            <input
+              type="checkbox"
+              checked={includeEvents}
+              onChange={(e) => setIncludeEvents(e.target.checked)}
+              data-testid="report-include-events"
+            />
+            <span>{t('reports.includeEvents')}</span>
+          </label>
+        )}
         {kind === 'clinical' ? (
           <label className="user-ctx-check">
             <input

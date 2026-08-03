@@ -74,6 +74,17 @@ export type MessageKey =
   | 'overview.ctx.cleared'
   | 'overview.ctx.saveFail'
   | 'overview.ctx.includeSensitive'
+  | 'overview.ctx.includeEvents'
+  | 'overview.dateFilter.summary'
+  | 'overview.dateFilter.hint'
+  | 'overview.dateFilter.start'
+  | 'overview.dateFilter.end'
+  | 'overview.dateFilter.apply'
+  | 'overview.dateFilter.clear'
+  | 'overview.dateFilter.applied'
+  | 'overview.dateFilter.saved'
+  | 'overview.dateFilter.cleared'
+  | 'overview.dateFilter.invalid'
   | 'overview.events.summary'
   | 'overview.events.hint'
   | 'overview.events.kind'
@@ -135,6 +146,9 @@ export type MessageKey =
   | 'trends.domain.cgmDailyMean'
   | 'trends.domain.sleepTotal'
   | 'trends.domain.hrv'
+  | 'trends.range'
+  | 'trends.range.days'
+  | 'trends.range.all'
   | 'reports.title'
   | 'reports.lead'
   | 'reports.emptyTitle'
@@ -152,6 +166,7 @@ export type MessageKey =
   | 'reports.copyFail'
   | 'reports.downloaded'
   | 'reports.includeSensitive'
+  | 'reports.includeEvents'
   | 'reports.useUserContext'
   | 'data.title'
   | 'data.leadPrefix'
@@ -258,7 +273,18 @@ export type MessageKey =
   | 'data.fhir.ok'
   | 'data.fhir.fail'
   | 'data.fhir.valOk'
-  | 'data.fhir.valWarn';
+  | 'data.fhir.valWarn'
+  | 'data.fhir.tier'
+  | 'data.fhir.tier.archive'
+  | 'data.fhir.tier.exchange'
+  | 'data.fhir.exchangeBlocked'
+  | 'data.privacy.title'
+  | 'data.privacy.lead'
+  | 'data.privacy.action'
+  | 'data.privacy.busy'
+  | 'data.privacy.confirm'
+  | 'data.privacy.ok'
+  | 'data.privacy.fail';
 
 const zh: Record<MessageKey, string> = {
   brand: '健康 OS',
@@ -342,6 +368,17 @@ const zh: Record<MessageKey, string> = {
   'overview.ctx.cleared': '已清除',
   'overview.ctx.saveFail': '无法写入 localStorage',
   'overview.ctx.includeSensitive': '复制提示词时包含用药与病史',
+  'overview.ctx.includeEvents': '复制提示词时包含本机事件（默认关）',
+  'overview.dateFilter.summary': '分析日期范围（会话）',
+  'overview.dateFilter.hint': '限制当前会话重算的日历窗口；保存在 sessionStorage，不上传。',
+  'overview.dateFilter.start': '开始',
+  'overview.dateFilter.end': '结束',
+  'overview.dateFilter.apply': '应用并重算',
+  'overview.dateFilter.clear': '清除范围',
+  'overview.dateFilter.applied': '已按日期范围重算',
+  'overview.dateFilter.saved': '已保存日期范围（加载数据后生效）',
+  'overview.dateFilter.cleared': '已清除日期范围',
+  'overview.dateFilter.invalid': '开始日期不能晚于结束日期',
   'overview.events.summary': '本机事件时间线（共现复盘）',
   'overview.events.hint':
     '用药变更、旅行、症状等仅用于时间对照，不作因果推断；存 IndexedDB，与旧版共用。',
@@ -404,6 +441,9 @@ const zh: Record<MessageKey, string> = {
   'trends.domain.cgmDailyMean': 'CGM 日均',
   'trends.domain.sleepTotal': '睡眠时长',
   'trends.domain.hrv': '心率变异',
+  'trends.range': '时间范围',
+  'trends.range.days': '近 {n} 日',
+  'trends.range.all': '全部',
   'reports.title': '报告',
   'reports.lead':
     '选择类型 → 预览 Markdown → 复制或下载。内核：visit / weekly / clinical 生成器。',
@@ -423,6 +463,7 @@ const zh: Record<MessageKey, string> = {
   'reports.copyFail': '复制失败：请手动选择预览文本',
   'reports.downloaded': '已下载 {filename}',
   'reports.includeSensitive': '临床复盘含用药/病史',
+  'reports.includeEvents': '报告含本机事件（时间共现）',
   'reports.useUserContext': '注入个人背景',
   'data.title': '数据仓',
   'data.leadPrefix': '会话状态 + 共享 IDB（',
@@ -540,6 +581,17 @@ const zh: Record<MessageKey, string> = {
   'data.fhir.fail': 'FHIR 导出失败',
   'data.fhir.valOk': '自检通过',
   'data.fhir.valWarn': '自检 {n} 条提示',
+  'data.fhir.tier': '导出档位',
+  'data.fhir.tier.archive': '本机归档',
+  'data.fhir.tier.exchange': '外部交换（匿名）',
+  'data.fhir.exchangeBlocked': '交换门禁未通过（{n} 条），未下载',
+  'data.privacy.title': '清除本机健康数据',
+  'data.privacy.lead': '清空 IndexedDB 仓/快照/事件/批次与健康相关 localStorage。保留主题与界面语言。不可撤销。',
+  'data.privacy.action': '一键清除',
+  'data.privacy.busy': '清除中…',
+  'data.privacy.confirm': '确认清除本机全部健康数据？会话与数据仓将清空，此操作不可撤销。',
+  'data.privacy.ok': '已清除 {keys} 个键 · {stores} 个 store',
+  'data.privacy.fail': '清除失败',
 };
 
 const en: Record<MessageKey, string> = {
@@ -624,6 +676,17 @@ const en: Record<MessageKey, string> = {
   'overview.ctx.cleared': 'Cleared',
   'overview.ctx.saveFail': 'Could not write localStorage',
   'overview.ctx.includeSensitive': 'Include medications & conditions in the prompt',
+  'overview.ctx.includeEvents': 'Include local events in the prompt (off by default)',
+  'overview.dateFilter.summary': 'Analysis date range (session)',
+  'overview.dateFilter.hint': 'Limit reanalysis to a calendar window; stored in sessionStorage only.',
+  'overview.dateFilter.start': 'Start',
+  'overview.dateFilter.end': 'End',
+  'overview.dateFilter.apply': 'Apply & reanalyze',
+  'overview.dateFilter.clear': 'Clear range',
+  'overview.dateFilter.applied': 'Reanalyzed with date range',
+  'overview.dateFilter.saved': 'Date range saved (applies after load)',
+  'overview.dateFilter.cleared': 'Date range cleared',
+  'overview.dateFilter.invalid': 'Start date must not be after end date',
   'overview.events.summary': 'Local events timeline (co-occurrence)',
   'overview.events.hint':
     'Med changes, travel, symptoms — co-occurrence only, not causal. IndexedDB shared with legacy.',
@@ -687,6 +750,9 @@ const en: Record<MessageKey, string> = {
   'trends.domain.cgmDailyMean': 'CGM daily mean',
   'trends.domain.sleepTotal': 'Sleep total',
   'trends.domain.hrv': 'HRV',
+  'trends.range': 'Time range',
+  'trends.range.days': 'Last {n} days',
+  'trends.range.all': 'All',
   'reports.title': 'Reports',
   'reports.lead':
     'Pick a type → preview Markdown → copy or download. Core: visit / weekly / clinical generators.',
@@ -706,6 +772,7 @@ const en: Record<MessageKey, string> = {
   'reports.copyFail': 'Copy failed — select preview text manually',
   'reports.downloaded': 'Downloaded {filename}',
   'reports.includeSensitive': 'Clinical review includes meds/history',
+  'reports.includeEvents': 'Include local events (co-occurrence)',
   'reports.useUserContext': 'Inject personal context',
   'data.title': 'Data warehouse',
   'data.leadPrefix': 'Session state + shared IDB (',
@@ -824,6 +891,17 @@ const en: Record<MessageKey, string> = {
   'data.fhir.fail': 'FHIR export failed',
   'data.fhir.valOk': 'self-check OK',
   'data.fhir.valWarn': 'self-check {n} notes',
+  'data.fhir.tier': 'Export tier',
+  'data.fhir.tier.archive': 'Local archive',
+  'data.fhir.tier.exchange': 'External exchange (anonymous)',
+  'data.fhir.exchangeBlocked': 'Exchange gate failed ({n}); not downloaded',
+  'data.privacy.title': 'Wipe local health data',
+  'data.privacy.lead': 'Clears IndexedDB warehouse/snapshots/events/batches and health localStorage. Keeps theme & UI locale. Irreversible.',
+  'data.privacy.action': 'Wipe all',
+  'data.privacy.busy': 'Wiping…',
+  'data.privacy.confirm': 'Wipe all local health data? Session and warehouse will be empty. This cannot be undone.',
+  'data.privacy.ok': 'Cleared {keys} keys · {stores} stores',
+  'data.privacy.fail': 'Wipe failed',
 };
 
 const TABLES: Record<AppLocaleUi, Record<MessageKey, string>> = {

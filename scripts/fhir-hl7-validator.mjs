@@ -47,7 +47,11 @@ const fixturePath = path.join(
   'lib/test/fixtures/fhir-hl7-r4-minimal.json'
 );
 const sampleXmlPath = path.join(root, 'e2e/fixtures/minimal-export.xml');
-const libJsPath = path.join(root, 'web-ui/public/legacy/lib.js');
+const libJsCandidates = [
+  path.join(root, 'lib/dist/browser.iife.js'),
+  path.join(root, 'web-ui/public/legacy/lib.js'),
+];
+const libJsPath = libJsCandidates.find((p) => fs.existsSync(p)) || libJsCandidates[0];
 const packageCache = path.join(toolsDir, 'fhir-package-cache');
 const FROM_EXPORT =
   process.argv.includes('--from-export') || process.env.FHIR_HL7_FROM_EXPORT === '1';

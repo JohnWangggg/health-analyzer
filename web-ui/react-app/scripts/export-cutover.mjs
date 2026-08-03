@@ -93,11 +93,17 @@ function runBuild(base, label) {
   }
 }
 
+// Legacy full UI removed (v2.5+): ensure a redirect stub exists for old bookmarks
 if (!existsSync(join(legacyDir, 'index.html'))) {
-  console.error(
-    '[export-cutover] missing web-ui/public/legacy/index.html — legacy rollback tree required',
+  mkdirSync(legacyDir, { recursive: true });
+  writeFileSync(
+    join(legacyDir, 'index.html'),
+    `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"/><meta http-equiv="refresh" content="0;url=../"/><title>Redirect</title>
+<script>location.replace(location.pathname.replace(/\\/legacy\\/?$/,'/')||'../');</script>
+</head><body><p><a href="../">Return to Health OS</a></p></body></html>\n`,
+    'utf8',
   );
-  process.exit(1);
+  console.log('[export-cutover] wrote legacy redirect stub');
 }
 
 mkdirSync(publicRoot, { recursive: true });

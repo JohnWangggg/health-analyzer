@@ -237,6 +237,8 @@ export function extractTrendSeries(
 export type ReportPreviewOptions = AnalyzeOptions & {
   userContext?: UserContext | null;
   includeSensitiveContext?: boolean;
+  includeEvents?: boolean;
+  events?: unknown[];
 };
 
 export function buildReportPreview(
@@ -246,6 +248,8 @@ export function buildReportPreview(
 ): { kind: ReportKind; title: string; markdown: string } {
   const locale = options?.locale ?? 'zh-CN';
   const ctx = options?.userContext ?? null;
+  const includeEvents = !!options?.includeEvents;
+  const events = options?.events || [];
   if (kind === 'visit') {
     return {
       kind,
@@ -259,7 +263,8 @@ export function buildReportPreview(
       title: '周报',
       markdown: generateWeeklyReportMarkdown(analysis, ctx, {
         locale,
-        includeEvents: false,
+        includeEvents,
+        events,
       }),
     };
   }
@@ -269,6 +274,8 @@ export function buildReportPreview(
     markdown: generateClinicalReviewMarkdown(analysis, ctx, {
       locale,
       includeSensitiveContext: !!options?.includeSensitiveContext,
+      includeEvents,
+      events,
     }),
   };
 }
@@ -284,6 +291,8 @@ export function buildClinicalHtml(
     {
       locale,
       includeSensitiveContext: !!options?.includeSensitiveContext,
+      includeEvents: !!options?.includeEvents,
+      events: options?.events || [],
     },
   );
 }
@@ -292,19 +301,28 @@ export type LlmPromptMode = 'full' | 'data' | 'short';
 
 /**
  * Build paste-ready LLM prompt via lib kernel (legacy parity accelerator).
- * userContext optional; events default off.
+ * userContext optional; events default off (opt-in via includeEvents + events[]).
  */
 export function buildLlmPrompt(
   analysis: FullAnalysis,
   mode: LlmPromptMode = 'full',
-  options?: AnalyzeOptions & { userContext?: UserContext | null },
+  options?: AnalyzeOptions & {
+    userContext?: UserContext | null;
+    includeEvents?: boolean;
+    events?: unknown[];
+  },
 ): { mode: LlmPromptMode; text: string } {
   const locale = options?.locale ?? 'zh-CN';
   const ctx = options?.userContext ?? null;
+  const eventOpts = {
+    locale,
+    includeEvents: !!options?.includeEvents,
+    events: options?.events || [],
+  };
   if (mode === 'data') {
     return {
       mode,
-      text: generateDataOnly(analysis, ctx, { locale, includeEvents: false }),
+      text: generateDataOnly(analysis, ctx, eventOpts),
     };
   }
   if (mode === 'short') {
@@ -312,15 +330,12 @@ export function buildLlmPrompt(
       locale === 'en' || String(locale).startsWith('en')
         ? SHORT_SYSTEM_PROMPT_EN
         : SHORT_SYSTEM_PROMPT;
-    const data = generateDataOnly(analysis, ctx, {
-      locale,
-      includeEvents: false,
-    });
+    const data = generateDataOnly(analysis, ctx, eventOpts);
     return { mode, text: `${short}\n\n---\n\n${data}` };
   }
   return {
     mode: 'full',
-    text: generateLLMPrompt(analysis, ctx, { locale, includeEvents: false }),
+    text: generateLLMPrompt(analysis, ctx, eventOpts),
   };
 }
 

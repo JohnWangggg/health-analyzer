@@ -17,6 +17,7 @@ import { UserContextPanel } from '../features/overview/UserContextPanel';
 import { EventsPanel } from '../features/overview/EventsPanel';
 import { CsvMergePanel } from '../features/overview/CsvMergePanel';
 import { RecoveryWeightsPanel } from '../features/overview/RecoveryWeightsPanel';
+import { DateFilterPanel } from '../features/overview/DateFilterPanel';
 import { SignalList } from '../features/overview/SignalList';
 import { KpiVisibilityBar } from '../features/overview/KpiVisibilityBar';
 import {
@@ -30,6 +31,8 @@ import {
   type LlmPromptMode,
 } from '../core/HealthCoreAdapter';
 import { getUserContextForPrompt } from '../core/userContext';
+import { isIncludeEventsCtx } from '../core/includeEvents';
+import { listLocalHealthEvents } from '../core/localEvents';
 import fixtureXml from '../../../../e2e/fixtures/minimal-export.xml?raw';
 
 const KPI_OPEN_KEY = 'ha-react-overview-kpi-open';
@@ -172,9 +175,13 @@ export function OverviewPage() {
       return;
     }
     try {
+      const includeEvents = isIncludeEventsCtx();
+      const events = includeEvents ? await listLocalHealthEvents() : [];
       const { text } = buildLlmPrompt(analysis, promptMode, {
         locale: locale === 'en' ? 'en' : 'zh-CN',
         userContext: getUserContextForPrompt(),
+        includeEvents,
+        events,
       });
       await navigator.clipboard.writeText(text);
       setPromptMsg(
@@ -462,7 +469,8 @@ export function OverviewPage() {
         </ErrorState>
       ) : null}
 
-      {/* Advanced tools available without a loaded session (events / CSV / weights) */}
+      {/* Advanced tools available without a loaded session */}
+      <DateFilterPanel />
       <UserContextPanel />
       <EventsPanel />
       <CsvMergePanel />

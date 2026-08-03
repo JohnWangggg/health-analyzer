@@ -16,7 +16,11 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
-const libJsPath = path.join(root, 'web-ui/public/legacy/lib.js');
+const libJsCandidates = [
+  path.join(root, 'lib/dist/browser.iife.js'),
+  path.join(root, 'web-ui/public/legacy/lib.js'),
+];
+const libJsPath = libJsCandidates.find((p) => fs.existsSync(p)) || libJsCandidates[0];
 const sampleXmlPath = path.join(root, 'e2e/fixtures/minimal-export.xml');
 
 let failed = 0;

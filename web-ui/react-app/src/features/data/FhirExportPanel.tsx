@@ -2,18 +2,22 @@ import { useCallback, useState } from 'react';
 import { Badge } from '../../components/ui/Badge';
 import { Button } from '../../components/ui/Button';
 import { Card, CardDesc, CardTitle } from '../../components/ui/Card';
-import { exportFhirLocalArchive } from '../../core/fhirExportLocal';
+import {
+  buildFhirExportUi,
+  downloadFhirExport,
+  type FhirExportTierUi,
+} from '../../core/fhirExportLocal';
 import { useHealthStore } from '../../store/useHealthStore';
 import { useLocale } from '../../i18n/LocaleProvider';
 
 /**
- * Experimental local-archive FHIR R4-shaped Bundle download.
- * Not hospital exchange; no network upload.
+ * FHIR R4-shaped Bundle download: local-archive or external-exchange (anonymous).
  */
 export function FhirExportPanel() {
   const { t, locale } = useLocale();
   const analysis = useHealthStore((s) => s.analysis);
   const [includeDevices, setIncludeDevices] = useState(true);
+  const [tier, setTier] = useState<FhirExportTierUi>('local-archive');
   const [status, setStatus] = useState<string | null>(null);
 
   const onExport = useCallback(() => {
@@ -22,11 +26,21 @@ export function FhirExportPanel() {
       return;
     }
     try {
-      const r = exportFhirLocalArchive(analysis, {
+      const r = buildFhirExportUi(analysis, {
         locale: locale === 'en' ? 'en' : 'zh-CN',
         includeDevices,
-        includePatient: false,
+        exportTier: tier,
       });
+      if (r.blocked) {
+        setStatus(
+          t('data.fhir.exchangeBlocked').replace(
+            '{n}',
+            String(r.issueCount),
+          ),
+        );
+        return;
+      }
+      downloadFhirExport(r);
       setStatus(
         t('data.fhir.ok')
           .replace('{n}', String(r.observationCount))
@@ -43,7 +57,7 @@ export function FhirExportPanel() {
         `${t('data.fhir.fail')}: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
-  }, [analysis, includeDevices, locale, t]);
+  }, [analysis, includeDevices, locale, t, tier]);
 
   return (
     <Card data-testid="fhir-export-panel">
@@ -52,6 +66,21 @@ export function FhirExportPanel() {
         <Badge tone="watch">{t('data.fhir.badge')}</Badge>
       </div>
       <CardDesc>{t('data.fhir.lead')}</CardDesc>
+      <div className="user-ctx-grid" style={{ marginTop: '0.5rem' }}>
+        <label className="user-ctx-field">
+          <span>{t('data.fhir.tier')}</span>
+          <select
+            value={tier}
+            onChange={(e) => setTier(e.target.value as FhirExportTierUi)}
+            data-testid="fhir-export-tier"
+          >
+            <option value="local-archive">{t('data.fhir.tier.archive')}</option>
+            <option value="external-exchange">
+              {t('data.fhir.tier.exchange')}
+            </option>
+          </select>
+        </label>
+      </div>
       <label className="user-ctx-check" style={{ marginTop: '0.5rem' }}>
         <input
           type="checkbox"

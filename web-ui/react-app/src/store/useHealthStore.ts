@@ -29,8 +29,13 @@ type HealthState = {
   error: string | null;
   summary: AnalysisSummary | null;
   analysis: FullAnalysis | null;
-  /** Raw health data for HAE merge / warehouse persist */
+  /** Raw health data for HAE merge / warehouse persist (unfiltered source) */
   data: HealthData | null;
+  /**
+   * Full unfiltered session data when date filter is applied.
+   * Same as data until a date window is used mid-session.
+   */
+  sourceData: HealthData | null;
   sourceLabel: string | null;
   analyzeVia: AnalyzeVia;
   lastSnapshotId: string | null;
@@ -44,8 +49,12 @@ type HealthState = {
   loadWarehouse: () => Promise<void>;
   persistWarehouse: () => Promise<void>;
   saveSnapshot: (label?: string) => Promise<string | null>;
-  /** Re-run analyzeAll on current data (e.g. after recovery weight change). */
-  reanalyzeSession: (opts?: { locale?: string | null }) => void;
+  /** Re-run analyzeAll on current data (recovery weights / date filter). */
+  reanalyzeSession: (opts?: {
+    locale?: string | null;
+    /** Apply session date filter from sessionStorage (default true). */
+    applyDateFilter?: boolean;
+  }) => void;
   /** Merge external weight/BP CSV into session and reanalyze. */
   mergeCsvFiles: (
     files: { weightText?: string | null; bpText?: string | null },
@@ -77,6 +86,7 @@ function setFromAnalysis(
     summary,
     analysis,
     data,
+    sourceData: data,
     sourceLabel,
     analyzeVia,
     error: null,
@@ -91,6 +101,7 @@ export const useHealthStore = create<HealthState>((set, get) => ({
   summary: null,
   analysis: null,
   data: null,
+  sourceData: null,
   sourceLabel: null,
   analyzeVia: null,
   lastSnapshotId: null,
@@ -321,24 +332,28 @@ export const useHealthStore = create<HealthState>((set, get) => ({
     }
   },
   reanalyzeSession: (opts) => {
-    const data = get().data;
-    if (!data) {
+    const base = get().sourceData || get().data;
+    if (!base) {
       set({ error: '无会话数据可重算' });
       return;
     }
     set({ status: 'loading', error: null, progressLabel: '按当前设置重算…' });
     try {
-      const result = reanalyzeHealthData(data, {
+      const result = reanalyzeHealthData(base, {
         locale: opts?.locale ?? 'zh-CN',
+        skipDateFilter: opts?.applyDateFilter === false,
       });
-      setFromAnalysis(
-        set,
-        result.analysis,
-        result.summary,
-        result.data,
-        get().sourceLabel || 'reanalyze',
-        'reanalyze',
-      );
+      set({
+        status: 'ready',
+        summary: result.summary,
+        analysis: result.analysis,
+        data: result.data,
+        sourceData: base,
+        sourceLabel: get().sourceLabel || 'reanalyze',
+        analyzeVia: 'reanalyze',
+        error: null,
+        progressLabel: null,
+      });
     } catch (e) {
       set({
         status: 'error',
@@ -398,6 +413,7 @@ export const useHealthStore = create<HealthState>((set, get) => ({
       summary: null,
       analysis: null,
       data: null,
+      sourceData: null,
       sourceLabel: null,
       analyzeVia: null,
       lastSnapshotId: null,

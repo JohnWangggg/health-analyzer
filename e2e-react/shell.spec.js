@@ -103,11 +103,19 @@ test.describe('React dual-track shell', () => {
     await page.getByTestId('dashboard-exit').click();
     await expect(page.getByTestId('dashboard-mode-bar')).toHaveCount(0);
 
-    // Data page: export + FHIR panels present after session
+    // Date filter panel present
+    await expect(page.getByTestId('date-filter-panel')).toBeAttached();
+    // Include-events opt-in (default off)
+    await expect(page.getByTestId('user-ctx-include-events')).toBeVisible();
+    await expect(page.getByTestId('user-ctx-include-events')).not.toBeChecked();
+
+    // Data page: export + FHIR + privacy wipe
     await page.keyboard.press('Alt+Digit4');
     await expect(page.getByTestId('page-data')).toBeVisible();
     await expect(page.getByTestId('export-panel')).toBeVisible();
     await expect(page.getByTestId('fhir-export-panel')).toBeVisible();
+    await expect(page.getByTestId('fhir-export-tier')).toBeVisible();
+    await expect(page.getByTestId('privacy-wipe-panel')).toBeVisible();
     await expect(page.getByTestId('export-json')).toBeEnabled();
     await page.keyboard.press('Alt+Digit1');
     await expect(page.getByTestId('page-overview')).toBeVisible();

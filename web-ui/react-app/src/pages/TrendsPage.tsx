@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useHealthStore } from '../store/useHealthStore';
 import {
@@ -12,6 +12,42 @@ import { EmptyState, LoadingState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
 import { useLocale } from '../i18n/LocaleProvider';
 import type { MessageKey } from '../i18n/messages';
+
+const TREND_RANGE_KEY = 'ha-react-trend-range-days';
+const RANGE_OPTIONS = [7, 30, 90, 0] as const; // 0 = all
+
+function loadTrendRangeDays(): number {
+  try {
+    const v = localStorage.getItem(TREND_RANGE_KEY);
+    if (v == null) return 30;
+    const n = Number(v);
+    return RANGE_OPTIONS.includes(n as (typeof RANGE_OPTIONS)[number]) ? n : 30;
+  } catch {
+    return 30;
+  }
+}
+
+function saveTrendRangeDays(days: number): void {
+  try {
+    localStorage.setItem(TREND_RANGE_KEY, String(days));
+  } catch {
+    /* ignore */
+  }
+}
+
+function slicePointsByRange<T extends { date: string }>(
+  points: T[],
+  days: number,
+): T[] {
+  if (!points.length || !days || days <= 0) return points;
+  const sorted = [...points].sort((a, b) => a.date.localeCompare(b.date));
+  const end = sorted[sorted.length - 1]!.date;
+  const endMs = Date.parse(`${end}T00:00:00Z`);
+  if (!Number.isFinite(endMs)) return sorted.slice(-days);
+  const startMs = endMs - (days - 1) * 86400000;
+  const start = new Date(startMs).toISOString().slice(0, 10);
+  return sorted.filter((p) => p.date >= start && p.date <= end);
+}
 
 /** Lazy chart chunk — keeps Overview free of ECharts. */
 const TrendChart = lazy(() =>
@@ -109,14 +145,25 @@ export function TrendsPage() {
     parsedDomain ??
     (summary ? firstPresentDomain(summary) : ('steps' as TrendDomain));
 
+  const [rangeDays, setRangeDays] = useState(() => loadTrendRangeDays());
+
   const setDomain = (id: TrendDomain) => {
     setSearchParams({ domain: id }, { replace: true });
   };
 
+  const setRange = (days: number) => {
+    setRangeDays(days);
+    saveTrendRangeDays(days);
+  };
+
   const series = useMemo(() => {
     if (!analysis) return null;
-    return extractTrendSeries(analysis, domain);
-  }, [analysis, domain]);
+    const full = extractTrendSeries(analysis, domain);
+    return {
+      ...full,
+      points: slicePointsByRange(full.points, rangeDays),
+    };
+  }, [analysis, domain, rangeDays]);
 
   /** Another domain with points — used when current domain is empty. */
   const switchTarget = useMemo(() => {
@@ -193,6 +240,27 @@ export function TrendsPage() {
             {series?.unit}
           </Badge>
         ) : null}
+      </div>
+
+      <div
+        className="domain-switcher"
+        role="group"
+        aria-label={t('trends.range')}
+        data-testid="trend-range-chips"
+      >
+        {RANGE_OPTIONS.map((d) => (
+          <Button
+            key={d}
+            size="sm"
+            variant={rangeDays === d ? 'primary' : 'ghost'}
+            data-testid={`trend-range-${d || 'all'}`}
+            onClick={() => setRange(d)}
+          >
+            {d === 0
+              ? t('trends.range.all')
+              : t('trends.range.days').replace('{n}', String(d))}
+          </Button>
+        ))}
       </div>
 
       <Card>

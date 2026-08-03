@@ -8,6 +8,10 @@ import {
   setIncludeSensitiveCtx,
   type UserContext,
 } from '../../core/userContext';
+import {
+  isIncludeEventsCtx,
+  setIncludeEventsCtx,
+} from '../../core/includeEvents';
 import { useLocale } from '../../i18n/LocaleProvider';
 
 function toInputString(v: number | string | null | undefined): string {
@@ -31,6 +35,9 @@ export function UserContextPanel() {
   const [form, setForm] = useState<UserContext>(() => loadUserContext());
   const [includeSensitive, setIncludeSensitive] = useState(() =>
     isIncludeSensitiveCtx(),
+  );
+  const [includeEvents, setIncludeEvents] = useState(() =>
+    isIncludeEventsCtx(),
   );
   const [status, setStatus] = useState<string | null>(null);
 
@@ -60,6 +67,16 @@ export function UserContextPanel() {
       const on = e.target.checked;
       setIncludeSensitive(on);
       setIncludeSensitiveCtx(on);
+      setStatus(null);
+    },
+    [],
+  );
+
+  const onIncludeEvents = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const on = e.target.checked;
+      setIncludeEvents(on);
+      setIncludeEventsCtx(on);
       setStatus(null);
     },
     [],
@@ -203,6 +220,15 @@ export function UserContextPanel() {
             data-testid="user-ctx-include-sensitive"
           />
           <span>{t('overview.ctx.includeSensitive')}</span>
+        </label>
+        <label className="user-ctx-check">
+          <input
+            type="checkbox"
+            checked={includeEvents}
+            onChange={onIncludeEvents}
+            data-testid="user-ctx-include-events"
+          />
+          <span>{t('overview.ctx.includeEvents')}</span>
         </label>
         <div className="user-ctx-actions">
           <Button

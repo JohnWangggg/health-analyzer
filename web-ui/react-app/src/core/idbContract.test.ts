@@ -16,9 +16,10 @@ import {
 } from './idbContract';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+/** Schema authority (was public/legacy/history-db.js; kept after legacy UI removal). */
 const HISTORY_DB_JS = resolve(
   __dirname,
-  '../../../public/legacy/history-db.js',
+  '../../../idb-schema/history-db.reference.js',
 );
 
 const TEST_DB = 'ha-react-idb-schema-parity-test';

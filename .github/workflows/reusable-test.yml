@@ -60,9 +60,9 @@ jobs:
         working-directory: .
         run: npm run react:export-cutover
 
-      - name: UI / i18n smoke (legacy tree + React root)
+      - name: Smoke + cutover layout
         working-directory: .
-        run: node scripts/smoke.mjs
+        run: npm run smoke
 
       - name: FHIR structure + exchange + required HL7 (fixture + stripped export)
         working-directory: .
@@ -75,14 +75,12 @@ jobs:
         working-directory: .
         run: npx playwright install --with-deps chromium
 
-      - name: E2E legacy rollback (/legacy/)
-        working-directory: .
-        run: npx playwright test
-        env:
-          CI: 'true'
-
       - name: E2E React default root
         working-directory: .
         run: npm run test:e2e:react
         env:
           CI: 'true'
+
+      - name: React unit tests
+        working-directory: .
+        run: npm run react:test

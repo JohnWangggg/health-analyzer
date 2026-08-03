@@ -9,7 +9,8 @@
  * Empty-shell create (onupgradeneeded) MUST mirror history-db.js openDb exactly.
  * If React created a divergent v5 schema first, legacy open at v5 would not
  * re-run upgrade — a permanent split. Keep this file in lockstep with:
- *   web-ui/public/history-db.js → openDb → onupgradeneeded
+ *   web-ui/idb-schema/history-db.reference.js → openDb → onupgradeneeded
+ *   (formerly public/legacy/history-db.js)
  */
 
 export const IDB_CONTRACT = {
