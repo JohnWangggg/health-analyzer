@@ -138,7 +138,8 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.3.1** `bb9a6d4` | Pages **base=/\\<repo\\>/** + `404.html`; Overview **LLM prompt copy**; README zh/en living changelog |
 | **v2.3.2** `9fd9f57` | React **personal context** (same localStorage key as legacy) + **today snapshot** strip; inject into LLM prompt |
 | **v2.3.3** `68901ec` | React **include-sensitive toggle**: strip meds/conditions from LLM prompt when off (key `health-analyzer-include-sensitive-ctx`, same as legacy; default on) |
-| **v2.4**  | **Full product path on React**: events · CSV merge · recovery weights · TV mode · JSON/CSV/snapshot export · FHIR local archive · clinical HTML/sensitive options |
+| **v2.4** `6229d49` | **Full product path on React**: events · CSV merge · recovery weights · TV mode · JSON/CSV/snapshot export · FHIR local archive · clinical HTML/sensitive options |
+| **v2.4.1** _(pending push)_ | Pages **white-screen guard**: boot placeholder + recovery; auto clear SW on chunk miss; base-safe navigateFallback |
 
 ### Release checklist
 

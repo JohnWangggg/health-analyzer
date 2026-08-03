@@ -10,9 +10,128 @@
       content="本地优先健康分析 — 生产默认 React 壳；回滚见 /legacy/"
     />
     <title>健康 OS</title>
+    <style>
+      /* Critical boot paint — avoids pure white flash before CSS chunk loads */
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #0b1220;
+        color: #e8eef7;
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'PingFang SC',
+          'Microsoft YaHei', sans-serif;
+      }
+      #boot-fallback {
+        max-width: 28rem;
+        margin: 15vh auto 0;
+        padding: 1.25rem 1.5rem;
+        line-height: 1.5;
+        font-size: 0.95rem;
+      }
+      #boot-fallback button {
+        margin-top: 0.75rem;
+        margin-right: 0.5rem;
+        padding: 0.5rem 0.85rem;
+        border-radius: 8px;
+        border: 1px solid #3b4a63;
+        background: #1a2740;
+        color: #e8eef7;
+        cursor: pointer;
+        font-size: 0.9rem;
+      }
+      #boot-fallback a {
+        color: #7dd3d3;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="boot-fallback" role="status">
+        <p>正在加载健康 OS…</p>
+        <p style="opacity: 0.75; font-size: 0.85rem">
+          若长时间白屏/空白，多半是旧 Service Worker 缓存。可点下方「清除缓存并重载」。
+        </p>
+      </div>
+    </div>
+    <script>
+      (function () {
+        var KEY = 'ha-boot-recovered';
+        function clearAndReload() {
+          var done = function () {
+            try {
+              sessionStorage.setItem(KEY, '1');
+            } catch (e) {}
+            location.reload();
+          };
+          var p = Promise.resolve();
+          if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+            p = p.then(function () {
+              return navigator.serviceWorker.getRegistrations().then(function (regs) {
+                return Promise.all(regs.map(function (r) {
+                  return r.unregister();
+                }));
+              });
+            });
+          }
+          if (window.caches && caches.keys) {
+            p = p.then(function () {
+              return caches.keys().then(function (keys) {
+                return Promise.all(keys.map(function (k) {
+                  return caches.delete(k);
+                }));
+              });
+            });
+          }
+          p.then(done, done);
+        }
+        window.__haClearCachesAndReload = clearAndReload;
+
+        // Vite dynamic import / chunk miss after deploy
+        window.addEventListener('vite:preloadError', function (e) {
+          try {
+            e.preventDefault();
+          } catch (err) {}
+          if (!sessionStorage.getItem(KEY)) clearAndReload();
+        });
+
+        // Main module script 404 / parse failure → offer recovery after timeout
+        window.addEventListener(
+          'error',
+          function (e) {
+            var t = e && e.target;
+            if (t && t.tagName === 'SCRIPT' && t.src) {
+              window.__haScriptLoadFailed = true;
+            }
+          },
+          true,
+        );
+
+        setTimeout(function () {
+          var root = document.getElementById('root');
+          if (!root) return;
+          if (root.querySelector('[data-testid="app-shell"]')) return;
+          var fb = document.getElementById('boot-fallback');
+          if (!fb) {
+            fb = document.createElement('div');
+            fb.id = 'boot-fallback';
+            root.appendChild(fb);
+          }
+          fb.innerHTML =
+            '<p><strong>页面未能启动</strong></p>' +
+            '<p style="opacity:.8;font-size:.9rem">常见原因：GitHub Pages 刚发布后旧缓存仍指向已失效的 JS。</p>' +
+            '<button type="button" id="ha-boot-recover">清除缓存并重载</button>' +
+            '<button type="button" id="ha-boot-reload">仅刷新</button>' +
+            '<p style="opacity:.65;font-size:.8rem;margin-top:1rem">回滚入口：' +
+            '<a href="legacy/">/legacy/</a></p>';
+          var b1 = document.getElementById('ha-boot-recover');
+          var b2 = document.getElementById('ha-boot-reload');
+          if (b1) b1.onclick = clearAndReload;
+          if (b2) b2.onclick = function () {
+            location.reload();
+          };
+        }, 8000);
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -65,8 +65,12 @@ export default defineConfig({
           '**/Image-*.js',
         ],
         navigateFallback: 'index.html',
-        // Do not SPA-fallback the legacy rollback tree
-        navigateFallbackDenylist: [/^\/api\//, /^\/legacy(?:\/|$)/],
+        // Do not SPA-fallback API or legacy rollback (match with or without project base)
+        navigateFallbackDenylist: [
+          /^\/api\//,
+          /\/legacy(?:\/|$)/,
+          /\/assets\//,
+        ],
         runtimeCaching: [],
         cleanupOutdatedCaches: true,
         clientsClaim: false,
