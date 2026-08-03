@@ -80,6 +80,14 @@ test.describe('React dual-track shell', () => {
       { timeout: 5_000 },
     );
     await expect(page.getByTestId('kpi-card-cgm')).toBeVisible();
+    // KPI order controls
+    await expect(page.getByTestId('kpi-move-down-cgm')).toBeVisible();
+    await page.getByTestId('kpi-move-down-cgm').click();
+    await expect
+      .poll(async () =>
+        page.evaluate(() => localStorage.getItem('ha-react-kpi-order')),
+      )
+      .toMatch(/weight/);
 
     // Events + recovery weights panels (React parity)
     await expect(page.getByTestId('events-panel')).toBeAttached();

@@ -54,6 +54,12 @@ export type MessageKey =
   | 'overview.kpi.days'
   | 'overview.kpi.nonDiag'
   | 'overview.kpi.openTrends'
+  | 'overview.kpiOrder.up'
+  | 'overview.kpiOrder.down'
+  | 'overview.quality.title'
+  | 'overview.quality.future'
+  | 'overview.quality.cgmUnit'
+  | 'overview.quality.hint'
   | 'overview.domainsPresentCount'
   | 'overview.today.title'
   | 'overview.today.range'
@@ -130,6 +136,9 @@ export type MessageKey =
   | 'shell.legacyRollbackHint'
   | 'shell.kbdHint'
   | 'shell.offline'
+  | 'shell.install.body'
+  | 'shell.install.action'
+  | 'shell.install.dismiss'
   | 'tv.enter'
   | 'tv.exit'
   | 'tv.dataUpdated'
@@ -371,6 +380,12 @@ const zh: Record<MessageKey, string> = {
   'overview.kpi.days': '天',
   'overview.kpi.nonDiag': '非诊断 · 个人启发式',
   'overview.kpi.openTrends': '在趋势中查看',
+  'overview.kpiOrder.up': '上移 KPI',
+  'overview.kpiOrder.down': '下移 KPI',
+  'overview.quality.title': '数据质量提示',
+  'overview.quality.future': '已跳过 {n} 条未来日期记录（常见于误录）',
+  'overview.quality.cgmUnit': 'CGM 单位可能不可靠（显示 {unit}），请结合来源核对',
+  'overview.quality.hint': '非诊断；仅反映解析器启发式过滤结果。',
   'overview.domainsPresentCount': '{n} 域有数据',
   'overview.today.title': '今日快照',
   'overview.today.range': '区间',
@@ -447,6 +462,9 @@ const zh: Record<MessageKey, string> = {
   'shell.sessionIdle': '未加载',
   'shell.kbdHint': 'Alt+1–4 切换工作区',
   'shell.offline': '当前离线：本地优先仍可用，数据仓与分析不上传。',
+  'shell.install.body': '可将本应用安装到主屏幕，离线打开（数据仍仅本机）。',
+  'shell.install.action': '安装',
+  'shell.install.dismiss': '稍后',
   'tv.enter': '健康大屏',
   'tv.exit': '退出大屏',
   'tv.dataUpdated': '数据截止 {end}',
@@ -703,6 +721,12 @@ const en: Record<MessageKey, string> = {
   'overview.kpi.days': 'days',
   'overview.kpi.nonDiag': 'Non-diagnostic · personal heuristic',
   'overview.kpi.openTrends': 'Open in Trends',
+  'overview.kpiOrder.up': 'Move KPI up',
+  'overview.kpiOrder.down': 'Move KPI down',
+  'overview.quality.title': 'Data quality notes',
+  'overview.quality.future': 'Skipped {n} future-dated records (often typos)',
+  'overview.quality.cgmUnit': 'CGM unit may be unreliable (shown as {unit}); verify source',
+  'overview.quality.hint': 'Non-diagnostic; reflects parser heuristics only.',
   'overview.domainsPresentCount': '{n} domains present',
   'overview.today.title': 'Today snapshot',
   'overview.today.range': 'Range',
@@ -779,6 +803,9 @@ const en: Record<MessageKey, string> = {
   'shell.sessionIdle': 'Idle',
   'shell.kbdHint': 'Alt+1–4 switch workspace',
   'shell.offline': 'Offline: local-first still works; warehouse & analysis stay on-device.',
+  'shell.install.body': 'Install to home screen for offline open (data stays on-device).',
+  'shell.install.action': 'Install',
+  'shell.install.dismiss': 'Later',
   'tv.enter': 'TV mode',
   'tv.exit': 'Exit TV',
   'tv.dataUpdated': 'Data through {end}',

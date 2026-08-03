@@ -14,6 +14,7 @@ export const KPI_IDS: readonly KpiId[] = [
 ] as const;
 
 export const KPI_VISIBILITY_KEY = 'ha-react-kpi-visible';
+export const KPI_ORDER_KEY = 'ha-react-kpi-order';
 
 export type KpiVisibility = Record<KpiId, boolean>;
 
@@ -24,6 +25,8 @@ const DEFAULT_VISIBILITY: KpiVisibility = {
   recovery: true,
   restingHr: true,
 };
+
+const DEFAULT_ORDER: KpiId[] = [...KPI_IDS];
 
 function defaultVisibility(): KpiVisibility {
   return { ...DEFAULT_VISIBILITY };
@@ -100,4 +103,52 @@ export function isKpiVisible(id: KpiId): boolean {
   } catch {
     return true;
   }
+}
+
+function normalizeOrder(raw: unknown): KpiId[] {
+  const seen = new Set<KpiId>();
+  const out: KpiId[] = [];
+  if (Array.isArray(raw)) {
+    for (const x of raw) {
+      if (typeof x === 'string' && isKpiId(x) && !seen.has(x)) {
+        seen.add(x);
+        out.push(x);
+      }
+    }
+  }
+  for (const id of DEFAULT_ORDER) {
+    if (!seen.has(id)) out.push(id);
+  }
+  return out;
+}
+
+/** Ordered KPI ids for matrix layout (localStorage). */
+export function getKpiOrder(): KpiId[] {
+  try {
+    const raw = safeGetItem(KPI_ORDER_KEY);
+    if (!raw) return [...DEFAULT_ORDER];
+    return normalizeOrder(JSON.parse(raw));
+  } catch {
+    return [...DEFAULT_ORDER];
+  }
+}
+
+export function setKpiOrder(order: KpiId[]): KpiId[] {
+  const next = normalizeOrder(order);
+  safeSetItem(KPI_ORDER_KEY, JSON.stringify(next));
+  return next;
+}
+
+/** Move id earlier/later in order; returns next order. */
+export function moveKpiOrder(id: KpiId, dir: -1 | 1): KpiId[] {
+  const order = getKpiOrder();
+  const i = order.indexOf(id);
+  if (i < 0) return order;
+  const j = i + dir;
+  if (j < 0 || j >= order.length) return order;
+  const next = [...order];
+  const tmp = next[i]!;
+  next[i] = next[j]!;
+  next[j] = tmp;
+  return setKpiOrder(next);
 }

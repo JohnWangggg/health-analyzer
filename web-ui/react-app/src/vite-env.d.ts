@@ -36,7 +36,16 @@ declare module '@health-analyzer/lib' {
     workouts: unknown[];
     ecg: unknown[];
     dataAvailability: unknown;
-    dataQuality: unknown;
+    dataQuality?: {
+      referenceDate?: string;
+      skippedFutureCount?: number;
+      futureSampleDates?: string[];
+      cgmUnit?: {
+        reliable?: boolean;
+        displayUnit?: string;
+        unit?: string;
+      } | null;
+    };
   }
 
   export interface FullAnalysis {

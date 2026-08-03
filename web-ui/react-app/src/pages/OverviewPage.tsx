@@ -27,11 +27,14 @@ import { DateFilterPanel } from '../features/overview/DateFilterPanel';
 import { SignalList } from '../features/overview/SignalList';
 import { KpiVisibilityBar } from '../features/overview/KpiVisibilityBar';
 import {
+  getKpiOrder,
   getKpiVisibility,
+  moveKpiOrder,
   setKpiVisibility,
   type KpiId,
   type KpiVisibility,
 } from '../features/overview/kpiVisibility';
+import { DataQualityBanner } from '../features/overview/DataQualityBanner';
 import {
   buildLlmPrompt,
   type LlmPromptMode,
@@ -148,13 +151,18 @@ export function OverviewPage() {
   const [domainsOpen, setDomainsOpen] = useState(() =>
     readSectionOpen(DOMAINS_OPEN_KEY),
   );
-  /** KPI card visibility — localStorage; default all on (cgm visible for e2e). */
+  /** KPI card visibility + order — localStorage; default all on (cgm visible for e2e). */
   const [kpiVis, setKpiVis] = useState<KpiVisibility>(() => getKpiVisibility());
+  const [kpiOrder, setKpiOrderState] = useState<KpiId[]>(() => getKpiOrder());
   const [promptMsg, setPromptMsg] = useState<string | null>(null);
   const [promptMode, setPromptMode] = useState<LlmPromptMode>('full');
 
   const onKpiVisibilityChange = useCallback((id: KpiId, visible: boolean) => {
     setKpiVis(setKpiVisibility({ [id]: visible }));
+  }, []);
+
+  const onKpiMove = useCallback((id: KpiId, dir: -1 | 1) => {
+    setKpiOrderState(moveKpiOrder(id, dir));
   }, []);
   const {
     status,
@@ -566,6 +574,7 @@ export function OverviewPage() {
                   freshnessTone={f.tone}
                 />
                 <TodayStrip summary={summary} freshnessText={f.text} />
+                <DataQualityBanner summary={summary} />
               </>
             );
           })()}
@@ -661,73 +670,102 @@ export function OverviewPage() {
               <div className="overview-collapsible-body">
                 <KpiVisibilityBar
                   visibility={kpiVis}
+                  order={kpiOrder}
                   onChange={onKpiVisibilityChange}
+                  onMove={onKpiMove}
                 />
                 <div className="kpi-matrix" data-testid="kpi-matrix">
-                  {kpiVis.cgm !== false ? (
-                    <Card {...kpiCardNavProps('kpi-card-cgm', 'cgmDailyMean')}>
-                      <CardTitle>{t('overview.kpi.cgm')}</CardTitle>
-                      <p className="kpi" data-testid="kpi-cgm">
-                        {summary.kpis.cgmMean != null
-                          ? summary.kpis.cgmMean.toFixed(2)
-                          : '—'}
-                      </p>
-                      <CardDesc>
-                        {summary.counts.cgm} {t('overview.kpi.points')}
-                      </CardDesc>
-                    </Card>
-                  ) : null}
-                  {kpiVis.weight !== false ? (
-                    <Card {...kpiCardNavProps('kpi-card-weight', 'weight')}>
-                      <CardTitle>{t('overview.kpi.weight')}</CardTitle>
-                      <p className="kpi" data-testid="kpi-weight">
-                        {summary.kpis.weightLatest != null
-                          ? summary.kpis.weightLatest.toFixed(2)
-                          : '—'}
-                      </p>
-                      <CardDesc>
-                        {summary.counts.weight} {t('overview.kpi.points')}
-                      </CardDesc>
-                    </Card>
-                  ) : null}
-                  {kpiVis.steps !== false ? (
-                    <Card {...kpiCardNavProps('kpi-card-steps', 'steps')}>
-                      <CardTitle>{t('overview.kpi.steps')}</CardTitle>
-                      <p className="kpi" data-testid="kpi-steps">
-                        {summary.kpis.stepsLatest != null
-                          ? String(summary.kpis.stepsLatest)
-                          : '—'}
-                      </p>
-                      <CardDesc>
-                        {summary.counts.stepsDays} {t('overview.kpi.days')}
-                      </CardDesc>
-                    </Card>
-                  ) : null}
-                  {kpiVis.recovery !== false ? (
-                    <Card {...kpiCardNavProps('kpi-card-recovery')}>
-                      <CardTitle>{t('overview.kpi.recovery')}</CardTitle>
-                      <p className="kpi" data-testid="kpi-recovery">
-                        {summary.kpis.recoveryScore != null
-                          ? String(summary.kpis.recoveryScore)
-                          : '—'}
-                      </p>
-                      <CardDesc>{t('overview.kpi.nonDiag')}</CardDesc>
-                    </Card>
-                  ) : null}
-                  {kpiVis.restingHr !== false &&
-                  summary.kpis.restingHrLatest != null ? (
-                    <Card
-                      {...kpiCardNavProps('kpi-card-restingHr', 'restingHr')}
-                    >
-                      <CardTitle>{t('overview.kpi.restingHr')}</CardTitle>
-                      <p className="kpi" data-testid="kpi-restingHr">
-                        {summary.kpis.restingHrLatest}
-                      </p>
-                      <CardDesc>
-                        1 {t('overview.kpi.days')}
-                      </CardDesc>
-                    </Card>
-                  ) : null}
+                  {kpiOrder.map((id) => {
+                    if (kpiVis[id] === false) return null;
+                    if (id === 'cgm') {
+                      return (
+                        <Card
+                          key={id}
+                          {...kpiCardNavProps('kpi-card-cgm', 'cgmDailyMean')}
+                        >
+                          <CardTitle>{t('overview.kpi.cgm')}</CardTitle>
+                          <p className="kpi" data-testid="kpi-cgm">
+                            {summary.kpis.cgmMean != null
+                              ? summary.kpis.cgmMean.toFixed(2)
+                              : '—'}
+                          </p>
+                          <CardDesc>
+                            {summary.counts.cgm} {t('overview.kpi.points')}
+                          </CardDesc>
+                        </Card>
+                      );
+                    }
+                    if (id === 'weight') {
+                      return (
+                        <Card
+                          key={id}
+                          {...kpiCardNavProps('kpi-card-weight', 'weight')}
+                        >
+                          <CardTitle>{t('overview.kpi.weight')}</CardTitle>
+                          <p className="kpi" data-testid="kpi-weight">
+                            {summary.kpis.weightLatest != null
+                              ? summary.kpis.weightLatest.toFixed(2)
+                              : '—'}
+                          </p>
+                          <CardDesc>
+                            {summary.counts.weight} {t('overview.kpi.points')}
+                          </CardDesc>
+                        </Card>
+                      );
+                    }
+                    if (id === 'steps') {
+                      return (
+                        <Card
+                          key={id}
+                          {...kpiCardNavProps('kpi-card-steps', 'steps')}
+                        >
+                          <CardTitle>{t('overview.kpi.steps')}</CardTitle>
+                          <p className="kpi" data-testid="kpi-steps">
+                            {summary.kpis.stepsLatest != null
+                              ? String(summary.kpis.stepsLatest)
+                              : '—'}
+                          </p>
+                          <CardDesc>
+                            {summary.counts.stepsDays} {t('overview.kpi.days')}
+                          </CardDesc>
+                        </Card>
+                      );
+                    }
+                    if (id === 'recovery') {
+                      return (
+                        <Card key={id} {...kpiCardNavProps('kpi-card-recovery')}>
+                          <CardTitle>{t('overview.kpi.recovery')}</CardTitle>
+                          <p className="kpi" data-testid="kpi-recovery">
+                            {summary.kpis.recoveryScore != null
+                              ? String(summary.kpis.recoveryScore)
+                              : '—'}
+                          </p>
+                          <CardDesc>{t('overview.kpi.nonDiag')}</CardDesc>
+                        </Card>
+                      );
+                    }
+                    if (
+                      id === 'restingHr' &&
+                      summary.kpis.restingHrLatest != null
+                    ) {
+                      return (
+                        <Card
+                          key={id}
+                          {...kpiCardNavProps(
+                            'kpi-card-restingHr',
+                            'restingHr',
+                          )}
+                        >
+                          <CardTitle>{t('overview.kpi.restingHr')}</CardTitle>
+                          <p className="kpi" data-testid="kpi-restingHr">
+                            {summary.kpis.restingHrLatest}
+                          </p>
+                          <CardDesc>1 {t('overview.kpi.days')}</CardDesc>
+                        </Card>
+                      );
+                    }
+                    return null;
+                  })}
                 </div>
               </div>
             </details>

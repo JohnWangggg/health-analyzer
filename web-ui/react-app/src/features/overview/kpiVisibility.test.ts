@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   KPI_IDS,
+  KPI_ORDER_KEY,
   KPI_VISIBILITY_KEY,
+  getKpiOrder,
   getKpiVisibility,
   isKpiVisible,
+  moveKpiOrder,
+  setKpiOrder,
   setKpiVisibility,
   type KpiId,
 } from './kpiVisibility';
@@ -128,5 +132,15 @@ describe('kpiVisibility', () => {
     expect(isKpiVisible('cgm')).toBe(true);
     const next = setKpiVisibility({ cgm: false });
     expect(next.cgm).toBe(false);
+  });
+
+  it('getKpiOrder defaults to KPI_IDS and moveKpiOrder swaps', () => {
+    expect(getKpiOrder()).toEqual([...KPI_IDS]);
+    const next = moveKpiOrder('cgm', 1);
+    expect(next[0]).toBe('weight');
+    expect(next[1]).toBe('cgm');
+    expect(localStorage.getItem(KPI_ORDER_KEY)).toBeTruthy();
+    setKpiOrder([...KPI_IDS]);
+    expect(getKpiOrder()[0]).toBe('cgm');
   });
 });

@@ -7,6 +7,7 @@ import { TrendsPage } from './pages/TrendsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { DataPage } from './pages/DataPage';
 import { PwaUpdateBanner } from './components/PwaUpdateBanner';
+import { PwaInstallBanner } from './components/PwaInstallBanner';
 import './styles/theme.css';
 import './styles/app.css';
 
@@ -18,6 +19,7 @@ export default function App() {
     <ThemeProvider>
       <LocaleProvider>
         <PwaUpdateBanner />
+        <PwaInstallBanner />
         <BrowserRouter basename={basename === '/' ? undefined : basename}>
           <Routes>
             <Route element={<AppShell />}>

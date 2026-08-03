@@ -1510,6 +1510,46 @@ body.health-dashboard-mode[data-dashboard-focus='metrics'] .kpi-matrix {
   letter-spacing: 0.04em;
 }
 
+/* Data quality */
+.data-quality-banner {
+  margin: 0.5rem 0 0;
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #b54708 35%, var(--border));
+  background: color-mix(in srgb, #b54708 10%, var(--bg-elevated));
+  font-size: 0.88rem;
+  line-height: 1.4;
+}
+.data-quality-banner ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1.2rem;
+}
+.data-quality-hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+}
+
+/* KPI order controls */
+.kpi-order-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  margin-right: 0.35rem;
+  margin-bottom: 0.25rem;
+}
+
+/* PWA install */
+.pwa-install-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  padding: 0.55rem 1rem;
+  font-size: 0.88rem;
+  background: color-mix(in srgb, var(--accent, #0d6e6e) 12%, var(--bg-elevated, #fff));
+  border-bottom: 1px solid var(--border);
+}
+
 /* Offline banner */
 .connectivity-banner {
   display: flex;

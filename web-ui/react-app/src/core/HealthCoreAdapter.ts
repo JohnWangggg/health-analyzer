@@ -59,6 +59,13 @@ export type AnalysisSummary = {
   };
   /** Days since end of date range (0 = ends today). */
   freshnessDays: number | null;
+  /** Parser data-quality hints (future-dated skips, CGM unit reliability). */
+  dataQuality: {
+    skippedFutureCount: number;
+    futureSampleDates: string[];
+    cgmUnitReliable: boolean | null;
+    cgmUnitLabel: string | null;
+  };
 };
 
 export type SeriesPoint = { date: string; value: number };
@@ -114,6 +121,25 @@ export function summarizeAnalysis(
   const recoveryScore = numOrNull(analysis.recoveryWeek?.recoveryScore);
   const loadScore = numOrNull(analysis.recoveryWeek?.loadScore);
   const todayIso = now.toISOString().slice(0, 10);
+  const dq = (data as { dataQuality?: Record<string, unknown> }).dataQuality;
+  const skippedFuture =
+    typeof dq?.skippedFutureCount === 'number' ? dq.skippedFutureCount : 0;
+  const futureSamples = Array.isArray(dq?.futureSampleDates)
+    ? (dq!.futureSampleDates as unknown[])
+        .map((x) => String(x))
+        .filter(Boolean)
+        .slice(0, 8)
+    : [];
+  const cgmUnit = dq?.cgmUnit as
+    | { reliable?: boolean; displayUnit?: string; unit?: string }
+    | null
+    | undefined;
+  const cgmUnitReliable =
+    cgmUnit && typeof cgmUnit.reliable === 'boolean' ? cgmUnit.reliable : null;
+  const cgmUnitLabel =
+    cgmUnit && (cgmUnit.displayUnit || cgmUnit.unit)
+      ? String(cgmUnit.displayUnit || cgmUnit.unit)
+      : null;
 
   return {
     dateRange: { ...analysis.dateRange },
@@ -151,6 +177,12 @@ export function summarizeAnalysis(
       statusTone: analysis.recoveryWeek?.statusTone ?? null,
     },
     freshnessDays: daysBetweenIso(analysis.dateRange.end, todayIso),
+    dataQuality: {
+      skippedFutureCount: skippedFuture,
+      futureSampleDates: futureSamples,
+      cgmUnitReliable,
+      cgmUnitLabel,
+    },
   };
 }
 
