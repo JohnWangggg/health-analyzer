@@ -339,7 +339,7 @@ English:
 | `2e99eec` | 明文+**加密备份 e2e**；趋势域 `data-has-data` / 空域切换 |
 | `f58d6fc` | 报告空态 CTA + meta；Keep-N **一键预设** |
 | **v2.3.1** `bb9a6d4` | GitHub Pages **base=/<repo>/** + `404.html` SPA；总览 **复制大模型提示词**；中英文 README 版本要点表 |
-| **v2.3.2** `pending` | React **个人背景**（legacy 同 localStorage 键）+ **今日快照**条；提示词注入上下文 |
+| **v2.3.2** `9fd9f57` | React **个人背景**（legacy 同 localStorage 键）+ **今日快照**条；提示词注入上下文 |
 
 ### 发版检查清单（每次 push 前）
 
