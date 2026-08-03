@@ -347,4 +347,4 @@ English:
 | **v2.4.2** `349d7a3` | **Legacy 软弃用**：`docs/LEGACY_PARITY.md`；`/legacy/` 顶栏弃用条；About 折叠回滚入口 |
 | **v2.5** `2fb7f01` | **删除完整 legacy UI**：仅留 `/legacy/` 跳转；P0 日期过滤/事件/清除/FHIR exchange；schema 迁 `idb-schema/`；CI 只跑 e2e-react |
 | **v2.5.1** `f58a184` | 趋势**双指标对比** · **文件夹导入** · **HAE 取消** · **快照环比** |
-| **v2.5.2** _(pending)_ | 图表**预设** · HAE **用药→事件** · **离线横幅** |
+| **v2.5.2** `844528b` | 图表**预设** · HAE **用药→事件** · **离线横幅** |

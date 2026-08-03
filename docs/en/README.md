@@ -143,7 +143,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.4.2** `349d7a3` | **Legacy soft-deprecation**: `docs/LEGACY_PARITY.md`; banner on `/legacy/`; About fold for rollback |
 | **v2.5** `2fb7f01` | **Full legacy UI removed**: `/legacy/` redirect only; P0 date filter/events/wipe/FHIR exchange; schema in `idb-schema/`; CI e2e-react only |
 | **v2.5.1** `f58a184` | Trends **dual-metric compare** · **folder import** · **HAE cancel** · **snapshot compare** |
-| **v2.5.2** _(pending)_ | Chart **presets** · HAE **meds→events** · **offline banner** |
+| **v2.5.2** `844528b` | Chart **presets** · HAE **meds→events** · **offline banner** |
 
 ### Release checklist
 
