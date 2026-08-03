@@ -141,5 +141,26 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.4** `6229d49` | **Full product path on React**: events · CSV merge · recovery weights · TV mode · JSON/CSV/snapshot export · FHIR local archive · clinical HTML/sensitive options |
 | **v2.4.1** `39a4a08` | Pages **white-screen guard**: boot placeholder + recovery; auto clear SW on chunk miss; base-safe navigateFallback |
 | **v2.4.2** `349d7a3` | **Legacy soft-deprecation**: `docs/LEGACY_PARITY.md`; banner on `/legacy/`; About fold for rollback |
-| **v2.5**  | **Full legacy UI removed**: `/legacy/` redirect only; P0 date filter/events/wipe/FHIR exchange; schema in `idb-schema/`; CI e2e-react only |
+| **v2.5** `2fb7f01` | **Full legacy UI removed**: `/legacy/` redirect only; P0 date filter/events/wipe/FHIR exchange; schema in `idb-schema/`; CI e2e-react only |
 | **v2.5.1** `f58a184` | Trends **dual-metric compare** · **folder import** · **HAE cancel** · **snapshot compare** |
+
+### Release checklist
+
+```bash
+npm run react:test
+npm run react:export-cutover && npm run test:cutover-layout && npm run smoke
+npm run test:e2e:react
+```
+
+---
+
+## Design notes
+
+- Local-first; no CDN analytics in React privacy-scan  
+- Kernel stays in `lib/`; React uses HealthCoreAdapter only  
+- Warehouse: IndexedDB v5 `sharded-v1`, shared with legacy  
+- Not a medical device; no diagnosis  
+
+## License
+
+MIT
