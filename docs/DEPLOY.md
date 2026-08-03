@@ -75,6 +75,7 @@ cd lib && npm test && npm run build
 | `health-lib-*.js` | `@health-analyzer/lib` 内核 |
 | `OverviewPage` / `TrendsPage` / … | 各工作区按需加载 |
 | ECharts 相关 | 仍不预缓存，进趋势页再拉 |
+| `OverviewAdvancedTools-*.js` | 总览高级工具（idle 后加载；v2.5.7+） |
 
 生产构建不应再因单一主包 &gt;500KB 报警；图表 chunk 仍按需。
 

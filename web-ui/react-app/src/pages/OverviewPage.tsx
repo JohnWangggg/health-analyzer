@@ -19,11 +19,7 @@ import {
 import { useLocale } from '../i18n/LocaleProvider';
 import { StatusBand } from '../features/overview/StatusBand';
 import { TodayStrip } from '../features/overview/TodayStrip';
-import { UserContextPanel } from '../features/overview/UserContextPanel';
-import { EventsPanel } from '../features/overview/EventsPanel';
-import { CsvMergePanel } from '../features/overview/CsvMergePanel';
-import { RecoveryWeightsPanel } from '../features/overview/RecoveryWeightsPanel';
-import { DateFilterPanel } from '../features/overview/DateFilterPanel';
+import { DeferredAdvancedTools } from '../features/overview/DeferredAdvancedTools';
 import { SignalList } from '../features/overview/SignalList';
 import { KpiVisibilityBar } from '../features/overview/KpiVisibilityBar';
 import {
@@ -543,12 +539,8 @@ export function OverviewPage() {
         </ErrorState>
       ) : null}
 
-      {/* Advanced tools available without a loaded session */}
-      <DateFilterPanel />
-      <UserContextPanel />
-      <EventsPanel />
-      <CsvMergePanel />
-      <RecoveryWeightsPanel />
+      {/* Advanced tools: idle-deferred separate chunk (not on critical KPI path) */}
+      <DeferredAdvancedTools />
 
       {!summary ? (
         <EmptyState

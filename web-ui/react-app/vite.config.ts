@@ -53,6 +53,7 @@ export default defineConfig({
           '**/health-lib-*.js',
           '**/useHealthStore-*.js',
           '**/OverviewPage-*.js',
+          '**/OverviewAdvancedTools-*.js',
           '**/TrendsPage-*.js',
           '**/ReportsPage-*.js',
           '**/DataPage-*.js',

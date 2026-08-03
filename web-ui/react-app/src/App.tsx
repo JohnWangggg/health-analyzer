@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { ThemeProvider } from './theme/ThemeProvider';
 import { LocaleProvider } from './i18n/LocaleProvider';
@@ -29,12 +29,21 @@ const DataPage = lazy(() =>
   import('./pages/DataPage').then((m) => ({ default: m.DataPage })),
 );
 
+/** Keep inside AppShell Outlet so chrome never unmounts during route suspend. */
 function RouteFallback() {
   return (
-    <div className="route-fallback" style={{ padding: '1.5rem' }}>
+    <div
+      className="route-fallback"
+      style={{ padding: '1.5rem' }}
+      data-testid="route-fallback"
+    >
       <LoadingState label="…" />
     </div>
   );
+}
+
+function LazyPage({ page }: { page: ReactNode }) {
+  return <Suspense fallback={<RouteFallback />}>{page}</Suspense>;
 }
 
 export default function App() {
@@ -44,17 +53,26 @@ export default function App() {
         <PwaUpdateBanner />
         <PwaInstallBanner />
         <BrowserRouter basename={basename === '/' ? undefined : basename}>
-          <Suspense fallback={<RouteFallback />}>
-            <Routes>
-              <Route element={<AppShell />}>
-                <Route index element={<OverviewPage />} />
-                <Route path="trends" element={<TrendsPage />} />
-                <Route path="reports" element={<ReportsPage />} />
-                <Route path="data" element={<DataPage />} />
-                <Route path="*" element={<Navigate to="/" replace />} />
-              </Route>
-            </Routes>
-          </Suspense>
+          <Routes>
+            <Route element={<AppShell />}>
+              <Route
+                index
+                element={
+                  <LazyPage page={<OverviewPage />} />
+                }
+              />
+              <Route
+                path="trends"
+                element={<LazyPage page={<TrendsPage />} />}
+              />
+              <Route
+                path="reports"
+                element={<LazyPage page={<ReportsPage />} />}
+              />
+              <Route path="data" element={<LazyPage page={<DataPage />} />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
+          </Routes>
         </BrowserRouter>
       </LocaleProvider>
     </ThemeProvider>
