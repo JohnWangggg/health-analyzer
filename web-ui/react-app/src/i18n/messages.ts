@@ -73,6 +73,7 @@ export type MessageKey =
   | 'overview.ctx.saved'
   | 'overview.ctx.cleared'
   | 'overview.ctx.saveFail'
+  | 'overview.ctx.includeSensitive'
   | 'dualTrack'
   | 'shell.sessionReady'
   | 'shell.sessionIdle'
@@ -277,6 +278,7 @@ const zh: Record<MessageKey, string> = {
   'overview.ctx.saved': '已保存到本机',
   'overview.ctx.cleared': '已清除',
   'overview.ctx.saveFail': '无法写入 localStorage',
+  'overview.ctx.includeSensitive': '复制提示词时包含用药与病史',
   dualTrack: '双轨',
   'shell.sessionReady': '已加载',
   'shell.sessionIdle': '未加载',
@@ -492,6 +494,7 @@ const en: Record<MessageKey, string> = {
   'overview.ctx.saved': 'Saved on this device',
   'overview.ctx.cleared': 'Cleared',
   'overview.ctx.saveFail': 'Could not write localStorage',
+  'overview.ctx.includeSensitive': 'Include medications & conditions in the prompt',
   dualTrack: 'Dual-track',
   'shell.sessionReady': 'Ready',
   'shell.sessionIdle': 'Idle',

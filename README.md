@@ -78,7 +78,7 @@ GitHub Pages 项目页会自动使用 base=`/<repo>/`（见 `export-cutover.mjs`
 ### React 默认路径已具备（相对 legacy 的迁移进度）
 
 - ✅ 导入：夹具 · XML · ZIP · HAE；会话就绪条 / 导入进度  
-- ✅ 总览：状态带 · 今日快照 · KPI 可显隐 · 深链趋势 · **复制大模型提示词** · **个人背景（与 legacy 共用键）**  
+- ✅ 总览：状态带 · 今日快照 · KPI 可显隐 · 深链趋势 · **复制大模型提示词** · **个人背景 + 敏感字段开关（与 legacy 共用键）**  
 - ✅ 趋势：多域 · 有数据标记 · 空域切换 · ECharts 懒加载  
 - ✅ 报告：门诊/周报/临床 · 复制/下载 · 空态回总览  
 - ✅ 数据仓：sharded-v1 读写 · keep-N 预设 · 分片多选删除 · **备份/恢复（明文+AES-GCM）**  
@@ -98,7 +98,7 @@ GitHub Pages 项目页会自动使用 base=`/<repo>/`（见 `export-cutover.mjs`
 - ✅ 自动识别：CGM / 血压 / 体重 / HRV / 心率 / 步数 / 睡眠 / ECG / Watch 活动·血氧·VO₂·腕温  
 
 - ✅ 三档提示词：完整 / 仅数据 / 简短系统提示  
-- ✅ 个人背景注入提示词（localStorage）  
+- ✅ 个人背景注入提示词（localStorage；可选剥离用药/病史）  
 - ✅ 跨维度启发式提示 + Canvas 趋势图  
 - ✅ JSON / CSV（ZIP）导出；IndexedDB 历史摘要环比  
 - ✅ Web Worker 解析大 XML（失败回退主线程）  
@@ -340,6 +340,7 @@ English:
 | `f58d6fc` | 报告空态 CTA + meta；Keep-N **一键预设** |
 | **v2.3.1** `bb9a6d4` | GitHub Pages **base=/<repo>/** + `404.html` SPA；总览 **复制大模型提示词**；中英文 README 版本要点表 |
 | **v2.3.2** `9fd9f57` | React **个人背景**（legacy 同 localStorage 键）+ **今日快照**条；提示词注入上下文 |
+| **v2.3.3** _(pending push)_ | React **敏感上下文开关**：复制提示词时可选剥离用药/病史（键 `health-analyzer-include-sensitive-ctx`，与 legacy 一致；默认包含） |
 
 ### 发版检查清单（每次 push 前）
 

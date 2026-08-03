@@ -322,6 +322,8 @@ npm run build     # tsc + 生成 web-ui/public/legacy/lib.js
 - v2.2-dual：**双轨 React 预览轨**（`web-ui/react-app` 壳 + adapter + 四工作区 + 仓 sharded-v1）；历史曾以 `/next/` 可选挂载。
 - **v2.3-cutover（Strategy A）**：**生产默认入口为 React `/`**（`npm run react:export-cutover`）；旧版仅 **`/legacy/`** 回滚；主门禁含 `test:e2e:react` + cutover 布局检查；`export-next` 废弃。
 - **v2.3.1-pages**：**GitHub Pages** 部署 `base=/<repo>/` + `404.html` SPA；总览 **复制大模型提示词**；中英文 README 版本要点持续更新。见根 `README.md`、`docs/en/README.md`。
+- **v2.3.2**：React **个人背景** + **今日快照**；提示词注入（legacy 同键）。
+- **v2.3.3**：React **敏感上下文开关**（`health-analyzer-include-sensitive-ctx`，默认包含用药/病史；关闭则仅剥离 meds/conditions）。
 - v1.92：**今日仓状态 chip**（`#warehouse-today-chip`，hydrate 后今日工作区 meta 提示）+ **趋势仓提示**（`#warehouse-trends-hint`）；E2E soft/hard（grant→persist→reload hydrate 硬路径，UI 缺失 soft log）；真机大 ZIP / 本机性能基线见 `docs/REAL_DEVICE_ZIP.md`；手测见 `docs/MANUAL_QA.md`，仓设计见 `docs/DATA_CENTER_v1.68.md`。
 
 ## 许可

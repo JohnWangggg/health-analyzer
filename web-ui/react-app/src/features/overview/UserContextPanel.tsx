@@ -2,8 +2,10 @@ import { useCallback, useState, type ChangeEvent } from 'react';
 import { Button } from '../../components/ui/Button';
 import {
   clearUserContext,
+  isIncludeSensitiveCtx,
   loadUserContext,
   saveUserContext,
+  setIncludeSensitiveCtx,
   type UserContext,
 } from '../../core/userContext';
 import { useLocale } from '../../i18n/LocaleProvider';
@@ -22,11 +24,14 @@ function parseOptionalNumber(raw: string): number | null {
 
 /**
  * Optional personal background form.
- * Persists to the same localStorage key as legacy app.js (Strategy A).
+ * Persists to the same localStorage keys as legacy app.js (Strategy A).
  */
 export function UserContextPanel() {
   const { t } = useLocale();
   const [form, setForm] = useState<UserContext>(() => loadUserContext());
+  const [includeSensitive, setIncludeSensitive] = useState(() =>
+    isIncludeSensitiveCtx(),
+  );
   const [status, setStatus] = useState<string | null>(null);
 
   const onNum =
@@ -49,6 +54,16 @@ export function UserContextPanel() {
       }));
       setStatus(null);
     };
+
+  const onIncludeSensitive = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const on = e.target.checked;
+      setIncludeSensitive(on);
+      setIncludeSensitiveCtx(on);
+      setStatus(null);
+    },
+    [],
+  );
 
   const onSave = useCallback(() => {
     try {
@@ -180,6 +195,15 @@ export function UserContextPanel() {
             />
           </label>
         </div>
+        <label className="user-ctx-check">
+          <input
+            type="checkbox"
+            checked={includeSensitive}
+            onChange={onIncludeSensitive}
+            data-testid="user-ctx-include-sensitive"
+          />
+          <span>{t('overview.ctx.includeSensitive')}</span>
+        </label>
         <div className="user-ctx-actions">
           <Button
             variant="secondary"

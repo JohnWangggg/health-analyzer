@@ -10,6 +10,7 @@ describe('i18n messages', () => {
     'overview.emptyHint',
     'overview.sessionReadyStrip',
     'overview.ctx.summary',
+    'overview.ctx.includeSensitive',
     'overview.today.title',
     'overview.kpiSection',
     'overview.kpi.cgm',

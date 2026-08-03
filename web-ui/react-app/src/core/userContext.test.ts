@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   STORAGE_KEY,
+  INCLUDE_SENSITIVE_KEY,
   EMPTY_USER_CONTEXT,
   clearUserContext,
   getUserContextForPrompt,
+  isIncludeSensitiveCtx,
   loadUserContext,
   normalizeUserContext,
   saveUserContext,
+  setIncludeSensitiveCtx,
   type UserContext,
 } from './userContext';
 
@@ -115,6 +118,57 @@ describe('userContext', () => {
     expect(getUserContextForPrompt()).toEqual(
       expect.objectContaining({ age: 55, focus: '恢复' }),
     );
+  });
+
+  it('isIncludeSensitiveCtx defaults true when key missing', () => {
+    expect(localStorage.getItem(INCLUDE_SENSITIVE_KEY)).toBeNull();
+    expect(isIncludeSensitiveCtx()).toBe(true);
+  });
+
+  it('setIncludeSensitiveCtx persists 1/0 and isIncludeSensitiveCtx reads them', () => {
+    setIncludeSensitiveCtx(false);
+    expect(localStorage.getItem(INCLUDE_SENSITIVE_KEY)).toBe('0');
+    expect(isIncludeSensitiveCtx()).toBe(false);
+    setIncludeSensitiveCtx(true);
+    expect(localStorage.getItem(INCLUDE_SENSITIVE_KEY)).toBe('1');
+    expect(isIncludeSensitiveCtx()).toBe(true);
+  });
+
+  it('getUserContextForPrompt includes meds/conditions when sensitive on (default)', () => {
+    saveUserContext({
+      age: 40,
+      medications: '氯沙坦钾 50mg',
+      conditions: '高血压自述',
+      focus: '夜间血压',
+    });
+    const p = getUserContextForPrompt();
+    expect(p.medications).toBe('氯沙坦钾 50mg');
+    expect(p.conditions).toBe('高血压自述');
+    expect(p.focus).toBe('夜间血压');
+    expect(p.age).toBe(40);
+  });
+
+  it('getUserContextForPrompt strips meds/conditions when sensitive off', () => {
+    saveUserContext({
+      age: 40,
+      heightCm: 175,
+      medications: '氯沙坦钾 50mg',
+      conditions: '高血压自述',
+      focus: '夜间血压',
+      notes: '仍应保留',
+      targetWeightKg: 70,
+    });
+    setIncludeSensitiveCtx(false);
+    const p = getUserContextForPrompt();
+    expect(p.medications).toBeUndefined();
+    expect(p.conditions).toBeUndefined();
+    expect(p.age).toBe(40);
+    expect(p.heightCm).toBe(175);
+    expect(p.focus).toBe('夜间血压');
+    expect(p.notes).toBe('仍应保留');
+    expect(p.targetWeightKg).toBe(70);
+    // form storage still has sensitive fields
+    expect(loadUserContext().medications).toBe('氯沙坦钾 50mg');
   });
 
   it('save is no-op safe when localStorage throws', () => {

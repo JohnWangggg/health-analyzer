@@ -46,11 +46,32 @@ test.describe('React dual-track shell', () => {
     await expect(page.getByTestId('user-context-panel')).toBeAttached();
     await page.getByTestId('user-context-panel').locator('summary').click();
     await page.getByTestId('user-ctx-focus').fill('e2e-focus');
+    await page.getByTestId('user-ctx-meds').fill('e2e-med');
     await page.getByTestId('user-ctx-save').click();
     await expect(page.getByTestId('user-ctx-status')).toContainText(
       /保存|Saved|本机/i,
       { timeout: 5_000 },
     );
+    // Include-sensitive toggle (legacy key health-analyzer-include-sensitive-ctx)
+    const sensitive = page.getByTestId('user-ctx-include-sensitive');
+    await expect(sensitive).toBeVisible();
+    await expect(sensitive).toBeChecked(); // default on
+    await sensitive.uncheck();
+    await expect
+      .poll(async () =>
+        page.evaluate(() =>
+          localStorage.getItem('health-analyzer-include-sensitive-ctx'),
+        ),
+      )
+      .toBe('0');
+    await sensitive.check();
+    await expect
+      .poll(async () =>
+        page.evaluate(() =>
+          localStorage.getItem('health-analyzer-include-sensitive-ctx'),
+        ),
+      )
+      .toBe('1');
     await page.getByTestId('llm-prompt-copy').click();
     await expect(page.getByTestId('llm-prompt-status')).toContainText(
       /复制|Copied|字|char/i,
