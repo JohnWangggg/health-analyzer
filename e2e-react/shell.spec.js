@@ -30,16 +30,27 @@ test.describe('React dual-track shell', () => {
     const cgm = await page.getByTestId('kpi-cgm').innerText();
     expect(Number(cgm)).toBeGreaterThan(0);
 
-    // Overview density MVP+: status band, signals, primary CTAs
+    // Overview density MVP+: status band, today strip, signals, primary CTAs
     await expect(page.getByTestId('status-band')).toBeVisible();
     const priorityTitle = await page.getByTestId('priority-title').innerText();
     expect(priorityTitle.trim().length).toBeGreaterThan(0);
     await expect(page.getByTestId('kpi-freshness')).toBeVisible();
+    await expect(page.getByTestId('today-strip')).toBeVisible();
+    await expect(page.getByTestId('today-strip-range')).toBeVisible();
     await expect(page.getByTestId('signal-list')).toBeVisible();
     await expect(page.getByTestId('primary-actions')).toBeVisible();
     await expect(page.getByTestId('kpi-visibility-bar')).toBeVisible();
     await expect(page.getByTestId('llm-prompt-bar')).toBeVisible();
     await expect(page.getByTestId('llm-prompt-copy')).toBeVisible();
+    // Personal context (legacy-compatible localStorage)
+    await expect(page.getByTestId('user-context-panel')).toBeAttached();
+    await page.getByTestId('user-context-panel').locator('summary').click();
+    await page.getByTestId('user-ctx-focus').fill('e2e-focus');
+    await page.getByTestId('user-ctx-save').click();
+    await expect(page.getByTestId('user-ctx-status')).toContainText(
+      /保存|Saved|本机/i,
+      { timeout: 5_000 },
+    );
     await page.getByTestId('llm-prompt-copy').click();
     await expect(page.getByTestId('llm-prompt-status')).toContainText(
       /复制|Copied|字|char/i,

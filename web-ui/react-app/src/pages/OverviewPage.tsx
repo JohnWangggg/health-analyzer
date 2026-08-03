@@ -12,6 +12,8 @@ import {
 
 import { useLocale } from '../i18n/LocaleProvider';
 import { StatusBand } from '../features/overview/StatusBand';
+import { TodayStrip } from '../features/overview/TodayStrip';
+import { UserContextPanel } from '../features/overview/UserContextPanel';
 import { SignalList } from '../features/overview/SignalList';
 import { KpiVisibilityBar } from '../features/overview/KpiVisibilityBar';
 import {
@@ -24,6 +26,7 @@ import {
   buildLlmPrompt,
   type LlmPromptMode,
 } from '../core/HealthCoreAdapter';
+import { getUserContextForPrompt } from '../core/userContext';
 import fixtureXml from '../../../../e2e/fixtures/minimal-export.xml?raw';
 
 const KPI_OPEN_KEY = 'ha-react-overview-kpi-open';
@@ -168,6 +171,7 @@ export function OverviewPage() {
     try {
       const { text } = buildLlmPrompt(analysis, promptMode, {
         locale: locale === 'en' ? 'en' : 'zh-CN',
+        userContext: getUserContextForPrompt(),
       });
       await navigator.clipboard.writeText(text);
       setPromptMsg(
@@ -469,14 +473,17 @@ export function OverviewPage() {
             const p = priorityFromSummary(summary);
             const f = freshnessLabel(summary.freshnessDays);
             return (
-              <StatusBand
-                summary={summary}
-                priorityTitle={p.title}
-                priorityDetail={p.detail}
-                priorityTone={p.tone}
-                freshnessText={f.text}
-                freshnessTone={f.tone}
-              />
+              <>
+                <StatusBand
+                  summary={summary}
+                  priorityTitle={p.title}
+                  priorityDetail={p.detail}
+                  priorityTone={p.tone}
+                  freshnessText={f.text}
+                  freshnessTone={f.tone}
+                />
+                <TodayStrip summary={summary} freshnessText={f.text} />
+              </>
             );
           })()}
 
@@ -529,6 +536,8 @@ export function OverviewPage() {
               ) : null}
             </div>
           ) : null}
+
+          <UserContextPanel />
 
           <div className="insight-strip" data-testid="insight-strip">
             {(() => {

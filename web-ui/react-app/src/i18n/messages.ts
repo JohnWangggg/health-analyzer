@@ -50,6 +50,29 @@ export type MessageKey =
   | 'overview.kpi.nonDiag'
   | 'overview.kpi.openTrends'
   | 'overview.domainsPresentCount'
+  | 'overview.today.title'
+  | 'overview.today.range'
+  | 'overview.today.cgm'
+  | 'overview.today.steps'
+  | 'overview.today.weight'
+  | 'overview.today.recovery'
+  | 'overview.today.freshness'
+  | 'overview.today.nonDiag'
+  | 'overview.ctx.summary'
+  | 'overview.ctx.hint'
+  | 'overview.ctx.age'
+  | 'overview.ctx.sex'
+  | 'overview.ctx.height'
+  | 'overview.ctx.targetWeight'
+  | 'overview.ctx.medications'
+  | 'overview.ctx.conditions'
+  | 'overview.ctx.focus'
+  | 'overview.ctx.notes'
+  | 'overview.ctx.save'
+  | 'overview.ctx.clear'
+  | 'overview.ctx.saved'
+  | 'overview.ctx.cleared'
+  | 'overview.ctx.saveFail'
   | 'dualTrack'
   | 'shell.sessionReady'
   | 'shell.sessionIdle'
@@ -230,6 +253,30 @@ const zh: Record<MessageKey, string> = {
   'overview.kpi.nonDiag': '非诊断 · 个人启发式',
   'overview.kpi.openTrends': '在趋势中查看',
   'overview.domainsPresentCount': '{n} 域有数据',
+  'overview.today.title': '今日快照',
+  'overview.today.range': '区间',
+  'overview.today.cgm': 'CGM',
+  'overview.today.steps': '步数',
+  'overview.today.weight': '体重',
+  'overview.today.recovery': '恢复分',
+  'overview.today.freshness': '新鲜度',
+  'overview.today.nonDiag': '非诊断 · 会话摘要',
+  'overview.ctx.summary': '个人背景（注入提示词 · 仅本机）',
+  'overview.ctx.hint':
+    '用药、目标体重与关注点会写入大模型提示词；保存在本机 localStorage，与旧版共用键，不上传。',
+  'overview.ctx.age': '年龄',
+  'overview.ctx.sex': '性别自述',
+  'overview.ctx.height': '身高 (cm)',
+  'overview.ctx.targetWeight': '目标体重 (kg)',
+  'overview.ctx.medications': '当前用药',
+  'overview.ctx.conditions': '已知情况（自述）',
+  'overview.ctx.focus': '本次最想关注',
+  'overview.ctx.notes': '其他备注',
+  'overview.ctx.save': '保存到本机',
+  'overview.ctx.clear': '清除',
+  'overview.ctx.saved': '已保存到本机',
+  'overview.ctx.cleared': '已清除',
+  'overview.ctx.saveFail': '无法写入 localStorage',
   dualTrack: '双轨',
   'shell.sessionReady': '已加载',
   'shell.sessionIdle': '未加载',
@@ -421,6 +468,30 @@ const en: Record<MessageKey, string> = {
   'overview.kpi.nonDiag': 'Non-diagnostic · personal heuristic',
   'overview.kpi.openTrends': 'Open in Trends',
   'overview.domainsPresentCount': '{n} domains present',
+  'overview.today.title': 'Today snapshot',
+  'overview.today.range': 'Range',
+  'overview.today.cgm': 'CGM',
+  'overview.today.steps': 'Steps',
+  'overview.today.weight': 'Weight',
+  'overview.today.recovery': 'Recovery',
+  'overview.today.freshness': 'Freshness',
+  'overview.today.nonDiag': 'Non-diagnostic · session snapshot',
+  'overview.ctx.summary': 'Personal context (prompt only · local)',
+  'overview.ctx.hint':
+    'Meds, goals, and focus go into the LLM prompt; saved in localStorage (same key as legacy). Not uploaded.',
+  'overview.ctx.age': 'Age',
+  'overview.ctx.sex': 'Sex (self-described)',
+  'overview.ctx.height': 'Height (cm)',
+  'overview.ctx.targetWeight': 'Target weight (kg)',
+  'overview.ctx.medications': 'Medications',
+  'overview.ctx.conditions': 'Known conditions (self-reported)',
+  'overview.ctx.focus': 'Focus this time',
+  'overview.ctx.notes': 'Notes',
+  'overview.ctx.save': 'Save locally',
+  'overview.ctx.clear': 'Clear',
+  'overview.ctx.saved': 'Saved on this device',
+  'overview.ctx.cleared': 'Cleared',
+  'overview.ctx.saveFail': 'Could not write localStorage',
   dualTrack: 'Dual-track',
   'shell.sessionReady': 'Ready',
   'shell.sessionIdle': 'Idle',

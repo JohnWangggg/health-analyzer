@@ -24,7 +24,7 @@ GitHub **project** Pages uses `base=/<repo>/` automatically on deploy (`GITHUB_P
 ### React default path (migration progress)
 
 - ✅ Import: fixture · XML · ZIP · HAE; progress + session-ready strip  
-- ✅ Overview: status band · KPI visibility · deep-link to trends · **copy LLM prompt** (full / data / short)  
+- ✅ Overview: status band · today snapshot · KPI visibility · **LLM prompt + personal context** (shared localStorage with legacy)  
 - ✅ Trends: multi-domain · `data-has-data` tabs · empty-domain switch · lazy ECharts  
 - ✅ Reports: visit / weekly / clinical · copy/download · empty CTA to Overview  
 - ✅ Warehouse: sharded-v1 R/W · keep-N presets · multi-select shard delete · **backup/restore** (plain + AES-GCM)  
@@ -136,6 +136,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | `2e99eec` | Plain + **encrypted backup e2e**; trends domain presence |
 | `f58d6fc` | Reports empty CTA/meta; Keep-N one-tap presets |
 | **v2.3.1** `bb9a6d4` | Pages **base=/\\<repo\\>/** + `404.html`; Overview **LLM prompt copy**; README zh/en living changelog |
+| **v2.3.2** `pending` | React **个人背景**（legacy 同 localStorage 键）+ **今日快照**条；提示词注入上下文 |
 
 ### Release checklist
 

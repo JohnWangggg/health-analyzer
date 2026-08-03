@@ -78,7 +78,7 @@ GitHub Pages 项目页会自动使用 base=`/<repo>/`（见 `export-cutover.mjs`
 ### React 默认路径已具备（相对 legacy 的迁移进度）
 
 - ✅ 导入：夹具 · XML · ZIP · HAE；会话就绪条 / 导入进度  
-- ✅ 总览：状态带 · KPI 可显隐 · 深链趋势 · **复制大模型提示词（完整/仅数据/简短）**  
+- ✅ 总览：状态带 · 今日快照 · KPI 可显隐 · 深链趋势 · **复制大模型提示词** · **个人背景（与 legacy 共用键）**  
 - ✅ 趋势：多域 · 有数据标记 · 空域切换 · ECharts 懒加载  
 - ✅ 报告：门诊/周报/临床 · 复制/下载 · 空态回总览  
 - ✅ 数据仓：sharded-v1 读写 · keep-N 预设 · 分片多选删除 · **备份/恢复（明文+AES-GCM）**  
@@ -339,6 +339,7 @@ English:
 | `2e99eec` | 明文+**加密备份 e2e**；趋势域 `data-has-data` / 空域切换 |
 | `f58d6fc` | 报告空态 CTA + meta；Keep-N **一键预设** |
 | **v2.3.1** `bb9a6d4` | GitHub Pages **base=/<repo>/** + `404.html` SPA；总览 **复制大模型提示词**；中英文 README 版本要点表 |
+| **v2.3.2** `pending` | React **个人背景**（legacy 同 localStorage 键）+ **今日快照**条；提示词注入上下文 |
 
 ### 发版检查清单（每次 push 前）
 
