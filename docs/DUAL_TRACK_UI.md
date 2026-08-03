@@ -192,8 +192,9 @@ flowchart LR
 
 ## 8. 定位、P0/P1 与非目标
 
-**可宣布：** 生产默认入口为 **React `/`**；旧版仅 **`/legacy/` 回滚**。  
-**不可宣布：** 与 `app.js` 100% 功能 parity、可删掉 legacy 源码、架构升级「全部完成」。
+**可宣布：** 生产默认入口为 **React `/`**；日常路径可替代 legacy。  
+**不可宣布：** 与 `app.js` 100% 功能 parity、**现在**可删掉 `public/legacy/`。  
+**软弃用：** `/legacy/` 仅紧急回滚，不再扩功能。硬删除门槛见 [`LEGACY_PARITY.md`](LEGACY_PARITY.md)。
 
 | 项 | 状态 |
 |----|------|

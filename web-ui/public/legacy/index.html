@@ -18,6 +18,20 @@
   <!-- Cutover: React is site root (/). This tree is rollback-only under /legacy/ — no auto-redirect. -->
 
   <a href="#main-content" class="skip-link" data-i18n="a11y.skipMain">跳到主内容</a>
+  <div
+    id="legacy-deprecation-banner"
+    class="legacy-deprecation-banner"
+    role="status"
+    data-testid="legacy-deprecation-banner"
+  >
+    <strong>旧版回滚页（不再扩展）</strong>
+    <span>
+      生产默认入口为 React
+      <a href="../" data-testid="legacy-banner-react-home">返回新版</a>
+      。完整对照与移除条件见仓库
+      <code>docs/LEGACY_PARITY.md</code>。
+    </span>
+  </div>
   <div class="bg-aurora" aria-hidden="true"></div>
   <div class="bg-grid" aria-hidden="true"></div>
   <header class="app-header">

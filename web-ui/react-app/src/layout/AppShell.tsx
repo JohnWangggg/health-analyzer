@@ -243,53 +243,47 @@ export function AppShell() {
         title={t('about')}
       >
         <p className="muted">
-          HealthCoreAdapter → @health-analyzer/lib. IndexedDB v5 sharded-v1
-          compatible with history-db.js. No CDN / analytics.
+          HealthCoreAdapter → @health-analyzer/lib. IndexedDB v5 sharded-v1.
+          No CDN / analytics. Product path is this React shell.
         </p>
         <p className="muted" style={{ marginTop: '0.75rem' }}>
-          {t('shell.defaultEntry')} ·{' '}
-          <a
-            href={`${(import.meta.env.BASE_URL || '/').replace(/\/?$/, '/')}legacy/`}
-            data-testid="link-legacy-home"
-          >
-            {t('shell.openLegacy')}
-          </a>
+          {t('shell.defaultEntry')}
         </p>
-        <div className="row" style={{ marginTop: '0.75rem' }}>
-          <Button
-            size="sm"
-            variant="secondary"
-            data-testid="prefer-react-shell"
-            onClick={() => {
-              try {
-                localStorage.setItem('ha-ui-shell', 'react');
-              } catch {
-                /* ignore */
-              }
-            }}
-          >
-            ui-shell=react
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            data-testid="prefer-legacy-shell"
-            onClick={() => {
-              try {
-                localStorage.setItem('ha-ui-shell', 'legacy');
-                const base = (import.meta.env.BASE_URL || '/').replace(
-                  /\/?$/,
-                  '/',
-                );
-                window.location.assign(`${base}legacy/`);
-              } catch {
-                /* ignore */
-              }
-            }}
-          >
-            ui-shell=legacy → /legacy/
-          </Button>
-        </div>
+        <details className="about-legacy-fold" style={{ marginTop: '0.75rem' }}>
+          <summary className="muted" style={{ cursor: 'pointer' }}>
+            {t('shell.legacyRollback')}
+          </summary>
+          <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>
+            {t('shell.legacyRollbackHint')}{' '}
+            <a
+              href={`${(import.meta.env.BASE_URL || '/').replace(/\/?$/, '/')}legacy/`}
+              data-testid="link-legacy-home"
+            >
+              {t('shell.openLegacy')}
+            </a>
+          </p>
+          <div className="row" style={{ marginTop: '0.5rem' }}>
+            <Button
+              size="sm"
+              variant="ghost"
+              data-testid="prefer-legacy-shell"
+              onClick={() => {
+                try {
+                  localStorage.setItem('ha-ui-shell', 'legacy');
+                  const base = (import.meta.env.BASE_URL || '/').replace(
+                    /\/?$/,
+                    '/',
+                  );
+                  window.location.assign(`${base}legacy/`);
+                } catch {
+                  /* ignore */
+                }
+              }}
+            >
+              ui-shell=legacy → /legacy/
+            </Button>
+          </div>
+        </details>
       </Sheet>
     </div>
   );

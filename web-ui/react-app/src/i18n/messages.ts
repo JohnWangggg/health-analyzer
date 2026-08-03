@@ -107,6 +107,8 @@ export type MessageKey =
   | 'shell.sessionIdle'
   | 'shell.defaultEntry'
   | 'shell.openLegacy'
+  | 'shell.legacyRollback'
+  | 'shell.legacyRollbackHint'
   | 'shell.kbdHint'
   | 'tv.enter'
   | 'tv.exit'
@@ -271,8 +273,11 @@ const zh: Record<MessageKey, string> = {
   'theme.dark': '深色',
   about: '关于',
   footer: '本地优先 · 无 CDN · 默认 React · 回滚 /legacy/',
-  'shell.defaultEntry': '默认入口为本壳',
-  'shell.openLegacy': '打开旧版回滚 → /legacy/',
+  'shell.defaultEntry': '默认入口为本壳（React）',
+  'shell.openLegacy': '打开 /legacy/',
+  'shell.legacyRollback': '旧版回滚（已弃用扩展）',
+  'shell.legacyRollbackHint':
+    '仅紧急对照；功能不再新增。能力对照见 docs/LEGACY_PARITY.md。',
   'overview.title': '今日健康状态',
   'overview.lead':
     '本地优先预览：XML/ZIP/HAE · sharded-v1 数据仓 · 报告与趋势。内核经 adapter/lib，非诊断。',
@@ -550,8 +555,11 @@ const en: Record<MessageKey, string> = {
   'theme.dark': 'Dark',
   about: 'About',
   footer: 'Local-first · no CDN · React default · rollback /legacy/',
-  'shell.defaultEntry': 'This shell is the default entry',
-  'shell.openLegacy': 'Open legacy rollback → /legacy/',
+  'shell.defaultEntry': 'This shell is the default entry (React)',
+  'shell.openLegacy': 'Open /legacy/',
+  'shell.legacyRollback': 'Legacy rollback (no new features)',
+  'shell.legacyRollbackHint':
+    'Emergency only; not extended further. See docs/LEGACY_PARITY.md.',
   'overview.title': "Today's health status",
   'overview.lead':
     'Local-first preview: XML/ZIP/HAE · sharded-v1 warehouse · reports & trends. Core via adapter/lib — not a diagnosis.',

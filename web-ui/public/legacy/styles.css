@@ -1981,6 +1981,33 @@ body.has-results .app-toast {
   border-radius: 999px;
 }
 
+/* Soft-deprecation: /legacy/ is rollback-only (see docs/LEGACY_PARITY.md) */
+.legacy-deprecation-banner {
+  position: relative;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.75rem;
+  margin: 0;
+  padding: 0.55rem 1rem;
+  background: color-mix(in srgb, #b54708 18%, var(--surface, #fff));
+  border-bottom: 1px solid color-mix(in srgb, #b54708 40%, var(--border, #e2e8f0));
+  color: var(--text, #1e293b);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.legacy-deprecation-banner a {
+  color: var(--primary, #0f766e);
+  font-weight: 600;
+}
+.legacy-deprecation-banner code {
+  font-size: 0.85em;
+}
+body.health-dashboard-mode .legacy-deprecation-banner {
+  display: none !important;
+}
+
 /* 离线连通性横幅（紧凑、非阻塞） */
 .connectivity-banner {
   display: flex;
