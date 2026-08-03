@@ -66,5 +66,7 @@ e2e/                     # 归档（旧版 UI 用例，默认 CI 不跑）
 
 ## 4. 相关
 
-- Strategy A 历史：`docs/DUAL_TRACK_UI.md`
-- 仓：`docs/DATA_CENTER_v1.68.md`
+- **本机数据恢复 / 应用回退（非 `/legacy/`）**：`docs/DATA_RECOVERY.md`
+- Strategy A 历史档案：`docs/DUAL_TRACK_UI.md`（`test:e2e:dual` 已删除）
+- 仓：`docs/DATA_CENTER_v1.68.md` · schema：`web-ui/idb-schema/history-db.reference.js`
+- 部署：`docs/DEPLOY.md`

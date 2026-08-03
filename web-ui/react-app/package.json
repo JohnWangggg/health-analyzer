@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Production-default React shell (Strategy A: site root /; legacy rollback at /legacy/)",
+  "description": "Production React shell (site root / only; /legacy/ is redirect stub, not a rollback app)",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

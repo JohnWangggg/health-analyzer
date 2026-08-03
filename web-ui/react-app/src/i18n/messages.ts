@@ -131,9 +131,8 @@ export type MessageKey =
   | 'shell.sessionReady'
   | 'shell.sessionIdle'
   | 'shell.defaultEntry'
-  | 'shell.openLegacy'
-  | 'shell.legacyRollback'
-  | 'shell.legacyRollbackHint'
+  | 'shell.recoveryTitle'
+  | 'shell.recoveryHint'
   | 'shell.kbdHint'
   | 'shell.offline'
   | 'shell.install.body'
@@ -333,12 +332,11 @@ const zh: Record<MessageKey, string> = {
   'theme.light': '浅色',
   'theme.dark': '深色',
   about: '关于',
-  footer: '本地优先 · 无 CDN · 默认 React · 回滚 /legacy/',
-  'shell.defaultEntry': '默认入口为本壳（React）',
-  'shell.openLegacy': '打开 /legacy/',
-  'shell.legacyRollback': '旧版回滚（已弃用扩展）',
-  'shell.legacyRollbackHint':
-    '仅紧急对照；功能不再新增。能力对照见 docs/LEGACY_PARITY.md。',
+  footer: '本地优先 · 无 CDN · 仅 React · 数据可备份',
+  'shell.defaultEntry': '默认且唯一产品入口为本壳（React）',
+  'shell.recoveryTitle': '版本回退与本机数据恢复',
+  'shell.recoveryHint':
+    '旧版 UI 已删除；/legacy/ 仅跳回首页，不能当回滚应用。应用版本请用上一部署或 Git 回退。本机数据：数据页备份导出/导入，或重新导入 Apple Health ZIP。详见 docs/DATA_RECOVERY.md。',
   'overview.title': '今日健康状态',
   'overview.lead':
     '本地优先预览：XML/ZIP/HAE · sharded-v1 数据仓 · 报告与趋势。内核经 adapter/lib，非诊断。',
@@ -674,12 +672,11 @@ const en: Record<MessageKey, string> = {
   'theme.light': 'Light',
   'theme.dark': 'Dark',
   about: 'About',
-  footer: 'Local-first · no CDN · React default · rollback /legacy/',
-  'shell.defaultEntry': 'This shell is the default entry (React)',
-  'shell.openLegacy': 'Open /legacy/',
-  'shell.legacyRollback': 'Legacy rollback (no new features)',
-  'shell.legacyRollbackHint':
-    'Emergency only; not extended further. See docs/LEGACY_PARITY.md.',
+  footer: 'Local-first · no CDN · React only · backup your data',
+  'shell.defaultEntry': 'This React shell is the only product entry',
+  'shell.recoveryTitle': 'Version rollback & local data recovery',
+  'shell.recoveryHint':
+    'Old UI is gone; /legacy/ only redirects home — not a rollback app. Roll app versions via prior deploy or Git. Local data: Data-page backup export/import, or re-import Apple Health ZIP. See docs/DATA_RECOVERY.md.',
   'overview.title': "Today's health status",
   'overview.lead':
     'Local-first preview: XML/ZIP/HAE · sharded-v1 warehouse · reports & trends. Core via adapter/lib — not a diagnosis.',

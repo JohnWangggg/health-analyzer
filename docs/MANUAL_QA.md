@@ -1,6 +1,6 @@
 # 真实设备手测清单（Manual QA）
 
-**版本：** v1.92+ legacy；**v2.2-dual** 双轨 React 预览（见文末专节与 `docs/DUAL_TRACK_UI.md`）  
+**版本：** v2.5+ **仅 React 生产路径**（`/`）；迁移档案见 `docs/DUAL_TRACK_UI.md`；本机恢复见 `docs/DATA_RECOVERY.md`  
 （年分片 keep-N、双域一键裁剪、保存后可选自动裁剪、睡眠/步数年分片、HRV/静息/步行心率年分片、Workout/ECG/Watch 日汇总年分片、仓面板分片组折叠、thin core / 迁移 / 分片清单 / 全域 keep-all 年、导入批次联动 lastImportBatchId / 仓内批次摘要 / 配额预测 UI、批次→分片反向索引 / 点批次看分片 / 离线连通横幅、客户端分片过滤 / 来源时间线、**今日仓状态 chip / 趋势仓提示**）  
 **目的：** 补充自动化（视口 / 任务流 / 缩放 / 键盘 / 数据仓 / 连通）无法覆盖的真机与系统层体验。  
 **原则：** 本地优先 · 不上传健康明细 · 非诊断。
@@ -215,10 +215,13 @@
 
 ---
 
-## 5b. React 默认入口 + `/legacy/` 回滚（Strategy A cutover）
+## 5b. React 生产入口（v2.5+ · 仅 React）
 
-**文档：** `docs/DUAL_TRACK_UI.md` · **自动化：** `npm run test:e2e:react`（生产静态根 :4174）  
-**入口：** **`/` = 生产默认 React**（`npm run react:export-cutover`）；开发可用 `npm run react:dev`；**回滚 `/legacy/`**
+**文档：** `docs/DATA_RECOVERY.md` · `docs/DEPLOY.md` · 迁移档案 `docs/DUAL_TRACK_UI.md`  
+**自动化：** `npm run test:e2e:react`（生产静态根 :4174）= `npm run test:e2e`  
+**入口：** **`/` = 唯一产品 UI**（`npm run react:export-cutover`）；开发可用 `npm run react:dev`  
+**应用回退：** Git/Pages 上一成功部署或备份的 `public/` — **`/legacy/` 不是可运行旧版**  
+**本机数据：** 备份导出/导入、重导 Health ZIP — 见 `docs/DATA_RECOVERY.md`
 
 ### P0（约 10 分钟）
 
@@ -229,17 +232,19 @@
 - [ ] 报告：切换门诊一页纸 / 周报 / 临床复盘有 Markdown；**复制 / 下载 .md** 可用
 - [ ] 数据：探测 IDB 契约匹配；保存快照后列表可见
 - [ ] 写入数据仓：状态含 **sharded-v1** / 分片数；再清除会话 → 加载数据仓 KPI 一致
-- [ ] （重要）React 写仓为**整仓替换** domainChunks；若需保留 legacy 手调 keep-N 结果，先备份
+- [ ] （重要）React 写仓为 **sharded-v1 整仓替换**；重要数据先备份再写仓/keep-N
 - [ ] 主题 浅色/深色/系统；桌面见侧栏、手机宽见底栏
 - [ ] 关于 Sheet 可开可关；无第三方网络请求（可开 DevTools Network 抽检）
 - [ ] （可选）SW 有更新时出现提示条，非自动整页抢占
+- [ ] （可选）数据页 **仓库备份** 导出后可再导入；或清除会话后 **重新导入 ZIP** 恢复分析
+
 ### P1
 
-- [ ] `npm run react:export-cutover` 后 `/` 为 React、`/legacy/` 可打开旧版回滚
+- [ ] `npm run react:export-cutover` 后 `/` 为 React；`/legacy/` **仅跳回首页**（不是旧应用）
 - [ ] 断网后 React 默认壳（cutover 根或 `react:dev`）仍可打开（self-only SW）
-- [ ] 与 legacy 共用同一浏览器时，快照/仓 meta 可读（不强制写分片）
+- [ ] 数据页 keep-N / 分片清理 / 一键清除本机健康数据 行为符合预期（清除前已备份）
 
-**注意：** React 仓写入 **不是** 全量 year/month 分片 keep-N；大规模仓仍用 legacy「更多 → 数据管理」。
+**注意：** 写仓是整仓替换分片，不是与旧碎片静默合并。应用版本回退靠部署产物，不靠 `/legacy/`。
 
 ---
 
@@ -276,9 +281,12 @@ P0 结果：通过 / 失败
 | （可选）真实 export 解析基线 | `npm run perf:parse -- --file=/path/to/export.xml`；指南 `docs/REAL_DEVICE_ZIP.md` |
 | （可选）年分片 auto-trim | 手测优先：勾选 auto-trim + year keep-N 后跨年 BP/体重再保存；E2E 已有 year auto-trim 用例 |
 
-| React 双轨壳 / 导入 / 仓 / 快照 | `e2e-react/shell.spec.js` · `npm run test:e2e:react` |
+| React 壳 / 导入 / 仓 / 快照 | `e2e-react/*` · `npm run test:e2e:react`（= `test:e2e`） |
 | React 单元（adapter/IDB/ZIP/HAE/仓） | `npm run react:test` |
 | React dist 隐私扫描 | `npm run react:privacy` |
+| FHIR 结构/交换/HL7 | `npm run test:fhir` / `test:fhir:ci` |
 
-本地：`npm run test:e2e:react`（**主门禁 · 根 React**）· `npm run test:cutover-layout` · `npm run test:e2e`（`/legacy/` 回滚）· `npm run test:e2e:dual`（仓互通）  
-手测本清单后，再发版更稳妥。生产发版以 **`react:export-cutover` 后的根 React** 为主门禁；`/legacy/` 为回滚回归，不是默认产品入口。
+本地主门禁：`npm run test:e2e:react` · `npm run test:cutover-layout` · `npm run smoke` · `npm run react:test`  
+**已删除、勿再当作通过门禁：** `test:e2e:dual`（旧双轨仓互通；脚本已移除）。  
+`e2e/*` 为历史套件（目标旧 UI 已不存在），默认 CI 不跑。  
+手测本清单后，再发版更稳妥。生产发版以 **`react:export-cutover` 后的根 React** 为唯一产品门禁。本机恢复见 `docs/DATA_RECOVERY.md`。

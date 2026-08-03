@@ -11,44 +11,47 @@ Live demo (GitHub Pages after deploy):
 
 ---
 
-## Product entry (Strategy A — React is default)
+## Product entry (v2.5+ · React only)
 
 | URL | Role |
 |-----|------|
 | **`/`** | **Production default** React shell (Overview · Trends · Reports · Data) |
-| **`/legacy/`** | Legacy PWA **rollback only** |
+| **`/legacy/`** | **Not a rollback app** — redirect stub back to `/` (old UI removed) |
 
-Publish: `npm run react:export-cutover` → React at `web-ui/public/` root; `public/legacy/` kept.  
-GitHub **project** Pages uses `base=/<repo>/` automatically on deploy (`GITHUB_PAGES_DEPLOY=true`). SPA deep links use `404.html` = `index.html`.
+Publish: `npm run react:export-cutover` → React at `web-ui/public/` root.  
+**App version rollback:** re-deploy a previous Git/Pages success, or restore a prior static `web-ui/public/` tree — **do not** rely on `/legacy/`.  
+**Local data recovery:** backup export/import, re-import Health ZIP — see [`DATA_RECOVERY.md`](../DATA_RECOVERY.md).  
+GitHub **project** Pages uses `base=/<repo>/` on deploy (`GITHUB_PAGES_DEPLOY=true`). SPA deep links use `404.html`.
 
-### React default path (migration progress)
+### Production capabilities
 
-- ✅ Import: fixture · XML · ZIP · HAE; progress + session-ready strip  
-- ✅ Overview: status band · today snapshot · KPI visibility · **LLM prompt + personal context** (shared localStorage with legacy)  
-- ✅ Trends: multi-domain · `data-has-data` tabs · empty-domain switch · lazy ECharts  
-- ✅ Reports: visit / weekly / clinical · copy/download · empty CTA to Overview  
-- ✅ Warehouse: sharded-v1 R/W · keep-N presets · multi-select shard delete · **backup/restore** (plain + AES-GCM)  
-- ✅ Engineering: cutover layout gate · e2e-react · dual warehouse · privacy scan  
-- ⏳ Still on `/legacy/` if needed: full FHIR UI, TV dashboard mode, fine-grained recovery-weight UI, etc.
+- ✅ Import: fixture · XML · ZIP · folder · HAE (cancellable)
+- ✅ Overview: status · today snapshot · KPI visibility/order · data-quality banner · LLM prompt · personal context · events · CSV · recovery weights · TV mode
+- ✅ Trends: multi-domain · dual-metric compare · chart presets · lazy ECharts
+- ✅ Reports / export / FHIR local archive + exchange
+- ✅ Warehouse: sharded-v1 full replace · keep-N · multi-select shard delete · backup/restore
+- ✅ Engineering: cutover layout · **e2e-react** · privacy scan · FHIR HL7
+- ℹ️ Schema authority: `web-ui/idb-schema/history-db.reference.js`
+- ℹ️ Migration archive: [`DUAL_TRACK_UI.md`](../DUAL_TRACK_UI.md) · recovery: [`DATA_RECOVERY.md`](../DATA_RECOVERY.md)
 
-Docs: [`DUAL_TRACK_UI.md`](../DUAL_TRACK_UI.md) · [`DEPLOY.md`](./DEPLOY.md) · Chinese hub [`../README.md`](../README.md)
+Docs: [`DEPLOY.md`](./DEPLOY.md) · Chinese hub [`../README.md`](../README.md)
 
 ---
 
 ## Core features
 
 - ✅ **100% on-device**: parse, stats, prompts — nothing uploaded  
-- ✅ **Static deploy**: host `web-ui/public/` (React root + `legacy/`)  
+- ✅ **Static deploy**: host `web-ui/public/` (React at root)  
 - ✅ **Cross-platform** desktop & mobile browsers  
-- ✅ **PWA**: installable; SW with user-confirm update  
+- ✅ **PWA**: installable; SW with user-confirm update; chart chunks not pre-cached  
 - ✅ Adaptive metrics (CGM, BP, weight, Watch, …)  
 - ✅ Apple Watch daily rollups, workouts, ECG, sleep disturbance  
 - ✅ 7-day recovery / multi-week load trends (heuristic, not diagnosis)  
 - ✅ Weekly / visit / clinical Markdown reports  
 - ✅ Three LLM prompt modes (full / data-only / short system)  
 - ✅ Clipboard · `.md` download · JSON/CSV export  
-- ✅ Personal context (localStorage) · IndexedDB snapshots  
-- ✅ Dark mode · i18n (zh-CN / zh-TW / en on legacy UI; React zh/en shell)  
+- ✅ Personal context (localStorage) · IndexedDB warehouse + snapshots  
+- ✅ Dark mode · i18n (zh-CN / zh-TW / en on React shell)  
 - ✅ Health Auto Export (HAE) incremental merge  
 
 ---
@@ -62,9 +65,12 @@ health-analyzer/
 │   ├── public/               # ★ Deploy root (Pages / wrangler)
 │   │   ├── index.html …      # React (export-cutover; gitignored)
 │   │   ├── 404.html          # SPA fallback for GitHub Pages
-│   │   └── legacy/           # Legacy PWA rollback
+│   │   └── legacy/           # Redirect stub only (not a runnable app)
+│   ├── idb-schema/           # IndexedDB contract reference
 │   └── react-app/            # ★ React source (production shell)
-├── e2e/ · e2e-react/ · e2e-dual/
+├── e2e/                      # Historical Playwright (old /legacy/ target; not default CI)
+├── e2e-react/                # ★ Primary gate: root React Playwright
+├── e2e-dual/                 # Retired dual-track warehouse E2E (script removed)
 └── docs/ · docs/en/
 ```
 
@@ -79,7 +85,8 @@ health-analyzer/
 3. Import ZIP / XML / HAE · review Overview KPIs  
 4. **Copy LLM prompt** or open Reports · Trends  
 5. Optional: save warehouse · backup · keep-N · shard cleanup on **Data**  
-6. Rollback: open `/legacy/` if you need the old UI  
+6. App rollback: previous deploy / Git — **not** `/legacy/`  
+7. Data recovery: see [`DATA_RECOVERY.md`](../DATA_RECOVERY.md)
 
 ### Developer
 
@@ -91,11 +98,12 @@ npm run react:export-cutover          # base=/ for local
 
 npx serve web-ui/public -l 8080
 # http://localhost:8080/          → React
-# http://localhost:8080/legacy/   → rollback
+# http://localhost:8080/legacy/   → redirect stub only
 
 npm run react:test
 npm run smoke && npm run test:cutover-layout
-npm run test:e2e:react
+npm run test:e2e:react                # = npm run test:e2e
+# Do not use test:e2e:dual (removed; see DATA_RECOVERY.md)
 ```
 
 ---
@@ -107,11 +115,11 @@ npm run test:e2e:react
 On `main` push:
 
 1. **test** job: lib + cutover (base `/`) + smoke + Playwright  
-2. **deploy** job: cutover with `GITHUB_PAGES_DEPLOY=true` → `base=/health-analyzer/` (repo name) + `404.html` → upload `web-ui/public/`
+2. **deploy** job: cutover with `GITHUB_PAGES_DEPLOY=true` → `base=/health-analyzer/` + `404.html` → upload `web-ui/public/`
 
 Settings → Pages → Source = **GitHub Actions**.  
 App: `https://<USER>.github.io/health-analyzer/`  
-Legacy: `https://<USER>.github.io/health-analyzer/legacy/`
+`/legacy/` only redirects to the React root.
 
 ### Cloudflare / static host
 
@@ -128,7 +136,7 @@ See [DEPLOY.md](./DEPLOY.md).
 
 | Version / commit | Notes |
 |------------------|--------|
-| **v2.3-cutover** `b2178b6` | React default at `/`; legacy under `public/legacy/`; export-cutover; CI/e2e retarget |
+| **v2.3-cutover** `b2178b6` | React default at `/`; migration-era legacy under `public/legacy/`; export-cutover; CI/e2e retarget |
 | `3b08429` | Docs/package framing: new replaces old |
 | `9bc090a` | React warehouse **backup/restore** (AES-GCM + plain) |
 | `80d5b02` | React **multi-select shard cleanup** |
@@ -136,23 +144,26 @@ See [DEPLOY.md](./DEPLOY.md).
 | `2e99eec` | Plain + **encrypted backup e2e**; trends domain presence |
 | `f58d6fc` | Reports empty CTA/meta; Keep-N one-tap presets |
 | **v2.3.1** `bb9a6d4` | Pages **base=/\\<repo\\>/** + `404.html`; Overview **LLM prompt copy**; README zh/en living changelog |
-| **v2.3.2** `9fd9f57` | React **personal context** (same localStorage key as legacy) + **today snapshot** strip; inject into LLM prompt |
-| **v2.3.3** `68901ec` | React **include-sensitive toggle**: strip meds/conditions from LLM prompt when off (key `health-analyzer-include-sensitive-ctx`, same as legacy; default on) |
-| **v2.4** `6229d49` | **Full product path on React**: events · CSV merge · recovery weights · TV mode · JSON/CSV/snapshot export · FHIR local archive · clinical HTML/sensitive options |
-| **v2.4.1** `39a4a08` | Pages **white-screen guard**: boot placeholder + recovery; auto clear SW on chunk miss; base-safe navigateFallback |
-| **v2.4.2** `349d7a3` | **Legacy soft-deprecation**: `docs/LEGACY_PARITY.md`; banner on `/legacy/`; About fold for rollback |
-| **v2.5** `2fb7f01` | **Full legacy UI removed**: `/legacy/` redirect only; P0 date filter/events/wipe/FHIR exchange; schema in `idb-schema/`; CI e2e-react only |
+| **v2.3.2** `9fd9f57` | React **personal context** + **today snapshot** strip; inject into LLM prompt |
+| **v2.3.3** `68901ec` | React **include-sensitive toggle** (key `health-analyzer-include-sensitive-ctx`; default on) |
+| **v2.4** `6229d49` | **Full product path on React**: events · CSV · recovery weights · TV · export · FHIR local archive |
+| **v2.4.1** `39a4a08` | Pages **white-screen guard**: boot placeholder + recovery; auto clear SW on chunk miss |
+| **v2.4.2** `349d7a3` | **Legacy soft-deprecation** (migration era) |
+| **v2.5** `2fb7f01` | **Full legacy UI removed**: `/legacy/` redirect only; schema in `idb-schema/`; CI e2e-react only |
 | **v2.5.1** `f58a184` | Trends **dual-metric compare** · **folder import** · **HAE cancel** · **snapshot compare** |
 | **v2.5.2** `844528b` | Chart **presets** · HAE **meds→events** · **offline banner** |
-| **v2.5.3** `de5c116` | **zh-TW UI** (from zh-CN phrase map) · analysis locale follows UI · TV fullscreen + focus controls |
+| **v2.5.3** `de5c116` | **zh-TW UI** · analysis locale follows UI · TV fullscreen + focus controls |
 | **v2.5.4** `6db3304` | **Data-quality banner** · **KPI order** · **PWA install prompt** |
+| **v2.5.5** | **Release-promise hygiene**: `/legacy/` is redirect-only; remove fake `test:e2e:dual`; [`DATA_RECOVERY.md`](../DATA_RECOVERY.md); About/docs aligned |
 
 ### Release checklist
 
 ```bash
 npm run react:test
 npm run react:export-cutover && npm run test:cutover-layout && npm run smoke
+npm run test:fhir:ci
 npm run test:e2e:react
+npm run react:privacy   # hits=0
 ```
 
 ---
@@ -161,7 +172,8 @@ npm run test:e2e:react
 
 - Local-first; no CDN analytics in React privacy-scan  
 - Kernel stays in `lib/`; React uses HealthCoreAdapter only  
-- Warehouse: IndexedDB v5 `sharded-v1`, shared with legacy  
+- Warehouse: IndexedDB v5 `sharded-v1` full replace on write  
+- App rollback = previous deploy / Git — not `/legacy/`  
 - Not a medical device; no diagnosis  
 
 ## License

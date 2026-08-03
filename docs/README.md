@@ -39,16 +39,18 @@
 - ✅ **界面与文档 i18n**：中英双语文档（`docs/` / `docs/en/`）；UI 语言资源目录 `web-ui/public/i18n/`
 - ✅ **Health Auto Export 增量导入**：JSON/CSV 多文件或文件夹本机合并、去重统计、未知指标清单（完整 ZIP 仍可用）
 
-## 入口：React 默认 + `/legacy/` 回滚（Strategy A）
+## 入口：仅 React（v2.5+）
 
 | 路径 | 说明 |
 |------|------|
 | **生产默认 `/`** | React 壳 → `npm run react:export-cutover` 写入 `web-ui/public/` 根 |
-| **回滚 `/legacy/`** | 旧版 PWA 源码在 `web-ui/public/legacy/` |
+| **`/legacy/`** | **不是回滚应用** — 仅说明页并自动跳回 `/`（旧 UI 已删除） |
 | **源码** | `web-ui/react-app/`（Vite+React+TS；`npm run react:*`） |
-| **废弃** | `/next/`（`react:export-next` 仅兼容，非产品路径） |
+| **应用版本回退** | Git/Pages 回退上一成功部署，或保留上一静态 `public/` 产物 |
+| **本机数据恢复** | **[DATA_RECOVERY.md](./DATA_RECOVERY.md)**（备份导入、重导 ZIP、清站点数据） |
+| **废弃** | `/next/`（`react:export-next` 仅兼容）；`test:e2e:dual`（已删除） |
 
-完整说明：**[DUAL_TRACK_UI.md](./DUAL_TRACK_UI.md)** · 部署 **[DEPLOY.md](./DEPLOY.md)** · 手测 [MANUAL_QA.md](./MANUAL_QA.md)「React 默认入口」节。
+迁移档案：**[DUAL_TRACK_UI.md](./DUAL_TRACK_UI.md)** · 部署 **[DEPLOY.md](./DEPLOY.md)** · 手测 [MANUAL_QA.md](./MANUAL_QA.md)「React 生产入口」节。
 
 ## 目录结构
 
@@ -67,19 +69,19 @@ health-analyzer/
 ├── web-ui/
 │   ├── public/                   # ★ 部署根：React 默认（export-cutover 产物）
 │   │   ├── index.html · assets/ · sw…   # React（gitignore 构建产物）
-│   │   └── legacy/               # ★ 旧版 PWA 回滚（/legacy/）
-│   │       ├── index.html · app.js · history-db.js · lib.js …
-│   │       └── lib.js            # 由 lib/src 构建，勿手改
-│   └── react-app/                # ★ React 生产壳源码（见 DUAL_TRACK_UI.md）
+│   │   └── legacy/               # 仅 index.html 跳转 stub（非可运行旧版）
+│   ├── idb-schema/               # IndexedDB 契约权威参考
+│   └── react-app/                # ★ React 生产壳源码
 │       ├── src/core|pages|…
 │       └── scripts/export-cutover.mjs · privacy-scan.mjs
-├── e2e/                          # 旧版 /legacy/ Playwright
-├── e2e-react/                    # 默认根 React Playwright
-├── e2e-dual/                     # / ↔ /legacy/ 仓互通
+├── e2e/                          # 历史 Playwright（旧目标；默认不跑）
+├── e2e-react/                    # ★ 主门禁：根 React Playwright
+├── e2e-dual/                     # 历史双轨仓 E2E（已退役）
 └── docs/
     ├── README.md                 # 本文档（中文）
-    ├── DUAL_TRACK_UI.md          # cutover 架构与脚本
-    ├── MANUAL_QA.md              # 真机手测（含 React 默认入口）
+    ├── DATA_RECOVERY.md          # 本机数据恢复 / 应用回退
+    ├── DUAL_TRACK_UI.md          # 迁移档案（非现行产品路径）
+    ├── MANUAL_QA.md              # 真机手测（React 生产入口）
     ├── DEPLOY.md · PROMPT_DESIGN.md · DATA_CENTER_*.md
     └── en/                       # English docs
 ```
@@ -203,9 +205,9 @@ Service Worker 缓存所有静态资源，断网也能用。安装后像原生 A
 - **核心解析**：TypeScript 唯一源码（`lib/src`），esbuild 打包为浏览器 IIFE
 - **ZIP 解压**：本地 `fflate.min.js`（无 CDN）
 - **PWA**：Service Worker（network-first + 离线回退）+ manifest + SVG 图标
-- **UI**：原生 CSS（响应式自适应 + 深色模式）；结果概览 / 吸底 CTA
-- **i18n**：`docs/en/*` 英文文档；旧版 UI 语言资源 `web-ui/public/legacy/i18n.js`（React 壳自带 zh/en messages）
-- **存储**：完整明细默认仅内存；可选 localStorage（背景）/ IndexedDB（摘要历史、周报）
+- **UI**：React 19 + Vite（`web-ui/react-app`）；CSS 变量主题；四工作区
+- **i18n**：`docs/en/*` 英文文档；React 壳 `zh-CN` / `zh-TW` / `en` messages
+- **存储**：会话内存分析 + IndexedDB v5 `sharded-v1` 仓 + localStorage 偏好/背景
 
 ## 开发构建
 
@@ -213,16 +215,23 @@ Service Worker 缓存所有静态资源，断网也能用。安装后像原生 A
 cd lib
 npm install
 npm test          # 单元测试
-npm run build     # tsc + 生成 web-ui/public/legacy/lib.js
+npm run build     # tsc + lib/dist + browser.iife.js（FHIR/smoke）
+```
+
+根目录：
+
+```bash
+npm run react:export-cutover   # React → web-ui/public 根
+npm run smoke && npm run test:e2e:react
 ```
 
 根目录可跑 `npm run perf:parse`（`scripts/perf-parse-baseline.mjs`）测 `parseHealthXml` / `analyzeAll` 本地耗时与内存；默认 `e2e/fixtures/minimal-export.xml` 很小，大 export 用 `PERF_XML_PATH` 或 `--file=` 自备且**不要提交**个人数据。
 
-仓读写基线（v1.88+）：`npm run perf:warehouse`（`scripts/perf-warehouse-baseline.mjs`）用 Playwright 打开本机 static 页，合成多年数据测 `persist` / `load` / `getWarehouseStatus` 耗时；**不上传**。
+仓读写基线（v1.88+）：`npm run perf:warehouse`（`scripts/perf-warehouse-baseline.mjs`）用 Playwright 合成多年数据测仓读写；**不上传**。
 
-真实大 ZIP / 本机 `export.xml` 性能与隐私注意见 **`docs/REAL_DEVICE_ZIP.md`**（`npm run perf:parse -- --file=…`，**勿提交**个人导出）。
+真实大 ZIP / 本机 `export.xml` 见 **`docs/REAL_DEVICE_ZIP.md`**。本机数据恢复见 **`docs/DATA_RECOVERY.md`**。
 
-修改解析/统计/提示词请只改 `lib/src/**`，再执行 `npm run build`。不要手改 `web-ui/public/legacy/lib.js`。
+修改解析/统计/提示词请只改 `lib/src/**`，再执行 `npm run build`（或根 `npm run build:lib`）。
 
 ## 局限与边界
 
@@ -320,12 +329,14 @@ npm run build     # tsc + 生成 web-ui/public/legacy/lib.js
 - v2.0：Health OS 深海蓝绿视觉与桌面 12 栏驾驶舱 / 手机任务流；数据新鲜度与工作区快捷入口；SVG 导航图标；图表键盘可达；仓分组默认折叠；吸底复制条仅报告区。
 - v2.1：**健康大屏 / TV 模式**（`#btn-dashboard-mode` → `body.health-dashboard-mode`）：隐藏上传/仓批量/吸底复制/FHIR 等，保留 KPI·优先关注·信号·图表与数据新鲜度；大时钟 + 数据截止；约 12s 焦点轮播（`prefers-reduced-motion` 关闭）；Esc /「退出大屏」；`sessionStorage` 可选记忆；E2E soft/hard 见 `e2e/dashboard-mode.spec.js`。非诊断文案；无新网络请求。
 - v2.2-dual：**双轨 React 预览轨**（`web-ui/react-app` 壳 + adapter + 四工作区 + 仓 sharded-v1）；历史曾以 `/next/` 可选挂载。
-- **v2.3-cutover（Strategy A）**：**生产默认入口为 React `/`**（`npm run react:export-cutover`）；旧版仅 **`/legacy/`** 回滚；主门禁含 `test:e2e:react` + cutover 布局检查；`export-next` 废弃。
+- **v2.3-cutover（Strategy A）**：**生产默认入口为 React `/`**（`npm run react:export-cutover`）；迁移期曾把旧版放在 `/legacy/`；主门禁含 `test:e2e:react` + cutover 布局检查；`export-next` 废弃。
 - **v2.3.1-pages**：**GitHub Pages** 部署 `base=/<repo>/` + `404.html` SPA；总览 **复制大模型提示词**；中英文 README 版本要点持续更新。见根 `README.md`、`docs/en/README.md`。
-- **v2.3.2**：React **个人背景** + **今日快照**；提示词注入（legacy 同键）。
+- **v2.3.2**：React **个人背景** + **今日快照**；提示词注入（localStorage 键沿用历史）。
 - **v2.3.3**：React **敏感上下文开关**（`health-analyzer-include-sensitive-ctx`，默认包含用药/病史；关闭则仅剥离 meds/conditions）。
-- **v2.4**：React **产品路径补齐** — 事件时间线、CSV 合并、恢复权重、健康大屏、JSON/CSV/快照导出、FHIR 本机归档、报告 HTML/敏感选项；`/legacy/` 仅回滚。
-- v1.92：**今日仓状态 chip**（`#warehouse-today-chip`，hydrate 后今日工作区 meta 提示）+ **趋势仓提示**（`#warehouse-trends-hint`）；E2E soft/hard（grant→persist→reload hydrate 硬路径，UI 缺失 soft log）；真机大 ZIP / 本机性能基线见 `docs/REAL_DEVICE_ZIP.md`；手测见 `docs/MANUAL_QA.md`，仓设计见 `docs/DATA_CENTER_v1.68.md`。
+- **v2.4**：React **产品路径补齐** — 事件时间线、CSV 合并、恢复权重、健康大屏、JSON/CSV/快照导出、FHIR 本机归档、报告 HTML/敏感选项。
+- **v2.5**：删除完整旧版 UI；`/legacy/` 仅跳转；schema 迁 `idb-schema/`；CI 只跑 e2e-react。
+- **v2.5.5**：**发布口径纠偏** — `/legacy/` 非回滚应用；删除 `test:e2e:dual`；`docs/DATA_RECOVERY.md` 明确本机恢复与 Git 部署回退。
+- v1.92：**今日仓状态 chip** + **趋势仓提示**（历史 e2e 路径）；真机大 ZIP 见 `docs/REAL_DEVICE_ZIP.md`；手测见 `docs/MANUAL_QA.md`，仓设计见 `docs/DATA_CENTER_v1.68.md`。
 
 ## 许可
 

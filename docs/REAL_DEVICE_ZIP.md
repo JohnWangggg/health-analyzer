@@ -10,7 +10,7 @@
 | 项 | 说明 |
 |----|------|
 | 仓库 | 本机 clone 的 `health-analyzer`；已 `npm install`（根目录 + 如需 `lib`） |
-| 浏览器 bundle | `npm run build:lib`（确保 `web-ui/public/legacy/lib.js` 最新） |
+| 浏览器 bundle | `npm run build:lib`（确保 `lib/dist/browser.iife.js` 最新；React 经 adapter 用内核） |
 | Playwright | 仓基线需要：`npm run test:e2e:install`（或已装 Chromium） |
 | 个人导出 | iPhone **健康 → 个人资料 → 导出所有健康数据** 得到 ZIP；解压后取 `export.xml`（或 Apple 导出的路径） |
 | 存放位置 | 放在**仓库外**目录，例如 `~/HealthExports/export.xml` 或 `/Volumes/…/export.xml` |

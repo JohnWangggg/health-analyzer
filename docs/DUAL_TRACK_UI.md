@@ -1,54 +1,59 @@
-# Dual-track UI → Strategy A cutover（React 为默认）
+# Dual-track UI → Strategy A cutover（**迁移档案**）
+
+> **状态（v2.5.5+）：历史档案，不是现行发布承诺。**  
+> 生产 **仅 React `/`**。`/legacy/` 仅为跳转 stub（旧 UI 已删除）。  
+> **应用回退** = 上一静态部署 / Git — **不是**打开 `/legacy/`。  
+> **`test:e2e:dual` 已删除**（勿再引用为通过门禁）。  
+> 本机数据恢复与门禁清单见 **[DATA_RECOVERY.md](./DATA_RECOVERY.md)** · 部署见 **[DEPLOY.md](./DEPLOY.md)**。
 
 本地优先、无 CDN、无埋点。分析内核仍是 `@health-analyzer/lib` / Workers / IndexedDB。
 
-| 项 | 值 |
+| 项 | 值（现行） |
 |----|-----|
 | **生产默认入口** | **React 壳** 位于 `web-ui/public/` **根路径 `/`**（`npm run react:export-cutover`） |
-| **旧版回滚** | `web-ui/public/legacy/` → 站点 **`/legacy/`** |
+| **`/legacy/`** | **仅跳转 stub**（`public/legacy/index.html` → 回首页）；**不是**可运行旧版 |
 | **React 源码** | `web-ui/react-app/` |
-| **废弃预览路径** | `/next/`（`react:export-next` 仅兼容保留，非产品路径） |
-| **文档定位** | **新版替代旧版**；双轨是迁移期回滚，不是产品目标 |
+| **废弃** | `/next/`；`test:e2e:dual`；以旧 UI 为目标的 `test:e2e` legacy 套件 |
+| **文档定位** | 本文记录 **迁移过程**；产品路径以根 README + DATA_RECOVERY 为准 |
 
 ---
 
-## 1. 发布树一览
+## 1. 发布树一览（现行）
 
 ```text
 web-ui/public/                 # 部署目录（wrangler / Pages）
 ├─ index.html, assets/, sw…    # React（cutover 构建产物，gitignore）
 ├─ CUTOVER_STAMP.txt
-└─ legacy/                     # 旧版 PWA（源码入库）
-   ├─ index.html · app.js · history-db.js …
-   └─ 「返回新版」→ ../
+└─ legacy/                     # 仅 index.html 跳转 stub
+web-ui/idb-schema/             # IDB 契约权威参考
 web-ui/react-app/              # React 源码
 ```
 
 | 路径 | 角色 |
 |------|------|
-| `/` | **默认产品入口**（React） |
-| `/legacy/` | **回滚专用**旧版 PWA |
+| `/` | **唯一产品入口**（React） |
+| `/legacy/` | 说明页并跳回 `/` |
 | `web-ui/react-app/` | 现代壳源码 |
 
 ---
 
-## 2. 脚本
+## 2. 脚本（现行）
 
 ```bash
 # 生产发布（必须）
-npm run react:export-cutover   # 默认 base=/；写 404.html；保留 public/legacy/
+npm run react:export-cutover   # 默认 base=/；写 404.html；legacy/ 仅 stub
 # GitHub Pages 部署：GITHUB_PAGES_DEPLOY=true → base=/<repo>/
 
 # 开发
 npm run react:dev
 npm run react:test
-npm run react:privacy          # 对 react-app/dist 或 cutover 后 public 扫描
+npm run react:privacy
 
 # 门禁
-npm run smoke                  # legacy 树 +（若已 cutover）根 React 形态
-npm run test:e2e               # 旧版 /legacy/
-npm run test:e2e:react         # 默认根 React（cutover + serve）
-npm run test:e2e:dual          # 仓互通：/ 与 /legacy/
+npm run smoke                  # cutover 形态 + schema + browser IIFE
+npm run test:e2e               # = test:e2e:react（根 React）
+npm run test:e2e:react
+# test:e2e:dual — 已删除，勿引用
 
 # 废弃
 npm run react:export-next      # 仅 /next/ 预览，勿作默认
@@ -56,11 +61,11 @@ npm run react:export-next      # 仅 /next/ 预览，勿作默认
 
 ---
 
-## 3. 回滚
+## 3. 回退（现行 · 非 `/legacy/`）
 
-1. 打开 **`/legacy/`**
-2. 可选：`localStorage['ha-ui-shell']='legacy'`（壳内按钮会跳转 `/legacy/`）
-3. 数据：共享 IndexedDB `sharded-v1`，勿另起库
+1. **应用版本**：Git/Pages 回退上一成功部署，或恢复发版前备份的 `web-ui/public/`
+2. **本机数据**：数据页备份导入，或重新导入 Apple Health ZIP（见 DATA_RECOVERY.md）
+3. 打开 `/legacy/` **不会**恢复旧 UI
 
 ---
 
@@ -113,7 +118,7 @@ npm run react:export-next      # 仅 /next/ 预览，勿作默认
 |------|------|
 | `npm run react:test` | Adapter parity、IDB schema、ZIP、HAE、仓 load/persist、快照、workspace |
 | `npm run test:e2e:react` | 夹具/路由/Sheet、XML+ZIP、快照列表、HAE+仓往返（Chromium :4174） |
-| `npm run test:e2e:dual` | **同域交叉 E2E 骨架**（A–B: React 写 sharded-v1 → legacy status + React `load-warehouse`；C: **legacy API 写 → React load-warehouse**；D: **legacy 写 → React 再持久化 → legacy status**；:4175） |
+| ~~`npm run test:e2e:dual`~~ | **已删除**（v2.5.5）。历史：同域 React↔legacy 交叉 E2E 骨架；`e2e-dual/` 目录仅作档案，默认 CI 不跑 |
 | `npm run smoke` / `test:e2e` | **Legacy 不回归** |
 
 ---
@@ -206,14 +211,14 @@ flowchart LR
 | JSON/CSV/快照 + FHIR 本机归档 | **已做**（Data 页 ExportPanel / FhirExportPanel） |
 | 事件时间线 / CSV 合并 / 恢复权重 | **已做**（Overview 折叠面板；IDB/localStorage 与 legacy 共用） |
 
-### P0 — 共享数据仓互通
+### P0 — 共享数据仓互通（历史目标 · 旧 UI 已删除）
 
 | 问题（曾） | 仅写 `core\|full` 时，legacy 分片会覆盖 core → 混态。 |
 |------|------|
 | **当前写入** | `persistHealthDataSharded`：与 history-db 一致 **clear domainChunks + put 全量 sharded-v1 分片**。 |
 | **读取** | `layout=sharded-v1` 或存在 domain 分片 → 合并分片。 |
-| **交叉 E2E** | `test:e2e:dual`：`/` React ↔ `/legacy/`（A–D）。 |
-| **后续** | React 产品 parity（备份、更全数据中心 UI）优先于再堆 dual 胶水。 |
+| **交叉 E2E** | ~~`test:e2e:dual`~~ **已删除**；现行门禁为 `test:e2e:react`。 |
+| **后续** | 首屏路由拆分等性能优化；勿再恢复 dual 假通过脚本。 |
 
 ### P1 工程
 
@@ -228,7 +233,7 @@ flowchart LR
 | 壳层 i18n 中/英 | **已做**（`ha-react-ui-locale`，导航/总览键） |
 | 总览状态带 / 信号列表 / 趋势工作台密度 | **已合入**；工具栏折叠 + KPI/域折叠（默认展开） |
 | 报告页 i18n + 数据页软配额/keep-N 面板 | **已做**；数据页文案 i18n **本轮** |
-| 同域交叉仓 E2E | **骨架已有** `test:e2e:dual`（非全矩阵） |
+| 同域交叉仓 E2E | **已退役**（`test:e2e:dual` 删除；旧 UI 不存在） |
 | 可编辑大屏栅格 / 手机完整单任务产品 | **未做** |
 
 
@@ -238,5 +243,6 @@ flowchart LR
 
 - 总览与上手：`README.md`、`docs/README.md`
 - 手工 QA：`docs/MANUAL_QA.md`（含双轨检查项）
-- 数据中心 / 分片权威：`docs/DATA_CENTER_v1.68.md`、`web-ui/public/legacy/history-db.js`
+- 数据中心 / 分片权威：`docs/DATA_CENTER_v1.68.md`、`web-ui/idb-schema/history-db.reference.js`
+- 本机恢复 / 发布门禁：`docs/DATA_RECOVERY.md`
 - 包内说明：`web-ui/react-app/README.md`

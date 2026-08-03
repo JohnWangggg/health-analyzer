@@ -3,7 +3,8 @@
 **状态：** 设计 + **已实现**（v1.68 MVP → **v1.75** `core|full` + `cgm|YYYY-MM` → **v1.79–v1.81** `bloodPressure|YYYY` / `weight|YYYY` 年分片、面板删片、保留近 N 月/年 → **v1.82** 双域一键 keep-N 年 → **v1.83** 保存后可选自动 keep-N 裁剪 → **v1.85** `sleep|YYYY` / `steps|YYYY` 年分片 → **v1.86** `hrv|YYYY` / `restingHr|YYYY` / `walkingHr|YYYY` 年分片 → **v1.87** `workouts|YYYY` / `ecg|YYYY` / `watchDaily|YYYY` 年分片（与其它年分片**域独立**删片）→ **v1.88** **thin core** 全量分片后、`migrateLegacyCoreToShards`、分片清单导出 `exportShardInventory`、**全域 keep-all 年** → **v1.89** 仓与导入批次联动 `lastImportBatchId`、仓面板导入批次摘要、**配额预测 UI**（客户端按分片 `approxBytes` 估算）；兼容 legacy `healthData|full`）  
 **范围：** 浏览器本机 IndexedDB 持久化「解析后的 typed 健康仓」+ 授权、配额、备份/清除、分片淘汰与手动/可选自动裁剪  
 **语言 / Language：** 中文（关键术语中英对照）  
-**对照实现基线：** `web-ui/public/legacy/history-db.js`（`DB_VERSION = 5`，`WAREHOUSE_POLICY_VERSION` 随产品迭代，如 `data-center-v1.89.0`+）、`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）、v1.66 工作区（今日 / 趋势 / 报告 / **更多**）；UI 偏好与自动裁剪见 `web-ui/public/legacy/app.js`
+**对照实现基线（现行）：** `web-ui/idb-schema/history-db.reference.js`（`DB_VERSION = 5`）+ React `web-ui/react-app/src/core/*`（`warehousePersist` / `warehouseShards` / keep-N）；`lib/src/types.ts`（`HealthData`）、`lib/src/provenance.ts`（`ImportBatchRecord`）。  
+**历史路径（已删除的旧 UI）：** 曾为 `web-ui/public/legacy/history-db.js` / `app.js`；产品 UI 已仅 React。
 
 > 本地隐私优先 · 零服务器 · 非诊断 · 默认不上传  
 > 产品默认：自动 hydrate、关授权即删仓、软/硬字节配额、备份默认明文（可选口令 AES-GCM）、恢复整库替换。分片与口令加密**已落地**（见 §4.2 / §6 / §8）。

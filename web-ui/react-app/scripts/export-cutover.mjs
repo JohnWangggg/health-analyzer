@@ -139,7 +139,7 @@ if (!existsSync(rootIndex) || statSync(rootIndex).size < 20) {
 }
 cpSync(rootIndex, join(publicRoot, '404.html'));
 
-const legacyRollback =
+const legacyStub =
   base === '/' ? '/legacy/' : `${base.replace(/\/$/, '')}/legacy/`;
 
 writeFileSync(
@@ -148,7 +148,8 @@ writeFileSync(
     `exportedAt=${new Date().toISOString()}`,
     `base=${base}`,
     'role=react-default-production-root',
-    `legacy-rollback=${legacyRollback}`,
+    `legacy-stub=${legacyStub}`,
+    'legacy-note=redirect-only-not-rollback-app',
     'default-production-entry=web-ui/public (React)',
     'spa-fallback=404.html',
     '',
@@ -173,5 +174,5 @@ if (base !== '/' && !indexHtml.includes(base.replace(/\/$/, '') + '/assets') && 
 
 console.log(`[export-cutover] React root → ${publicRoot}`);
 console.log(`[export-cutover] base=${base}`);
-console.log(`[export-cutover] legacy rollback → ${legacyRollback}`);
+console.log(`[export-cutover] legacy stub (redirect only) → ${legacyStub}`);
 console.log('[export-cutover] wrote 404.html for SPA deep links (GitHub Pages)');

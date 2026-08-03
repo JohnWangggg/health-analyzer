@@ -24,7 +24,7 @@ export default defineConfig({
       manifest: {
         name: '健康 OS',
         short_name: '健康 OS',
-        description: '本地优先健康分析（生产默认 React 壳；/legacy/ 为回滚）',
+        description: '本地优先健康分析（React 生产壳；/legacy/ 仅跳转说明页）',
         lang: 'zh-CN',
         start_url: base,
         scope: base,

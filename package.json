@@ -20,8 +20,6 @@
     "test:fhir:ci": "node scripts/fhir-structure-check.mjs && node scripts/fhir-exchange-check.mjs && FHIR_HL7_REQUIRED=1 node scripts/fhir-hl7-validator.mjs && FHIR_HL7_REQUIRED=1 node scripts/fhir-hl7-validator.mjs --from-export",
     "test:e2e": "playwright test -c playwright.react.config.js",
     "test:e2e:react": "playwright test -c playwright.react.config.js",
-    "test:e2e:legacy-archive": "echo 'legacy UI removed — use test:e2e:react' && exit 0",
-    "test:e2e:dual": "echo 'dual e2e retired with legacy UI — use test:e2e:react' && exit 0",
     "test:e2e:install": "playwright install chromium",
     "test:all": "npm run test:lib && npm run build:lib && npm run react:export-cutover && npm run smoke && npm run test:fhir && npm run test:e2e:react",
     "test:release": "npm run test:lib && npm run build:lib && npm run react:export-cutover && npm run smoke && npm run test:fhir:ci && npm run test:e2e:react",

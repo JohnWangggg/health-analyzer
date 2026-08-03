@@ -254,38 +254,11 @@ export function AppShell() {
         </p>
         <details className="about-legacy-fold" style={{ marginTop: '0.75rem' }}>
           <summary className="muted" style={{ cursor: 'pointer' }}>
-            {t('shell.legacyRollback')}
+            {t('shell.recoveryTitle')}
           </summary>
           <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.9rem' }}>
-            {t('shell.legacyRollbackHint')}{' '}
-            <a
-              href={`${(import.meta.env.BASE_URL || '/').replace(/\/?$/, '/')}legacy/`}
-              data-testid="link-legacy-home"
-            >
-              {t('shell.openLegacy')}
-            </a>
+            {t('shell.recoveryHint')}
           </p>
-          <div className="row" style={{ marginTop: '0.5rem' }}>
-            <Button
-              size="sm"
-              variant="ghost"
-              data-testid="prefer-legacy-shell"
-              onClick={() => {
-                try {
-                  localStorage.setItem('ha-ui-shell', 'legacy');
-                  const base = (import.meta.env.BASE_URL || '/').replace(
-                    /\/?$/,
-                    '/',
-                  );
-                  window.location.assign(`${base}legacy/`);
-                } catch {
-                  /* ignore */
-                }
-              }}
-            >
-              ui-shell=legacy → /legacy/
-            </Button>
-          </div>
         </details>
       </Sheet>
     </div>

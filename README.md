@@ -37,26 +37,25 @@
 cd health-analyzer/lib
 npm install
 npm test
-npm run build   # 生成 web-ui/public/legacy/lib.js（旧版回滚树）
+npm run build   # tsc + lib/dist/browser.iife.js（FHIR/smoke；非旧 UI）
 
-# 2. 发布树：React 为默认根，旧版在 /legacy/
+# 2. 发布树：React 为 public 根（唯一产品入口）
 cd ..
 npm install
 npm run react:install
-npm run react:export-cutover      # → web-ui/public/ 根 = React
+npm run react:export-cutover      # → web-ui/public/ 根 = React + 404.html
 
 # 3. 本地预览
 cd web-ui/public && python3 -m http.server 8000
 # http://localhost:8000        → React（生产默认）
-# http://localhost:8000/legacy/ → 旧版回滚
+# http://localhost:8000/legacy/ → 仅跳回首页（旧 UI 已删除）
 
-# 4. 仓库根：smoke + E2E
+# 4. 仓库根：smoke + E2E（主门禁）
 cd ../..
 npx playwright install chromium   # 首次
-npm run smoke                     # legacy 树 +（cutover 后）根 React 形态
-npm run test:e2e                  # 旧版 /legacy/
-npm run test:e2e:react            # 默认根 React
-npm run test:e2e:dual             # 仓互通 / ↔ /legacy/
+npm run smoke                     # cutover 形态 + schema 引用 + browser IIFE
+npm run test:e2e:react            # 根 React E2E（= npm run test:e2e）
+# 勿再使用 test:e2e:dual（已删除；见 docs/DATA_RECOVERY.md）
 
 # 5. 开发 React 源码
 npm run react:dev
@@ -65,28 +64,29 @@ npm run react:test
 # 6. 部署：CI 会 export-cutover 后发布 web-ui/public
 ```
 
-## 产品入口（Strategy A · 新版默认）
+## 产品入口（v2.5+ · 仅 React）
 
 | URL | 内容 |
 |-----|------|
 | **`/`** | **生产默认** React 壳（总览 / 趋势 / 报告 / 数据） |
-| **`/legacy/`** | 旧版 PWA **回滚**（完整 legacy 能力保留） |
+| **`/legacy/`** | **不是回滚应用** — 仅说明页并跳回 `/` |
 
-发布命令：`npm run react:export-cutover`（产物在 `web-ui/public/` 根；`legacy/` 保留）。  
-GitHub Pages 项目页会自动使用 base=`/<repo>/`（见 `export-cutover.mjs` + deploy workflow）。
+发布命令：`npm run react:export-cutover`（产物在 `web-ui/public/`）。  
+**应用版本回退**：Git/Pages 回退到上一成功部署，或保留上一静态 `public/` 产物 — **不要**依赖 `/legacy/`。  
+**本机数据恢复**：备份导出/导入、重新导入 Health ZIP — 见 [`docs/DATA_RECOVERY.md`](docs/DATA_RECOVERY.md)。  
+GitHub Pages 项目页 base=`/<repo>/`（见 `export-cutover.mjs` + deploy workflow）。
 
-### React 默认路径已具备（相对 legacy 的迁移进度）
+### 能力一览（生产路径）
 
-- ✅ 导入：夹具 · XML · ZIP · HAE；会话就绪条 / 导入进度  
-- ✅ 总览：状态带 · 今日快照 · KPI · **提示词** · **个人背景/敏感开关** · **事件时间线** · **CSV 合并** · **恢复权重预设** · **健康大屏**  
-- ✅ 趋势：多域 · 有数据标记 · 空域切换 · ECharts 懒加载  
-- ✅ 报告：门诊/周报/临床 · 个人背景注入 · 临床敏感开关 · Markdown/HTML 下载  
-- ✅ 数据仓：sharded-v1 · keep-N · 分片清理 · **JSON/CSV/快照导出** · **FHIR 本机归档** · **备份/恢复**  
-- ✅ 工程：cutover 布局门禁 · e2e-react · dual 仓互通 · privacy 扫描  
-- ✅ **`/legacy/` 完整 UI 已移除** — 仅保留跳转页；schema 见 `web-ui/idb-schema/`  
-- 对照与移除记录：[`docs/LEGACY_PARITY.md`](docs/LEGACY_PARITY.md)
+- ✅ 导入：夹具 · XML · ZIP · 文件夹 · HAE（可取消）  
+- ✅ 总览：KPI 显隐/排序 · 数据质量 · 提示词 · 个人背景 · 事件 · CSV · 恢复权重 · 大屏  
+- ✅ 趋势：多域 · 时间范围 · **双指标对比** · **图表预设** · ECharts 懒加载  
+- ✅ 报告 / 导出 / FHIR 本机归档+交换 · 数据仓 sharded-v1 · 备份 · 隐私清除 · 快照环比  
+- ✅ 工程：cutover 门禁 · **e2e-react** · privacy 扫描 · FHIR HL7  
+- ℹ️ Schema 权威：`web-ui/idb-schema/history-db.reference.js`  
+- ℹ️ 迁移记录：[`docs/LEGACY_PARITY.md`](docs/LEGACY_PARITY.md) · 恢复：[`docs/DATA_RECOVERY.md`](docs/DATA_RECOVERY.md)
 
-说明文档：[`docs/DUAL_TRACK_UI.md`](docs/DUAL_TRACK_UI.md) · [`docs/DEPLOY.md`](docs/DEPLOY.md) · [`docs/README.md`](docs/README.md)
+说明文档：[`docs/DEPLOY.md`](docs/DEPLOY.md) · [`docs/README.md`](docs/README.md) · [`docs/DUAL_TRACK_UI.md`](docs/DUAL_TRACK_UI.md)（历史）
 
 ---
 
@@ -144,12 +144,13 @@ health-analyzer/
 │   ├── public/               # ★ 部署根（GitHub Pages / wrangler）
 │   │   ├── index.html …      # React（export-cutover 产物，gitignore）
 │   │   ├── 404.html          # SPA 深链（GitHub Pages）
-│   │   └── legacy/           # 旧版 PWA 回滚
+│   │   └── legacy/           # 仅跳转 stub（旧 UI 已删除，非回滚应用）
+│   ├── idb-schema/           # IndexedDB 契约权威参考
 │   └── react-app/            # ★ React 源码（生产默认壳）
-├── e2e/                      # 旧版 /legacy/ Playwright
-├── e2e-react/                # 默认根 React Playwright
-├── e2e-dual/                 # / ↔ /legacy/ 仓互通
-└── docs/                     # 中文 + docs/en/ 英文
+├── e2e/                      # 历史 Playwright（旧 /legacy/ 目标；默认不跑）
+├── e2e-react/                # ★ 主门禁：根 React Playwright
+├── e2e-dual/                 # 历史双轨仓 E2E（已退役；脚本已删除）
+└── docs/                     # 中文 + docs/en/ 英文 · DATA_RECOVERY.md
 ```
 
 详见 [docs/README.md](docs/README.md) · [docs/en/README.md](docs/en/README.md)
@@ -168,7 +169,8 @@ git push origin main
 
 仓库 **Settings → Pages → Source** 选 **GitHub Actions**。  
 访问：`https://<USER>.github.io/health-analyzer/`（资产路径带 repo 前缀）。  
-回滚旧版：`https://<USER>.github.io/health-analyzer/legacy/`
+版本回退：Git/Pages 回退上一成功部署（`/legacy/` 不会恢复旧 UI）。  
+本机数据：[`docs/DATA_RECOVERY.md`](docs/DATA_RECOVERY.md)。
 
 本地静态预览（base=`/`）：
 
@@ -350,3 +352,4 @@ English:
 | **v2.5.2** `844528b` | 图表**预设** · HAE **用药→事件** · **离线横幅** |
 | **v2.5.3** `de5c116` | **繁體中文 UI**（zh-CN 詞庫派生）· 分析語言隨界面 · 大屏全屏+焦點手動切換 |
 | **v2.5.4** `6db3304` | **数据质量横幅** · **KPI 排序** · **PWA 安装提示** |
+| **v2.5.5** | **发布口径纠偏**：`/legacy/` 明确为跳转 stub（非回滚应用）；删除 `test:e2e:dual` 假通过脚本；新增 [`docs/DATA_RECOVERY.md`](docs/DATA_RECOVERY.md)（备份/重导 ZIP/清站点数据/Git 部署回退）；About 与文档对齐 |
