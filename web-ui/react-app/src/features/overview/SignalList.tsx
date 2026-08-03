@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import type { AnalysisSummary } from '../../core/HealthCoreAdapter';
 import { useAutoAnimate } from '../../motion/useAutoAnimate';
+import { useLocale } from '../../i18n/LocaleProvider';
 
 type Signal = {
   id: string;
@@ -99,21 +100,26 @@ function SignalIcon({ id, tone }: { id: string; tone: Signal['tone'] }) {
 }
 
 export function SignalList({ summary }: { summary: AnalysisSummary }) {
+  const { t } = useLocale();
   const signals = buildSignals(summary);
   const [listRef] = useAutoAnimate<HTMLUListElement>();
 
   return (
     <section
-      className="signal-list"
+      id="priority-signals"
+      className="signal-list signal-list-linked"
       data-testid="signal-list"
       aria-label="signals"
     >
-      <h2 className="section-title">信号与线索</h2>
+      <div className="signal-list-head">
+        <p className="signal-list-kicker muted">{t('overview.signals.kicker')}</p>
+        <h2 className="section-title">{t('overview.signals.title')}</h2>
+      </div>
       <ul className="signal-list-ul" ref={listRef}>
-        {signals.map((s) => (
+        {signals.map((s, i) => (
           <li
             key={s.id}
-            className={`signal-item signal-${s.tone}`}
+            className={`signal-item signal-${s.tone}${i === 0 ? ' signal-item-lead' : ''}`}
             data-signal={s.id}
           >
             <span className="signal-item-icon">

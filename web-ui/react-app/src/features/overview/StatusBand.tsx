@@ -9,11 +9,14 @@ type Props = {
   priorityTone: 'ok' | 'watch' | 'alert' | 'accent';
   freshnessText: string;
   freshnessTone: 'ok' | 'watch' | 'alert' | 'neutral';
+  /** Scroll target for “why / evidence” (signals). */
+  signalsHref?: string;
+  signalsLabel?: string;
 };
 
 /**
  * Today health status band — recovery ring + priority action.
- * Presentational only; values come from adapter summary.
+ * Links narrative to signals list below.
  */
 export function StatusBand({
   summary,
@@ -22,6 +25,8 @@ export function StatusBand({
   priorityTone,
   freshnessText,
   freshnessTone,
+  signalsHref = '#priority-signals',
+  signalsLabel = '查看依据与线索',
 }: Props) {
   const score = summary.kpis.recoveryScore;
   const load = summary.kpis.loadScore;
@@ -47,7 +52,18 @@ export function StatusBand({
             {summary.dateRange.start || '—'} → {summary.dateRange.end || '—'}
           </Badge>
         </div>
+        <a
+          className="status-band-link"
+          href={signalsHref}
+          data-testid="priority-to-signals"
+        >
+          {signalsLabel}
+          <span aria-hidden className="status-band-link-arrow">
+            ↓
+          </span>
+        </a>
       </div>
+      <div className="status-band-rail" aria-hidden />
     </section>
   );
 }

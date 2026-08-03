@@ -9,6 +9,10 @@ export type MessageKey =
   | 'nav.trends'
   | 'nav.reports'
   | 'nav.data'
+  | 'nav.overview.desc'
+  | 'nav.trends.desc'
+  | 'nav.reports.desc'
+  | 'nav.data.desc'
   | 'theme'
   | 'theme.system'
   | 'theme.light'
@@ -40,6 +44,9 @@ export type MessageKey =
   | 'overview.haeNotes'
   | 'overview.trendStrip.title'
   | 'overview.trendStrip.range'
+  | 'overview.signals.kicker'
+  | 'overview.signals.title'
+  | 'overview.signals.link'
   | 'overview.prompt.label'
   | 'overview.prompt.mode.full'
   | 'overview.prompt.mode.data'
@@ -146,6 +153,13 @@ export type MessageKey =
   | 'shell.install.body'
   | 'shell.install.action'
   | 'shell.install.dismiss'
+  | 'shell.settings'
+  | 'shell.aboutBody'
+  | 'shell.freshness.idle'
+  | 'shell.freshness.today'
+  | 'shell.freshness.yesterday'
+  | 'shell.freshness.days'
+  | 'shell.freshness.stale'
   | 'tv.enter'
   | 'tv.exit'
   | 'tv.dataUpdated'
@@ -352,6 +366,10 @@ const zh: Record<MessageKey, string> = {
   'nav.trends': '趋势',
   'nav.reports': '报告',
   'nav.data': '数据',
+  'nav.overview.desc': '今日状态与优先关注',
+  'nav.trends.desc': '指标变化与对比',
+  'nav.reports.desc': '门诊与周报',
+  'nav.data.desc': '备份、导出与清理',
   theme: '主题',
   'theme.system': '系统',
   'theme.light': '浅色',
@@ -389,6 +407,9 @@ const zh: Record<MessageKey, string> = {
   'overview.haeNotes': '增量导入摘要',
   'overview.trendStrip.title': '近况趋势',
   'overview.trendStrip.range': '趋势天数',
+  'overview.signals.kicker': '承接上方优先关注',
+  'overview.signals.title': '依据与线索',
+  'overview.signals.link': '查看依据与线索',
   'overview.prompt.label': '大模型提示词',
   'overview.prompt.mode.full': '完整',
   'overview.prompt.mode.data': '仅数据',
@@ -496,6 +517,14 @@ const zh: Record<MessageKey, string> = {
   'shell.install.body': '可将本应用安装到主屏幕，离线打开（数据仍仅本机）。',
   'shell.install.action': '安装',
   'shell.install.dismiss': '稍后',
+  'shell.settings': '设置',
+  'shell.aboutBody':
+    '本地优先健康分析。明细不上传服务器，无第三方埋点。非医疗器械、非诊断。',
+  'shell.freshness.idle': '尚未加载数据',
+  'shell.freshness.today': '数据截至今天',
+  'shell.freshness.yesterday': '数据截至昨天',
+  'shell.freshness.days': '数据 {n} 天前',
+  'shell.freshness.stale': '数据偏旧 · {n} 天前',
   'tv.enter': '健康大屏',
   'tv.exit': '退出大屏',
   'tv.dataUpdated': '数据截止 {end}',
@@ -715,6 +744,10 @@ const en: Record<MessageKey, string> = {
   'nav.trends': 'Trends',
   'nav.reports': 'Reports',
   'nav.data': 'Data',
+  'nav.overview.desc': 'Today status & priorities',
+  'nav.trends.desc': 'Metric trends & compare',
+  'nav.reports.desc': 'Visit & weekly notes',
+  'nav.data.desc': 'Backup, export & cleanup',
   theme: 'Theme',
   'theme.system': 'System',
   'theme.light': 'Light',
@@ -752,6 +785,9 @@ const en: Record<MessageKey, string> = {
   'overview.haeNotes': 'Incremental import notes',
   'overview.trendStrip.title': 'Recent trends',
   'overview.trendStrip.range': 'Trend window',
+  'overview.signals.kicker': 'Evidence for the priority above',
+  'overview.signals.title': 'Signals & clues',
+  'overview.signals.link': 'See evidence & clues',
   'overview.prompt.label': 'LLM prompt',
   'overview.prompt.mode.full': 'Full',
   'overview.prompt.mode.data': 'Data only',
@@ -859,6 +895,14 @@ const en: Record<MessageKey, string> = {
   'shell.install.body': 'Install to home screen for offline open (data stays on-device).',
   'shell.install.action': 'Install',
   'shell.install.dismiss': 'Later',
+  'shell.settings': 'Settings',
+  'shell.aboutBody':
+    'Local-first health analysis. Details never leave this device; no third-party analytics. Not a medical device or diagnosis.',
+  'shell.freshness.idle': 'No data loaded',
+  'shell.freshness.today': 'Data through today',
+  'shell.freshness.yesterday': 'Data through yesterday',
+  'shell.freshness.days': 'Data {n} days ago',
+  'shell.freshness.stale': 'Stale · {n} days ago',
   'tv.enter': 'TV mode',
   'tv.exit': 'Exit TV',
   'tv.dataUpdated': 'Data through {end}',

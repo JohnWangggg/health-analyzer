@@ -162,6 +162,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.5.10** | **Desktop command center**: overview 3 layers (status → 7/30d sparkline strip → KPI+signals); no ECharts on first paint |
 | **v2.5.11** | **Trends/Reports/Data product copy**: restrained stagger enter; user-facing leads; report stage + trends controls visual alignment |
 | **v2.5.12** | **Data page narrative sections + domain color tokens**: status/export/backup/space/privacy; recovery·sleep·metabolic·activity accents |
+| **v2.5.13** | **Shell + narrative link**: topbar date + freshness + settings; user-facing nav blurbs; priority → evidence signals connector |
 
 ### Release checklist
 

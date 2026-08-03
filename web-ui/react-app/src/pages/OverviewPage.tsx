@@ -545,6 +545,7 @@ export function OverviewPage() {
                     priorityTone={p.tone}
                     freshnessText={f.text}
                     freshnessTone={f.tone}
+                    signalsLabel={t('overview.signals.link')}
                   />
                   <div className="primary-actions" data-testid="primary-actions">
                     <Button
