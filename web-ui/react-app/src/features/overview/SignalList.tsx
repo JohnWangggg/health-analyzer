@@ -1,4 +1,13 @@
+import {
+  Activity,
+  AlertTriangle,
+  Droplets,
+  Footprints,
+  Moon,
+  Sparkles,
+} from 'lucide-react';
 import type { AnalysisSummary } from '../../core/HealthCoreAdapter';
+import { useAutoAnimate } from '../../motion/useAutoAnimate';
 
 type Signal = {
   id: string;
@@ -41,7 +50,7 @@ function buildSignals(summary: AnalysisSummary): Signal[] {
   if (domainPresence.sleep) {
     out.push({
       id: 'sleep',
-      title: '睡眠域',
+      title: '睡眠',
       body: `${counts.sleepDays} 天有睡眠汇总`,
       tone: 'neutral',
     });
@@ -51,7 +60,7 @@ function buildSignals(summary: AnalysisSummary): Signal[] {
     out.push({
       id: 'workouts',
       title: '训练记录',
-      body: '会话含 Workout 数据，可在趋势中查看活动相关序列',
+      body: '会话含训练数据，可在趋势中查看活动相关序列',
       tone: 'ok',
     });
   }
@@ -69,7 +78,7 @@ function buildSignals(summary: AnalysisSummary): Signal[] {
     out.push({
       id: 'ready',
       title: '本机会话已就绪',
-      body: '可打开趋势查看序列，或导出门诊/周报 Markdown。',
+      body: '可打开趋势查看序列，或导出门诊/周报。',
       tone: 'ok',
     });
   }
@@ -77,16 +86,43 @@ function buildSignals(summary: AnalysisSummary): Signal[] {
   return out.slice(0, 5);
 }
 
+function SignalIcon({ id, tone }: { id: string; tone: Signal['tone'] }) {
+  const size = 16;
+  if (id === 'stale' || tone === 'watch' || tone === 'alert') {
+    return <AlertTriangle size={size} aria-hidden />;
+  }
+  if (id === 'cgm') return <Droplets size={size} aria-hidden />;
+  if (id === 'steps') return <Footprints size={size} aria-hidden />;
+  if (id === 'sleep') return <Moon size={size} aria-hidden />;
+  if (id === 'workouts') return <Activity size={size} aria-hidden />;
+  return <Sparkles size={size} aria-hidden />;
+}
+
 export function SignalList({ summary }: { summary: AnalysisSummary }) {
   const signals = buildSignals(summary);
+  const [listRef] = useAutoAnimate<HTMLUListElement>();
+
   return (
-    <section className="signal-list" data-testid="signal-list" aria-label="signals">
+    <section
+      className="signal-list"
+      data-testid="signal-list"
+      aria-label="signals"
+    >
       <h2 className="section-title">信号与线索</h2>
-      <ul className="signal-list-ul">
+      <ul className="signal-list-ul" ref={listRef}>
         {signals.map((s) => (
-          <li key={s.id} className={`signal-item signal-${s.tone}`} data-signal={s.id}>
-            <strong>{s.title}</strong>
-            <span className="muted">{s.body}</span>
+          <li
+            key={s.id}
+            className={`signal-item signal-${s.tone}`}
+            data-signal={s.id}
+          >
+            <span className="signal-item-icon">
+              <SignalIcon id={s.id} tone={s.tone} />
+            </span>
+            <span className="signal-item-body">
+              <strong>{s.title}</strong>
+              <span className="muted">{s.body}</span>
+            </span>
           </li>
         ))}
       </ul>

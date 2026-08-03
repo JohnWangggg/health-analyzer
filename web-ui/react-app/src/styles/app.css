@@ -333,30 +333,56 @@
   color: var(--ok);
 }
 
-@media (max-width: 480px) {
+/* Product chrome: hide engineering badge on all viewports */
+.badge-dual-track {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .brand {
+    flex: 0 1 auto;
+    max-width: min(42vw, 9.5rem);
+  }
   .brand .brand-sub,
   .brand span {
     display: none;
   }
-  .header-actions {
-    gap: 0.25rem;
+  .brand strong {
+    font-size: 0.9rem;
+    max-width: 100%;
   }
-  .badge-dual-track {
-    display: none;
+  .header-actions {
+    gap: 0.2rem;
+    flex-wrap: nowrap;
   }
   .shell-session-chip {
-    max-width: 6.5rem;
-    font-size: 0.68rem;
-    padding: 0.1rem 0.4rem;
+    max-width: 5.5rem;
+    font-size: 0.65rem;
+    padding: 0.1rem 0.35rem;
   }
   .app-topbar {
     padding: var(--space-2) var(--space-3);
     gap: var(--space-2);
   }
+  /* Compact controls — full labels still in title/aria */
+  .header-actions .theme-select {
+    max-width: 4.25rem;
+    min-height: 36px;
+    padding: 0.25rem 0.2rem;
+    font-size: 0.72rem;
+  }
+  .header-actions .ui-btn-sm {
+    min-height: 36px;
+    padding: 0 0.45rem;
+    font-size: 0.75rem;
+  }
 }
 
-@media (max-width: 360px) {
-  .badge-dual-track {
+@media (max-width: 390px) {
+  .shell-session-chip {
+    display: none;
+  }
+  [data-testid='btn-dashboard-mode'] {
     display: none;
   }
 }
@@ -406,6 +432,19 @@
   cursor: pointer;
   text-decoration: none;
   min-height: var(--touch-min);
+  transition:
+    background var(--motion-nav) var(--motion-ease-out),
+    color var(--motion-nav) var(--motion-ease-out),
+    box-shadow var(--motion-nav) var(--motion-ease-out);
+}
+.nav-item-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.nav-item-icon {
+  flex-shrink: 0;
+  opacity: 0.9;
 }
 .nav-item:hover {
   background: var(--bg-muted);
@@ -453,6 +492,11 @@
   font-size: 0.76rem;
   min-height: 44px;
   border-radius: var(--radius-sm);
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.bottom-nav .nav-item-icon {
+  opacity: 0.95;
 }
 .bottom-nav .nav-item small {
   display: none;
@@ -930,10 +974,10 @@
   text-overflow: ellipsis;
 }
 
-/* Status band — recovery + priority */
+/* Status band — recovery ring + priority */
 .status-band {
   display: grid;
-  grid-template-columns: minmax(7.5rem, 10rem) 1fr;
+  grid-template-columns: minmax(9rem, 11rem) 1fr;
   gap: var(--space-4);
   align-items: stretch;
 }
@@ -948,7 +992,7 @@
   justify-content: center;
   align-items: center;
   text-align: center;
-  padding: var(--space-4);
+  padding: var(--space-3);
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--accent) 12%, var(--bg-elevated));
@@ -970,6 +1014,49 @@
 .status-band-sub {
   font-size: 0.8rem;
   margin-top: 0.25rem;
+}
+
+/* Recovery ring (SVG) */
+.recovery-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  margin: 0 auto;
+}
+.recovery-ring-svg {
+  display: block;
+}
+.recovery-ring-track {
+  stroke: color-mix(in srgb, var(--accent) 18%, var(--border));
+}
+.recovery-ring-progress {
+  stroke: var(--accent);
+}
+.recovery-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  padding: 0.5rem;
+}
+.recovery-ring-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.recovery-ring-value {
+  font-size: 2.1rem !important;
+  margin: 0.05rem 0;
+}
+.recovery-ring-sub {
+  font-size: 0.72rem;
+  line-height: 1.2;
+  max-width: 6.5rem;
 }
 .status-band-main {
   padding: var(--space-4) var(--space-5);
@@ -1050,6 +1137,139 @@
   margin: 0 0 var(--space-3);
   font-size: 0.95rem;
   font-weight: 700;
+}
+
+/* Advanced tools demoted below health status (default collapsed when data loaded) */
+.overview-tools-drawer {
+  margin-top: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-muted);
+  padding: 0 var(--space-3) var(--space-3);
+}
+.overview-tools-drawer > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: var(--space-3) 0;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.overview-tools-drawer > summary::-webkit-details-marker {
+  display: none;
+}
+.overview-tools-drawer[open] > summary {
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-3);
+  display: flex;
+  width: 100%;
+}
+.overview-tools-drawer .overview-toolbar {
+  margin-bottom: var(--space-3);
+}
+.tools-summary-icon {
+  opacity: 0.85;
+}
+.overview-tools-mobile {
+  margin-top: var(--space-4);
+}
+.overview-tools-mobile-trigger {
+  width: 100%;
+}
+.page-lead {
+  max-width: 36rem;
+  line-height: 1.45;
+}
+/* Domain chips: prefer human labels; keep compact */
+.insight-chip[data-domain] {
+  text-transform: none;
+}
+
+/* Signal list with icons */
+.signal-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+}
+.signal-item-icon {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  color: var(--accent);
+  opacity: 0.9;
+}
+.signal-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.signal-watch .signal-item-icon,
+.signal-alert .signal-item-icon {
+  color: var(--watch);
+}
+
+/* Vaul drawer */
+.ui-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--overlay);
+}
+.ui-drawer-content {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 51;
+  max-height: min(88vh, 720px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 16px 16px 0 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  box-shadow: var(--shadow);
+  outline: none;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.ui-drawer-handle {
+  width: 2.5rem;
+  height: 0.28rem;
+  border-radius: 999px;
+  background: var(--border);
+  margin: 0.55rem auto 0.25rem;
+}
+.ui-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 1rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.ui-drawer-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+.ui-drawer-body {
+  overflow: auto;
+  padding: 0.75rem 1rem 1.25rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.page-transition {
+  min-height: 0;
+}
+
+@media (max-width: 640px) {
+  .header-actions .btn-label-text {
+    /* icon + short context; full title still on button */
+  }
 }
 .signal-list-ul {
   list-style: none;
@@ -1446,12 +1666,31 @@ body.health-dashboard-mode .dashboard-mode-bar {
   top: 0;
   z-index: 40;
 }
+/*
+ * P0: desktop .app-body is `sidebar-width 1fr`. Hiding the sidebar does NOT
+ * collapse the first track — main stayed ~248px. Force single full-width column.
+ */
+body.health-dashboard-mode .app-body {
+  grid-template-columns: 1fr !important;
+  width: 100%;
+}
+body.health-dashboard-mode .app-main {
+  grid-column: 1 / -1;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0;
+  font-size: 1.15rem;
+  padding: 1rem 1.75rem 2rem;
+  min-width: 0;
+}
 body.health-dashboard-mode .app-sidebar,
 body.health-dashboard-mode .bottom-nav,
 body.health-dashboard-mode .app-footer,
 body.health-dashboard-mode .overview-toolbar,
+body.health-dashboard-mode .overview-tools-drawer,
 body.health-dashboard-mode .overview-collapsible,
 body.health-dashboard-mode .prompt-actions,
+body.health-dashboard-mode .page-lead,
 body.health-dashboard-mode .badge-dual-track,
 body.health-dashboard-mode .shell-session-chip,
 body.health-dashboard-mode .theme-select,
@@ -1462,13 +1701,25 @@ body.health-dashboard-mode [data-testid='locale-select'] {
 body.health-dashboard-mode .app-topbar {
   display: none !important;
 }
-body.health-dashboard-mode .app-main {
-  font-size: 1.15rem;
-  max-width: none;
-  padding: 1rem 1.5rem 2rem;
-}
 body.health-dashboard-mode .page-title {
   font-size: 1.75rem;
+}
+body.health-dashboard-mode .status-band {
+  grid-template-columns: minmax(10rem, 14rem) 1fr;
+  gap: 1.25rem;
+}
+body.health-dashboard-mode .status-band-value {
+  font-size: 3.5rem;
+}
+body.health-dashboard-mode .status-band-title {
+  font-size: 1.75rem;
+}
+body.health-dashboard-mode .overview-split {
+  grid-template-columns: 1.2fr 1fr;
+  gap: 1.25rem;
+}
+body.health-dashboard-mode .kpi-matrix {
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
 }
 body.health-dashboard-mode .kpi {
   font-size: 2.25rem !important;
@@ -1486,6 +1737,12 @@ body.health-dashboard-mode .dashboard-focus-btns {
 body.health-dashboard-mode .dashboard-mode-bar {
   padding: 0.85rem 1.25rem;
   font-size: 1.05rem;
+}
+@media (max-width: 900px) {
+  body.health-dashboard-mode .status-band,
+  body.health-dashboard-mode .overview-split {
+    grid-template-columns: 1fr;
+  }
 }
 body.health-dashboard-mode[data-dashboard-focus='signals'] [data-testid='signal-list'] {
   outline: 2px solid var(--accent, #3b82f6);

@@ -355,3 +355,4 @@ English:
 | **v2.5.5** | **发布口径纠偏**：`/legacy/` 明确为跳转 stub（非回滚应用）；删除 `test:e2e:dual` 假通过脚本；新增 [`docs/DATA_RECOVERY.md`](docs/DATA_RECOVERY.md)（备份/重导 ZIP/清站点数据/Git 部署回退）；About 与文档对齐 |
 | **v2.5.6** | **首屏 code-split**：四工作区 `React.lazy` 路由拆分 + `vendor-react` / `health-lib` 稳定 chunk；入口主包约 19KB（gzip ~7KB），消除 &gt;500KB 单包告警 |
 | **v2.5.7** | **总览二级懒加载**：日期过滤/个人背景/事件/CSV/恢复权重 idle 后挂载独立 chunk，Overview 关键路径更短 |
+| **v2.5.8** | **UI 基础设施 + 大屏 P0**：修大屏 248px 栅格塌陷（1440 E2E）；接入 Motion / Lucide / AutoAnimate / Vaul；恢复环、导航图标、总览工具降级与手机抽屉 |

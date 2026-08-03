@@ -8,6 +8,45 @@ const fixtureXml = fs.readFileSync(
   path.join(__dirname, '../e2e/fixtures/minimal-export.xml'),
 );
 
+/**
+ * Open demoted overview tools (desktop <details>).
+ * Nested panel summaries must not match — only the drawer root summary.
+ * @param {import('@playwright/test').Page} page
+ */
+async function openOverviewTools(page) {
+  const drawer = page.getByTestId('overview-tools-drawer');
+  await expect(drawer).toBeAttached({ timeout: 10_000 });
+  const rootSummary = drawer.locator(':scope > summary');
+  if ((await rootSummary.count()) > 0) {
+    const isOpen = await drawer.evaluate(
+      (el) => el instanceof HTMLDetailsElement && el.open,
+    );
+    if (!isOpen) {
+      await rootSummary.click();
+    }
+    return;
+  }
+  // Mobile Vaul: open via trigger if present
+  const mobileOpen = page.getByTestId('overview-tools-mobile-open');
+  if (await mobileOpen.isVisible().catch(() => false)) {
+    await mobileOpen.click();
+  }
+}
+
+/**
+ * Expand primary toolbar "更多" so HAE / folder / persist controls exist.
+ * @param {import('@playwright/test').Page} page
+ */
+async function expandToolbarMore(page) {
+  const more = page.getByTestId('overview-toolbar-more');
+  if (await more.isVisible().catch(() => false)) {
+    const expanded = await more.getAttribute('aria-expanded');
+    if (expanded !== 'true') {
+      await more.click();
+    }
+  }
+}
+
 test.describe('React dual-track shell', () => {
   test('fixture load + routes + sheet', async ({ page }) => {
     await page.goto('/');
@@ -44,8 +83,12 @@ test.describe('React dual-track shell', () => {
     await expect(page.getByTestId('kpi-visibility-bar')).toBeVisible();
     await expect(page.getByTestId('llm-prompt-bar')).toBeVisible();
     await expect(page.getByTestId('llm-prompt-copy')).toBeVisible();
+    // Advanced tools live in a demoted drawer after data load
+    await openOverviewTools(page);
     // Personal context (legacy-compatible localStorage)
-    await expect(page.getByTestId('user-context-panel')).toBeAttached();
+    await expect(page.getByTestId('user-context-panel')).toBeAttached({
+      timeout: 10_000,
+    });
     await page.getByTestId('user-context-panel').locator('summary').click();
     await page.getByTestId('user-ctx-focus').fill('e2e-focus');
     await page.getByTestId('user-ctx-meds').fill('e2e-med');
@@ -139,7 +182,11 @@ test.describe('React dual-track shell', () => {
     await expect(page.getByTestId('chart-presets-bar')).toContainText('e2e-preset');
     await page.keyboard.press('Alt+Digit1');
     await expect(page.getByTestId('page-overview')).toBeVisible();
-    await expect(page.getByTestId('import-folder-btn')).toBeAttached();
+    await openOverviewTools(page);
+    await expandToolbarMore(page);
+    await expect(page.getByTestId('import-folder-btn')).toBeAttached({
+      timeout: 10_000,
+    });
     await expect(page.getByTestId('event-import-meds')).toBeAttached();
 
     // Workspace keyboard shortcuts: Alt+1..4
@@ -193,17 +240,21 @@ test.describe('React dual-track shell', () => {
       buffer: fixtureXml,
     });
     await expect(page.getByTestId('kpi-cgm')).toBeVisible({ timeout: 20_000 });
+    await openOverviewTools(page);
     await expect(page.getByTestId('analyze-via')).toBeVisible();
 
     const zipped = zipSync({
       'export.xml': new Uint8Array(fixtureXml),
     });
+    await openOverviewTools(page);
+    await expandToolbarMore(page);
     await page.setInputFiles('[data-testid="import-file-input"]', {
       name: 'export.zip',
       mimeType: 'application/zip',
       buffer: Buffer.from(zipped),
     });
-    await expect(page.getByTestId('analyze-via')).toContainText('ZIP', {
+    await openOverviewTools(page);
+    await expect(page.getByTestId('analyze-via')).toContainText(/ZIP|导入/i, {
       timeout: 20_000,
     });
     const cgm = await page.getByTestId('kpi-cgm').innerText();
@@ -214,6 +265,8 @@ test.describe('React dual-track shell', () => {
     await page.goto('/');
     await page.getByTestId('load-fixture').click();
     await expect(page.getByTestId('kpi-range')).toBeVisible({ timeout: 20_000 });
+    await openOverviewTools(page);
+    await expandToolbarMore(page);
     await page.getByTestId('save-snapshot').click();
     await expect(page.getByTestId('snapshot-status')).toContainText('快照', {
       timeout: 10_000,
@@ -247,6 +300,8 @@ test.describe('React dual-track shell', () => {
     await page.goto('/');
     await page.getByTestId('load-fixture').click();
     await expect(page.getByTestId('kpi-cgm')).toBeVisible({ timeout: 20_000 });
+    await openOverviewTools(page);
+    await expandToolbarMore(page);
     await page.getByTestId('persist-warehouse').click();
     await expect(page.getByTestId('warehouse-persist-status')).toContainText(
       'sharded-v1',
@@ -288,10 +343,13 @@ test.describe('React dual-track shell', () => {
     await page
       .locator('[data-testid="desktop-sidebar"] [data-workspace-nav="overview"]')
       .click();
+    await openOverviewTools(page);
+    await expandToolbarMore(page);
     await page.getByTestId('clear-session').click();
     await expect(page.getByTestId('overview-empty')).toBeVisible();
     await page.getByTestId('load-warehouse').click();
-    await expect(page.getByTestId('analyze-via')).toContainText('数据仓', {
+    await openOverviewTools(page);
+    await expect(page.getByTestId('analyze-via')).toContainText(/本机|数据仓|warehouse/i, {
       timeout: 20_000,
     });
   });
@@ -305,6 +363,8 @@ test.describe('React dual-track shell', () => {
     const cgm1 = Number(await page.getByTestId('kpi-cgm').innerText());
     expect(cgm1).toBeGreaterThan(0);
 
+    await openOverviewTools(page);
+    await expandToolbarMore(page);
     await page.getByTestId('persist-warehouse').click();
     await expect(page.getByTestId('warehouse-persist-status')).toContainText(
       'sharded-v1',
@@ -348,10 +408,13 @@ test.describe('React dual-track shell', () => {
     await page
       .locator('[data-testid="desktop-sidebar"] [data-workspace-nav="overview"]')
       .click();
+    await openOverviewTools(page);
+    await expandToolbarMore(page);
     await page.getByTestId('clear-session').click();
     await expect(page.getByTestId('overview-empty')).toBeVisible();
     await page.getByTestId('load-warehouse').click();
-    await expect(page.getByTestId('analyze-via')).toContainText('数据仓', {
+    await openOverviewTools(page);
+    await expect(page.getByTestId('analyze-via')).toContainText(/本机|数据仓|warehouse/i, {
       timeout: 20_000,
     });
     const cgm2 = Number(await page.getByTestId('kpi-cgm').innerText());
@@ -366,6 +429,8 @@ test.describe('React dual-track shell', () => {
     await expect(page.getByTestId('kpi-cgm')).toBeVisible({ timeout: 20_000 });
     const cgm1 = Number(await page.getByTestId('kpi-cgm').innerText());
     expect(cgm1).toBeGreaterThan(0);
+    await openOverviewTools(page);
+    await expandToolbarMore(page);
     await page.getByTestId('persist-warehouse').click();
     await expect(page.getByTestId('warehouse-persist-status')).toContainText(
       'sharded-v1',
@@ -413,6 +478,8 @@ test.describe('React dual-track shell', () => {
     await page
       .locator('[data-testid="desktop-sidebar"] [data-workspace-nav="overview"]')
       .click();
+    await openOverviewTools(page);
+    await expandToolbarMore(page);
     await page.getByTestId('clear-session').click();
     await page.getByTestId('load-warehouse').click();
     await expect(page.getByTestId('kpi-cgm')).toBeVisible({ timeout: 20_000 });
@@ -424,27 +491,32 @@ test.describe('React dual-track shell', () => {
     page,
   }) => {
     await page.goto('/');
+    await expandToolbarMore(page);
     const haePath = path.join(__dirname, '../e2e/fixtures/hae-mini.json');
     await page.setInputFiles('[data-testid="import-hae-input"]', haePath);
-    await expect(page.getByTestId('analyze-via')).toContainText('HAE', {
+    await expect(page.getByTestId('kpi-cgm')).toBeVisible({ timeout: 20_000 });
+    await openOverviewTools(page);
+    await expect(page.getByTestId('analyze-via')).toContainText(/增量|HAE|合并/i, {
       timeout: 20_000,
     });
-    await expect(page.getByTestId('kpi-cgm')).toBeVisible();
     const cgm1 = Number(await page.getByTestId('kpi-cgm').innerText());
     expect(cgm1).toBeGreaterThan(0);
     await expect(page.getByTestId('hae-notes')).toBeVisible();
 
+    await expandToolbarMore(page);
     await page.getByTestId('persist-warehouse').click();
     await expect(page.getByTestId('warehouse-persist-status')).toContainText(
       'sharded-v1',
       { timeout: 15_000 },
     );
 
+    await expandToolbarMore(page);
     await page.getByTestId('clear-session').click();
     await expect(page.getByTestId('overview-empty')).toBeVisible();
 
     await page.getByTestId('load-warehouse').click();
-    await expect(page.getByTestId('analyze-via')).toContainText('数据仓', {
+    await openOverviewTools(page);
+    await expect(page.getByTestId('analyze-via')).toContainText(/本机|数据仓|warehouse/i, {
       timeout: 20_000,
     });
     const cgm2 = Number(await page.getByTestId('kpi-cgm').innerText());

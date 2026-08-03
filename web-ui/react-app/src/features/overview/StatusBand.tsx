@@ -1,5 +1,6 @@
 import { Badge } from '../../components/ui/Badge';
 import type { AnalysisSummary } from '../../core/HealthCoreAdapter';
+import { RecoveryRing } from './RecoveryRing';
 
 type Props = {
   summary: AnalysisSummary;
@@ -11,7 +12,7 @@ type Props = {
 };
 
 /**
- * Desktop/mobile “today health status” band — recovery score + priority line.
+ * Today health status band — recovery ring + priority action.
  * Presentational only; values come from adapter summary.
  */
 export function StatusBand({
@@ -24,17 +25,12 @@ export function StatusBand({
 }: Props) {
   const score = summary.kpis.recoveryScore;
   const load = summary.kpis.loadScore;
+  const sub = `负荷 ${load != null ? Math.round(load) : '—'} · 非诊断`;
 
   return (
     <section className="status-band" data-testid="status-band">
       <div className="status-band-score" data-testid="status-band-score">
-        <span className="status-band-label">恢复分</span>
-        <span className="status-band-value">
-          {score != null ? Math.round(score) : '—'}
-        </span>
-        <span className="status-band-sub muted">
-          负荷 {load != null ? Math.round(load) : '—'} · 非诊断
-        </span>
+        <RecoveryRing score={score} size={132} label="恢复分" sub={sub} />
       </div>
       <div className="status-band-main" data-testid="priority-card">
         <h2 className="status-band-kicker">优先关注</h2>
@@ -43,7 +39,7 @@ export function StatusBand({
         </p>
         <p className="muted status-band-detail">{priorityDetail}</p>
         <div className="status-strip" style={{ marginTop: '0.65rem' }}>
-          <Badge tone={priorityTone}>启发式</Badge>
+          <Badge tone={priorityTone}>今日重点</Badge>
           <Badge tone={freshnessTone} data-testid="kpi-freshness">
             {freshnessText}
           </Badge>

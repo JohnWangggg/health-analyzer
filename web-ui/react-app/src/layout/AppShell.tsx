@@ -8,7 +8,6 @@ import {
 } from '../stores/workspaceStore';
 import { Sheet } from '../components/ui/Sheet';
 import { Button } from '../components/ui/Button';
-import { Badge } from '../components/ui/Badge';
 import { useLocale } from '../i18n/LocaleProvider';
 import type { AppLocaleUi } from '../i18n/messages';
 import type { MessageKey } from '../i18n/messages';
@@ -18,6 +17,8 @@ import {
   useDashboardMode,
 } from '../features/dashboard/DashboardMode';
 import { ConnectivityBanner } from '../components/ConnectivityBanner';
+import { NavIcon, ShellIcons } from '../components/icons/navIcons';
+import { PageTransition } from '../motion/PageTransition';
 
 const NAV_KEYS: Record<WorkspaceId, MessageKey> = {
   overview: 'nav.overview',
@@ -134,9 +135,6 @@ export function AppShell() {
               {sessionChipText}
             </span>
           ) : null}
-          <Badge tone="accent" className="badge-dual-track">
-            {t('dualTrack')}
-          </Badge>
           <Button
             variant="ghost"
             size="sm"
@@ -144,8 +142,12 @@ export function AppShell() {
             data-testid="btn-dashboard-mode"
             aria-pressed={dashboardOn}
             title={t('tv.enter')}
+            className="btn-dashboard-mode"
           >
-            {dashboardOn ? t('tv.exit') : t('tv.enter')}
+            <ShellIcons.monitor size={16} aria-hidden />
+            <span className="btn-label-text">
+              {dashboardOn ? t('tv.exit') : t('tv.enter')}
+            </span>
           </Button>
           <Button
             variant="ghost"
@@ -153,7 +155,8 @@ export function AppShell() {
             onClick={() => setAboutOpen(true)}
             data-testid="open-about-sheet"
           >
-            {t('about')}
+            <ShellIcons.settings size={16} aria-hidden />
+            <span className="btn-label-text">{t('about')}</span>
           </Button>
           <label className="sr-only" htmlFor="locale-select">
             Language
@@ -203,14 +206,19 @@ export function AppShell() {
               aria-keyshortcuts={KBD_ARIA[w.id]}
               onClick={() => setActive(w.id)}
             >
-              <span>{t(NAV_KEYS[w.id])}</span>
+              <span className="nav-item-row">
+                <NavIcon id={w.id} className="nav-item-icon" />
+                <span>{t(NAV_KEYS[w.id])}</span>
+              </span>
               <small>{w.description}</small>
             </NavLink>
           ))}
         </aside>
 
         <main className="app-main" id="main">
-          <Outlet />
+          <PageTransition>
+            <Outlet />
+          </PageTransition>
         </main>
       </div>
 
@@ -230,7 +238,8 @@ export function AppShell() {
             aria-current={active === w.id ? 'page' : undefined}
             onClick={() => go(w.id, w.path)}
           >
-            {t(NAV_KEYS[w.id])}
+            <NavIcon id={w.id} size={20} className="nav-item-icon" />
+            <span>{t(NAV_KEYS[w.id])}</span>
           </button>
         ))}
       </nav>

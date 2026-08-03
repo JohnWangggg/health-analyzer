@@ -6,6 +6,7 @@ import {
   type KeyboardEvent,
 } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Import, Wrench } from 'lucide-react';
 import { useHealthStore } from '../store/useHealthStore';
 import { Button } from '../components/ui/Button';
 import { Card, CardDesc, CardTitle } from '../components/ui/Card';
@@ -15,6 +16,7 @@ import {
   ErrorState,
   LoadingState,
 } from '../components/ui/EmptyState';
+import { Drawer } from '../components/ui/Drawer';
 
 import { useLocale } from '../i18n/LocaleProvider';
 import { StatusBand } from '../features/overview/StatusBand';
@@ -39,6 +41,8 @@ import { getUserContextForPrompt } from '../core/userContext';
 import { isIncludeEventsCtx } from '../core/includeEvents';
 import { listLocalHealthEvents } from '../core/localEvents';
 import { pickHealthExportFromFolder } from '../core/folderImport';
+import { useAutoAnimate } from '../motion/useAutoAnimate';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import fixtureXml from '../../../../e2e/fixtures/minimal-export.xml?raw';
 
 const KPI_OPEN_KEY = 'ha-react-overview-kpi-open';
@@ -119,18 +123,37 @@ function priorityFromSummary(summary: NonNullable<
 function viaLabel(via: string | null): string {
   switch (via) {
     case 'worker':
-      return 'Worker 分析';
+      return '后台解析';
     case 'zip':
-      return 'ZIP 分析';
+      return 'ZIP 导入';
     case 'warehouse':
-      return '数据仓';
+      return '本机数据';
     case 'hae':
-      return 'HAE 合并';
+      return '增量合并';
     case 'main':
-      return '主线程分析';
+      return '本机分析';
     default:
       return '';
   }
+}
+
+/** User-facing domain names (hide raw keys on the health surface). */
+const DOMAIN_LABELS: Record<string, string> = {
+  cgm: '血糖',
+  bloodPressure: '血压',
+  weight: '体重',
+  steps: '步数',
+  hrv: 'HRV',
+  restingHr: '静息心率',
+  walkingHr: '步行心率',
+  sleep: '睡眠',
+  watch: '手表',
+  workouts: '训练',
+  ecg: '心电',
+};
+
+function domainLabel(key: string): string {
+  return DOMAIN_LABELS[key] || key;
 }
 
 export function OverviewPage() {
@@ -152,6 +175,11 @@ export function OverviewPage() {
   const [kpiOrder, setKpiOrderState] = useState<KpiId[]>(() => getKpiOrder());
   const [promptMsg, setPromptMsg] = useState<string | null>(null);
   const [promptMode, setPromptMode] = useState<LlmPromptMode>('full');
+  /** Mobile Vaul drawer for import / advanced tools */
+  const [toolsDrawerOpen, setToolsDrawerOpen] = useState(false);
+  const [kpiMatrixRef] = useAutoAnimate<HTMLDivElement>();
+  /** Match CSS breakpoint for tools presentation (desktop details vs Vaul). */
+  const isNarrow = useMediaQuery('(max-width: 899px)');
 
   const onKpiVisibilityChange = useCallback((id: KpiId, visible: boolean) => {
     setKpiVis(setKpiVisibility({ [id]: visible }));
@@ -343,188 +371,133 @@ export function OverviewPage() {
         ? ('accent' as const)
         : ('watch' as const);
 
+  const importToolbar = (
+    <div className="overview-toolbar" data-testid="overview-toolbar">
+      <div className="overview-toolbar-primary">
+        <Button
+          variant="primary"
+          onClick={loadFixture}
+          data-testid="load-fixture"
+        >
+          {t('overview.loadFixture')}
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => fileRef.current?.click()}
+          data-testid="import-file-btn"
+        >
+          {t('overview.importFile')}
+        </Button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".xml,.zip,text/xml,application/xml,application/zip"
+          className="sr-only"
+          data-testid="import-file-input"
+          onChange={(e) => {
+            void onPickFile(e.target.files?.[0] ?? null);
+            e.target.value = '';
+          }}
+        />
+        <Button
+          variant="secondary"
+          onClick={() => void loadWarehouse()}
+          data-testid="load-warehouse"
+        >
+          {t('overview.loadWh')}
+        </Button>
+        <Button
+          variant="secondary"
+          className="overview-toolbar-more"
+          onClick={() => setToolbarMoreOpen((open) => !open)}
+          aria-expanded={toolbarMoreOpen}
+          aria-controls="overview-toolbar-advanced"
+          data-testid="overview-toolbar-more"
+        >
+          {toolbarMoreOpen ? t('overview.tools.less') : t('overview.tools.more')}
+        </Button>
+      </div>
+      <div
+        id="overview-toolbar-advanced"
+        className="overview-toolbar-advanced"
+        data-open={toolbarMoreOpen ? '1' : '0'}
+      >
+        <Button
+          variant="secondary"
+          onClick={() => haeRef.current?.click()}
+          data-testid="import-hae-btn"
+        >
+          {t('overview.importHae')}
+        </Button>
+        <input
+          ref={haeRef}
+          type="file"
+          accept=".json,.csv,application/json,text/csv"
+          multiple
+          className="sr-only"
+          data-testid="import-hae-input"
+          onChange={(e) => {
+            void onPickHae(e.target.files);
+            e.target.value = '';
+          }}
+        />
+        <Button
+          variant="secondary"
+          onClick={() => folderRef.current?.click()}
+          data-testid="import-folder-btn"
+        >
+          {t('overview.importFolder')}
+        </Button>
+        <input
+          ref={folderRef}
+          type="file"
+          multiple
+          className="sr-only"
+          data-testid="import-folder-input"
+          {...({
+            webkitdirectory: '',
+            directory: '',
+          } as InputHTMLAttributes<HTMLInputElement>)}
+          onChange={(e) => {
+            void onPickFolder(e.target.files);
+            e.target.value = '';
+          }}
+        />
+        <Button
+          variant="secondary"
+          onClick={() => void persistWarehouse()}
+          disabled={!summary}
+          title={t('overview.persistWh')}
+          data-testid="persist-warehouse"
+        >
+          {t('overview.persistWh')}
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => void onSaveSnap()}
+          disabled={!summary}
+          data-testid="save-snapshot"
+        >
+          {t('overview.saveSnap')}
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={clear}
+          disabled={status === 'idle'}
+          data-testid="clear-session"
+        >
+          {t('overview.clear')}
+        </Button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="stack" data-testid="page-overview">
       <div>
         <h1 className="page-title">{t('overview.title')}</h1>
         <p className="page-lead">{t('overview.lead')}</p>
       </div>
-
-      <div className="overview-toolbar" data-testid="overview-toolbar">
-        <div className="overview-toolbar-primary">
-          <Button
-            variant="primary"
-            onClick={loadFixture}
-            data-testid="load-fixture"
-          >
-            {t('overview.loadFixture')}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => fileRef.current?.click()}
-            data-testid="import-file-btn"
-          >
-            {t('overview.importFile')}
-          </Button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".xml,.zip,text/xml,application/xml,application/zip"
-            className="sr-only"
-            data-testid="import-file-input"
-            onChange={(e) => {
-              void onPickFile(e.target.files?.[0] ?? null);
-              e.target.value = '';
-            }}
-          />
-          <Button
-            variant="secondary"
-            onClick={() => void loadWarehouse()}
-            data-testid="load-warehouse"
-          >
-            {t('overview.loadWh')}
-          </Button>
-          <Button
-            variant="secondary"
-            className="overview-toolbar-more"
-            onClick={() => setToolbarMoreOpen((open) => !open)}
-            aria-expanded={toolbarMoreOpen}
-            aria-controls="overview-toolbar-advanced"
-            data-testid="overview-toolbar-more"
-          >
-            {toolbarMoreOpen ? '收起' : '更多'}
-          </Button>
-        </div>
-        <div
-          id="overview-toolbar-advanced"
-          className="overview-toolbar-advanced"
-          data-open={toolbarMoreOpen ? '1' : '0'}
-        >
-          <Button
-            variant="secondary"
-            onClick={() => haeRef.current?.click()}
-            data-testid="import-hae-btn"
-          >
-            {t('overview.importHae')}
-          </Button>
-          <input
-            ref={haeRef}
-            type="file"
-            accept=".json,.csv,application/json,text/csv"
-            multiple
-            className="sr-only"
-            data-testid="import-hae-input"
-            onChange={(e) => {
-              void onPickHae(e.target.files);
-              e.target.value = '';
-            }}
-          />
-          <Button
-            variant="secondary"
-            onClick={() => folderRef.current?.click()}
-            data-testid="import-folder-btn"
-          >
-            {t('overview.importFolder')}
-          </Button>
-          <input
-            ref={folderRef}
-            type="file"
-            multiple
-            className="sr-only"
-            data-testid="import-folder-input"
-            {...({
-              webkitdirectory: '',
-              directory: '',
-            } as InputHTMLAttributes<HTMLInputElement>)}
-            onChange={(e) => {
-              void onPickFolder(e.target.files);
-              e.target.value = '';
-            }}
-          />
-          <Button
-            variant="secondary"
-            onClick={() => void persistWarehouse()}
-            disabled={!summary}
-            title="sharded-v1 full replace domainChunks"
-            data-testid="persist-warehouse"
-          >
-            {t('overview.persistWh')}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => void onSaveSnap()}
-            disabled={!summary}
-            data-testid="save-snapshot"
-          >
-            {t('overview.saveSnap')}
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={clear}
-            disabled={status === 'idle'}
-            data-testid="clear-session"
-          >
-            {t('overview.clear')}
-          </Button>
-        </div>
-      </div>
-
-      {summary ? (
-        <div
-          className="session-ready-strip"
-          data-testid="session-ready-strip"
-        >
-          <div className="status-strip">
-            {sourceLabel ? (
-              <Badge tone="neutral" data-testid="source-label">
-                来源 {sourceLabel}
-              </Badge>
-            ) : null}
-            {analyzeVia ? (
-              <Badge tone={viaTone} data-testid="analyze-via">
-                {viaLabel(analyzeVia)}
-              </Badge>
-            ) : null}
-          </div>
-          <p className="muted session-ready-hint">
-            {t('overview.sessionReadyStrip')}
-          </p>
-        </div>
-      ) : (
-        <div className="status-strip">
-          {sourceLabel ? (
-            <Badge tone="neutral" data-testid="source-label">
-              来源 {sourceLabel}
-            </Badge>
-          ) : null}
-          {analyzeVia ? (
-            <Badge tone={viaTone} data-testid="analyze-via">
-              {viaLabel(analyzeVia)}
-            </Badge>
-          ) : null}
-        </div>
-      )}
-
-      {snapMsg || lastSnapshotId ? (
-        <p className="muted" data-testid="snapshot-status">
-          {snapMsg || `最近快照 ${lastSnapshotId}`}
-        </p>
-      ) : null}
-      {warehousePersistMsg ? (
-        <p className="muted" data-testid="warehouse-persist-status">
-          {warehousePersistMsg}
-        </p>
-      ) : null}
-      {lastHaeNotes.length ? (
-        <Card data-testid="hae-notes">
-          <CardTitle>HAE 合并摘要</CardTitle>
-          <ul className="muted" style={{ margin: '0.5rem 0 0', paddingLeft: '1.2rem' }}>
-            {lastHaeNotes.map((n) => (
-              <li key={n}>{n}</li>
-            ))}
-          </ul>
-        </Card>
-      ) : null}
 
       {error ? (
         <ErrorState message={error}>
@@ -539,19 +512,21 @@ export function OverviewPage() {
         </ErrorState>
       ) : null}
 
-      {/* Advanced tools: idle-deferred separate chunk (not on critical KPI path) */}
-      <DeferredAdvancedTools />
-
       {!summary ? (
-        <EmptyState
-          testId="overview-empty"
-          title={t('overview.empty')}
-          description={t('overview.emptyHint')}
-          actionLabel={t('overview.loadFixture')}
-          onAction={loadFixture}
-        />
+        <>
+          {/* Empty: import is the primary task — keep toolbar on first screen */}
+          {importToolbar}
+          <EmptyState
+            testId="overview-empty"
+            title={t('overview.empty')}
+            description={t('overview.emptyHint')}
+            actionLabel={t('overview.loadFixture')}
+            onAction={loadFixture}
+          />
+        </>
       ) : (
         <>
+          {/* Health stage first — tools demoted below */}
           {(() => {
             const p = priorityFromSummary(summary);
             const f = freshnessLabel(summary.freshnessDays);
@@ -572,16 +547,10 @@ export function OverviewPage() {
           })()}
 
           <div className="primary-actions" data-testid="primary-actions">
-            <Button
-              variant="primary"
-              onClick={() => navigate('/trends')}
-            >
+            <Button variant="primary" onClick={() => navigate('/trends')}>
               {t('overview.ctaTrends')}
             </Button>
-            <Button
-              variant="secondary"
-              onClick={() => navigate('/reports')}
-            >
+            <Button variant="secondary" onClick={() => navigate('/reports')}>
               {t('overview.ctaReports')}
             </Button>
             <span className="muted" data-testid="kpi-range">
@@ -639,7 +608,7 @@ export function OverviewPage() {
                   </span>
                   {presentDomains.map((k) => (
                     <span key={k} className="insight-chip" data-domain={k}>
-                      {k}
+                      {domainLabel(k)}
                     </span>
                   ))}
                 </>
@@ -666,7 +635,11 @@ export function OverviewPage() {
                   onChange={onKpiVisibilityChange}
                   onMove={onKpiMove}
                 />
-                <div className="kpi-matrix" data-testid="kpi-matrix">
+                <div
+                  className="kpi-matrix"
+                  data-testid="kpi-matrix"
+                  ref={kpiMatrixRef}
+                >
                   {kpiOrder.map((id) => {
                     if (kpiVis[id] === false) return null;
                     if (id === 'cgm') {
@@ -784,7 +757,7 @@ export function OverviewPage() {
                     data-domain={k}
                     data-present={v ? '1' : '0'}
                   >
-                    {k}: {v ? '✓' : '—'}
+                    {domainLabel(k)}: {v ? '✓' : '—'}
                   </Badge>
                 ))}
               </div>
@@ -792,6 +765,100 @@ export function OverviewPage() {
           </details>
         </>
       )}
+
+      {/* Desktop: demoted details. Mobile: Vaul bottom drawer. */}
+      {(() => {
+        const toolsInner = (
+          <>
+            {summary ? importToolbar : null}
+            {summary ? (
+              <div
+                className="session-ready-strip"
+                data-testid="session-ready-strip"
+              >
+                <div className="status-strip">
+                  {sourceLabel ? (
+                    <Badge tone="neutral" data-testid="source-label">
+                      {t('overview.source')}: {sourceLabel}
+                    </Badge>
+                  ) : null}
+                  {analyzeVia ? (
+                    <Badge tone={viaTone} data-testid="analyze-via">
+                      {viaLabel(analyzeVia)}
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="muted session-ready-hint">
+                  {t('overview.sessionReadyStrip')}
+                </p>
+              </div>
+            ) : null}
+            {snapMsg || lastSnapshotId ? (
+              <p className="muted" data-testid="snapshot-status">
+                {snapMsg || `${t('overview.snapRecent')} ${lastSnapshotId}`}
+              </p>
+            ) : null}
+            {warehousePersistMsg ? (
+              <p className="muted" data-testid="warehouse-persist-status">
+                {warehousePersistMsg}
+              </p>
+            ) : null}
+            {lastHaeNotes.length ? (
+              <Card data-testid="hae-notes">
+                <CardTitle>{t('overview.haeNotes')}</CardTitle>
+                <ul
+                  className="muted"
+                  style={{ margin: '0.5rem 0 0', paddingLeft: '1.2rem' }}
+                >
+                  {lastHaeNotes.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
+              </Card>
+            ) : null}
+            <DeferredAdvancedTools />
+          </>
+        );
+
+        if (isNarrow) {
+          return (
+            <div className="overview-tools-mobile">
+              <Button
+                variant="secondary"
+                className="overview-tools-mobile-trigger"
+                data-testid="overview-tools-mobile-open"
+                onClick={() => setToolsDrawerOpen(true)}
+              >
+                <Import size={16} aria-hidden />
+                {t('overview.tools.summary')}
+              </Button>
+              {/* Keep drawer test id alias for parity with desktop tools surface */}
+              <Drawer
+                open={toolsDrawerOpen}
+                onOpenChange={setToolsDrawerOpen}
+                title={t('overview.tools.summary')}
+                testId="overview-tools-drawer"
+              >
+                {toolsInner}
+              </Drawer>
+            </div>
+          );
+        }
+
+        return (
+          <details
+            className="overview-tools-drawer overview-tools-desktop"
+            data-testid="overview-tools-drawer"
+            open={!summary}
+          >
+            <summary>
+              <Wrench size={16} aria-hidden className="tools-summary-icon" />
+              {t('overview.tools.summary')}
+            </summary>
+            {toolsInner}
+          </details>
+        );
+      })()}
     </div>
   );
 }

@@ -17,6 +17,12 @@
   --max-width: 72rem;
   --touch-min: 44px;
   --motion: 160ms ease;
+  /* Motion tokens (keep in sync with src/motion/tokens.ts) */
+  --motion-page: 200ms;
+  --motion-value: 280ms;
+  --motion-nav: 180ms;
+  --motion-layout: 200ms;
+  --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 :root,
@@ -79,6 +85,10 @@
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion: 0ms;
+    --motion-page: 0ms;
+    --motion-value: 0ms;
+    --motion-nav: 0ms;
+    --motion-layout: 0ms;
   }
 }
 

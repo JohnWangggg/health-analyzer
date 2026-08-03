@@ -1,6 +1,8 @@
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useLocale } from '../../i18n/LocaleProvider';
 import type { MessageKey } from '../../i18n/messages';
 import { Button } from '../../components/ui/Button';
+import { useAutoAnimate } from '../../motion/useAutoAnimate';
 import {
   type KpiId,
   type KpiVisibility,
@@ -28,6 +30,7 @@ export function KpiVisibilityBar({
   onMove,
 }: Props) {
   const { t } = useLocale();
+  const [togglesRef] = useAutoAnimate<HTMLDivElement>();
 
   return (
     <div
@@ -39,7 +42,7 @@ export function KpiVisibilityBar({
       <span className="kpi-visibility-bar-label muted">
         {t('overview.kpiVisibility')}
       </span>
-      <div className="kpi-visibility-bar-toggles">
+      <div className="kpi-visibility-bar-toggles" ref={togglesRef}>
         {order.map((id, index) => (
           <div key={id} className="kpi-order-row" data-testid={`kpi-order-${id}`}>
             <label className="kpi-visibility-toggle">
@@ -60,7 +63,7 @@ export function KpiVisibilityBar({
               aria-label={t('overview.kpiOrder.up')}
               onClick={() => onMove(id, -1)}
             >
-              ↑
+              <ChevronUp size={16} aria-hidden />
             </Button>
             <Button
               size="sm"
@@ -71,7 +74,7 @@ export function KpiVisibilityBar({
               aria-label={t('overview.kpiOrder.down')}
               onClick={() => onMove(id, 1)}
             >
-              ↓
+              <ChevronDown size={16} aria-hidden />
             </Button>
           </div>
         ))}
