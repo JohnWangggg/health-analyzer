@@ -18,6 +18,7 @@ import {
   loadChartPresets,
   type ChartPreset,
 } from '../core/chartPresets';
+import { Stagger, StaggerItem } from '../motion/Stagger';
 
 const TREND_RANGE_KEY = 'ha-react-trend-range-days';
 const RANGE_OPTIONS = [7, 30, 90, 0] as const; // 0 = all
@@ -242,184 +243,190 @@ export function TrendsPage() {
     switchTarget !== domain;
 
   return (
-    <div className="stack" data-testid="page-trends">
-      <div>
-        <h1 className="page-title">{t('trends.title')}</h1>
-        <p className="page-lead">{t('trends.lead')}</p>
-      </div>
+    <Stagger className="stack trends-workspace" testId="page-trends">
+      <StaggerItem>
+        <div>
+          <h1 className="page-title">{t('trends.title')}</h1>
+          <p className="page-lead">{t('trends.lead')}</p>
+        </div>
+      </StaggerItem>
 
-      <div
-        className="domain-switcher"
-        role="tablist"
-        aria-label={t('trends.title')}
-        data-testid="domain-switcher"
-      >
-        {DOMAIN_KEYS.map((d) => {
-          const hasData = domainHasPresence(summary, d.id);
-          return (
-            <Button
-              key={d.id}
-              variant={domain === d.id ? 'primary' : 'ghost'}
-              size="sm"
-              role="tab"
-              aria-selected={domain === d.id}
-              data-testid={`trend-domain-${d.id}`}
-              data-has-data={hasData ? '1' : '0'}
-              className={
-                hasData ? 'domain-tab-has-data' : 'domain-tab-empty'
-              }
-              onClick={() => setDomain(d.id)}
-            >
-              {t(d.key)}
-            </Button>
-          );
-        })}
-        <Badge tone="neutral">
-          {points.length} {t('trends.points')}
-        </Badge>
-        {last ? (
-          <Badge tone="accent">
-            {t('trends.latest')} {last.date}:{' '}
-            {Number.isFinite(last.value)
-              ? Math.round(last.value * 100) / 100
-              : '—'}{' '}
-            {series?.unit}
-          </Badge>
-        ) : null}
-      </div>
-
-      <div
-        className="domain-switcher"
-        role="group"
-        aria-label={t('trends.range')}
-        data-testid="trend-range-chips"
-      >
-        {RANGE_OPTIONS.map((d) => (
-          <Button
-            key={d}
-            size="sm"
-            variant={rangeDays === d ? 'primary' : 'ghost'}
-            data-testid={`trend-range-${d || 'all'}`}
-            onClick={() => setRange(d)}
+      <StaggerItem>
+        <div className="trends-controls">
+          <div
+            className="domain-switcher"
+            role="tablist"
+            aria-label={t('trends.title')}
+            data-testid="domain-switcher"
           >
-            {d === 0
-              ? t('trends.range.all')
-              : t('trends.range.days').replace('{n}', String(d))}
-          </Button>
-        ))}
-      </div>
-
-      <label className="user-ctx-field" style={{ maxWidth: '16rem' }}>
-        <span>{t('trends.compare')}</span>
-        <select
-          value={compareDomain}
-          onChange={(e) =>
-            setCompareDomain((e.target.value || '') as TrendDomain | '')
-          }
-          data-testid="trend-compare-select"
-        >
-          <option value="">{t('trends.compare.none')}</option>
-          {DOMAIN_KEYS.filter((d) => d.id !== domain).map((d) => (
-            <option key={d.id} value={d.id}>
-              {t(d.key)}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <div
-        className="chart-presets-bar"
-        data-testid="chart-presets-bar"
-      >
-        <span className="muted" style={{ fontSize: '0.85rem' }}>
-          {t('trends.presets')}
-        </span>
-        <input
-          type="text"
-          maxLength={40}
-          placeholder={t('trends.presets.namePh')}
-          value={presetName}
-          onChange={(e) => setPresetName(e.target.value)}
-          data-testid="chart-preset-name"
-          style={{ maxWidth: '10rem' }}
-        />
-        <Button
-          size="sm"
-          variant="secondary"
-          type="button"
-          data-testid="chart-preset-save"
-          onClick={onSavePreset}
-        >
-          {t('trends.presets.save')}
-        </Button>
-        {presets.map((p) => (
-          <span key={p.id} className="chart-preset-chip">
-            <Button
-              size="sm"
-              variant="ghost"
-              type="button"
-              data-testid={`chart-preset-apply-${p.id}`}
-              onClick={() => applyPreset(p)}
-            >
-              {p.name}
-            </Button>
-            <button
-              type="button"
-              className="chart-preset-del"
-              data-testid={`chart-preset-del-${p.id}`}
-              aria-label={t('trends.presets.delete')}
-              onClick={() => onDeletePreset(p.id)}
-            >
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
-
-      <Card>
-        <CardTitle>
-          {domainLabel}
-          {series?.unit ? `（${series.unit}）` : ''}
-          {compareSeries
-            ? ` · vs ${t(DOMAIN_KEYS.find((d) => d.id === compareDomain)?.key || 'trends.domain.steps')}`
-            : ''}
-        </CardTitle>
-        {points.length === 0 ? (
-          <div data-testid="trend-empty-domain">
-            <p className="muted">{t('trends.emptyDomain')}</p>
-            {otherDomainHasData && switchTarget ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                data-testid="trend-switch-available"
-                onClick={() => setDomain(switchTarget)}
-                style={{ marginTop: '0.5rem' }}
-              >
-                {t('trends.switchAvailable')}
-              </Button>
+            {DOMAIN_KEYS.map((d) => {
+              const hasData = domainHasPresence(summary, d.id);
+              return (
+                <Button
+                  key={d.id}
+                  variant={domain === d.id ? 'primary' : 'ghost'}
+                  size="sm"
+                  role="tab"
+                  aria-selected={domain === d.id}
+                  data-testid={`trend-domain-${d.id}`}
+                  data-has-data={hasData ? '1' : '0'}
+                  className={
+                    hasData ? 'domain-tab-has-data' : 'domain-tab-empty'
+                  }
+                  onClick={() => setDomain(d.id)}
+                >
+                  {t(d.key)}
+                </Button>
+              );
+            })}
+            <Badge tone="neutral">
+              {points.length} {t('trends.points')}
+            </Badge>
+            {last ? (
+              <Badge tone="accent">
+                {t('trends.latest')} {last.date}:{' '}
+                {Number.isFinite(last.value)
+                  ? Math.round(last.value * 100) / 100
+                  : '—'}{' '}
+                {series?.unit}
+              </Badge>
             ) : null}
           </div>
-        ) : (
-          <Suspense fallback={<LoadingState label="…" />}>
-            <TrendChart
-              title={domainLabel}
-              unit={series?.unit ?? ''}
-              points={points}
-              compareTitle={
-                compareSeries
-                  ? t(
-                      DOMAIN_KEYS.find((d) => d.id === compareDomain)?.key ||
-                        'trends.domain.steps',
-                    )
-                  : undefined
-              }
-              compareUnit={compareSeries?.unit}
-              comparePoints={compareSeries?.points}
-            />
-          </Suspense>
-        )}
-      </Card>
 
+          <div
+            className="domain-switcher"
+            role="group"
+            aria-label={t('trends.range')}
+            data-testid="trend-range-chips"
+          >
+            {RANGE_OPTIONS.map((d) => (
+              <Button
+                key={d}
+                size="sm"
+                variant={rangeDays === d ? 'primary' : 'ghost'}
+                data-testid={`trend-range-${d || 'all'}`}
+                onClick={() => setRange(d)}
+              >
+                {d === 0
+                  ? t('trends.range.all')
+                  : t('trends.range.days').replace('{n}', String(d))}
+              </Button>
+            ))}
+          </div>
+
+          <label className="user-ctx-field trends-compare-field">
+            <span>{t('trends.compare')}</span>
+            <select
+              value={compareDomain}
+              onChange={(e) =>
+                setCompareDomain((e.target.value || '') as TrendDomain | '')
+              }
+              data-testid="trend-compare-select"
+            >
+              <option value="">{t('trends.compare.none')}</option>
+              {DOMAIN_KEYS.filter((d) => d.id !== domain).map((d) => (
+                <option key={d.id} value={d.id}>
+                  {t(d.key)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="chart-presets-bar" data-testid="chart-presets-bar">
+            <span className="muted" style={{ fontSize: '0.85rem' }}>
+              {t('trends.presets')}
+            </span>
+            <input
+              type="text"
+              maxLength={40}
+              placeholder={t('trends.presets.namePh')}
+              value={presetName}
+              onChange={(e) => setPresetName(e.target.value)}
+              data-testid="chart-preset-name"
+              style={{ maxWidth: '10rem' }}
+            />
+            <Button
+              size="sm"
+              variant="secondary"
+              type="button"
+              data-testid="chart-preset-save"
+              onClick={onSavePreset}
+            >
+              {t('trends.presets.save')}
+            </Button>
+            {presets.map((p) => (
+              <span key={p.id} className="chart-preset-chip">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  type="button"
+                  data-testid={`chart-preset-apply-${p.id}`}
+                  onClick={() => applyPreset(p)}
+                >
+                  {p.name}
+                </Button>
+                <button
+                  type="button"
+                  className="chart-preset-del"
+                  data-testid={`chart-preset-del-${p.id}`}
+                  aria-label={t('trends.presets.delete')}
+                  onClick={() => onDeletePreset(p.id)}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      </StaggerItem>
+
+      <StaggerItem>
+        <Card className="trends-chart-stage">
+          <CardTitle>
+            {domainLabel}
+            {series?.unit ? `（${series.unit}）` : ''}
+            {compareSeries
+              ? ` · vs ${t(DOMAIN_KEYS.find((d) => d.id === compareDomain)?.key || 'trends.domain.steps')}`
+              : ''}
+          </CardTitle>
+          {points.length === 0 ? (
+            <div data-testid="trend-empty-domain">
+              <p className="muted">{t('trends.emptyDomain')}</p>
+              {otherDomainHasData && switchTarget ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  data-testid="trend-switch-available"
+                  onClick={() => setDomain(switchTarget)}
+                  style={{ marginTop: '0.5rem' }}
+                >
+                  {t('trends.switchAvailable')}
+                </Button>
+              ) : null}
+            </div>
+          ) : (
+            <Suspense fallback={<LoadingState label="…" />}>
+              <TrendChart
+                title={domainLabel}
+                unit={series?.unit ?? ''}
+                points={points}
+                compareTitle={
+                  compareSeries
+                    ? t(
+                        DOMAIN_KEYS.find((d) => d.id === compareDomain)?.key ||
+                          'trends.domain.steps',
+                      )
+                    : undefined
+                }
+                compareUnit={compareSeries?.unit}
+                comparePoints={compareSeries?.points}
+              />
+            </Suspense>
+          )}
+        </Card>
+      </StaggerItem>
+
+      <StaggerItem>
       <Card data-testid="trend-table-fallback">
         <CardTitle>{t('trends.table')}</CardTitle>
         <p className="muted">{t('trends.tableHint')}</p>
@@ -458,6 +465,7 @@ export function TrendsPage() {
           </div>
         )}
       </Card>
-    </div>
+      </StaggerItem>
+    </Stagger>
   );
 }

@@ -1403,6 +1403,47 @@
   min-height: 0;
 }
 
+/* Trends / Reports workspace polish */
+.trends-workspace .trends-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-elevated) 94%, var(--accent));
+}
+.trends-compare-field {
+  max-width: 16rem;
+}
+.trends-chart-stage {
+  min-height: 12rem;
+}
+.reports-workspace .report-stage {
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--border));
+}
+.reports-workspace .report-stage-head {
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: 0.25rem;
+}
+.reports-workspace .report-preview {
+  margin-top: var(--space-3);
+  max-height: min(52vh, 28rem);
+  overflow: auto;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.report-kind-tabs {
+  margin-bottom: 0.25rem;
+}
+
 @media (max-width: 640px) {
   .header-actions .btn-label-text {
     /* icon + short context; full title still on button */
