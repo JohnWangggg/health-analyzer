@@ -41,7 +41,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        // Shell assets only — chart / echarts/* chunks load on demand
+        // Shell + workspace pages + vendor; chart / echarts/* still on demand
         globPatterns: [
           '**/*.{css,html,ico,png,svg,woff2,webmanifest,json}',
           '**/index-*.js',
@@ -49,6 +49,13 @@ export default defineConfig({
           '**/workbox-window*.js',
           '**/parseWorkerClient-*.js',
           '**/analyze.worker-*.js',
+          '**/vendor-react-*.js',
+          '**/health-lib-*.js',
+          '**/useHealthStore-*.js',
+          '**/OverviewPage-*.js',
+          '**/TrendsPage-*.js',
+          '**/ReportsPage-*.js',
+          '**/DataPage-*.js',
         ],
         globIgnores: [
           '**/*.map',
@@ -102,6 +109,33 @@ export default defineConfig({
     // P1: no public source maps in shippable dist
     sourcemap: false,
     target: 'es2022',
+    rollupOptions: {
+      output: {
+        /**
+         * Stable vendor / kernel chunks so route pages stay smaller and
+         * browser cache survives app-only edits.
+         */
+        manualChunks(id) {
+          if (
+            id.includes('node_modules/react-dom') ||
+            id.includes('node_modules/react-router') ||
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/scheduler')
+          ) {
+            return 'vendor-react';
+          }
+          // Kernel via alias @health-analyzer/lib → lib/src
+          if (
+            id.includes('/lib/src/') ||
+            id.endsWith('/lib/src/index.ts') ||
+            id.includes(`${path.sep}lib${path.sep}src${path.sep}`)
+          ) {
+            return 'health-lib';
+          }
+          return undefined;
+        },
+      },
+    },
   },
   test: {
     environment: 'node',

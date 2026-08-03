@@ -50,7 +50,9 @@ cd lib && npm test && npm run build
 
 ## Bundle size
 
-Production may warn about main JS &gt; 500KB (~200KB+ gzip). Acceptable for now; route-level code-splitting is a follow-up.
+## Bundle size (v2.5.6+)
+
+Four workspaces are **route-level code-split** (`React.lazy`), with stable `vendor-react` / `health-lib` chunks. Entry `index-*.js` stays small; Overview / Trends / Reports / Data load on navigation. ECharts chunks remain on-demand and are not pre-cached.
 
 ## Related
 

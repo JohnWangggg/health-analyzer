@@ -155,6 +155,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.5.3** `de5c116` | **zh-TW UI** · analysis locale follows UI · TV fullscreen + focus controls |
 | **v2.5.4** `6db3304` | **Data-quality banner** · **KPI order** · **PWA install prompt** |
 | **v2.5.5** | **Release-promise hygiene**: `/legacy/` is redirect-only; remove fake `test:e2e:dual`; [`DATA_RECOVERY.md`](../DATA_RECOVERY.md); About/docs aligned |
+| **v2.5.6** | **First-load code-split**: route-level `React.lazy` for four workspaces + `vendor-react` / `health-lib` chunks; entry ~19KB (~7KB gzip); no single &gt;500KB main-chunk warning |
 
 ### Release checklist
 

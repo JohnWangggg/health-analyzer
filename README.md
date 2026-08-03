@@ -353,3 +353,4 @@ English:
 | **v2.5.3** `de5c116` | **繁體中文 UI**（zh-CN 詞庫派生）· 分析語言隨界面 · 大屏全屏+焦點手動切換 |
 | **v2.5.4** `6db3304` | **数据质量横幅** · **KPI 排序** · **PWA 安装提示** |
 | **v2.5.5** | **发布口径纠偏**：`/legacy/` 明确为跳转 stub（非回滚应用）；删除 `test:e2e:dual` 假通过脚本；新增 [`docs/DATA_RECOVERY.md`](docs/DATA_RECOVERY.md)（备份/重导 ZIP/清站点数据/Git 部署回退）；About 与文档对齐 |
+| **v2.5.6** | **首屏 code-split**：四工作区 `React.lazy` 路由拆分 + `vendor-react` / `health-lib` 稳定 chunk；入口主包约 19KB（gzip ~7KB），消除 &gt;500KB 单包告警 |

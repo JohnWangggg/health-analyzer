@@ -64,9 +64,19 @@ cd lib && npm test && npm run build
 # → dist/*.js + dist/browser.iife.js（FHIR 脚本 / smoke 使用）
 ```
 
-## 主包体积说明
+## 主包体积说明（v2.5.6+）
 
-生产构建可能提示主 JS chunk &gt; 500KB（gzip 约 200KB+）。当前可接受；后续可将四工作区按路由拆分以降低首屏脚本。
+四工作区已 **按路由 code-split**（`React.lazy`），并拆出 `vendor-react` / `health-lib` 稳定 chunk：
+
+| Chunk（约） | 角色 |
+|-------------|------|
+| `index-*.js` | 壳 + 路由入口（约数 KB gzip） |
+| `vendor-react-*.js` | React / react-dom / react-router |
+| `health-lib-*.js` | `@health-analyzer/lib` 内核 |
+| `OverviewPage` / `TrendsPage` / … | 各工作区按需加载 |
+| ECharts 相关 | 仍不预缓存，进趋势页再拉 |
+
+生产构建不应再因单一主包 &gt;500KB 报警；图表 chunk 仍按需。
 
 ## 相关
 
