@@ -140,7 +140,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.3.3** `68901ec` | React **include-sensitive toggle**: strip meds/conditions from LLM prompt when off (key `health-analyzer-include-sensitive-ctx`, same as legacy; default on) |
 | **v2.4** `6229d49` | **Full product path on React**: events · CSV merge · recovery weights · TV mode · JSON/CSV/snapshot export · FHIR local archive · clinical HTML/sensitive options |
 | **v2.4.1** `39a4a08` | Pages **white-screen guard**: boot placeholder + recovery; auto clear SW on chunk miss; base-safe navigateFallback |
-| **v2.4.2** _(pending push)_ | **Legacy soft-deprecation**: `docs/LEGACY_PARITY.md`; banner on `/legacy/`; About fold for rollback |
+| **v2.4.2** `349d7a3` | **Legacy soft-deprecation**: `docs/LEGACY_PARITY.md`; banner on `/legacy/`; About fold for rollback |
 
 ### Release checklist
 
