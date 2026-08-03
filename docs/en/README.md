@@ -145,7 +145,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.5.1** `f58a184` | Trends **dual-metric compare** · **folder import** · **HAE cancel** · **snapshot compare** |
 | **v2.5.2** `844528b` | Chart **presets** · HAE **meds→events** · **offline banner** |
 | **v2.5.3** `de5c116` | **zh-TW UI** (from zh-CN phrase map) · analysis locale follows UI · TV fullscreen + focus controls |
-| **v2.5.4** _(pending)_ | **Data-quality banner** · **KPI order** · **PWA install prompt** |
+| **v2.5.4** `6db3304` | **Data-quality banner** · **KPI order** · **PWA install prompt** |
 
 ### Release checklist
 
