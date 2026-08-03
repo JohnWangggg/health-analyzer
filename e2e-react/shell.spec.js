@@ -20,9 +20,11 @@ test.describe('React dual-track shell', () => {
     await page.getByTestId('sheet-close').click();
     await expect(page.getByTestId('sheet-panel')).toHaveCount(0);
 
-    // shell i18n: switch to EN and back
+    // shell i18n: EN + zh-TW + back
     await page.getByTestId('locale-select').selectOption('en');
     await expect(page.getByTestId('load-fixture')).toContainText(/fixture|demo/i);
+    await page.getByTestId('locale-select').selectOption('zh-TW');
+    await expect(page.getByTestId('locale-select')).toHaveValue('zh-TW');
     await page.getByTestId('locale-select').selectOption('zh-CN');
 
     await page.getByTestId('load-fixture').click();

@@ -27,7 +27,7 @@ export function FhirExportPanel() {
     }
     try {
       const r = buildFhirExportUi(analysis, {
-        locale: locale === 'en' ? 'en' : 'zh-CN',
+        locale: locale === 'en' ? 'en' : locale === 'zh-TW' ? 'zh-TW' : 'zh-CN',
         includeDevices,
         exportTier: tier,
       });

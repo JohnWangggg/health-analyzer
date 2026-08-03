@@ -26,7 +26,7 @@ export function CsvMergePanel() {
       const bpText = bFile ? await bFile.text() : null;
       mergeCsvFiles(
         { weightText, bpText },
-        { locale: locale === 'en' ? 'en' : 'zh-CN' },
+        { locale: locale === 'en' ? 'en' : locale === 'zh-TW' ? 'zh-TW' : 'zh-CN' },
       );
       setMsg(t('overview.csv.applied'));
       if (weightRef.current) weightRef.current.value = '';

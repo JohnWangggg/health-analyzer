@@ -15,8 +15,13 @@ import {
 import { persistHealthDataSharded } from '../core/warehousePersist';
 import { reanalyzeHealthData } from '../core/reanalyze';
 import { mergeCsvFilesAndAnalyze } from '../core/csvMerge';
+import { analysisLocaleFromUi } from '../i18n/uiLocale';
 
 export type { AnalysisSummary };
+
+function storeLocale() {
+  return analysisLocaleFromUi();
+}
 
 export type AnalyzeVia =
   | 'worker'
@@ -122,7 +127,7 @@ export const useHealthStore = create<HealthState>((set, get) => ({
   loadXml: (xml, sourceLabel) => {
     set({ status: 'loading', error: null, progressLabel: '解析 XML…' });
     try {
-      const result = healthCore.analyzeXml(xml, { locale: 'zh-CN' });
+      const result = healthCore.analyzeXml(xml, { locale: storeLocale() });
       setFromAnalysis(
         set,
         result.analysis,
@@ -152,7 +157,7 @@ export const useHealthStore = create<HealthState>((set, get) => ({
     });
     try {
       const result = await healthCore.analyzeXmlAsync(xml, {
-        locale: 'zh-CN',
+        locale: storeLocale(),
       });
       setFromAnalysis(
         set,
@@ -183,7 +188,7 @@ export const useHealthStore = create<HealthState>((set, get) => ({
       progressLabel: '解压 ZIP…',
     });
     try {
-      const result = await analyzeHealthZipFile(file, { locale: 'zh-CN' });
+      const result = await analyzeHealthZipFile(file, { locale: storeLocale() });
       setFromAnalysis(
         set,
         result.analysis,
@@ -220,7 +225,7 @@ export const useHealthStore = create<HealthState>((set, get) => ({
     try {
       const base = get().sourceData || get().data;
       const result: HaeImportResult = await analyzeHaeBrowserFiles(files, {
-        locale: 'zh-CN',
+        locale: storeLocale(),
         baseData: base,
         signal: ac.signal,
         onProgress: (done, total, name) => {
@@ -284,7 +289,7 @@ export const useHealthStore = create<HealthState>((set, get) => ({
       progressLabel: '读取本地数据仓…',
     });
     try {
-      const result = await loadAndAnalyzeWarehouse({ locale: 'zh-CN' });
+      const result = await loadAndAnalyzeWarehouse({ locale: storeLocale() });
       if (!result) {
         set({
           status: 'error',
@@ -388,7 +393,7 @@ export const useHealthStore = create<HealthState>((set, get) => ({
     set({ status: 'loading', error: null, progressLabel: '按当前设置重算…' });
     try {
       const result = reanalyzeHealthData(base, {
-        locale: opts?.locale ?? 'zh-CN',
+        locale: opts?.locale ?? storeLocale(),
         skipDateFilter: opts?.applyDateFilter === false,
       });
       set({
@@ -418,7 +423,7 @@ export const useHealthStore = create<HealthState>((set, get) => ({
     });
     try {
       const result = mergeCsvFilesAndAnalyze(get().data, files, {
-        locale: opts?.locale ?? 'zh-CN',
+        locale: opts?.locale ?? storeLocale(),
       });
       const notes = [
         `体重 +${result.weightAdded}/~${result.weightUpdated} · 血压 +${result.bpAdded}`,

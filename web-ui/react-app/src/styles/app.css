@@ -1452,17 +1452,40 @@ body.health-dashboard-mode .app-footer,
 body.health-dashboard-mode .overview-toolbar,
 body.health-dashboard-mode .overview-collapsible,
 body.health-dashboard-mode .prompt-actions,
-body.health-dashboard-mode .badge-dual-track {
+body.health-dashboard-mode .badge-dual-track,
+body.health-dashboard-mode .shell-session-chip,
+body.health-dashboard-mode .theme-select,
+body.health-dashboard-mode [data-testid='open-about-sheet'],
+body.health-dashboard-mode [data-testid='locale-select'] {
   display: none !important;
 }
-body.health-dashboard-mode .app-topbar .header-actions > :not([data-testid='btn-dashboard-mode']) {
-  /* keep TV toggle; hide other chrome via bar itself */
+body.health-dashboard-mode .app-topbar {
+  display: none !important;
 }
 body.health-dashboard-mode .app-main {
-  font-size: 1.05rem;
+  font-size: 1.15rem;
+  max-width: none;
+  padding: 1rem 1.5rem 2rem;
+}
+body.health-dashboard-mode .page-title {
+  font-size: 1.75rem;
 }
 body.health-dashboard-mode .kpi {
-  font-size: 1.75rem !important;
+  font-size: 2.25rem !important;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+body.health-dashboard-mode .dashboard-clock {
+  font-size: 2rem;
+}
+body.health-dashboard-mode .dashboard-focus-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+body.health-dashboard-mode .dashboard-mode-bar {
+  padding: 0.85rem 1.25rem;
+  font-size: 1.05rem;
 }
 body.health-dashboard-mode[data-dashboard-focus='signals'] [data-testid='signal-list'] {
   outline: 2px solid var(--accent, #3b82f6);

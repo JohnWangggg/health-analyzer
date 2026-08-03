@@ -52,7 +52,7 @@ export function ReportsPage() {
 
   const reportOpts = useMemo(
     () => ({
-      locale: (locale === 'en' ? 'en' : 'zh-CN') as 'en' | 'zh-CN',
+      locale: (locale === 'en' ? 'en' : locale === 'zh-TW' ? 'zh-TW' : 'zh-CN') as 'en' | 'zh-CN',
       userContext: useCtx ? getUserContextForPrompt() : null,
       includeSensitiveContext: includeSensitive,
       includeEvents,

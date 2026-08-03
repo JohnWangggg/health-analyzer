@@ -188,7 +188,7 @@ export function OverviewPage() {
       const includeEvents = isIncludeEventsCtx();
       const events = includeEvents ? await listLocalHealthEvents() : [];
       const { text } = buildLlmPrompt(analysis, promptMode, {
-        locale: locale === 'en' ? 'en' : 'zh-CN',
+        locale: locale === 'en' ? 'en' : locale === 'zh-TW' ? 'zh-TW' : 'zh-CN',
         userContext: getUserContextForPrompt(),
         includeEvents,
         events,

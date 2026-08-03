@@ -2,13 +2,13 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react';
 import { t, type AppLocaleUi, type MessageKey } from './messages';
-
-const STORAGE_KEY = 'ha-react-ui-locale';
+import { UI_LOCALE_KEY, readUiLocale } from './uiLocale';
 
 type LocaleContextValue = {
   locale: AppLocaleUi;
@@ -18,29 +18,27 @@ type LocaleContextValue = {
 
 const LocaleContext = createContext<LocaleContextValue | null>(null);
 
-function readStored(): AppLocaleUi {
-  try {
-    const v = localStorage.getItem(STORAGE_KEY);
-    if (v === 'en' || v === 'zh-CN') return v;
-  } catch {
-    /* ignore */
-  }
-  return 'zh-CN';
-}
-
 export function LocaleProvider({ children }: { children: ReactNode }) {
   const [locale, setLocaleState] = useState<AppLocaleUi>(() =>
-    typeof window === 'undefined' ? 'zh-CN' : readStored(),
+    typeof window === 'undefined' ? 'zh-CN' : readUiLocale(),
   );
 
   const setLocale = useCallback((l: AppLocaleUi) => {
     setLocaleState(l);
     try {
-      localStorage.setItem(STORAGE_KEY, l);
+      localStorage.setItem(UI_LOCALE_KEY, l);
     } catch {
       /* ignore */
     }
   }, []);
+
+  useEffect(() => {
+    try {
+      document.documentElement.lang = locale;
+    } catch {
+      /* ignore */
+    }
+  }, [locale]);
 
   const value = useMemo(
     () => ({

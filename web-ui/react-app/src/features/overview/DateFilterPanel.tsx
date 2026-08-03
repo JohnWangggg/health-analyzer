@@ -28,7 +28,7 @@ export function DateFilterPanel() {
       });
       if (hasData) {
         reanalyzeSession({
-          locale: locale === 'en' ? 'en' : 'zh-CN',
+          locale: locale === 'en' ? 'en' : locale === 'zh-TW' ? 'zh-TW' : 'zh-CN',
           applyDateFilter: true,
         });
         setStatus(t('overview.dateFilter.applied'));
@@ -46,7 +46,7 @@ export function DateFilterPanel() {
     setEnd('');
     if (hasData) {
       reanalyzeSession({
-        locale: locale === 'en' ? 'en' : 'zh-CN',
+        locale: locale === 'en' ? 'en' : locale === 'zh-TW' ? 'zh-TW' : 'zh-CN',
         applyDateFilter: false,
       });
     }

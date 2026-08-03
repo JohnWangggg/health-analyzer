@@ -36,7 +36,7 @@ export function RecoveryWeightsPanel() {
       applyRecoveryPreset(id);
       setActive(id);
       if (hasData) {
-        reanalyzeSession({ locale: locale === 'en' ? 'en' : 'zh-CN' });
+        reanalyzeSession({ locale: locale === 'en' ? 'en' : locale === 'zh-TW' ? 'zh-TW' : 'zh-CN' });
         setStatus(t('overview.recovery.reanalyzed'));
       } else {
         setStatus(t('overview.recovery.saved'));

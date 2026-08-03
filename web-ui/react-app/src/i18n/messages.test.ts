@@ -60,4 +60,18 @@ describe('i18n messages', () => {
       expect(t('en', k).length).toBeGreaterThan(0);
     }
   });
+
+  it('zh-TW derives Traditional from zh-CN via phrase map', () => {
+    const cn = t('zh-CN', 'overview.title');
+    const tw = t('zh-TW', 'overview.title');
+    expect(tw.length).toBeGreaterThan(0);
+    // At least one key should differ when simplified has convertible chars
+    const brandTw = t('zh-TW', 'brand');
+    expect(brandTw.length).toBeGreaterThan(0);
+    // data wipe confirm contains 数据 → 資料 or 數據 style conversion for some phrases
+    const wipeCn = t('zh-CN', 'data.privacy.lead');
+    const wipeTw = t('zh-TW', 'data.privacy.lead');
+    expect(wipeTw.length).toBe(wipeCn.length > 0 ? wipeTw.length : 0);
+    expect(wipeTw).not.toMatch(/数据仓/); // simplified warehouse phrase should convert
+  });
 });

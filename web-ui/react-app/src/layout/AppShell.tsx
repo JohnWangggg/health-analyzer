@@ -165,7 +165,8 @@ export function AppShell() {
             onChange={(e) => setLocale(e.target.value as AppLocaleUi)}
             data-testid="locale-select"
           >
-            <option value="zh-CN">中文</option>
+            <option value="zh-CN">简体</option>
+            <option value="zh-TW">繁體</option>
             <option value="en">EN</option>
           </select>
           <label className="sr-only" htmlFor="theme-select">

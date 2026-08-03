@@ -1,4 +1,6 @@
-export type AppLocaleUi = 'zh-CN' | 'en';
+import { toTraditionalTitle } from '@health-analyzer/lib';
+
+export type AppLocaleUi = 'zh-CN' | 'zh-TW' | 'en';
 
 export type MessageKey =
   | 'brand'
@@ -976,12 +978,23 @@ const en: Record<MessageKey, string> = {
   'data.compare.metric': 'Metric',
 };
 
-const TABLES: Record<AppLocaleUi, Record<MessageKey, string>> = {
+const TABLES: Record<'zh-CN' | 'en', Record<MessageKey, string>> = {
   'zh-CN': zh,
   en,
 };
 
+/**
+ * Resolve UI string. zh-TW is derived from zh-CN via lib phrase map (same as analysis).
+ */
 export function t(locale: AppLocaleUi, key: MessageKey): string {
+  if (locale === 'zh-TW') {
+    const base = TABLES['zh-CN'][key] || key;
+    try {
+      return toTraditionalTitle(base);
+    } catch {
+      return base;
+    }
+  }
   return TABLES[locale][key] || TABLES['zh-CN'][key] || key;
 }
 
