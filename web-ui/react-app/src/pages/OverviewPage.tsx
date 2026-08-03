@@ -21,6 +21,7 @@ import { Drawer } from '../components/ui/Drawer';
 import { useLocale } from '../i18n/LocaleProvider';
 import { StatusBand } from '../features/overview/StatusBand';
 import { TodayStrip } from '../features/overview/TodayStrip';
+import { OverviewTrendStrip } from '../features/overview/OverviewTrendStrip';
 import { DeferredAdvancedTools } from '../features/overview/DeferredAdvancedTools';
 import { SignalList } from '../features/overview/SignalList';
 import { KpiVisibilityBar } from '../features/overview/KpiVisibilityBar';
@@ -525,116 +526,88 @@ export function OverviewPage() {
           />
         </>
       ) : (
-        <>
-          {/* Health stage first — tools demoted below */}
+        <section
+          className="command-center"
+          data-testid="command-center"
+          aria-label={t('overview.title')}
+        >
           {(() => {
             const p = priorityFromSummary(summary);
             const f = freshnessLabel(summary.freshnessDays);
             return (
               <>
-                <StatusBand
-                  summary={summary}
-                  priorityTitle={p.title}
-                  priorityDetail={p.detail}
-                  priorityTone={p.tone}
-                  freshnessText={f.text}
-                  freshnessTone={f.tone}
-                />
-                <TodayStrip summary={summary} freshnessText={f.text} />
-                <DataQualityBanner summary={summary} />
+                {/* L1 — Status + recommended actions */}
+                <div className="command-layer command-layer-status">
+                  <StatusBand
+                    summary={summary}
+                    priorityTitle={p.title}
+                    priorityDetail={p.detail}
+                    priorityTone={p.tone}
+                    freshnessText={f.text}
+                    freshnessTone={f.tone}
+                  />
+                  <div className="primary-actions" data-testid="primary-actions">
+                    <Button
+                      variant="primary"
+                      onClick={() => navigate('/trends')}
+                    >
+                      {t('overview.ctaTrends')}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={() => navigate('/reports')}
+                    >
+                      {t('overview.ctaReports')}
+                    </Button>
+                    <span className="muted" data-testid="kpi-range">
+                      {summary.dateRange.start || '—'} →{' '}
+                      {summary.dateRange.end || '—'}
+                    </span>
+                  </div>
+                  <DataQualityBanner summary={summary} />
+                </div>
+
+                {/* L2 — 7/30d trend strip (sparklines, no ECharts) */}
+                <div className="command-layer command-layer-trends">
+                  <OverviewTrendStrip
+                    analysis={analysis}
+                    summary={summary}
+                  />
+                  <TodayStrip summary={summary} freshnessText={f.text} />
+                </div>
               </>
             );
           })()}
 
-          <div className="primary-actions" data-testid="primary-actions">
-            <Button variant="primary" onClick={() => navigate('/trends')}>
-              {t('overview.ctaTrends')}
-            </Button>
-            <Button variant="secondary" onClick={() => navigate('/reports')}>
-              {t('overview.ctaReports')}
-            </Button>
-            <span className="muted" data-testid="kpi-range">
-              {summary.dateRange.start || '—'} → {summary.dateRange.end || '—'}
-            </span>
-          </div>
-
-          {analysis ? (
-            <div className="prompt-actions" data-testid="llm-prompt-bar">
-              <span className="muted">{t('overview.prompt.label')}</span>
-              <select
-                className="theme-select"
-                value={promptMode}
-                data-testid="llm-prompt-mode"
-                onChange={(e) =>
-                  setPromptMode(e.target.value as LlmPromptMode)
-                }
-                aria-label={t('overview.prompt.label')}
+          {/* L3 — Key metrics + priority signals */}
+          <div className="command-layer command-layer-metrics">
+            <div className="overview-split">
+              <section
+                className="command-kpi-panel"
+                data-testid="overview-kpi-section"
               >
-                <option value="full">{t('overview.prompt.mode.full')}</option>
-                <option value="data">{t('overview.prompt.mode.data')}</option>
-                <option value="short">{t('overview.prompt.mode.short')}</option>
-              </select>
-              <Button
-                variant="primary"
-                size="sm"
-                data-testid="llm-prompt-copy"
-                onClick={() => void onCopyLlmPrompt()}
-              >
-                {t('overview.prompt.copy')}
-              </Button>
-              {promptMsg ? (
-                <span className="muted" data-testid="llm-prompt-status">
-                  {promptMsg}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="insight-strip" data-testid="insight-strip">
-            {(() => {
-              const presentDomains = Object.entries(summary.domainPresence)
-                .filter(([, v]) => v)
-                .map(([k]) => k);
-              return (
-                <>
-                  <span
-                    className="insight-chip insight-chip-count"
-                    data-testid="insight-domain-count"
-                  >
-                    {t('overview.domainsPresentCount').replace(
-                      '{n}',
-                      String(presentDomains.length),
-                    )}
-                  </span>
-                  {presentDomains.map((k) => (
-                    <span key={k} className="insight-chip" data-domain={k}>
-                      {domainLabel(k)}
-                    </span>
-                  ))}
-                </>
-              );
-            })()}
-          </div>
-
-          <div className="overview-split">
-            <details
-              className="overview-collapsible"
-              data-testid="overview-kpi-section"
-              open={kpiOpen}
-              onToggle={(e) => {
-                const next = e.currentTarget.open;
-                setKpiOpen(next);
-                writeSectionOpen(KPI_OPEN_KEY, next);
-              }}
-            >
-              <summary>{t('overview.kpiSection')}</summary>
-              <div className="overview-collapsible-body">
-                <KpiVisibilityBar
-                  visibility={kpiVis}
-                  order={kpiOrder}
-                  onChange={onKpiVisibilityChange}
-                  onMove={onKpiMove}
-                />
+                <div className="command-kpi-head">
+                  <h2 className="section-title">{t('overview.kpiSection')}</h2>
+                </div>
+                <details
+                  className="overview-collapsible command-kpi-config"
+                  open={kpiOpen}
+                  onToggle={(e) => {
+                    const next = e.currentTarget.open;
+                    setKpiOpen(next);
+                    writeSectionOpen(KPI_OPEN_KEY, next);
+                  }}
+                >
+                  <summary>{t('overview.kpiVisibility')}</summary>
+                  <div className="overview-collapsible-body">
+                    <KpiVisibilityBar
+                      visibility={kpiVis}
+                      order={kpiOrder}
+                      onChange={onKpiVisibilityChange}
+                      onMove={onKpiMove}
+                    />
+                  </div>
+                </details>
                 <div
                   className="kpi-matrix"
                   data-testid="kpi-matrix"
@@ -698,7 +671,10 @@ export function OverviewPage() {
                     }
                     if (id === 'recovery') {
                       return (
-                        <Card key={id} {...kpiCardNavProps('kpi-card-recovery')}>
+                        <Card
+                          key={id}
+                          {...kpiCardNavProps('kpi-card-recovery')}
+                        >
                           <CardTitle>{t('overview.kpi.recovery')}</CardTitle>
                           <p className="kpi" data-testid="kpi-recovery">
                             {summary.kpis.recoveryScore != null
@@ -732,9 +708,68 @@ export function OverviewPage() {
                     return null;
                   })}
                 </div>
-              </div>
-            </details>
-            <SignalList summary={summary} />
+              </section>
+              <SignalList summary={summary} />
+            </div>
+          </div>
+
+          {/* Secondary: prompt + domain inventory (not first-screen story) */}
+          {analysis ? (
+            <div className="prompt-actions" data-testid="llm-prompt-bar">
+              <span className="muted">{t('overview.prompt.label')}</span>
+              <select
+                className="theme-select"
+                value={promptMode}
+                data-testid="llm-prompt-mode"
+                onChange={(e) =>
+                  setPromptMode(e.target.value as LlmPromptMode)
+                }
+                aria-label={t('overview.prompt.label')}
+              >
+                <option value="full">{t('overview.prompt.mode.full')}</option>
+                <option value="data">{t('overview.prompt.mode.data')}</option>
+                <option value="short">{t('overview.prompt.mode.short')}</option>
+              </select>
+              <Button
+                variant="primary"
+                size="sm"
+                data-testid="llm-prompt-copy"
+                onClick={() => void onCopyLlmPrompt()}
+              >
+                {t('overview.prompt.copy')}
+              </Button>
+              {promptMsg ? (
+                <span className="muted" data-testid="llm-prompt-status">
+                  {promptMsg}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="insight-strip" data-testid="insight-strip">
+            {(() => {
+              const presentDomains = Object.entries(summary.domainPresence)
+                .filter(([, v]) => v)
+                .map(([k]) => k);
+              return (
+                <>
+                  <span
+                    className="insight-chip insight-chip-count"
+                    data-testid="insight-domain-count"
+                  >
+                    {t('overview.domainsPresentCount').replace(
+                      '{n}',
+                      String(presentDomains.length),
+                    )}
+                  </span>
+                  {presentDomains.map((k) => (
+                    <span key={k} className="insight-chip" data-domain={k}>
+                      {domainLabel(k)}
+                    </span>
+                  ))}
+                </>
+              );
+            })()}
           </div>
 
           <details
@@ -763,7 +798,7 @@ export function OverviewPage() {
               </div>
             </div>
           </details>
-        </>
+        </section>
       )}
 
       {/* Desktop: demoted details. Mobile: Vaul bottom drawer. */}

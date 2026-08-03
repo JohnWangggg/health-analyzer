@@ -72,6 +72,7 @@ test.describe('React dual-track shell', () => {
     expect(Number(cgm)).toBeGreaterThan(0);
 
     // Overview density MVP+: status band, today strip, signals, primary CTAs
+    await expect(page.getByTestId('command-center')).toBeVisible();
     await expect(page.getByTestId('status-band')).toBeVisible();
     const priorityTitle = await page.getByTestId('priority-title').innerText();
     expect(priorityTitle.trim().length).toBeGreaterThan(0);
@@ -80,6 +81,17 @@ test.describe('React dual-track shell', () => {
     await expect(page.getByTestId('today-strip-range')).toBeVisible();
     await expect(page.getByTestId('signal-list')).toBeVisible();
     await expect(page.getByTestId('primary-actions')).toBeVisible();
+    // Command-center L2 sparklines (when fixture has series)
+    await expect(page.getByTestId('overview-trend-strip')).toBeVisible({
+      timeout: 5_000,
+    });
+    // KPI config is collapsible — open if closed
+    const kpiConfig = page
+      .getByTestId('overview-kpi-section')
+      .locator('details.command-kpi-config');
+    if ((await kpiConfig.count()) && !(await kpiConfig.evaluate((el) => el.open))) {
+      await kpiConfig.locator('summary').click();
+    }
     await expect(page.getByTestId('kpi-visibility-bar')).toBeVisible();
     await expect(page.getByTestId('llm-prompt-bar')).toBeVisible();
     await expect(page.getByTestId('llm-prompt-copy')).toBeVisible();

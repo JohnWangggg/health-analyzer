@@ -38,6 +38,8 @@ export type MessageKey =
   | 'overview.source'
   | 'overview.snapRecent'
   | 'overview.haeNotes'
+  | 'overview.trendStrip.title'
+  | 'overview.trendStrip.range'
   | 'overview.prompt.label'
   | 'overview.prompt.mode.full'
   | 'overview.prompt.mode.data'
@@ -368,6 +370,8 @@ const zh: Record<MessageKey, string> = {
   'overview.source': '来源',
   'overview.snapRecent': '最近快照',
   'overview.haeNotes': '增量导入摘要',
+  'overview.trendStrip.title': '近况趋势',
+  'overview.trendStrip.range': '趋势天数',
   'overview.prompt.label': '大模型提示词',
   'overview.prompt.mode.full': '完整',
   'overview.prompt.mode.data': '仅数据',
@@ -714,6 +718,8 @@ const en: Record<MessageKey, string> = {
   'overview.source': 'Source',
   'overview.snapRecent': 'Latest snapshot',
   'overview.haeNotes': 'Incremental import notes',
+  'overview.trendStrip.title': 'Recent trends',
+  'overview.trendStrip.range': 'Trend window',
   'overview.prompt.label': 'LLM prompt',
   'overview.prompt.mode.full': 'Full',
   'overview.prompt.mode.data': 'Data only',

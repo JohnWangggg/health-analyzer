@@ -159,6 +159,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.5.7** | **Overview secondary lazy**: date filter / personal context / events / CSV / recovery weights idle-deferred into separate chunk |
 | **v2.5.8** | **UI foundation + dashboard P0**: fix 248px TV-mode grid collapse (1440 E2E); Motion / Lucide / AutoAnimate / Vaul; recovery ring, nav icons, demoted tools + mobile drawer |
 | **v2.5.9** | **TV atmosphere + mobile Today**: aurora/grid backdrop, focus progress bar + soft stage lighting; phone first screen hides prompt/KPI config/domain chips, max 3 signals |
+| **v2.5.10** | **Desktop command center**: overview 3 layers (status → 7/30d sparkline strip → KPI+signals); no ECharts on first paint |
 
 ### Release checklist
 

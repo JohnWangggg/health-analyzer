@@ -703,7 +703,144 @@
   border-left: 4px solid var(--accent);
 }
 
-/* —— Overview health-status density —— */
+/* —— Command center (desktop overview stage) —— */
+.command-center {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.command-layer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.command-kpi-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.command-kpi-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.command-kpi-head .section-title {
+  margin: 0;
+}
+.command-kpi-config {
+  margin: 0;
+}
+.command-kpi-config > summary {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* L2 trend sparklines */
+.overview-trend-strip {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--bg-elevated) 96%, var(--accent));
+  box-shadow: var(--shadow);
+  padding: var(--space-3) var(--space-4);
+}
+.overview-trend-strip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.overview-trend-strip-title {
+  margin: 0;
+}
+.overview-trend-range {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.15rem;
+  border-radius: 999px;
+  background: var(--bg-muted);
+  border: 1px solid var(--border);
+}
+.overview-trend-range-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+  min-height: 32px;
+  padding: 0 0.7rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.overview-trend-range-btn[data-active='1'] {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.overview-trend-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+@media (max-width: 900px) {
+  .overview-trend-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 480px) {
+  .overview-trend-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.overview-trend-card {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-height: 6.5rem;
+  color: var(--text);
+  transition:
+    border-color var(--motion-nav) var(--motion-ease-out),
+    box-shadow var(--motion-nav) var(--motion-ease-out);
+}
+.overview-trend-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.overview-trend-card-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.overview-trend-card-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.overview-trend-spark {
+  margin-top: auto;
+  color: var(--accent);
+  width: 100%;
+  max-width: 100%;
+}
+.sparkline-line {
+  vector-effect: non-scaling-stroke;
+}
+.sparkline-empty {
+  stroke: var(--border);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+/* Legacy hero tokens (kept for any residual refs) */
 .overview-hero {
   display: grid;
   grid-template-columns: 1.4fr 1fr;
@@ -1777,6 +1914,7 @@ body.health-dashboard-mode .overview-toolbar,
 body.health-dashboard-mode .overview-tools-drawer,
 body.health-dashboard-mode .overview-tools-mobile,
 body.health-dashboard-mode .overview-collapsible,
+body.health-dashboard-mode .command-kpi-config,
 body.health-dashboard-mode .prompt-actions,
 body.health-dashboard-mode .page-lead,
 body.health-dashboard-mode .badge-dual-track,
@@ -1938,8 +2076,15 @@ body.health-dashboard-mode[data-dashboard-focus='metrics'] .kpi-matrix {
   [data-testid='page-overview'] [data-testid='llm-prompt-bar'] {
     display: none;
   }
-  [data-testid='page-overview'] [data-testid='kpi-visibility-bar'] {
+  [data-testid='page-overview'] [data-testid='kpi-visibility-bar'],
+  [data-testid='page-overview'] .command-kpi-config {
     display: none;
+  }
+  [data-testid='page-overview'] .overview-trend-strip {
+    padding: var(--space-2) var(--space-3);
+  }
+  [data-testid='page-overview'] .command-center {
+    gap: var(--space-4);
   }
   [data-testid='page-overview'] [data-testid='insight-strip'] {
     display: none;

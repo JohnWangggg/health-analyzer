@@ -19,6 +19,8 @@ import {
   type UserContext,
 } from '@health-analyzer/lib';
 
+export type { FullAnalysis, HealthData, AppLocale, UserContext };
+
 export type AnalyzeOptions = {
   locale?: AppLocale | string | null;
 };
