@@ -136,7 +136,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | `2e99eec` | Plain + **encrypted backup e2e**; trends domain presence |
 | `f58d6fc` | Reports empty CTA/meta; Keep-N one-tap presets |
 | **v2.3.1** `bb9a6d4` | Pages **base=/\\<repo\\>/** + `404.html`; Overview **LLM prompt copy**; README zh/en living changelog |
-| **v2.3.2** `9fd9f57` | React **个人背景**（legacy 同 localStorage 键）+ **今日快照**条；提示词注入上下文 |
+| **v2.3.2** `9fd9f57` | React **personal context** (same localStorage key as legacy) + **today snapshot** strip; inject into LLM prompt |
 
 ### Release checklist
 
