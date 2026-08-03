@@ -14,6 +14,9 @@ import { useLocale } from '../i18n/LocaleProvider';
 import { StatusBand } from '../features/overview/StatusBand';
 import { TodayStrip } from '../features/overview/TodayStrip';
 import { UserContextPanel } from '../features/overview/UserContextPanel';
+import { EventsPanel } from '../features/overview/EventsPanel';
+import { CsvMergePanel } from '../features/overview/CsvMergePanel';
+import { RecoveryWeightsPanel } from '../features/overview/RecoveryWeightsPanel';
 import { SignalList } from '../features/overview/SignalList';
 import { KpiVisibilityBar } from '../features/overview/KpiVisibilityBar';
 import {
@@ -459,6 +462,12 @@ export function OverviewPage() {
         </ErrorState>
       ) : null}
 
+      {/* Advanced tools available without a loaded session (events / CSV / weights) */}
+      <UserContextPanel />
+      <EventsPanel />
+      <CsvMergePanel />
+      <RecoveryWeightsPanel />
+
       {!summary ? (
         <EmptyState
           testId="overview-empty"
@@ -536,8 +545,6 @@ export function OverviewPage() {
               ) : null}
             </div>
           ) : null}
-
-          <UserContextPanel />
 
           <div className="insight-strip" data-testid="insight-strip">
             {(() => {

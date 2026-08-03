@@ -74,12 +74,47 @@ export type MessageKey =
   | 'overview.ctx.cleared'
   | 'overview.ctx.saveFail'
   | 'overview.ctx.includeSensitive'
+  | 'overview.events.summary'
+  | 'overview.events.hint'
+  | 'overview.events.kind'
+  | 'overview.events.date'
+  | 'overview.events.title'
+  | 'overview.events.note'
+  | 'overview.events.add'
+  | 'overview.events.refresh'
+  | 'overview.events.delete'
+  | 'overview.events.empty'
+  | 'overview.events.added'
+  | 'overview.events.deleted'
+  | 'overview.events.needDate'
+  | 'overview.csv.summary'
+  | 'overview.csv.hint'
+  | 'overview.csv.weight'
+  | 'overview.csv.bp'
+  | 'overview.csv.apply'
+  | 'overview.csv.needFile'
+  | 'overview.csv.applied'
+  | 'overview.recovery.summary'
+  | 'overview.recovery.hint'
+  | 'overview.recovery.preset.balanced'
+  | 'overview.recovery.preset.recoveryFirst'
+  | 'overview.recovery.preset.training'
+  | 'overview.recovery.preset.weightLoss'
+  | 'overview.recovery.saved'
+  | 'overview.recovery.reanalyzed'
   | 'dualTrack'
   | 'shell.sessionReady'
   | 'shell.sessionIdle'
   | 'shell.defaultEntry'
   | 'shell.openLegacy'
   | 'shell.kbdHint'
+  | 'tv.enter'
+  | 'tv.exit'
+  | 'tv.dataUpdated'
+  | 'tv.dataWaiting'
+  | 'tv.focus.metrics'
+  | 'tv.focus.signals'
+  | 'tv.focus.priority'
   | 'trends.title'
   | 'trends.lead'
   | 'trends.emptyTitle'
@@ -108,11 +143,14 @@ export type MessageKey =
   | 'reports.kind.clinical'
   | 'reports.copy'
   | 'reports.download'
+  | 'reports.downloadHtml'
   | 'reports.chars'
   | 'reports.viaAdapter'
   | 'reports.copied'
   | 'reports.copyFail'
   | 'reports.downloaded'
+  | 'reports.includeSensitive'
+  | 'reports.useUserContext'
   | 'data.title'
   | 'data.leadPrefix'
   | 'data.leadSuffix'
@@ -198,7 +236,27 @@ export type MessageKey =
   | 'data.shards.fail'
   | 'data.shards.selected'
   | 'data.shards.total'
-  | 'data.shards.bytes';
+  | 'data.shards.bytes'
+  | 'data.export.title'
+  | 'data.export.lead'
+  | 'data.export.json'
+  | 'data.export.csv'
+  | 'data.export.snapshot'
+  | 'data.export.needAnalysis'
+  | 'data.export.okJson'
+  | 'data.export.okCsv'
+  | 'data.export.okSnap'
+  | 'data.export.fail'
+  | 'data.fhir.title'
+  | 'data.fhir.badge'
+  | 'data.fhir.lead'
+  | 'data.fhir.includeDevices'
+  | 'data.fhir.export'
+  | 'data.fhir.needAnalysis'
+  | 'data.fhir.ok'
+  | 'data.fhir.fail'
+  | 'data.fhir.valOk'
+  | 'data.fhir.valWarn';
 
 const zh: Record<MessageKey, string> = {
   brand: '健康 OS',
@@ -279,10 +337,48 @@ const zh: Record<MessageKey, string> = {
   'overview.ctx.cleared': '已清除',
   'overview.ctx.saveFail': '无法写入 localStorage',
   'overview.ctx.includeSensitive': '复制提示词时包含用药与病史',
-  dualTrack: '双轨',
+  'overview.events.summary': '本机事件时间线（共现复盘）',
+  'overview.events.hint':
+    '用药变更、旅行、症状等仅用于时间对照，不作因果推断；存 IndexedDB，与旧版共用。',
+  'overview.events.kind': '类型',
+  'overview.events.date': '日期',
+  'overview.events.title': '标题',
+  'overview.events.note': '备注',
+  'overview.events.add': '添加事件',
+  'overview.events.refresh': '刷新',
+  'overview.events.delete': '删除',
+  'overview.events.empty': '暂无事件',
+  'overview.events.added': '已添加',
+  'overview.events.deleted': '已删除',
+  'overview.events.needDate': '请填写日期',
+  'overview.csv.summary': '外部体重 / 血压 CSV 合并',
+  'overview.csv.hint':
+    '欧姆龙类中文表头 CSV 合并进当前会话后重算；仅本机，不上传。',
+  'overview.csv.weight': '体重 / 体脂 CSV',
+  'overview.csv.bp': '血压 CSV',
+  'overview.csv.apply': '合并并重算',
+  'overview.csv.needFile': '请至少选择一个 CSV',
+  'overview.csv.applied': '已合并并重算',
+  'overview.recovery.summary': '恢复 / 负荷权重预设',
+  'overview.recovery.hint':
+    '与旧版共用 localStorage 键；切换预设后对当前会话重算恢复分。',
+  'overview.recovery.preset.balanced': '均衡',
+  'overview.recovery.preset.recoveryFirst': '恢复优先',
+  'overview.recovery.preset.training': '训练期',
+  'overview.recovery.preset.weightLoss': '减脂期',
+  'overview.recovery.saved': '已保存预设',
+  'overview.recovery.reanalyzed': '已按新权重重算',
+  dualTrack: 'React 默认',
   'shell.sessionReady': '已加载',
   'shell.sessionIdle': '未加载',
   'shell.kbdHint': 'Alt+1–4 切换工作区',
+  'tv.enter': '健康大屏',
+  'tv.exit': '退出大屏',
+  'tv.dataUpdated': '数据截止 {end}',
+  'tv.dataWaiting': '等待数据',
+  'tv.focus.metrics': '焦点：指标',
+  'tv.focus.signals': '焦点：信号',
+  'tv.focus.priority': '焦点：优先关注',
   'trends.title': '趋势工作台',
   'trends.lead':
     '单指标主图（ECharts 按需）+ 数据表回退。手机建议一次只比一个指标。',
@@ -315,11 +411,14 @@ const zh: Record<MessageKey, string> = {
   'reports.kind.clinical': '临床复盘',
   'reports.copy': '复制 Markdown',
   'reports.download': '下载 .md',
+  'reports.downloadHtml': '下载 HTML',
   'reports.chars': '字符数',
   'reports.viaAdapter': '经适配器调用 lib',
   'reports.copied': '已复制到剪贴板（仅本机，未上传）',
   'reports.copyFail': '复制失败：请手动选择预览文本',
   'reports.downloaded': '已下载 {filename}',
+  'reports.includeSensitive': '临床复盘含用药/病史',
+  'reports.useUserContext': '注入个人背景',
   'data.title': '数据仓',
   'data.leadPrefix': '会话状态 + 共享 IDB（',
   'data.leadSuffix':
@@ -414,6 +513,28 @@ const zh: Record<MessageKey, string> = {
   'data.shards.selected': '已选 {n}',
   'data.shards.total': '共 {n} 个域分片',
   'data.shards.bytes': '约 {kb} KB',
+  'data.export.title': '分析导出',
+  'data.export.lead':
+    '下载完整分析 JSON、CSV（ZIP）或摘要快照。仅本机生成，不上传。',
+  'data.export.json': '导出 JSON',
+  'data.export.csv': '导出 CSV ZIP',
+  'data.export.snapshot': '导出摘要快照',
+  'data.export.needAnalysis': '请先在总览加载数据',
+  'data.export.okJson': '已下载 {name}',
+  'data.export.okCsv': '已下载 {name}（{fmt}）',
+  'data.export.okSnap': '已下载摘要 {name}',
+  'data.export.fail': '导出失败',
+  'data.fhir.title': 'FHIR 本机归档',
+  'data.fhir.badge': '试验性 · R4 形',
+  'data.fhir.lead':
+    '生成本地 FHIR R4 形 Bundle（local-archive）。非医院对接、不上传。',
+  'data.fhir.includeDevices': '包含设备资源（Watch/iPhone）',
+  'data.fhir.export': '下载 FHIR JSON',
+  'data.fhir.needAnalysis': '请先在总览加载数据',
+  'data.fhir.ok': '已下载 {name} · Observation {n} · {val}',
+  'data.fhir.fail': 'FHIR 导出失败',
+  'data.fhir.valOk': '自检通过',
+  'data.fhir.valWarn': '自检 {n} 条提示',
 };
 
 const en: Record<MessageKey, string> = {
@@ -495,10 +616,48 @@ const en: Record<MessageKey, string> = {
   'overview.ctx.cleared': 'Cleared',
   'overview.ctx.saveFail': 'Could not write localStorage',
   'overview.ctx.includeSensitive': 'Include medications & conditions in the prompt',
-  dualTrack: 'Dual-track',
+  'overview.events.summary': 'Local events timeline (co-occurrence)',
+  'overview.events.hint':
+    'Med changes, travel, symptoms — co-occurrence only, not causal. IndexedDB shared with legacy.',
+  'overview.events.kind': 'Kind',
+  'overview.events.date': 'Date',
+  'overview.events.title': 'Title',
+  'overview.events.note': 'Note',
+  'overview.events.add': 'Add event',
+  'overview.events.refresh': 'Refresh',
+  'overview.events.delete': 'Delete',
+  'overview.events.empty': 'No events yet',
+  'overview.events.added': 'Added',
+  'overview.events.deleted': 'Deleted',
+  'overview.events.needDate': 'Date required',
+  'overview.csv.summary': 'External weight / BP CSV merge',
+  'overview.csv.hint':
+    'Merge scale/BP CSV into the current session and reanalyze. Local only.',
+  'overview.csv.weight': 'Weight / body-fat CSV',
+  'overview.csv.bp': 'Blood pressure CSV',
+  'overview.csv.apply': 'Merge & reanalyze',
+  'overview.csv.needFile': 'Pick at least one CSV',
+  'overview.csv.applied': 'Merged and reanalyzed',
+  'overview.recovery.summary': 'Recovery / load weight presets',
+  'overview.recovery.hint':
+    'Same localStorage key as legacy; applying a preset reanalyzes the session.',
+  'overview.recovery.preset.balanced': 'Balanced',
+  'overview.recovery.preset.recoveryFirst': 'Recovery first',
+  'overview.recovery.preset.training': 'Training',
+  'overview.recovery.preset.weightLoss': 'Weight loss',
+  'overview.recovery.saved': 'Preset saved',
+  'overview.recovery.reanalyzed': 'Reanalyzed with new weights',
+  dualTrack: 'React default',
   'shell.sessionReady': 'Ready',
   'shell.sessionIdle': 'Idle',
   'shell.kbdHint': 'Alt+1–4 switch workspace',
+  'tv.enter': 'TV mode',
+  'tv.exit': 'Exit TV',
+  'tv.dataUpdated': 'Data through {end}',
+  'tv.dataWaiting': 'Waiting for data',
+  'tv.focus.metrics': 'Focus: metrics',
+  'tv.focus.signals': 'Focus: signals',
+  'tv.focus.priority': 'Focus: priority',
   'trends.title': 'Trends workspace',
   'trends.lead':
     'Single-metric chart (ECharts on demand) + table fallback. On mobile, compare one metric at a time.',
@@ -532,11 +691,14 @@ const en: Record<MessageKey, string> = {
   'reports.kind.clinical': 'Clinical review',
   'reports.copy': 'Copy Markdown',
   'reports.download': 'Download .md',
+  'reports.downloadHtml': 'Download HTML',
   'reports.chars': 'chars',
   'reports.viaAdapter': 'Via adapter → lib',
   'reports.copied': 'Copied to clipboard (local only, not uploaded)',
   'reports.copyFail': 'Copy failed — select preview text manually',
   'reports.downloaded': 'Downloaded {filename}',
+  'reports.includeSensitive': 'Clinical review includes meds/history',
+  'reports.useUserContext': 'Inject personal context',
   'data.title': 'Data warehouse',
   'data.leadPrefix': 'Session state + shared IDB (',
   'data.leadSuffix':
@@ -632,6 +794,28 @@ const en: Record<MessageKey, string> = {
   'data.shards.selected': '{n} selected',
   'data.shards.total': '{n} domain shards',
   'data.shards.bytes': '~{kb} KB',
+  'data.export.title': 'Analysis export',
+  'data.export.lead':
+    'Download full analysis JSON, CSV (ZIP), or a compact snapshot. Generated locally only.',
+  'data.export.json': 'Export JSON',
+  'data.export.csv': 'Export CSV ZIP',
+  'data.export.snapshot': 'Export snapshot',
+  'data.export.needAnalysis': 'Load data on Overview first',
+  'data.export.okJson': 'Downloaded {name}',
+  'data.export.okCsv': 'Downloaded {name} ({fmt})',
+  'data.export.okSnap': 'Downloaded snapshot {name}',
+  'data.export.fail': 'Export failed',
+  'data.fhir.title': 'FHIR local archive',
+  'data.fhir.badge': 'Experimental · R4-shaped',
+  'data.fhir.lead':
+    'Build a local FHIR R4-shaped Bundle (local-archive). Not hospital exchange; no upload.',
+  'data.fhir.includeDevices': 'Include Device resources (Watch/iPhone)',
+  'data.fhir.export': 'Download FHIR JSON',
+  'data.fhir.needAnalysis': 'Load data on Overview first',
+  'data.fhir.ok': 'Downloaded {name} · Observation {n} · {val}',
+  'data.fhir.fail': 'FHIR export failed',
+  'data.fhir.valOk': 'self-check OK',
+  'data.fhir.valWarn': 'self-check {n} notes',
 };
 
 const TABLES: Record<AppLocaleUi, Record<MessageKey, string>> = {

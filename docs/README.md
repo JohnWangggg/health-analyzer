@@ -324,6 +324,7 @@ npm run build     # tsc + 生成 web-ui/public/legacy/lib.js
 - **v2.3.1-pages**：**GitHub Pages** 部署 `base=/<repo>/` + `404.html` SPA；总览 **复制大模型提示词**；中英文 README 版本要点持续更新。见根 `README.md`、`docs/en/README.md`。
 - **v2.3.2**：React **个人背景** + **今日快照**；提示词注入（legacy 同键）。
 - **v2.3.3**：React **敏感上下文开关**（`health-analyzer-include-sensitive-ctx`，默认包含用药/病史；关闭则仅剥离 meds/conditions）。
+- **v2.4**：React **产品路径补齐** — 事件时间线、CSV 合并、恢复权重、健康大屏、JSON/CSV/快照导出、FHIR 本机归档、报告 HTML/敏感选项；`/legacy/` 仅回滚。
 - v1.92：**今日仓状态 chip**（`#warehouse-today-chip`，hydrate 后今日工作区 meta 提示）+ **趋势仓提示**（`#warehouse-trends-hint`）；E2E soft/hard（grant→persist→reload hydrate 硬路径，UI 缺失 soft log）；真机大 ZIP / 本机性能基线见 `docs/REAL_DEVICE_ZIP.md`；手测见 `docs/MANUAL_QA.md`，仓设计见 `docs/DATA_CENTER_v1.68.md`。
 
 ## 许可

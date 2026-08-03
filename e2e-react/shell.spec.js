@@ -79,6 +79,39 @@ test.describe('React dual-track shell', () => {
     );
     await expect(page.getByTestId('kpi-card-cgm')).toBeVisible();
 
+    // Events + recovery weights panels (React parity)
+    await expect(page.getByTestId('events-panel')).toBeAttached();
+    await page.getByTestId('events-panel').locator('summary').click();
+    await page.getByTestId('event-title').fill('e2e-event');
+    await page.getByTestId('event-add').click();
+    await expect(page.getByTestId('events-status')).toContainText(
+      /添加|Added|已/i,
+      { timeout: 8_000 },
+    );
+    await expect(page.getByTestId('recovery-weights-panel')).toBeAttached();
+    await page.getByTestId('recovery-weights-panel').locator('summary').click();
+    await page.getByTestId('recovery-preset-training').click();
+    await expect(page.getByTestId('recovery-status')).toContainText(
+      /重算|Reanalyz|保存|Saved|preset/i,
+      { timeout: 8_000 },
+    );
+
+    // TV / dashboard mode toggle
+    await expect(page.getByTestId('btn-dashboard-mode')).toBeVisible();
+    await page.getByTestId('btn-dashboard-mode').click();
+    await expect(page.getByTestId('dashboard-mode-bar')).toBeVisible();
+    await page.getByTestId('dashboard-exit').click();
+    await expect(page.getByTestId('dashboard-mode-bar')).toHaveCount(0);
+
+    // Data page: export + FHIR panels present after session
+    await page.keyboard.press('Alt+Digit4');
+    await expect(page.getByTestId('page-data')).toBeVisible();
+    await expect(page.getByTestId('export-panel')).toBeVisible();
+    await expect(page.getByTestId('fhir-export-panel')).toBeVisible();
+    await expect(page.getByTestId('export-json')).toBeEnabled();
+    await page.keyboard.press('Alt+Digit1');
+    await expect(page.getByTestId('page-overview')).toBeVisible();
+
     // Workspace keyboard shortcuts: Alt+1..4
     await page.keyboard.press('Alt+Digit2');
     await expect(page.getByTestId('page-trends')).toBeVisible();

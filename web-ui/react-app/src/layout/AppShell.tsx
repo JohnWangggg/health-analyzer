@@ -13,6 +13,10 @@ import { useLocale } from '../i18n/LocaleProvider';
 import type { AppLocaleUi } from '../i18n/messages';
 import type { MessageKey } from '../i18n/messages';
 import { useHealthStore } from '../store/useHealthStore';
+import {
+  DashboardModeChrome,
+  useDashboardMode,
+} from '../features/dashboard/DashboardMode';
 
 const NAV_KEYS: Record<WorkspaceId, MessageKey> = {
   overview: 'nav.overview',
@@ -66,6 +70,8 @@ export function AppShell() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const summary = useHealthStore((s) => s.summary);
   const sourceLabel = useHealthStore((s) => s.sourceLabel);
+  const { active: dashboardOn, toggle: toggleDashboard, setMode: setDashboard } =
+    useDashboardMode();
 
   useEffect(() => {
     setFromPath(location.pathname);
@@ -107,6 +113,10 @@ export function AppShell() {
 
   return (
     <div className="app-shell" data-testid="app-shell" data-workspace={active}>
+      <DashboardModeChrome
+        active={dashboardOn}
+        onExit={() => setDashboard(false)}
+      />
       <header className="app-topbar">
         <div className="brand">
           <strong>{t('brand')}</strong>
@@ -125,6 +135,16 @@ export function AppShell() {
           <Badge tone="accent" className="badge-dual-track">
             {t('dualTrack')}
           </Badge>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={toggleDashboard}
+            data-testid="btn-dashboard-mode"
+            aria-pressed={dashboardOn}
+            title={t('tv.enter')}
+          >
+            {dashboardOn ? t('tv.exit') : t('tv.enter')}
+          </Button>
           <Button
             variant="ghost"
             size="sm"

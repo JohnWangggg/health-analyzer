@@ -78,12 +78,12 @@ GitHub Pages 项目页会自动使用 base=`/<repo>/`（见 `export-cutover.mjs`
 ### React 默认路径已具备（相对 legacy 的迁移进度）
 
 - ✅ 导入：夹具 · XML · ZIP · HAE；会话就绪条 / 导入进度  
-- ✅ 总览：状态带 · 今日快照 · KPI 可显隐 · 深链趋势 · **复制大模型提示词** · **个人背景 + 敏感字段开关（与 legacy 共用键）**  
+- ✅ 总览：状态带 · 今日快照 · KPI · **提示词** · **个人背景/敏感开关** · **事件时间线** · **CSV 合并** · **恢复权重预设** · **健康大屏**  
 - ✅ 趋势：多域 · 有数据标记 · 空域切换 · ECharts 懒加载  
-- ✅ 报告：门诊/周报/临床 · 复制/下载 · 空态回总览  
-- ✅ 数据仓：sharded-v1 读写 · keep-N 预设 · 分片多选删除 · **备份/恢复（明文+AES-GCM）**  
-- ✅ 工程：cutover 布局门禁 · e2e-react 7 测 · dual 仓互通 · privacy 扫描  
-- ⏳ 仍可走 `/legacy/`：加密备份以外的冷门面板（FHIR 完整 UI、健康大屏 TV 模式、提示词细调权重 UI 等）  
+- ✅ 报告：门诊/周报/临床 · 个人背景注入 · 临床敏感开关 · Markdown/HTML 下载  
+- ✅ 数据仓：sharded-v1 · keep-N · 分片清理 · **JSON/CSV/快照导出** · **FHIR 本机归档** · **备份/恢复**  
+- ✅ 工程：cutover 布局门禁 · e2e-react · dual 仓互通 · privacy 扫描  
+- ℹ️ **`/legacy/` 仅回滚对照**；日常能力已落在 React 默认路径（医院交换档 FHIR、图表预设等超细能力仍可对照旧版）  
 
 说明文档：[`docs/DUAL_TRACK_UI.md`](docs/DUAL_TRACK_UI.md) · [`docs/DEPLOY.md`](docs/DEPLOY.md) · [`docs/README.md`](docs/README.md)
 
@@ -341,6 +341,7 @@ English:
 | **v2.3.1** `bb9a6d4` | GitHub Pages **base=/<repo>/** + `404.html` SPA；总览 **复制大模型提示词**；中英文 README 版本要点表 |
 | **v2.3.2** `9fd9f57` | React **个人背景**（legacy 同 localStorage 键）+ **今日快照**条；提示词注入上下文 |
 | **v2.3.3** `68901ec` | React **敏感上下文开关**：复制提示词时可选剥离用药/病史（键 `health-analyzer-include-sensitive-ctx`，与 legacy 一致；默认包含） |
+| **v2.4** _(pending push)_ | **产品路径完整迁入 React**：事件时间线 · CSV 合并 · 恢复权重 · 大屏 TV · JSON/CSV/快照导出 · FHIR 本机归档 · 报告 HTML/敏感选项 |
 
 ### 发版检查清单（每次 push 前）
 

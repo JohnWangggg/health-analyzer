@@ -97,7 +97,23 @@ declare module '@health-analyzer/lib' {
   export function generateClinicalReviewMarkdown(
     analysis: FullAnalysis,
     userContext?: unknown,
-    options?: { locale?: AppLocale | string },
+    options?: {
+      locale?: AppLocale | string;
+      includeSensitiveContext?: boolean;
+      includeEvents?: boolean;
+      events?: unknown[];
+    },
+  ): string;
+
+  export function generateClinicalReviewHtml(
+    analysis: FullAnalysis,
+    userContext?: unknown,
+    options?: {
+      locale?: AppLocale | string;
+      includeSensitiveContext?: boolean;
+      includeEvents?: boolean;
+      events?: unknown[];
+    },
   ): string;
 
   export type UserContext = {
@@ -111,13 +127,21 @@ declare module '@health-analyzer/lib' {
   export function generateLLMPrompt(
     analysis: FullAnalysis,
     userContext?: UserContext | null,
-    options?: { locale?: AppLocale | string | null; includeEvents?: boolean },
+    options?: {
+      locale?: AppLocale | string | null;
+      includeEvents?: boolean;
+      events?: unknown[];
+    },
   ): string;
 
   export function generateDataOnly(
     analysis: FullAnalysis,
     userContext?: UserContext | null,
-    options?: { locale?: AppLocale | string | null; includeEvents?: boolean },
+    options?: {
+      locale?: AppLocale | string | null;
+      includeEvents?: boolean;
+      events?: unknown[];
+    },
   ): string;
 
   export const SHORT_SYSTEM_PROMPT: string;
@@ -154,6 +178,115 @@ declare module '@health-analyzer/lib' {
     label?: string;
     metrics: Record<string, unknown>;
   };
+
+  export interface ExportBundle {
+    analysisJson: string;
+    snapshotJson: string;
+    csvFiles: { filename: string; content: string }[];
+    signals: unknown[];
+    snapshot: unknown;
+  }
+
+  export function buildExportBundle(analysis: FullAnalysis): ExportBundle;
+  export function joinCsvBundle(
+    csvFiles: { filename: string; content: string }[],
+  ): string;
+
+  export interface FhirExportResult {
+    bundle: Record<string, unknown>;
+    json: string;
+    counts: {
+      observations: number;
+      provenances: number;
+      documentReferences: number;
+      patients: number;
+      [key: string]: number;
+    };
+    validation?: { ok: boolean; issues: string[] };
+  }
+
+  export function buildFhirExportBundle(
+    analysis: FullAnalysis,
+    options?: Record<string, unknown>,
+  ): FhirExportResult;
+
+  export interface CsvMergeResult {
+    weightAdded: number;
+    weightUpdated: number;
+    bpAdded: number;
+    bodyFatFilled: number;
+    skipped: number;
+    notes: string[];
+  }
+
+  export function mergeExternalCsvIntoData(
+    data: HealthData,
+    options?: { weightCsvText?: string; bpCsvText?: string },
+  ): CsvMergeResult;
+
+  export interface RecoveryWeights {
+    hrv: number;
+    sleep: number;
+    nightHr: number;
+    spo2Night: number;
+    exercise: number;
+    workout: number;
+    steps: number;
+  }
+
+  export type RecoveryWeightPresetId =
+    | 'balanced'
+    | 'recoveryFirst'
+    | 'training'
+    | 'weightLoss';
+
+  export const DEFAULT_RECOVERY_WEIGHTS: RecoveryWeights;
+  export const RECOVERY_WEIGHT_PRESETS: Record<
+    RecoveryWeightPresetId,
+    RecoveryWeights
+  >;
+
+  export type HealthEventKind =
+    | 'medication_start'
+    | 'medication_stop'
+    | 'medication_missed'
+    | 'medication_taken'
+    | 'illness'
+    | 'alcohol'
+    | 'travel'
+    | 'late_night'
+    | 'menstrual'
+    | 'training_change'
+    | 'symptom'
+    | 'fatigue'
+    | 'custom';
+
+  export type HealthEventSource = 'manual' | 'apple_medication' | 'import';
+
+  export interface HealthEvent {
+    id: string;
+    kind: HealthEventKind;
+    date: string;
+    endDate?: string | null;
+    title: string;
+    note?: string | null;
+    intensity?: number | null;
+    source: HealthEventSource;
+    createdAt: string;
+    updatedAt?: string | null;
+  }
+
+  export const HEALTH_EVENT_KINDS: HealthEventKind[];
+
+  export function createHealthEventId(): string;
+  export function normalizeHealthEvent(
+    input: Partial<HealthEvent> & { kind: string; date: string; title?: string },
+  ): HealthEvent | null;
+  export function sortHealthEvents(events: HealthEvent[]): HealthEvent[];
+  export function formatEventKindLabel(
+    kind: HealthEventKind,
+    locale?: string,
+  ): string;
 }
 
 

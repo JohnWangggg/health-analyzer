@@ -200,8 +200,10 @@ flowchart LR
 | 生产默认 cutover 到 React 根路径 | **已做**（`react:export-cutover`） |
 | Tailwind v4 / 全量 shadcn | **未上**；CSS 变量 + 自有 primitives |
 | 仓按月/年分片 + keep-N + 分片多选删除 | React：**写入 + keep-N + ShardCleanupPanel 多选删除**；legacy 仍可作对照 |
-| 高品质健康大屏 UI | **未做**（非可编辑栅格） |
+| 高品质健康大屏 UI | **已做 MVP**（顶栏进入、时钟/焦点轮播、Esc 退出；非可编辑栅格） |
 | 加密备份 UI 迁入 React | **已做 MVP**（`warehouseBackup` + Data 页 `BackupPanel`；legacy 格式兼容） |
+| JSON/CSV/快照 + FHIR 本机归档 | **已做**（Data 页 ExportPanel / FhirExportPanel） |
+| 事件时间线 / CSV 合并 / 恢复权重 | **已做**（Overview 折叠面板；IDB/localStorage 与 legacy 共用） |
 
 ### P0 — 共享数据仓互通
 

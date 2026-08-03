@@ -2,9 +2,12 @@ import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useHealthStore } from '../store/useHealthStore';
 import {
+  buildClinicalHtml,
   buildReportPreview,
   type ReportKind,
 } from '../core/HealthCoreAdapter';
+import { getUserContextForPrompt } from '../core/userContext';
+import { downloadText } from '../core/download';
 import { Button } from '../components/ui/Button';
 import { Card, CardTitle } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
@@ -24,11 +27,22 @@ export function ReportsPage() {
   const analysis = useHealthStore((s) => s.analysis);
   const [kind, setKind] = useState<ReportKind>('visit');
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [useCtx, setUseCtx] = useState(true);
+  const [includeSensitive, setIncludeSensitive] = useState(false);
+
+  const reportOpts = useMemo(
+    () => ({
+      locale: (locale === 'en' ? 'en' : 'zh-CN') as 'en' | 'zh-CN',
+      userContext: useCtx ? getUserContextForPrompt() : null,
+      includeSensitiveContext: includeSensitive,
+    }),
+    [locale, useCtx, includeSensitive],
+  );
 
   const preview = useMemo(() => {
     if (!analysis) return null;
-    return buildReportPreview(analysis, kind, { locale });
-  }, [analysis, kind, locale]);
+    return buildReportPreview(analysis, kind, reportOpts);
+  }, [analysis, kind, reportOpts]);
 
   const copyMarkdown = useCallback(async () => {
     if (!preview?.markdown) return;
@@ -44,20 +58,19 @@ export function ReportsPage() {
     if (!preview?.markdown) return;
     const stem = KINDS.find((k) => k.id === kind)?.fileStem || 'report';
     const end = analysis?.dateRange?.end || 'local';
-    const blob = new Blob([preview.markdown], {
-      type: 'text/markdown;charset=utf-8',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${stem}-${end}.md`;
-    a.rel = 'noopener';
-    a.click();
-    URL.revokeObjectURL(url);
-    setActionMsg(
-      t('reports.downloaded').replace('{filename}', a.download),
-    );
+    const filename = `${stem}-${end}.md`;
+    downloadText(filename, preview.markdown, 'text/markdown;charset=utf-8');
+    setActionMsg(t('reports.downloaded').replace('{filename}', filename));
   }, [preview, kind, analysis, t]);
+
+  const downloadHtml = useCallback(() => {
+    if (!analysis || kind !== 'clinical') return;
+    const end = analysis.dateRange?.end || 'local';
+    const html = buildClinicalHtml(analysis, reportOpts);
+    const filename = `clinical-review-${end}.html`;
+    downloadText(filename, html, 'text/html;charset=utf-8');
+    setActionMsg(t('reports.downloaded').replace('{filename}', filename));
+  }, [analysis, kind, reportOpts, t]);
 
   if (!analysis) {
     return (
@@ -106,6 +119,29 @@ export function ReportsPage() {
         ))}
       </div>
 
+      <div className="report-options" data-testid="report-options">
+        <label className="user-ctx-check">
+          <input
+            type="checkbox"
+            checked={useCtx}
+            onChange={(e) => setUseCtx(e.target.checked)}
+            data-testid="report-use-ctx"
+          />
+          <span>{t('reports.useUserContext')}</span>
+        </label>
+        {kind === 'clinical' ? (
+          <label className="user-ctx-check">
+            <input
+              type="checkbox"
+              checked={includeSensitive}
+              onChange={(e) => setIncludeSensitive(e.target.checked)}
+              data-testid="report-include-sensitive"
+            />
+            <span>{t('reports.includeSensitive')}</span>
+          </label>
+        ) : null}
+      </div>
+
       {preview ? (
         <Card data-testid="report-preview-card">
           <div className="row">
@@ -136,6 +172,16 @@ export function ReportsPage() {
             >
               {t('reports.download')}
             </Button>
+            {kind === 'clinical' ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={downloadHtml}
+                data-testid="report-download-html"
+              >
+                {t('reports.downloadHtml')}
+              </Button>
+            ) : null}
           </div>
           {actionMsg ? (
             <p className="muted" data-testid="report-action-status">

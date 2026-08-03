@@ -8,6 +8,7 @@ import {
   generateVisitSummaryMarkdown,
   generateWeeklyReportMarkdown,
   generateClinicalReviewMarkdown,
+  generateClinicalReviewHtml as generateClinicalReviewHtmlImport,
   generateLLMPrompt,
   generateDataOnly,
   SHORT_SYSTEM_PROMPT,
@@ -233,24 +234,30 @@ export function extractTrendSeries(
   return { domain, label: 'CGM 日均', unit: 'mmol/L', points };
 }
 
+export type ReportPreviewOptions = AnalyzeOptions & {
+  userContext?: UserContext | null;
+  includeSensitiveContext?: boolean;
+};
+
 export function buildReportPreview(
   analysis: FullAnalysis,
   kind: ReportKind,
-  options?: AnalyzeOptions,
+  options?: ReportPreviewOptions,
 ): { kind: ReportKind; title: string; markdown: string } {
   const locale = options?.locale ?? 'zh-CN';
+  const ctx = options?.userContext ?? null;
   if (kind === 'visit') {
     return {
       kind,
       title: '门诊快速评估一页纸',
-      markdown: generateVisitSummaryMarkdown(analysis, null, { locale }),
+      markdown: generateVisitSummaryMarkdown(analysis, ctx, { locale }),
     };
   }
   if (kind === 'weekly') {
     return {
       kind,
       title: '周报',
-      markdown: generateWeeklyReportMarkdown(analysis, null, {
+      markdown: generateWeeklyReportMarkdown(analysis, ctx, {
         locale,
         includeEvents: false,
       }),
@@ -259,8 +266,26 @@ export function buildReportPreview(
   return {
     kind,
     title: '临床复盘',
-    markdown: generateClinicalReviewMarkdown(analysis, null, { locale }),
+    markdown: generateClinicalReviewMarkdown(analysis, ctx, {
+      locale,
+      includeSensitiveContext: !!options?.includeSensitiveContext,
+    }),
   };
+}
+
+export function buildClinicalHtml(
+  analysis: FullAnalysis,
+  options?: ReportPreviewOptions,
+): string {
+  const locale = options?.locale ?? 'zh-CN';
+  return generateClinicalReviewHtmlImport(
+    analysis,
+    options?.userContext ?? null,
+    {
+      locale,
+      includeSensitiveContext: !!options?.includeSensitiveContext,
+    },
+  );
 }
 
 export type LlmPromptMode = 'full' | 'data' | 'short';

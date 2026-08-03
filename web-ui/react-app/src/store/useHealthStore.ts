@@ -9,6 +9,8 @@ import { loadAndAnalyzeWarehouse } from '../core/warehouseLoad';
 import { saveAnalysisSnapshot } from '../core/snapshotWrite';
 import { analyzeHaeBrowserFiles, type HaeImportResult } from '../core/haeImport';
 import { persistHealthDataSharded } from '../core/warehousePersist';
+import { reanalyzeHealthData } from '../core/reanalyze';
+import { mergeCsvFilesAndAnalyze } from '../core/csvMerge';
 
 export type { AnalysisSummary };
 
@@ -18,6 +20,8 @@ export type AnalyzeVia =
   | 'zip'
   | 'warehouse'
   | 'hae'
+  | 'csv'
+  | 'reanalyze'
   | null;
 
 type HealthState = {
@@ -40,6 +44,22 @@ type HealthState = {
   loadWarehouse: () => Promise<void>;
   persistWarehouse: () => Promise<void>;
   saveSnapshot: (label?: string) => Promise<string | null>;
+  /** Re-run analyzeAll on current data (e.g. after recovery weight change). */
+  reanalyzeSession: (opts?: { locale?: string | null }) => void;
+  /** Merge external weight/BP CSV into session and reanalyze. */
+  mergeCsvFiles: (
+    files: { weightText?: string | null; bpText?: string | null },
+    opts?: { locale?: string | null },
+  ) => void;
+  /** Replace session from an already-analyzed result (shared helper path). */
+  applyAnalyzed: (payload: {
+    data: HealthData;
+    analysis: FullAnalysis;
+    summary: AnalysisSummary;
+    sourceLabel?: string;
+    analyzeVia?: AnalyzeVia;
+    extra?: Partial<HealthState>;
+  }) => void;
   clear: () => void;
 };
 
@@ -299,6 +319,77 @@ export const useHealthStore = create<HealthState>((set, get) => ({
       });
       return null;
     }
+  },
+  reanalyzeSession: (opts) => {
+    const data = get().data;
+    if (!data) {
+      set({ error: '无会话数据可重算' });
+      return;
+    }
+    set({ status: 'loading', error: null, progressLabel: '按当前设置重算…' });
+    try {
+      const result = reanalyzeHealthData(data, {
+        locale: opts?.locale ?? 'zh-CN',
+      });
+      setFromAnalysis(
+        set,
+        result.analysis,
+        result.summary,
+        result.data,
+        get().sourceLabel || 'reanalyze',
+        'reanalyze',
+      );
+    } catch (e) {
+      set({
+        status: 'error',
+        error: e instanceof Error ? e.message : String(e),
+        progressLabel: null,
+      });
+    }
+  },
+  mergeCsvFiles: (files, opts) => {
+    set({
+      status: 'loading',
+      error: null,
+      progressLabel: '合并外部 CSV…',
+    });
+    try {
+      const result = mergeCsvFilesAndAnalyze(get().data, files, {
+        locale: opts?.locale ?? 'zh-CN',
+      });
+      const notes = [
+        `体重 +${result.weightAdded}/~${result.weightUpdated} · 血压 +${result.bpAdded}`,
+        ...result.notes.slice(0, 4),
+      ];
+      setFromAnalysis(
+        set,
+        result.analysis,
+        result.summary,
+        result.data,
+        get().sourceLabel
+          ? `${get().sourceLabel} + CSV`
+          : 'external CSV',
+        'csv',
+        { lastHaeNotes: notes },
+      );
+    } catch (e) {
+      set({
+        status: 'error',
+        error: e instanceof Error ? e.message : String(e),
+        progressLabel: null,
+      });
+    }
+  },
+  applyAnalyzed: (payload) => {
+    setFromAnalysis(
+      set,
+      payload.analysis,
+      payload.summary,
+      payload.data,
+      payload.sourceLabel ?? get().sourceLabel ?? 'session',
+      payload.analyzeVia ?? 'reanalyze',
+      payload.extra,
+    );
   },
   clear: () =>
     set({
