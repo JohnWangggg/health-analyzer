@@ -335,7 +335,7 @@ export function OverviewPage() {
   );
 
   if (status === 'loading') {
-    const label = progressLabel || '正在分析…';
+    const label = progressLabel || t('overview.loading');
     return (
       <div className="stack" data-testid="page-overview">
         <div
@@ -358,7 +358,7 @@ export function OverviewPage() {
             </Button>
           ) : null}
         </div>
-        <LoadingState label={label} />
+        <LoadingState label={label} detail={t('overview.loadingDetail')} />
       </div>
     );
   }
@@ -519,8 +519,14 @@ export function OverviewPage() {
           {importToolbar}
           <EmptyState
             testId="overview-empty"
+            kind="overview"
             title={t('overview.empty')}
             description={t('overview.emptyHint')}
+            steps={[
+              t('overview.empty.step1'),
+              t('overview.empty.step2'),
+              t('overview.empty.step3'),
+            ]}
             actionLabel={t('overview.loadFixture')}
             onAction={loadFixture}
           />

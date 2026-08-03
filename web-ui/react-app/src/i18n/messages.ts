@@ -35,6 +35,11 @@ export type MessageKey =
   | 'overview.range'
   | 'overview.empty'
   | 'overview.emptyHint'
+  | 'overview.empty.step1'
+  | 'overview.empty.step2'
+  | 'overview.empty.step3'
+  | 'overview.loading'
+  | 'overview.loadingDetail'
   | 'overview.sessionReadyStrip'
   | 'overview.tools.summary'
   | 'overview.tools.more'
@@ -395,9 +400,14 @@ const zh: Record<MessageKey, string> = {
   'overview.clear': '清除',
   'overview.priority': '优先关注',
   'overview.range': '数据区间',
-  'overview.empty': '还没有今日数据',
+  'overview.empty': '从一条今日状态开始',
   'overview.emptyHint':
-    '导入 iPhone 健康导出（ZIP/XML），或加载演示数据，即可查看恢复与优先关注。',
+    '导入 iPhone「健康」导出包，或先用演示数据熟悉恢复分与优先关注。数据只留在此设备。',
+  'overview.empty.step1': '导入 ZIP / XML，或加载演示',
+  'overview.empty.step2': '查看恢复分与今日优先关注',
+  'overview.empty.step3': '需要时再打开趋势或报告',
+  'overview.loading': '正在解读本机健康数据…',
+  'overview.loadingDetail': '解析与统计均在浏览器内完成，不会上传。',
   'overview.sessionReadyStrip': '数据已就绪 · 可保存到本机或查看趋势',
   'overview.tools.summary': '导入与高级工具',
   'overview.tools.more': '更多',
@@ -535,8 +545,9 @@ const zh: Record<MessageKey, string> = {
   'trends.title': '趋势',
   'trends.lead':
     '一次看一个指标的变化；可切换时间范围，或与另一指标对比。非诊断。',
-  'trends.emptyTitle': '请先在总览加载数据',
-  'trends.emptyDesc': '加载健康导出后，可在此查看步数、体重、血糖、睡眠等趋势。',
+  'trends.emptyTitle': '还没有可画的趋势',
+  'trends.emptyDesc':
+    '先在总览导入或加载数据，再回到这里看步数、体重、血糖、睡眠的变化。',
   'trends.points': '点',
   'trends.latest': '最新',
   'trends.table': '数据表',
@@ -563,8 +574,9 @@ const zh: Record<MessageKey, string> = {
   'reports.title': '报告',
   'reports.lead':
     '选择门诊一页纸、周报或临床复盘，预览后复制或下载。全文仅在本机生成。',
-  'reports.emptyTitle': '请先在总览加载数据',
-  'reports.emptyDesc': '有分析会话后，可在此生成便于沟通的本地报告。',
+  'reports.emptyTitle': '还没有可写的报告',
+  'reports.emptyDesc':
+    '总览有数据后，可生成门诊一页纸、周报或临床复盘，全文仅在本机。',
   'reports.emptyAction': '去总览加载数据',
   'reports.kind.visit': '门诊一页纸',
   'reports.kind.weekly': '周报',
@@ -773,9 +785,14 @@ const en: Record<MessageKey, string> = {
   'overview.clear': 'Clear',
   'overview.priority': 'Priority',
   'overview.range': 'Date range',
-  'overview.empty': 'No data for today yet',
+  'overview.empty': 'Start with today’s status',
   'overview.emptyHint':
-    'Import an iPhone Health export (ZIP/XML), or load the demo, to see recovery and priorities.',
+    'Import an iPhone Health export, or load the demo first. Recovery score and priorities stay on this device.',
+  'overview.empty.step1': 'Import ZIP / XML, or load the demo',
+  'overview.empty.step2': 'Review recovery score and today’s priority',
+  'overview.empty.step3': 'Open trends or reports when you need more',
+  'overview.loading': 'Reading your on-device health data…',
+  'overview.loadingDetail': 'Parse and stats run in the browser — nothing is uploaded.',
   'overview.sessionReadyStrip': 'Ready · save on this device or open trends',
   'overview.tools.summary': 'Import & advanced tools',
   'overview.tools.more': 'More',
@@ -913,9 +930,9 @@ const en: Record<MessageKey, string> = {
   'trends.title': 'Trends',
   'trends.lead':
     'Follow one metric at a time; change the range or compare with another. Not a diagnosis.',
-  'trends.emptyTitle': 'Load data on Overview first',
+  'trends.emptyTitle': 'No trends to draw yet',
   'trends.emptyDesc':
-    'After importing health data, view steps, weight, glucose, sleep, and more here.',
+    'Import or load data on Overview first, then come back for steps, weight, glucose, and sleep.',
   'trends.points': 'pts',
   'trends.latest': 'Latest',
   'trends.table': 'Data table',
@@ -943,9 +960,9 @@ const en: Record<MessageKey, string> = {
   'reports.title': 'Reports',
   'reports.lead':
     'Choose a visit one-pager, weekly report, or clinical review — preview, then copy or download. Generated only on this device.',
-  'reports.emptyTitle': 'Load data on Overview first',
+  'reports.emptyTitle': 'No report to write yet',
   'reports.emptyDesc':
-    'With a session loaded, generate local reports that are easy to share offline.',
+    'Once Overview has data, generate a visit one-pager, weekly note, or clinical review — on this device only.',
   'reports.emptyAction': 'Load data on Overview',
   'reports.kind.visit': 'Visit one-pager',
   'reports.kind.weekly': 'Weekly report',

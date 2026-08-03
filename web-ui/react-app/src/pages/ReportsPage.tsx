@@ -100,6 +100,7 @@ export function ReportsPage() {
       <div className="stack" data-testid="page-reports">
         <h1 className="page-title">{t('reports.title')}</h1>
         <EmptyState
+          kind="reports"
           title={t('reports.emptyTitle')}
           description={t('reports.emptyDesc')}
           actionLabel={t('reports.emptyAction')}

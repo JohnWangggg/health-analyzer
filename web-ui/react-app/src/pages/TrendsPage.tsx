@@ -10,6 +10,7 @@ import { Button } from '../components/ui/Button';
 import { Card, CardTitle } from '../components/ui/Card';
 import { EmptyState, LoadingState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
+import { DomainPillTabs } from '../components/ui/DomainPillTabs';
 import { useLocale } from '../i18n/LocaleProvider';
 import type { MessageKey } from '../i18n/messages';
 import {
@@ -228,6 +229,7 @@ export function TrendsPage() {
       <div className="stack" data-testid="page-trends">
         <h1 className="page-title">{t('trends.title')}</h1>
         <EmptyState
+          kind="trends"
           title={t('trends.emptyTitle')}
           description={t('trends.emptyDesc')}
         />
@@ -253,45 +255,34 @@ export function TrendsPage() {
 
       <StaggerItem>
         <div className="trends-controls">
-          <div
-            className="domain-switcher"
-            role="tablist"
+          <DomainPillTabs
             aria-label={t('trends.title')}
-            data-testid="domain-switcher"
-          >
-            {DOMAIN_KEYS.map((d) => {
-              const hasData = domainHasPresence(summary, d.id);
-              return (
-                <Button
-                  key={d.id}
-                  variant={domain === d.id ? 'primary' : 'ghost'}
-                  size="sm"
-                  role="tab"
-                  aria-selected={domain === d.id}
-                  data-testid={`trend-domain-${d.id}`}
-                  data-has-data={hasData ? '1' : '0'}
-                  className={
-                    hasData ? 'domain-tab-has-data' : 'domain-tab-empty'
-                  }
-                  onClick={() => setDomain(d.id)}
-                >
-                  {t(d.key)}
-                </Button>
-              );
-            })}
-            <Badge tone="neutral">
-              {points.length} {t('trends.points')}
-            </Badge>
-            {last ? (
-              <Badge tone="accent">
-                {t('trends.latest')} {last.date}:{' '}
-                {Number.isFinite(last.value)
-                  ? Math.round(last.value * 100) / 100
-                  : '—'}{' '}
-                {series?.unit}
-              </Badge>
-            ) : null}
-          </div>
+            testId="domain-switcher"
+            value={domain}
+            onChange={(id) => setDomain(id as TrendDomain)}
+            items={DOMAIN_KEYS.map((d) => ({
+              id: d.id,
+              label: t(d.key),
+              testId: `trend-domain-${d.id}`,
+              hasData: domainHasPresence(summary, d.id),
+            }))}
+            trailing={
+              <>
+                <Badge tone="neutral">
+                  {points.length} {t('trends.points')}
+                </Badge>
+                {last ? (
+                  <Badge tone="accent">
+                    {t('trends.latest')} {last.date}:{' '}
+                    {Number.isFinite(last.value)
+                      ? Math.round(last.value * 100) / 100
+                      : '—'}{' '}
+                    {series?.unit}
+                  </Badge>
+                ) : null}
+              </>
+            }
+          />
 
           <div
             className="domain-switcher"
