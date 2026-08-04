@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type InputHTMLAttributes,
@@ -7,7 +8,7 @@ import {
 } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Import, Wrench } from 'lucide-react';
-import { useHealthStore } from '../store/useHealthStore';
+import { useHealthStore, type AnalyzeVia } from '../store/useHealthStore';
 import { Button } from '../components/ui/Button';
 import { Card, CardDesc, CardTitle } from '../components/ui/Card';
 import { Badge } from '../components/ui/Badge';
@@ -16,6 +17,7 @@ import {
   ErrorState,
   LoadingState,
 } from '../components/ui/EmptyState';
+import { SuccessBanner } from '../components/ui/SuccessBanner';
 import { Drawer } from '../components/ui/Drawer';
 
 import { useLocale } from '../i18n/LocaleProvider';
@@ -157,6 +159,52 @@ function domainLabel(key: string): string {
   return DOMAIN_LABELS[key] || key;
 }
 
+function successCopyForVia(
+  via: AnalyzeVia,
+  t: (k: import('../i18n/messages').MessageKey) => string,
+  sourceLabel: string | null,
+): { message: string; detail?: string } {
+  const source = sourceLabel ? ` · ${sourceLabel}` : '';
+  switch (via) {
+    case 'zip':
+      return {
+        message: t('overview.success.zip'),
+        detail: t('overview.success.hint') + source,
+      };
+    case 'hae':
+      return {
+        message: t('overview.success.hae'),
+        detail: t('overview.success.hint') + source,
+      };
+    case 'warehouse':
+      return {
+        message: t('overview.success.warehouse'),
+        detail: t('overview.success.hint'),
+      };
+    case 'csv':
+      return {
+        message: t('overview.success.csv'),
+        detail: t('overview.success.hint'),
+      };
+    case 'worker':
+    case 'main':
+      return {
+        message: t('overview.success.import'),
+        detail: t('overview.success.hint') + source,
+      };
+    case 'reanalyze':
+      return {
+        message: t('overview.success.reanalyze'),
+        detail: t('overview.success.hint'),
+      };
+    default:
+      return {
+        message: t('overview.success.import'),
+        detail: t('overview.success.hint') + source,
+      };
+  }
+}
+
 export function OverviewPage() {
   const navigate = useNavigate();
   const { t, locale } = useLocale();
@@ -181,6 +229,12 @@ export function OverviewPage() {
   const [kpiMatrixRef] = useAutoAnimate<HTMLDivElement>();
   /** Match CSS breakpoint for tools presentation (desktop details vs Vaul). */
   const isNarrow = useMediaQuery('(max-width: 899px)');
+  /** Lightweight success strip after loading → ready */
+  const [successBanner, setSuccessBanner] = useState<{
+    message: string;
+    detail?: string;
+  } | null>(null);
+  const prevStatusRef = useRef<'idle' | 'loading' | 'ready' | 'error'>('idle');
 
   const onKpiVisibilityChange = useCallback((id: KpiId, visible: boolean) => {
     setKpiVis(setKpiVisibility({ [id]: visible }));
@@ -211,6 +265,17 @@ export function OverviewPage() {
     saveSnapshot,
     clear,
   } = useHealthStore();
+
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = status;
+    if (prev === 'loading' && status === 'ready' && summary) {
+      setSuccessBanner(successCopyForVia(analyzeVia, t, sourceLabel));
+    }
+    if (status === 'error' || status === 'idle') {
+      setSuccessBanner(null);
+    }
+  }, [status, summary, sourceLabel, analyzeVia, t]);
 
   const onCopyLlmPrompt = useCallback(async () => {
     if (!analysis) {
@@ -499,6 +564,14 @@ export function OverviewPage() {
         <h1 className="page-title">{t('overview.title')}</h1>
         <p className="page-lead">{t('overview.lead')}</p>
       </div>
+
+      {successBanner ? (
+        <SuccessBanner
+          message={successBanner.message}
+          detail={successBanner.detail}
+          onDismiss={() => setSuccessBanner(null)}
+        />
+      ) : null}
 
       {error ? (
         <ErrorState message={error}>

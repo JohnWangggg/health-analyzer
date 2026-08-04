@@ -164,6 +164,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.5.12** | **Data page narrative sections + domain color tokens**: status/export/backup/space/privacy; recovery·sleep·metabolic·activity accents |
 | **v2.5.13** | **Shell + narrative link**: topbar date + freshness + settings; user-facing nav blurbs; priority → evidence signals connector |
 | **v2.5.14** | **Empty/loading product states + trend domain pill**: empty icons/steps; loading pulse; sliding domain selection thumb |
+| **v2.5.15** | **Report kind pills + import success strip**: sliding report tabs; overview loading→ready banner (auto-dismiss) |
 
 ### Release checklist
 

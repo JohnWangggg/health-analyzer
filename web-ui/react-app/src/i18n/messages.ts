@@ -40,6 +40,13 @@ export type MessageKey =
   | 'overview.empty.step3'
   | 'overview.loading'
   | 'overview.loadingDetail'
+  | 'overview.success.import'
+  | 'overview.success.zip'
+  | 'overview.success.hae'
+  | 'overview.success.warehouse'
+  | 'overview.success.csv'
+  | 'overview.success.reanalyze'
+  | 'overview.success.hint'
   | 'overview.sessionReadyStrip'
   | 'overview.tools.summary'
   | 'overview.tools.more'
@@ -408,6 +415,13 @@ const zh: Record<MessageKey, string> = {
   'overview.empty.step3': '需要时再打开趋势或报告',
   'overview.loading': '正在解读本机健康数据…',
   'overview.loadingDetail': '解析与统计均在浏览器内完成，不会上传。',
+  'overview.success.import': '已加载，可以看今日状态了',
+  'overview.success.zip': 'ZIP 导入完成',
+  'overview.success.hae': '增量数据已合并',
+  'overview.success.warehouse': '已从本机数据恢复',
+  'overview.success.csv': '外部 CSV 已合并',
+  'overview.success.reanalyze': '已按当前设置重算',
+  'overview.success.hint': '恢复分与优先关注已更新 · 数据仅本机',
   'overview.sessionReadyStrip': '数据已就绪 · 可保存到本机或查看趋势',
   'overview.tools.summary': '导入与高级工具',
   'overview.tools.more': '更多',
@@ -793,6 +807,13 @@ const en: Record<MessageKey, string> = {
   'overview.empty.step3': 'Open trends or reports when you need more',
   'overview.loading': 'Reading your on-device health data…',
   'overview.loadingDetail': 'Parse and stats run in the browser — nothing is uploaded.',
+  'overview.success.import': 'Loaded — today’s status is ready',
+  'overview.success.zip': 'ZIP import finished',
+  'overview.success.hae': 'Incremental data merged',
+  'overview.success.warehouse': 'Restored from on-device data',
+  'overview.success.csv': 'External CSV merged',
+  'overview.success.reanalyze': 'Reanalyzed with current settings',
+  'overview.success.hint': 'Recovery score and priorities updated · stays on-device',
   'overview.sessionReadyStrip': 'Ready · save on this device or open trends',
   'overview.tools.summary': 'Import & advanced tools',
   'overview.tools.more': 'More',

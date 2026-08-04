@@ -14,6 +14,7 @@ import { Button } from '../components/ui/Button';
 import { Card, CardTitle } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Badge } from '../components/ui/Badge';
+import { DomainPillTabs } from '../components/ui/DomainPillTabs';
 import { useLocale } from '../i18n/LocaleProvider';
 import type { MessageKey } from '../i18n/messages';
 import { Stagger, StaggerItem } from '../motion/Stagger';
@@ -123,28 +124,21 @@ export function ReportsPage() {
       </StaggerItem>
 
       <StaggerItem>
-        <div
-          className="domain-switcher report-kind-tabs"
-          role="tablist"
+        <DomainPillTabs
           aria-label={t('reports.title')}
-        >
-          {KINDS.map((k) => (
-            <Button
-              key={k.id}
-              variant={kind === k.id ? 'primary' : 'ghost'}
-              size="sm"
-              role="tab"
-              aria-selected={kind === k.id}
-              data-testid={`report-kind-${k.id}`}
-              onClick={() => {
-                setKind(k.id);
-                setActionMsg(null);
-              }}
-            >
-              {t(k.key)}
-            </Button>
-          ))}
-        </div>
+          testId="report-kind-tabs"
+          value={kind}
+          onChange={(id) => {
+            setKind(id as ReportKind);
+            setActionMsg(null);
+          }}
+          items={KINDS.map((k) => ({
+            id: k.id,
+            label: t(k.key),
+            testId: `report-kind-${k.id}`,
+            hasData: true,
+          }))}
+        />
 
         <div className="report-options" data-testid="report-options">
           <label className="user-ctx-check">
