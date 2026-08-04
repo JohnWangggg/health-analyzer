@@ -65,12 +65,13 @@
   --danger: #f97066;
   --ok: #32d583;
   --watch: #fdb022;
-  --domain-recovery: #2dd4bf;
-  --domain-load: #fdb022;
-  --domain-sleep: #8b9cf7;
-  --domain-metabolic: #34d399;
-  --domain-activity: #38bdf8;
-  --domain-heart: #fb7185;
+  /* Slightly softer domain accents on dark (less neon, still distinct) */
+  --domain-recovery: #3ecfbf;
+  --domain-load: #e8b04a;
+  --domain-sleep: #9aa8f0;
+  --domain-metabolic: #4ecf9a;
+  --domain-activity: #5eb8e8;
+  --domain-heart: #f08a9a;
   --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 35%);
   --overlay: rgb(0 0 0 / 55%);
 }
@@ -90,12 +91,12 @@
     --danger: #f97066;
     --ok: #32d583;
     --watch: #fdb022;
-    --domain-recovery: #2dd4bf;
-    --domain-load: #fdb022;
-    --domain-sleep: #8b9cf7;
-    --domain-metabolic: #34d399;
-    --domain-activity: #38bdf8;
-    --domain-heart: #fb7185;
+    --domain-recovery: #3ecfbf;
+    --domain-load: #e8b04a;
+    --domain-sleep: #9aa8f0;
+    --domain-metabolic: #4ecf9a;
+    --domain-activity: #5eb8e8;
+    --domain-heart: #f08a9a;
     --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 35%);
     --overlay: rgb(0 0 0 / 55%);
   }

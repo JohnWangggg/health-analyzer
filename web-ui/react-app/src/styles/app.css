@@ -2662,41 +2662,85 @@ body.health-dashboard-mode[data-dashboard-focus='metrics'] .kpi-matrix {
   color: var(--text, #111);
 }
 
-/* Chart presets */
+/* Chart presets — product “my views” block */
 .chart-presets-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding-top: 0.15rem;
+  border-top: 1px dashed color-mix(in srgb, var(--border) 85%, transparent);
+}
+.chart-presets-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.65rem;
+}
+.chart-presets-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.chart-presets-hint {
+  font-size: 0.78rem;
+}
+.chart-presets-save-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem 0.5rem;
+  gap: 0.45rem;
 }
-.chart-presets-bar input[type='text'] {
+.chart-preset-name-input {
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   color: var(--text);
   border-radius: 8px;
-  padding: 0.35rem 0.5rem;
+  padding: 0.35rem 0.55rem;
   font-size: 0.85rem;
   min-height: 36px;
+  min-width: 10rem;
+  flex: 1 1 10rem;
+  max-width: 16rem;
+}
+.chart-presets-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+.chart-presets-empty {
+  margin: 0;
+  font-size: 0.82rem;
 }
 .chart-preset-chip {
   display: inline-flex;
   align-items: center;
   gap: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 999px;
   overflow: hidden;
+  background: var(--bg-elevated);
+}
+.chart-preset-chip .ui-btn {
+  border-radius: 0;
+  min-height: 34px;
 }
 .chart-preset-del {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: none;
+  border-left: 1px solid var(--border);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  padding: 0 0.4rem;
-  font-size: 1rem;
+  padding: 0 0.45rem;
+  min-height: 34px;
   line-height: 1;
 }
 .chart-preset-del:hover {
   color: var(--danger, #b42318);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 .user-ctx-field select {
   border: 1px solid var(--border);

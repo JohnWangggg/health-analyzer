@@ -208,6 +208,8 @@ export type MessageKey =
   | 'trends.presets.namePh'
   | 'trends.presets.save'
   | 'trends.presets.delete'
+  | 'trends.presets.hint'
+  | 'trends.presets.empty'
   | 'reports.title'
   | 'reports.lead'
   | 'reports.emptyTitle'
@@ -585,10 +587,12 @@ const zh: Record<MessageKey, string> = {
   'trends.compare': '叠加对比',
   'trends.compare.none': '仅当前',
   'trends.compare.hint': '可选第二指标，同图对照',
-  'trends.presets': '图表预设',
-  'trends.presets.namePh': '预设名称',
-  'trends.presets.save': '保存预设',
-  'trends.presets.delete': '删除预设',
+  'trends.presets': '我的视图',
+  'trends.presets.namePh': '例如：血糖近 30 日',
+  'trends.presets.save': '保存当前',
+  'trends.presets.delete': '删除此视图',
+  'trends.presets.hint': '记住指标、对比与时间范围，下次一键恢复',
+  'trends.presets.empty': '还没有保存的视图',
   'reports.title': '报告',
   'reports.lead':
     '选择门诊一页纸、周报或临床复盘，预览后复制或下载。全文仅在本机生成。',
@@ -980,10 +984,12 @@ const en: Record<MessageKey, string> = {
   'trends.compare': 'Compare overlay',
   'trends.compare.none': 'This only',
   'trends.compare.hint': 'Optional second metric on the same chart',
-  'trends.presets': 'Chart presets',
-  'trends.presets.namePh': 'Preset name',
-  'trends.presets.save': 'Save preset',
-  'trends.presets.delete': 'Delete preset',
+  'trends.presets': 'My views',
+  'trends.presets.namePh': 'e.g. Glucose last 30d',
+  'trends.presets.save': 'Save current',
+  'trends.presets.delete': 'Delete this view',
+  'trends.presets.hint': 'Remember metric, compare, and range for one-tap restore',
+  'trends.presets.empty': 'No saved views yet',
   'reports.title': 'Reports',
   'reports.lead':
     'Choose a visit one-pager, weekly report, or clinical review — preview, then copy or download. Generated only on this device.',

@@ -6,6 +6,7 @@ import {
   type AnalysisSummary,
   type TrendDomain,
 } from '../core/HealthCoreAdapter';
+import { BookmarkPlus, X } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { Card, CardTitle } from '../components/ui/Card';
 import { EmptyState, LoadingState } from '../components/ui/EmptyState';
@@ -355,49 +356,69 @@ export function TrendsPage() {
           </div>
 
           <div className="chart-presets-bar" data-testid="chart-presets-bar">
-            <span className="muted" style={{ fontSize: '0.85rem' }}>
-              {t('trends.presets')}
-            </span>
-            <input
-              type="text"
-              maxLength={40}
-              placeholder={t('trends.presets.namePh')}
-              value={presetName}
-              onChange={(e) => setPresetName(e.target.value)}
-              data-testid="chart-preset-name"
-              style={{ maxWidth: '10rem' }}
-            />
-            <Button
-              size="sm"
-              variant="secondary"
-              type="button"
-              data-testid="chart-preset-save"
-              onClick={onSavePreset}
-            >
-              {t('trends.presets.save')}
-            </Button>
-            {presets.map((p) => (
-              <span key={p.id} className="chart-preset-chip">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  type="button"
-                  data-testid={`chart-preset-apply-${p.id}`}
-                  onClick={() => applyPreset(p)}
-                >
-                  {p.name}
-                </Button>
-                <button
-                  type="button"
-                  className="chart-preset-del"
-                  data-testid={`chart-preset-del-${p.id}`}
-                  aria-label={t('trends.presets.delete')}
-                  onClick={() => onDeletePreset(p.id)}
-                >
-                  ×
-                </button>
+            <div className="chart-presets-head">
+              <span className="chart-presets-title">{t('trends.presets')}</span>
+              <span className="muted chart-presets-hint">
+                {t('trends.presets.hint')}
               </span>
-            ))}
+            </div>
+            <div className="chart-presets-save-row">
+              <input
+                type="text"
+                maxLength={40}
+                placeholder={t('trends.presets.namePh')}
+                value={presetName}
+                onChange={(e) => setPresetName(e.target.value)}
+                data-testid="chart-preset-name"
+                className="chart-preset-name-input"
+                aria-label={t('trends.presets.namePh')}
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                type="button"
+                data-testid="chart-preset-save"
+                onClick={onSavePreset}
+              >
+                <BookmarkPlus size={15} aria-hidden />
+                {t('trends.presets.save')}
+              </Button>
+            </div>
+            {presets.length ? (
+              <div className="chart-presets-list" role="list">
+                {presets.map((p) => (
+                  <span
+                    key={p.id}
+                    className="chart-preset-chip"
+                    role="listitem"
+                  >
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      type="button"
+                      data-testid={`chart-preset-apply-${p.id}`}
+                      onClick={() => applyPreset(p)}
+                      title={`${p.domain}${p.compareDomain ? ` + ${p.compareDomain}` : ''} · ${p.rangeDays || 'all'}d`}
+                    >
+                      {p.name}
+                    </Button>
+                    <button
+                      type="button"
+                      className="chart-preset-del"
+                      data-testid={`chart-preset-del-${p.id}`}
+                      aria-label={t('trends.presets.delete')}
+                      onClick={() => onDeletePreset(p.id)}
+                    >
+                      <X size={14} aria-hidden />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="muted chart-presets-empty">
+                {t('trends.presets.empty')}
+              </p>
+            )}
           </div>
         </div>
       </StaggerItem>
