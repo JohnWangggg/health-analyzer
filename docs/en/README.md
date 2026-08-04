@@ -166,6 +166,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.5.14** | **Empty/loading product states + trend domain pill**: empty icons/steps; loading pulse; sliding domain selection thumb |
 | **v2.5.15** | **Report kind pills + import success strip**: sliding report tabs; overview loading→ready banner (auto-dismiss) |
 | **v2.5.16** | **Range pills + success CTA**: trends/overview 7·30·90d pills; success strip secondary “Open trends” |
+| **v2.5.17** | **Compare pills + mobile success**: trends overlay compare as pills; sticky compact success strip on phone |
 
 ### Release checklist
 

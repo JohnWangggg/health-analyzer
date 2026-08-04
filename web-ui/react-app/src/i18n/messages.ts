@@ -203,6 +203,7 @@ export type MessageKey =
   | 'trends.range.all'
   | 'trends.compare'
   | 'trends.compare.none'
+  | 'trends.compare.hint'
   | 'trends.presets'
   | 'trends.presets.namePh'
   | 'trends.presets.save'
@@ -581,8 +582,9 @@ const zh: Record<MessageKey, string> = {
   'trends.range': '时间范围',
   'trends.range.days': '近 {n} 日',
   'trends.range.all': '全部',
-  'trends.compare': '对比指标（可选）',
-  'trends.compare.none': '不对比',
+  'trends.compare': '叠加对比',
+  'trends.compare.none': '仅当前',
+  'trends.compare.hint': '可选第二指标，同图对照',
   'trends.presets': '图表预设',
   'trends.presets.namePh': '预设名称',
   'trends.presets.save': '保存预设',
@@ -975,8 +977,9 @@ const en: Record<MessageKey, string> = {
   'trends.range': 'Time range',
   'trends.range.days': 'Last {n} days',
   'trends.range.all': 'All',
-  'trends.compare': 'Compare metric (optional)',
-  'trends.compare.none': 'None',
+  'trends.compare': 'Compare overlay',
+  'trends.compare.none': 'This only',
+  'trends.compare.hint': 'Optional second metric on the same chart',
   'trends.presets': 'Chart presets',
   'trends.presets.namePh': 'Preset name',
   'trends.presets.save': 'Save preset',

@@ -300,23 +300,59 @@ export function TrendsPage() {
             }))}
           />
 
-          <label className="user-ctx-field trends-compare-field">
-            <span>{t('trends.compare')}</span>
-            <select
-              value={compareDomain}
-              onChange={(e) =>
-                setCompareDomain((e.target.value || '') as TrendDomain | '')
-              }
-              data-testid="trend-compare-select"
-            >
-              <option value="">{t('trends.compare.none')}</option>
-              {DOMAIN_KEYS.filter((d) => d.id !== domain).map((d) => (
-                <option key={d.id} value={d.id}>
-                  {t(d.key)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="trends-compare-block" data-testid="trend-compare-block">
+            <div className="trends-compare-label-row">
+              <span className="trends-compare-label">{t('trends.compare')}</span>
+              <span className="muted trends-compare-hint">
+                {t('trends.compare.hint')}
+              </span>
+            </div>
+            {/* Keep select for e2e + a11y list; visually styled as product control */}
+            <div className="trends-compare-control">
+              <DomainPillTabs
+                aria-label={t('trends.compare')}
+                testId="trend-compare-pills"
+                value={compareDomain || '__none__'}
+                onChange={(id) =>
+                  setCompareDomain(
+                    id === '__none__' ? '' : (id as TrendDomain),
+                  )
+                }
+                items={[
+                  {
+                    id: '__none__',
+                    label: t('trends.compare.none'),
+                    testId: 'trend-compare-none',
+                    hasData: true,
+                  },
+                  ...DOMAIN_KEYS.filter((d) => d.id !== domain).map((d) => ({
+                    id: d.id,
+                    label: t(d.key),
+                    testId: `trend-compare-${d.id}`,
+                    hasData: domainHasPresence(summary, d.id),
+                  })),
+                ]}
+              />
+              {/* Hidden native select preserves data-testid used by e2e */}
+              <select
+                className="sr-only"
+                tabIndex={-1}
+                aria-hidden
+                value={compareDomain}
+                onChange={(e) =>
+                  setCompareDomain((e.target.value || '') as TrendDomain | '')
+                }
+                data-testid="trend-compare-select"
+              >
+                <option value="">{t('trends.compare.none')}</option>
+                {DOMAIN_KEYS.filter((d) => d.id !== domain).map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {t(d.key)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
           <div className="chart-presets-bar" data-testid="chart-presets-bar">
             <span className="muted" style={{ fontSize: '0.85rem' }}>

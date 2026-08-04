@@ -248,6 +248,31 @@
 body.health-dashboard-mode .ui-success-banner {
   display: none !important;
 }
+@media (max-width: 640px) {
+  .ui-success-banner {
+    position: sticky;
+    top: calc(var(--nav-height) + 0.35rem);
+    z-index: 18;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.55rem 0.65rem;
+    backdrop-filter: blur(10px);
+    background: color-mix(in srgb, var(--ok) 16%, var(--bg-elevated));
+  }
+  .ui-success-detail {
+    display: none;
+  }
+  .ui-success-message {
+    font-size: 0.88rem;
+    line-height: 1.3;
+  }
+  .ui-success-icon {
+    margin-top: 0;
+  }
+  .ui-success-actions .ui-btn-secondary {
+    white-space: nowrap;
+  }
+}
 /* Compact range pills inside overview trend strip header */
 .overview-trend-strip-head .domain-switcher-pills {
   padding: 0.2rem;
@@ -1753,6 +1778,31 @@ body.health-dashboard-mode .ui-success-banner {
 }
 .trends-compare-field {
   max-width: 16rem;
+}
+.trends-compare-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.trends-compare-label-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.65rem;
+}
+.trends-compare-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.trends-compare-hint {
+  font-size: 0.78rem;
+}
+.trends-compare-control {
+  position: relative;
+}
+.trends-compare-control .domain-switcher-pills {
+  max-width: 100%;
 }
 .trends-chart-stage {
   min-height: 12rem;
