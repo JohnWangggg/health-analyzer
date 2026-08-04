@@ -7,6 +7,7 @@ import {
   type TrendDomain,
 } from '../../core/HealthCoreAdapter';
 import { Sparkline } from '../../components/charts/Sparkline';
+import { DomainPillTabs } from '../../components/ui/DomainPillTabs';
 import { useLocale } from '../../i18n/LocaleProvider';
 import type { MessageKey } from '../../i18n/messages';
 
@@ -93,24 +94,20 @@ export function OverviewTrendStrip({
         <h2 className="section-title overview-trend-strip-title">
           {t('overview.trendStrip.title')}
         </h2>
-        <div
-          className="overview-trend-range"
-          role="group"
+        <DomainPillTabs
           aria-label={t('overview.trendStrip.range')}
-        >
-          {RANGE_OPTIONS.map((d) => (
-            <button
-              key={d}
-              type="button"
-              className="overview-trend-range-btn"
-              data-active={days === d ? '1' : '0'}
-              data-testid={`overview-trend-range-${d}`}
-              onClick={() => setDays(d)}
-            >
-              {d}d
-            </button>
-          ))}
-        </div>
+          testId="overview-trend-range"
+          value={String(days)}
+          onChange={(id) =>
+            setDays(Number(id) as (typeof RANGE_OPTIONS)[number])
+          }
+          items={RANGE_OPTIONS.map((d) => ({
+            id: String(d),
+            label: `${d}d`,
+            testId: `overview-trend-range-${d}`,
+            hasData: true,
+          }))}
+        />
       </div>
       <div className="overview-trend-grid">
         {cards.map((c) => (

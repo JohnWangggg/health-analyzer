@@ -239,8 +239,24 @@
   font-size: 0.82rem;
   line-height: 1.4;
 }
+.ui-success-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
 body.health-dashboard-mode .ui-success-banner {
   display: none !important;
+}
+/* Compact range pills inside overview trend strip header */
+.overview-trend-strip-head .domain-switcher-pills {
+  padding: 0.2rem;
+  background: var(--bg-muted);
+}
+.overview-trend-strip-head .domain-pill-tab {
+  min-height: 32px;
+  font-size: 0.78rem;
+  padding: 0 0.65rem;
 }
 .import-progress {
   display: flex;

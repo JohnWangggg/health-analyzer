@@ -47,6 +47,7 @@ export type MessageKey =
   | 'overview.success.csv'
   | 'overview.success.reanalyze'
   | 'overview.success.hint'
+  | 'overview.success.openTrends'
   | 'overview.sessionReadyStrip'
   | 'overview.tools.summary'
   | 'overview.tools.more'
@@ -422,6 +423,7 @@ const zh: Record<MessageKey, string> = {
   'overview.success.csv': '外部 CSV 已合并',
   'overview.success.reanalyze': '已按当前设置重算',
   'overview.success.hint': '恢复分与优先关注已更新 · 数据仅本机',
+  'overview.success.openTrends': '打开趋势',
   'overview.sessionReadyStrip': '数据已就绪 · 可保存到本机或查看趋势',
   'overview.tools.summary': '导入与高级工具',
   'overview.tools.more': '更多',
@@ -814,6 +816,7 @@ const en: Record<MessageKey, string> = {
   'overview.success.csv': 'External CSV merged',
   'overview.success.reanalyze': 'Reanalyzed with current settings',
   'overview.success.hint': 'Recovery score and priorities updated · stays on-device',
+  'overview.success.openTrends': 'Open trends',
   'overview.sessionReadyStrip': 'Ready · save on this device or open trends',
   'overview.tools.summary': 'Import & advanced tools',
   'overview.tools.more': 'More',

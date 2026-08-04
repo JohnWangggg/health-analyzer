@@ -570,6 +570,8 @@ export function OverviewPage() {
           message={successBanner.message}
           detail={successBanner.detail}
           onDismiss={() => setSuccessBanner(null)}
+          actionLabel={t('overview.success.openTrends')}
+          onAction={() => navigate('/trends')}
         />
       ) : null}
 

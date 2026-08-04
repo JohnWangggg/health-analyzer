@@ -284,26 +284,21 @@ export function TrendsPage() {
             }
           />
 
-          <div
-            className="domain-switcher"
-            role="group"
+          <DomainPillTabs
             aria-label={t('trends.range')}
-            data-testid="trend-range-chips"
-          >
-            {RANGE_OPTIONS.map((d) => (
-              <Button
-                key={d}
-                size="sm"
-                variant={rangeDays === d ? 'primary' : 'ghost'}
-                data-testid={`trend-range-${d || 'all'}`}
-                onClick={() => setRange(d)}
-              >
-                {d === 0
+            testId="trend-range-chips"
+            value={String(rangeDays)}
+            onChange={(id) => setRange(Number(id))}
+            items={RANGE_OPTIONS.map((d) => ({
+              id: String(d),
+              label:
+                d === 0
                   ? t('trends.range.all')
-                  : t('trends.range.days').replace('{n}', String(d))}
-              </Button>
-            ))}
-          </div>
+                  : t('trends.range.days').replace('{n}', String(d)),
+              testId: `trend-range-${d || 'all'}`,
+              hasData: true,
+            }))}
+          />
 
           <label className="user-ctx-field trends-compare-field">
             <span>{t('trends.compare')}</span>
