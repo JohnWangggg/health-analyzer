@@ -18,6 +18,7 @@ import { DomainPillTabs } from '../components/ui/DomainPillTabs';
 import { useLocale } from '../i18n/LocaleProvider';
 import type { MessageKey } from '../i18n/messages';
 import { Stagger, StaggerItem } from '../motion/Stagger';
+import { loadReportKind, saveReportKind } from '../core/reportKindPrefs';
 
 const KINDS: { id: ReportKind; key: MessageKey; fileStem: string }[] = [
   { id: 'visit', key: 'reports.kind.visit', fileStem: 'visit-summary' },
@@ -29,7 +30,7 @@ export function ReportsPage() {
   const { t, locale } = useLocale();
   const navigate = useNavigate();
   const analysis = useHealthStore((s) => s.analysis);
-  const [kind, setKind] = useState<ReportKind>('visit');
+  const [kind, setKind] = useState<ReportKind>(() => loadReportKind());
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [useCtx, setUseCtx] = useState(true);
   const [includeSensitive, setIncludeSensitive] = useState(false);
@@ -129,8 +130,10 @@ export function ReportsPage() {
           testId="report-kind-tabs"
           value={kind}
           onChange={(id) => {
-            setKind(id as ReportKind);
-            setActionMsg(null);
+            const next = id as ReportKind;
+            setKind(next);
+            saveReportKind(next);
+            setActionMsg(t('reports.kindRemembered'));
           }}
           items={KINDS.map((k) => ({
             id: k.id,

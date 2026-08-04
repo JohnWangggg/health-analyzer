@@ -256,6 +256,8 @@ body.health-dashboard-mode .ui-success-banner {
     align-items: center;
     gap: 0.5rem;
     padding: 0.55rem 0.65rem;
+    /* Keep clear of mobile bottom nav + home indicator */
+    margin-bottom: calc(0.35rem + env(safe-area-inset-bottom, 0px));
     backdrop-filter: blur(10px);
     background: color-mix(in srgb, var(--ok) 16%, var(--bg-elevated));
   }
@@ -271,6 +273,20 @@ body.health-dashboard-mode .ui-success-banner {
   }
   .ui-success-actions .ui-btn-secondary {
     white-space: nowrap;
+  }
+  /* When banner is near the bottom of the stack, lift above bottom nav */
+  [data-testid='page-overview'] .ui-success-banner {
+    margin-bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  [data-testid='page-overview'] {
+    padding-bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@media (max-width: 720px) {
+  /* Sticky overview primary actions already clear bottom nav; reinforce safe area */
+  .app-main {
+    padding-bottom: calc(var(--space-6) + 4.25rem + env(safe-area-inset-bottom, 0px));
   }
 }
 /* Compact range pills inside overview trend strip header */

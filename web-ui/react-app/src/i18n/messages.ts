@@ -224,6 +224,7 @@ export type MessageKey =
   | 'reports.chars'
   | 'reports.viaAdapter'
   | 'reports.localOnly'
+  | 'reports.kindRemembered'
   | 'reports.copied'
   | 'reports.copyFail'
   | 'reports.downloaded'
@@ -609,6 +610,7 @@ const zh: Record<MessageKey, string> = {
   'reports.chars': '字数',
   'reports.viaAdapter': '本机生成',
   'reports.localOnly': '仅本机',
+  'reports.kindRemembered': '已记住此报告类型',
   'reports.copied': '已复制到剪贴板（仅本机，未上传）',
   'reports.copyFail': '复制失败：请手动选择预览文本',
   'reports.downloaded': '已下载 {filename}',
@@ -1006,6 +1008,7 @@ const en: Record<MessageKey, string> = {
   'reports.chars': 'chars',
   'reports.viaAdapter': 'On-device',
   'reports.localOnly': 'On this device only',
+  'reports.kindRemembered': 'Remembered this report type',
   'reports.copied': 'Copied to clipboard (local only, not uploaded)',
   'reports.copyFail': 'Copy failed — select preview text manually',
   'reports.downloaded': 'Downloaded {filename}',
