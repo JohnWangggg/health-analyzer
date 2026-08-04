@@ -60,6 +60,8 @@ export type MessageKey =
   | 'overview.signals.kicker'
   | 'overview.signals.title'
   | 'overview.signals.link'
+  | 'overview.signals.expand'
+  | 'overview.signals.collapse'
   | 'overview.prompt.label'
   | 'overview.prompt.mode.full'
   | 'overview.prompt.mode.data'
@@ -97,6 +99,8 @@ export type MessageKey =
   | 'overview.today.recovery'
   | 'overview.today.freshness'
   | 'overview.today.nonDiag'
+  | 'overview.today.anomaly'
+  | 'overview.today.anomaly.stale'
   | 'overview.ctx.summary'
   | 'overview.ctx.hint'
   | 'overview.ctx.age'
@@ -440,6 +444,8 @@ const zh: Record<MessageKey, string> = {
   'overview.signals.kicker': '承接上方优先关注',
   'overview.signals.title': '依据与线索',
   'overview.signals.link': '查看依据与线索',
+  'overview.signals.expand': '查看全部 {n} 条',
+  'overview.signals.collapse': '收起线索',
   'overview.prompt.label': '大模型提示词',
   'overview.prompt.mode.full': '完整',
   'overview.prompt.mode.data': '仅数据',
@@ -477,6 +483,8 @@ const zh: Record<MessageKey, string> = {
   'overview.today.recovery': '恢复分',
   'overview.today.freshness': '新鲜度',
   'overview.today.nonDiag': '非诊断 · 会话摘要',
+  'overview.today.anomaly': '注意',
+  'overview.today.anomaly.stale': '数据偏旧，建议重新导入',
   'overview.ctx.summary': '个人背景（注入提示词 · 仅本机）',
   'overview.ctx.hint':
     '用药、目标体重与关注点会写入大模型提示词；保存在本机 localStorage，与旧版共用键，不上传。',
@@ -837,6 +845,8 @@ const en: Record<MessageKey, string> = {
   'overview.signals.kicker': 'Evidence for the priority above',
   'overview.signals.title': 'Signals & clues',
   'overview.signals.link': 'See evidence & clues',
+  'overview.signals.expand': 'View all {n}',
+  'overview.signals.collapse': 'Show less',
   'overview.prompt.label': 'LLM prompt',
   'overview.prompt.mode.full': 'Full',
   'overview.prompt.mode.data': 'Data only',
@@ -874,6 +884,8 @@ const en: Record<MessageKey, string> = {
   'overview.today.recovery': 'Recovery',
   'overview.today.freshness': 'Freshness',
   'overview.today.nonDiag': 'Non-diagnostic · session snapshot',
+  'overview.today.anomaly': 'Note',
+  'overview.today.anomaly.stale': 'Data is stale — re-import recommended',
   'overview.ctx.summary': 'Personal context (prompt only · local)',
   'overview.ctx.hint':
     'Meds, goals, and focus go into the LLM prompt; saved in localStorage (same key as legacy). Not uploaded.',

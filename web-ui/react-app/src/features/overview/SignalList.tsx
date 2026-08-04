@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -9,6 +10,7 @@ import {
 import type { AnalysisSummary } from '../../core/HealthCoreAdapter';
 import { useAutoAnimate } from '../../motion/useAutoAnimate';
 import { useLocale } from '../../i18n/LocaleProvider';
+import { Button } from '../../components/ui/Button';
 
 type Signal = {
   id: string;
@@ -16,6 +18,8 @@ type Signal = {
   body: string;
   tone: 'ok' | 'watch' | 'alert' | 'neutral';
 };
+
+const PREVIEW_COUNT = 3;
 
 function buildSignals(summary: AnalysisSummary): Signal[] {
   const out: Signal[] = [];
@@ -102,12 +106,18 @@ function SignalIcon({ id, tone }: { id: string; tone: Signal['tone'] }) {
 export function SignalList({ summary }: { summary: AnalysisSummary }) {
   const { t } = useLocale();
   const signals = buildSignals(summary);
+  const [expanded, setExpanded] = useState(false);
   const [listRef] = useAutoAnimate<HTMLUListElement>();
+  const visible =
+    expanded || signals.length <= PREVIEW_COUNT
+      ? signals
+      : signals.slice(0, PREVIEW_COUNT);
+  const hiddenCount = Math.max(0, signals.length - PREVIEW_COUNT);
 
   return (
     <section
       id="priority-signals"
-      className="signal-list signal-list-linked"
+      className="signal-list signal-list-linked card-level-signal"
       data-testid="signal-list"
       aria-label="signals"
     >
@@ -116,7 +126,7 @@ export function SignalList({ summary }: { summary: AnalysisSummary }) {
         <h2 className="section-title">{t('overview.signals.title')}</h2>
       </div>
       <ul className="signal-list-ul" ref={listRef}>
-        {signals.map((s, i) => (
+        {visible.map((s, i) => (
           <li
             key={s.id}
             className={`signal-item signal-${s.tone}${i === 0 ? ' signal-item-lead' : ''}`}
@@ -132,6 +142,24 @@ export function SignalList({ summary }: { summary: AnalysisSummary }) {
           </li>
         ))}
       </ul>
+      {hiddenCount > 0 ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          type="button"
+          className="signal-list-expand"
+          data-testid="signal-list-expand"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded
+            ? t('overview.signals.collapse')
+            : t('overview.signals.expand').replace(
+                '{n}',
+                String(signals.length),
+              )}
+        </Button>
+      ) : null}
     </section>
   );
 }

@@ -33,7 +33,7 @@ export function StatusBand({
   const sub = `负荷 ${load != null ? Math.round(load) : '—'} · 非诊断`;
 
   return (
-    <section className="status-band" data-testid="status-band">
+    <section className="status-band card-level-hero" data-testid="status-band">
       <div className="status-band-score" data-testid="status-band-score">
         <RecoveryRing score={score} size={132} label="恢复分" sub={sub} />
       </div>

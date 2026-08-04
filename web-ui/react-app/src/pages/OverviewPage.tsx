@@ -628,7 +628,10 @@ export function OverviewPage() {
                     freshnessTone={f.tone}
                     signalsLabel={t('overview.signals.link')}
                   />
-                  <div className="primary-actions" data-testid="primary-actions">
+                  <div
+                    className="primary-actions card-level-action"
+                    data-testid="primary-actions"
+                  >
                     <Button
                       variant="primary"
                       onClick={() => navigate('/trends')}
@@ -649,23 +652,28 @@ export function OverviewPage() {
                   <DataQualityBanner summary={summary} />
                 </div>
 
-                {/* L2 — 7/30d trend strip (sparklines, no ECharts) */}
+                {/* L2 — micro trends + slim session meta (no KPI repeat) */}
                 <div className="command-layer command-layer-trends">
                   <OverviewTrendStrip
                     analysis={analysis}
                     summary={summary}
                   />
-                  <TodayStrip summary={summary} freshnessText={f.text} />
+                  <TodayStrip
+                    summary={summary}
+                    freshnessText={f.text}
+                    freshnessTone={f.tone}
+                  />
                 </div>
               </>
             );
           })()}
 
-          {/* L3 — Key metrics + priority signals */}
+          {/* L3 — signals first (evidence), full KPI secondary */}
           <div className="command-layer command-layer-metrics">
-            <div className="overview-split">
+            <div className="overview-split overview-split-signals-first">
+              <SignalList summary={summary} />
               <section
-                className="command-kpi-panel"
+                className="command-kpi-panel card-level-kpi"
                 data-testid="overview-kpi-section"
               >
                 <div className="command-kpi-head">
@@ -791,7 +799,6 @@ export function OverviewPage() {
                   })}
                 </div>
               </section>
-              <SignalList summary={summary} />
             </div>
           </div>
 

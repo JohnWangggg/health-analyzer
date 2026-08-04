@@ -86,7 +86,7 @@ export function OverviewTrendStrip({
 
   return (
     <section
-      className="overview-trend-strip"
+      className="overview-trend-strip card-level-trend"
       data-testid="overview-trend-strip"
       aria-label={t('overview.trendStrip.title')}
     >

@@ -5,6 +5,7 @@ type Props = {
   summary: AnalysisSummary;
   /** Preformatted freshness label from OverviewPage (locale-aware there). */
   freshnessText?: string | null;
+  freshnessTone?: 'ok' | 'watch' | 'alert' | 'neutral';
 };
 
 type Chip = {
@@ -12,15 +13,20 @@ type Chip = {
   label: string;
   value: string;
   testId?: string;
+  tone?: 'ok' | 'watch' | 'alert' | 'neutral';
 };
 
 /**
- * Dense “today / session snapshot” strip — compact chips for range + key KPIs.
- * Presentational; values from adapter AnalysisSummary.
+ * Slim session meta strip — range + freshness (+ optional anomaly).
+ * Does NOT repeat CGM/steps/weight/recovery (those live on micro-trends + KPI).
  */
-export function TodayStrip({ summary, freshnessText }: Props) {
+export function TodayStrip({
+  summary,
+  freshnessText,
+  freshnessTone = 'neutral',
+}: Props) {
   const { t } = useLocale();
-  const { dateRange, kpis } = summary;
+  const { dateRange, freshnessDays } = summary;
 
   const chips: Chip[] = [
     {
@@ -28,52 +34,33 @@ export function TodayStrip({ summary, freshnessText }: Props) {
       label: t('overview.today.range'),
       value: `${dateRange.start || '—'} → ${dateRange.end || '—'}`,
       testId: 'today-strip-range',
+      tone: 'neutral',
     },
   ];
 
-  if (kpis.cgmMean != null) {
-    chips.push({
-      id: 'cgm',
-      label: t('overview.today.cgm'),
-      value: kpis.cgmMean.toFixed(2),
-      testId: 'today-strip-cgm',
-    });
-  }
-  if (kpis.stepsLatest != null) {
-    chips.push({
-      id: 'steps',
-      label: t('overview.today.steps'),
-      value: String(kpis.stepsLatest),
-      testId: 'today-strip-steps',
-    });
-  }
-  if (kpis.weightLatest != null) {
-    chips.push({
-      id: 'weight',
-      label: t('overview.today.weight'),
-      value: kpis.weightLatest.toFixed(2),
-      testId: 'today-strip-weight',
-    });
-  }
-  if (kpis.recoveryScore != null) {
-    chips.push({
-      id: 'recovery',
-      label: t('overview.today.recovery'),
-      value: String(Math.round(kpis.recoveryScore)),
-      testId: 'today-strip-recovery',
-    });
-  }
   if (freshnessText) {
     chips.push({
       id: 'freshness',
       label: t('overview.today.freshness'),
       value: freshnessText,
       testId: 'today-strip-freshness',
+      tone: freshnessTone,
+    });
+  }
+
+  // Anomaly only — not a full metric repeat
+  if (freshnessDays != null && freshnessDays > 7) {
+    chips.push({
+      id: 'anomaly-stale',
+      label: t('overview.today.anomaly'),
+      value: t('overview.today.anomaly.stale'),
+      testId: 'today-strip-anomaly',
+      tone: 'watch',
     });
   }
 
   return (
-    <section className="today-strip" data-testid="today-strip">
+    <section className="today-strip today-strip-meta" data-testid="today-strip">
       <div className="today-strip-head">
         <span className="today-strip-title">{t('overview.today.title')}</span>
         <span className="muted today-strip-note">{t('overview.today.nonDiag')}</span>
@@ -82,7 +69,7 @@ export function TodayStrip({ summary, freshnessText }: Props) {
         {chips.map((c) => (
           <span
             key={c.id}
-            className="today-chip"
+            className={`today-chip today-chip-${c.tone || 'neutral'}`}
             role="listitem"
             data-testid={c.testId}
             data-chip={c.id}

@@ -1350,7 +1350,97 @@ body.health-dashboard-mode .ui-success-banner {
   font-variant-numeric: tabular-nums;
 }
 
-/* Today / session snapshot — dense chips under StatusBand */
+/* —— Card visual hierarchy (hero / trend / signal / kpi / tools) —— */
+.card-level-hero.status-band {
+  gap: var(--space-5);
+}
+.card-level-hero .status-band-score {
+  padding: var(--space-4);
+  border: none;
+  background:
+    radial-gradient(
+      ellipse 80% 70% at 50% 40%,
+      color-mix(in srgb, var(--domain-recovery) 22%, transparent),
+      transparent 70%
+    ),
+    linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--domain-recovery) 14%, var(--bg-elevated)),
+      color-mix(in srgb, var(--bg-muted) 40%, var(--bg-elevated))
+    );
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--domain-recovery) 25%, transparent),
+    var(--shadow);
+}
+.card-level-hero .status-band-main {
+  border: 1px solid color-mix(in srgb, var(--domain-recovery) 18%, var(--border));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--domain-recovery) 8%, var(--bg-elevated)),
+      var(--bg-elevated) 55%
+    );
+  box-shadow:
+    0 8px 28px color-mix(in srgb, var(--domain-recovery) 8%, transparent),
+    var(--shadow);
+  padding: var(--space-5) var(--space-5);
+}
+.card-level-trend.overview-trend-strip {
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  background: color-mix(in srgb, var(--bg-muted) 45%, var(--bg-elevated));
+  box-shadow: none;
+  padding: var(--space-3) var(--space-3);
+}
+.card-level-trend .overview-trend-card {
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
+  box-shadow: none;
+  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
+}
+.card-level-signal.signal-list-linked {
+  border-width: 1px;
+  border-color: color-mix(in srgb, var(--domain-recovery) 28%, var(--border));
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--domain-recovery) 7%, var(--bg-elevated)),
+      var(--bg-elevated)
+    );
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--domain-recovery) 6%, transparent);
+}
+.card-level-signal .signal-item {
+  border-left-width: 4px;
+  background: color-mix(in srgb, var(--bg-elevated) 96%, var(--bg-muted));
+}
+.card-level-signal .signal-watch {
+  background: color-mix(in srgb, var(--watch) 7%, var(--bg-elevated));
+}
+.card-level-signal .signal-alert {
+  background: color-mix(in srgb, var(--danger) 8%, var(--bg-elevated));
+}
+.card-level-kpi.command-kpi-panel {
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  background: color-mix(in srgb, var(--bg-muted) 35%, var(--bg-elevated));
+  box-shadow: none;
+}
+.card-level-kpi .kpi-matrix .ui-card {
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--border) 85%, transparent);
+}
+.card-level-action.primary-actions {
+  padding: var(--space-2) 0;
+}
+.overview-tools-drawer,
+.overview-tools-mobile {
+  opacity: 0.96;
+}
+.overview-tools-drawer {
+  box-shadow: none;
+  border-style: dashed;
+}
+
+/* Today / session meta — range + freshness (+ anomaly), no KPI repeat */
 .today-strip {
   display: flex;
   flex-direction: column;
@@ -1359,6 +1449,28 @@ body.health-dashboard-mode .ui-success-banner {
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-muted) 70%, var(--bg-elevated));
+}
+.today-strip-meta {
+  border-style: dashed;
+  background: transparent;
+  padding: var(--space-1) 0 var(--space-2);
+  border-left: none;
+  border-right: none;
+  border-radius: 0;
+}
+.today-strip-meta .today-strip-title {
+  font-size: 0.68rem;
+}
+.today-chip-watch {
+  border-color: color-mix(in srgb, var(--watch) 45%, var(--border));
+  background: color-mix(in srgb, var(--watch) 10%, var(--bg-elevated));
+}
+.today-chip-alert {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 10%, var(--bg-elevated));
+}
+.today-chip-ok {
+  border-color: color-mix(in srgb, var(--ok) 40%, var(--border));
 }
 .today-strip-head {
   display: flex;
@@ -1614,11 +1726,17 @@ body.health-dashboard-mode .ui-success-banner {
   gap: var(--space-4);
   align-items: start;
 }
-/* Large desktop: slightly wider signal list for denser product scan */
+/* Signals first in DOM: keep evidence column slightly wider than secondary KPI */
+.overview-split-signals-first {
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+}
+/* Large desktop: denser KPI matrix; signals stay primary column */
 @media (min-width: 1100px) {
   .overview-split {
-    grid-template-columns: 1fr 1.2fr;
     gap: var(--space-3);
+  }
+  .overview-split-signals-first {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
   }
   .overview-split .kpi-matrix {
     grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
@@ -1861,10 +1979,8 @@ body.health-dashboard-mode .ui-success-banner {
   flex-direction: column;
   gap: var(--space-2);
 }
+/* Base card chrome; row layout for icon + body is set above under "Signal list with icons" */
 .signal-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
   padding: var(--space-3);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
@@ -1885,6 +2001,12 @@ body.health-dashboard-mode .ui-success-banner {
 }
 .signal-neutral {
   border-left-color: var(--border);
+}
+.signal-list-expand {
+  margin-top: var(--space-2);
+  align-self: flex-start;
+  width: 100%;
+  justify-content: center;
 }
 
 /* Domain switcher denser for trends / report kinds */
@@ -2491,66 +2613,148 @@ body.health-dashboard-mode .dashboard-mode-bar {
   }
 }
 
-/* Focus carousel: soft stage lighting, dim non-focus (not harsh outlines) */
+/* Focus carousel: keep non-focus readable (min 0.75); emphasize via glow + scale, not washout */
 body.health-dashboard-mode[data-dashboard-focus] .status-band,
 body.health-dashboard-mode[data-dashboard-focus] .today-strip,
 body.health-dashboard-mode[data-dashboard-focus] .signal-list,
 body.health-dashboard-mode[data-dashboard-focus] .overview-split,
 body.health-dashboard-mode[data-dashboard-focus] .primary-actions,
+body.health-dashboard-mode[data-dashboard-focus] .overview-trend-strip,
+body.health-dashboard-mode[data-dashboard-focus] .command-kpi-panel,
 body.health-dashboard-mode[data-dashboard-focus] .insight-strip,
 body.health-dashboard-mode[data-dashboard-focus] .data-quality-banner {
   transition:
     opacity var(--motion-value) var(--motion-ease-out),
     filter var(--motion-value) var(--motion-ease-out),
-    box-shadow var(--motion-value) var(--motion-ease-out);
+    box-shadow var(--motion-value) var(--motion-ease-out),
+    transform var(--motion-value) var(--motion-ease-out);
 }
+/* Dim siblings only — never dim a parent of the focused region (opacity multiplies) */
 body.health-dashboard-mode[data-dashboard-focus='signals'] .status-band,
-body.health-dashboard-mode[data-dashboard-focus='signals'] .overview-split,
-body.health-dashboard-mode[data-dashboard-focus='signals'] .primary-actions {
-  opacity: 0.42;
-  filter: saturate(0.85);
+body.health-dashboard-mode[data-dashboard-focus='signals'] .primary-actions,
+body.health-dashboard-mode[data-dashboard-focus='signals'] .overview-trend-strip,
+body.health-dashboard-mode[data-dashboard-focus='signals'] .today-strip,
+body.health-dashboard-mode[data-dashboard-focus='signals'] .command-kpi-panel,
+body.health-dashboard-mode[data-dashboard-focus='signals'] .insight-strip,
+body.health-dashboard-mode[data-dashboard-focus='signals'] .data-quality-banner {
+  opacity: 0.75;
+  filter: saturate(0.92);
 }
 body.health-dashboard-mode[data-dashboard-focus='signals'] [data-testid='signal-list'] {
   opacity: 1;
   filter: none;
+  transform: scale(1.012);
+  transform-origin: center top;
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
-    0 12px 40px color-mix(in srgb, var(--accent) 18%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent),
+    0 0 28px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 12px 40px color-mix(in srgb, var(--accent) 14%, transparent);
   border-radius: 14px;
-  padding: 0.5rem;
-  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  position: relative;
 }
-body.health-dashboard-mode[data-dashboard-focus='priority'] .overview-split,
+body.health-dashboard-mode[data-dashboard-focus='signals'] [data-testid='signal-list']::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 12%;
+  right: 12%;
+  height: 3px;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 85%, white),
+    transparent
+  );
+  pointer-events: none;
+}
+body.health-dashboard-mode[data-dashboard-focus='priority'] .overview-trend-strip,
+body.health-dashboard-mode[data-dashboard-focus='priority'] .today-strip,
 body.health-dashboard-mode[data-dashboard-focus='priority'] .signal-list,
-body.health-dashboard-mode[data-dashboard-focus='priority'] .primary-actions {
-  opacity: 0.42;
-  filter: saturate(0.85);
+body.health-dashboard-mode[data-dashboard-focus='priority'] .command-kpi-panel,
+body.health-dashboard-mode[data-dashboard-focus='priority'] .primary-actions,
+body.health-dashboard-mode[data-dashboard-focus='priority'] .insight-strip,
+body.health-dashboard-mode[data-dashboard-focus='priority'] .data-quality-banner {
+  opacity: 0.75;
+  filter: saturate(0.92);
 }
 body.health-dashboard-mode[data-dashboard-focus='priority'] .status-band {
   opacity: 1;
   filter: none;
+  transform: scale(1.01);
+  transform-origin: center top;
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
-    0 16px 48px color-mix(in srgb, var(--accent) 16%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 0 32px color-mix(in srgb, var(--accent) 20%, transparent),
+    0 16px 48px color-mix(in srgb, var(--accent) 14%, transparent);
   border-radius: 16px;
+  position: relative;
+}
+body.health-dashboard-mode[data-dashboard-focus='priority'] .status-band::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 18%;
+  right: 18%;
+  height: 3px;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--domain-recovery) 90%, white),
+    transparent
+  );
+  pointer-events: none;
+  z-index: 1;
 }
 body.health-dashboard-mode[data-dashboard-focus='metrics'] .status-band,
 body.health-dashboard-mode[data-dashboard-focus='metrics'] .signal-list,
-body.health-dashboard-mode[data-dashboard-focus='metrics'] .primary-actions {
-  opacity: 0.42;
-  filter: saturate(0.85);
+body.health-dashboard-mode[data-dashboard-focus='metrics'] .primary-actions,
+body.health-dashboard-mode[data-dashboard-focus='metrics'] .overview-trend-strip,
+body.health-dashboard-mode[data-dashboard-focus='metrics'] .today-strip,
+body.health-dashboard-mode[data-dashboard-focus='metrics'] .insight-strip,
+body.health-dashboard-mode[data-dashboard-focus='metrics'] .data-quality-banner {
+  opacity: 0.75;
+  filter: saturate(0.92);
 }
-body.health-dashboard-mode[data-dashboard-focus='metrics'] .overview-split {
+body.health-dashboard-mode[data-dashboard-focus='metrics'] .command-kpi-panel {
   opacity: 1;
   filter: none;
+  transform: scale(1.01);
+  transform-origin: center top;
 }
 body.health-dashboard-mode[data-dashboard-focus='metrics'] .kpi-matrix {
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
-    0 12px 40px color-mix(in srgb, var(--accent) 14%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 0 28px color-mix(in srgb, var(--accent) 18%, transparent),
+    0 12px 40px color-mix(in srgb, var(--accent) 12%, transparent);
   border-radius: 14px;
-  padding: 0.35rem;
-  background: color-mix(in srgb, var(--bg-elevated) 90%, transparent);
+  padding: 0.45rem;
+  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+  position: relative;
+}
+body.health-dashboard-mode[data-dashboard-focus='metrics'] .kpi-matrix::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 15%;
+  right: 15%;
+  height: 3px;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--accent) 85%, white),
+    transparent
+  );
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  body.health-dashboard-mode[data-dashboard-focus] .status-band,
+  body.health-dashboard-mode[data-dashboard-focus] [data-testid='signal-list'],
+  body.health-dashboard-mode[data-dashboard-focus] .command-kpi-panel {
+    transform: none;
+  }
 }
 .dashboard-clock {
   font-variant-numeric: tabular-nums;
@@ -2620,7 +2824,14 @@ body.health-dashboard-mode[data-dashboard-focus='metrics'] .kpi-matrix {
   [data-testid='page-overview'] .signal-list-ul {
     gap: 0.5rem;
   }
-  [data-testid='page-overview'] .signal-item:nth-child(n + 4) {
+  /* Preview count is JS-driven (PREVIEW_COUNT=3 + expand); do not hard-hide with CSS */
+  [data-testid='page-overview'] .signal-list-expand {
+    margin-top: 0.35rem;
+  }
+  [data-testid='page-overview'] .card-level-kpi {
+    padding: var(--space-2);
+  }
+  [data-testid='page-overview'] .today-strip-meta .today-strip-note {
     display: none;
   }
 }

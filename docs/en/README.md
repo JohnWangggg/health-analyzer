@@ -169,6 +169,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.5.17** | **Compare pills + mobile success**: trends overlay compare as pills; sticky compact success strip on phone |
 | **v2.5.18** | **Chart “My views” + dark domain colors**: productized presets bar; softer dark-theme domain accents |
 | **v2.5.19** | **Report kind memory + safe area**: remember last report kind on-device; mobile success/main clear bottom nav |
+| **v2.5.20** | **Dedupe + card levels + TV focus**: snapshot range/freshness/anomaly only; signals 3+expand; visual hierarchy; non-focus ≥0.75 |
 
 ### Release checklist
 
