@@ -188,7 +188,27 @@ export const useHealthStore = create<HealthState>((set, get) => ({
       progressLabel: '解压 ZIP…',
     });
     try {
-      const result = await analyzeHealthZipFile(file, { locale: storeLocale() });
+      const result = await analyzeHealthZipFile(file, {
+        locale: storeLocale(),
+        onProgress: (phase, ratio) => {
+          if (phase === 'unzip') {
+            set({ progressLabel: '解压 ZIP（跳过 CDA/轨迹以省内存）…' });
+            return;
+          }
+          if (phase === 'parse') {
+            const pct = Math.min(99, Math.round(ratio * 100));
+            set({ progressLabel: `流式解析 export.xml ${pct}%…` });
+            return;
+          }
+          if (phase === 'ecg') {
+            set({ progressLabel: '合并心电 CSV…' });
+            return;
+          }
+          if (phase === 'analyze') {
+            set({ progressLabel: '统计分析…' });
+          }
+        },
+      });
       setFromAnalysis(
         set,
         result.analysis,
@@ -198,9 +218,14 @@ export const useHealthStore = create<HealthState>((set, get) => ({
         'zip',
       );
     } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      const friendly =
+        /string longer|Invalid string length|Cannot create a string/i.test(raw)
+          ? '导出 XML 超过浏览器字符串上限（约 512MB）。请使用本页 ZIP 导入（字节流解析）；若仍失败请关闭其它标签后重试。'
+          : raw;
       set({
         status: 'error',
-        error: e instanceof Error ? e.message : String(e),
+        error: friendly,
         summary: null,
         analysis: null,
         data: null,

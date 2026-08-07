@@ -80,8 +80,26 @@ declare module '@health-analyzer/lib' {
 
   export function parseHealthXml(
     xml: string,
-    options?: { startDate?: string; endDate?: string },
+    options?: {
+      startDate?: string;
+      endDate?: string;
+      onProgress?: (progress: number) => void;
+      allowFuture?: boolean;
+      referenceDate?: string;
+    },
   ): HealthData;
+
+  /** Chunked parse for large exports (Uint8Array avoids >512MB string limit). */
+  export function parseHealthXmlAsync(
+    source: string | Uint8Array | ArrayBuffer,
+    options?: {
+      startDate?: string;
+      endDate?: string;
+      onProgress?: (progress: number) => void;
+      allowFuture?: boolean;
+      referenceDate?: string;
+    },
+  ): Promise<HealthData>;
 
   export function analyzeAll(
     data: HealthData,

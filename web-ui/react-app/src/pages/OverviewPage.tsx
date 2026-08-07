@@ -330,6 +330,55 @@ export function OverviewPage() {
         });
         return;
       }
+      // Real Apple Health export.xml is often >512MB — file.text() throws.
+      // Prefer ZIP import; for raw XML use byte-stream when large.
+      const LARGE_XML = 80 * 1024 * 1024;
+      if (file.size >= LARGE_XML) {
+        const { analyzeHealthXmlBytesAsync, xmlTooLargeMessage } =
+          await import('../core/xmlImport');
+        try {
+          useHealthStore.setState({
+            status: 'loading',
+            error: null,
+            sourceLabel: name,
+            progressLabel: '流式解析大 XML…',
+          });
+          const { analysisLocaleFromUi } = await import('../i18n/uiLocale');
+          const result = await analyzeHealthXmlBytesAsync(
+            new Uint8Array(await file.arrayBuffer()),
+            {
+              locale: analysisLocaleFromUi(),
+              onProgress: (p) => {
+                useHealthStore.setState({
+                  progressLabel: `流式解析 XML ${Math.round(p * 100)}%…`,
+                });
+              },
+            },
+          );
+          useHealthStore.getState().applyAnalyzed({
+            data: result.data,
+            analysis: result.analysis,
+            summary: result.summary,
+            sourceLabel: name,
+            analyzeVia: 'main',
+          });
+        } catch (e) {
+          const raw = e instanceof Error ? e.message : String(e);
+          useHealthStore.setState({
+            status: 'error',
+            error: /string longer|Invalid string length/i.test(raw)
+              ? xmlTooLargeMessage(file.size)
+              : raw,
+            summary: null,
+            analysis: null,
+            data: null,
+            sourceLabel: name,
+            analyzeVia: null,
+            progressLabel: null,
+          });
+        }
+        return;
+      }
       const text = await file.text();
       await loadXmlAsync(text, name);
     },
@@ -362,10 +411,15 @@ export function OverviewPage() {
         await loadZipFile(picked.file);
         return;
       }
+      // Folder pick of raw 导出.xml can exceed string limit — same large-XML path
+      if (picked.file.size >= 80 * 1024 * 1024) {
+        await onPickFile(picked.file);
+        return;
+      }
       const text = await picked.file.text();
       await loadXmlAsync(text, picked.label);
     },
-    [loadXmlAsync, loadZipFile, t],
+    [loadXmlAsync, loadZipFile, onPickFile, t],
   );
 
   const onSaveSnap = useCallback(async () => {
