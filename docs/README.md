@@ -254,7 +254,7 @@ npm run smoke && npm run test:e2e:react
 - [x] CI 测试门禁
 - [x] 可选个人上下文（用药/目标体重/关注点）注入提示词，localStorage 本机保存
 - [x] 轻量 Canvas 趋势图（CGM / 体重 / HRV / 血压）
-- [x] Web Worker 解析 XML（失败自动回退主线程）
+- [x] 中小 XML Worker 解析（失败回退主线程）；**大 ZIP 字节流式解析（v2.5.21+）**
 - [x] 跨维度启发式提示（HRV/心率/睡眠/步数/CGM/血压等）
 - [x] 导出 JSON / CSV（ZIP）/ 摘要快照
 - [x] IndexedDB 历史摘要保存与环比（最多 30 条）
