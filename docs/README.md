@@ -82,6 +82,7 @@ health-analyzer/
     ├── DATA_RECOVERY.md          # 本机数据恢复 / 应用回退
     ├── DUAL_TRACK_UI.md          # 迁移档案（非现行产品路径）
     ├── MANUAL_QA.md              # 真机手测（React 生产入口）
+    ├── REAL_DEVICE_ZIP.md        # 大 ZIP / 流式导入 / 性能基线（勿提交个人导出）
     ├── DEPLOY.md · PROMPT_DESIGN.md · DATA_CENTER_*.md
     └── en/                       # English docs
 ```
@@ -99,8 +100,10 @@ health-analyzer/
    - 默认选择苹果健康导出 ZIP（XML/文件夹在「其他导入方式」）
 
 3. **上传并解析**
-   - 手机点选 / 电脑可拖拽上传
-   - 等待解析完成（大文件走 Web Worker，约数秒至数十秒）
+   - **推荐直接选 ZIP**（不要只传解压后的巨型 `导出.xml`）
+   - 完整导出包内 XML 常超过 **512MB** 字符串上限；**v2.5.21+** 使用字节流式解析，并跳过 CDA/运动轨迹以省内存
+   - 等待进度：解压 → 流式解析 % → 心电 CSV → 统计（大包可能数分钟）
+   - 若结果**只有心电**、其它域全空：多半是旧版构建或导入失败 — 升级后用 ZIP 重导（见 [REAL_DEVICE_ZIP.md](./REAL_DEVICE_ZIP.md)）
 
 4. **查看分析概览**
    - KPI 卡片与数据可用性

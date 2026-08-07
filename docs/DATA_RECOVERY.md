@@ -27,9 +27,19 @@
 
 ### 2.2 重新导入 Apple Health
 
-1. iPhone「健康」→ 导出健康数据 → ZIP  
-2. 总览 → **导入 XML / ZIP**（或文件夹选 `export.xml`）  
+1. iPhone「健康」→ 导出健康数据 → **ZIP**（推荐保留压缩包，勿只传解压后的巨型 XML）  
+2. 总览 → **导入 ZIP**（首选）  
 3. 需要时 **写入数据仓** 持久化  
+
+**大导出注意（v2.5.21+）：**
+
+| 要点 | 说明 |
+|------|------|
+| 体积 | 包内 `导出.xml` / `export.xml` 常 **400–600MB+**，超过浏览器字符串上限（约 512MB） |
+| 正确路径 | 页面 **ZIP 导入** 使用**字节流式解析**，并跳过 `export_cda.xml` / 运动轨迹以省内存 |
+| 错误现象 | 旧版可能只剩 **心电**（ECG CSV 小文件仍可读，主 XML 整串 decode 失败） |
+| 部署 | 须 **v2.5.21+** 构建；PWA 有更新时先确认刷新 |
+| 详文 | **[REAL_DEVICE_ZIP.md](./REAL_DEVICE_ZIP.md)** §0 |
 
 若仓内已有数据：当前 React 写入为 **sharded-v1 整仓替换**（事务内清旧分片再写入），不是与旧碎片静默合并。重要数据请先备份。
 
@@ -63,4 +73,6 @@ npm run react:privacy         # hits=0
 
 - 迁移状态：`docs/LEGACY_PARITY.md`  
 - 仓设计：`docs/DATA_CENTER_v1.68.md`（schema 权威文件：`web-ui/idb-schema/history-db.reference.js`）  
+- 大 ZIP / 流式导入：`docs/REAL_DEVICE_ZIP.md`  
 - 部署：`docs/DEPLOY.md`  
+

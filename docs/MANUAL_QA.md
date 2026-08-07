@@ -195,8 +195,11 @@
 
 ## 5. P1 — 性能与边界
 
-- [ ] 中等 ZIP（50–200MB）可完成（允许数分钟，进度有反馈）
-- [ ] 超大包被限制时有明确错误，不白屏
+- [ ] 中等 ZIP（50–200MB 压缩包）可完成（允许数分钟，进度有反馈）
+- [ ] **v2.5.21+ 完整导出 ZIP**（包内 XML 常 400–600MB+）：进度可见「流式解析 %」；成功后**多域**有数据
+- [ ] **回归：不得「只有心电」** — 若仅 ECG 有数据而步数/体重/睡眠等全空，视为失败（见 `docs/REAL_DEVICE_ZIP.md` §0）
+- [ ] 推荐导入 **ZIP**，不要只传解压后的巨型裸 XML（裸大 XML 虽可流式，ZIP 更完整且含 ECG CSV）
+- [ ] 超大包 OOM / 失败时有可读错误，不白屏
 - [ ] 离线打开已安装 PWA：壳可用；已授权仓可恢复；若有 `#connectivity-banner` 应提示离线且可恢复在线
 - [ ] 切换语言后导航与优先关注标签正确
 - [ ] （可选）仓接近软配额时有提示；硬配额拒绝写入并有可读错误（不静默丢数）
@@ -208,10 +211,11 @@
 
 | 命令 | 用途 |
 |------|------|
-| `npm run perf:parse -- --file=/path/to/export.xml` | 本地 `parseHealthXml` / `analyzeAll` 耗时与内存（可用 `PERF_XML_PATH`） |
+| `npm run perf:parse -- --file=/path/to/export.xml` | 本地 `parseHealthXml` / `analyzeAll` 耗时与内存（可用 `PERF_XML_PATH`；超大 XML 可能触达字符串上限） |
 | `npm run perf:warehouse` | Playwright 合成多年数据测仓 `persist` / `load` / `status`（**不**读个人文件） |
+| `RUN_LARGE_ZIP=1 npx vitest run src/core/largeZip.manual.test.ts`（在 `web-ui/react-app`） | **可选**：对本机 `导出.zip` 跑生产异步 ZIP 路径（默认 skip） |
 
-详细步骤、隐私注意与不要提交清单见 **`docs/REAL_DEVICE_ZIP.md`**。手测大包时仍以本节「中等 ZIP / 超大包」勾选项为准。
+详细步骤、隐私注意、v2.5.21 流式导入与不要提交清单见 **`docs/REAL_DEVICE_ZIP.md`**。
 
 ---
 
@@ -226,7 +230,8 @@
 ### P0（约 10 分钟）
 
 - [ ] 总览：加载演示夹具 → KPI / 新鲜度 / 优先事项非空
-- [ ] 导入本机 **export.xml** 或小 **ZIP** 成功；徽章显示 Worker / ZIP
+- [ ] 导入本机小 **ZIP** 或夹具成功；来源标签含 zip / 文件名
+- [ ] （可选）完整导出 ZIP：进度含流式解析；结果**非**仅心电（v2.5.21+）
 - [ ] （可选）导入 `e2e/fixtures/hae-mini.json` → HAE 徽章与 CGM
 - [ ] 趋势：有序列表；主图加载后无整页白屏；数据表可滚动
 - [ ] 报告：切换门诊一页纸 / 周报 / 临床复盘有 Markdown；**复制 / 下载 .md** 可用

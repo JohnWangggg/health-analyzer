@@ -25,7 +25,7 @@ GitHub **project** Pages uses `base=/<repo>/` on deploy (`GITHUB_PAGES_DEPLOY=tr
 
 ### Production capabilities
 
-- ✅ Import: fixture · XML · ZIP · folder · HAE (cancellable)
+- ✅ Import: fixture · XML · ZIP · folder · HAE (cancellable); **large ZIP byte-stream parse (v2.5.21+)**
 - ✅ Overview: status · today snapshot · KPI visibility/order · data-quality banner · LLM prompt · personal context · events · CSV · recovery weights · TV mode
 - ✅ Trends: multi-domain · dual-metric compare · chart presets · lazy ECharts
 - ✅ Reports / export / FHIR local archive + exchange
@@ -82,11 +82,13 @@ health-analyzer/
 
 1. iPhone Health → profile → **Export All Health Data** → ZIP  
 2. Open the deployed app (`/` is React)  
-3. Import ZIP / XML / HAE · review Overview KPIs  
-4. **Copy LLM prompt** or open Reports · Trends  
-5. Optional: save warehouse · backup · keep-N · shard cleanup on **Data**  
-6. App rollback: previous deploy / Git — **not** `/legacy/`  
-7. Data recovery: see [`DATA_RECOVERY.md`](../DATA_RECOVERY.md)
+3. **Import the ZIP** (prefer the archive, not a lone multi-hundred-MB `export.xml`)  
+4. Full exports often unpack to **400–600MB+ XML**. **v2.5.21+** stream-parses bytes (JS string max ≈512MB) and skips CDA / workout routes to save RAM. Progress shows “stream parse %”.  
+5. Overview should show **multiple domains** — not ECG-only (ECG-only was a common symptom of the old full-string decode failure). Details: [`REAL_DEVICE_ZIP.md`](../REAL_DEVICE_ZIP.md)  
+6. **Copy LLM prompt** or open Reports · Trends  
+7. Optional: save warehouse · backup · keep-N · shard cleanup on **Data**  
+8. App rollback: previous deploy / Git — **not** `/legacy/`  
+9. Data recovery: see [`DATA_RECOVERY.md`](../DATA_RECOVERY.md)
 
 ### Developer
 
@@ -170,7 +172,7 @@ See [DEPLOY.md](./DEPLOY.md).
 | **v2.5.18** | **Chart “My views” + dark domain colors**: productized presets bar; softer dark-theme domain accents |
 | **v2.5.19** | **Report kind memory + safe area**: remember last report kind on-device; mobile success/main clear bottom nav |
 | **v2.5.20** | **Dedupe + card levels + TV focus**: snapshot range/freshness/anomaly only; signals 3+expand; visual hierarchy; non-focus ≥0.75 |
-| **v2.5.21** | **Large ZIP stream import**: export.xml >512MB no full-string decode; byte-stream parse; skip CDA/routes |
+| **v2.5.21** | **Large ZIP stream import**: export.xml >512MB no full-string decode; byte-stream parse; skip CDA/routes; see [`REAL_DEVICE_ZIP.md`](../REAL_DEVICE_ZIP.md) |
 
 ### Release checklist
 
