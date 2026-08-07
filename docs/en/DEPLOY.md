@@ -34,7 +34,20 @@ cd web-ui/public && python3 -m http.server 8000
 
 ## GitHub Pages
 
-This repo’s Actions workflow runs `export-cutover` and publishes `web-ui/public`.
+This repo’s Actions workflow runs `export-cutover` and publishes `web-ui/public`.  
+URL shape: `https://<USER>.github.io/health-analyzer/`.
+
+### `Error: The operation was canceled` on deploy
+
+Usually **not a build bug**. `deploy.yml` uses:
+
+```yaml
+concurrency:
+  group: pages
+  cancel-in-progress: true
+```
+
+Only the **latest** Pages deploy is kept; rapid pushes cancel earlier Deploy runs mid-flight (even after a successful `export-cutover`). Check the **newest** Deploy run for `main` tip SHA; ignore intermediate `cancelled` runs. Real failures have conclusion `failure`.
 
 ```bash
 npm run test:release

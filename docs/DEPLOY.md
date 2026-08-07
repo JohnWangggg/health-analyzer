@@ -48,12 +48,34 @@ npx http-server health-analyzer/web-ui/public -p 8000
 本仓库使用 Actions：`export-cutover` 后上传 `web-ui/public`（见 `.github/workflows/deploy.yml`）。  
 项目页 URL 形如 `https://<USER>.github.io/health-analyzer/`。
 
+### 连续 push 时出现 `Error: The operation was canceled`
+
+**通常不是构建坏了**，而是工作流并发策略：
+
+```yaml
+# .github/workflows/deploy.yml
+concurrency:
+  group: pages
+  cancel-in-progress: true
+```
+
+含义：同一时刻只保留**最新一次** Pages 部署；若短时间连续 push（例如修代码后又连推两次文档），**较早的 Deploy run 会被自动取消**。  
+日志里可能已看到 `react:export-cutover` 成功、`base=/health-analyzer/`，末尾却是 `The operation was canceled` —— 那是被**更新的 commit** 顶替了。
+
+| 怎么看 | 说明 |
+|--------|------|
+| 打开 **最新** `Deploy to GitHub Pages` | 以 `main` 顶端 SHA 对应的 run 为准 |
+| `cancelled` 的中间 run | 可忽略；不必重跑 |
+| 真正失败 | conclusion = `failure`，且不是 `cancelled` |
+
 发版前建议：
 
 ```bash
 npm run test:release   # lib + cutover + smoke + FHIR HL7 + e2e-react
 npm run react:privacy  # hits=0
 ```
+
+合并文档与代码时尽量**少次连推**，或接受中间 Deploy 显示 cancelled、只盯最新一次。
 
 ## 核心库构建
 

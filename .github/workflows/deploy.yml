@@ -10,6 +10,8 @@ permissions:
   pages: write
   id-token: write
 
+# Only one Pages pipeline at a time. Newer push cancels older runs
+# (log may show "The operation was canceled" after a successful cutover — expected).
 concurrency:
   group: pages
   cancel-in-progress: true
